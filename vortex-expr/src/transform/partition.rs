@@ -341,7 +341,7 @@ mod tests {
 
     use super::*;
     use crate::transform::simplify::simplify;
-    use crate::{and, get_item, ident, lit, pack, Pack};
+    use crate::{and, get_item, ident, lit, pack, select, Pack};
 
     fn struct_dtype() -> StructDType {
         StructDType::new(

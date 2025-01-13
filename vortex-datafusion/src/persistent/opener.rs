@@ -64,7 +64,6 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, this.object_store.clone())
                         .await?,
                 )
-                .with_into_arrow(true)
                 .open(read_at)
                 .await?;
 

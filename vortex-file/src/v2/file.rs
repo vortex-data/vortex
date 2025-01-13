@@ -9,7 +9,7 @@ use pin_project_lite::pin_project;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::Scan;
 
@@ -55,11 +55,13 @@ impl<I: IoDriver> VortexFile<I> {
         // Set up a segment channel to collect segment requests from the execution stream.
         let segment_channel = SegmentChannel::new();
 
-        // Now we give one end of the channel to the layout reader...
+        // Create a single LayoutReader that is reused for the entire scan.
         let reader: Arc<dyn LayoutReader> = self
             .file_layout
             .root_layout
             .reader(segment_channel.reader(), self.ctx.clone())?;
+
+        // Now we give one end of the channel to the layout reader...
         let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
             .map(move |row_range| scan.clone().range_scan(row_range))
             .map(move |range_scan| match range_scan {
@@ -145,13 +147,24 @@ where
         let mut this = self.project();
         loop {
             // If the exec stream is ready, then we can return the result.
+            // If it's pending, then we try polling the I/O stream.
             if let Poll::Ready(r) = this.exec_stream.try_poll_next_unpin(cx) {
                 return Poll::Ready(r);
             }
-            // Otherwise, we try to poll the I/O stream.
-            // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
-            if matches!(this.io_stream.as_mut().poll_next(cx), Poll::Pending) {
-                return Poll::Pending;
+
+            match this.io_stream.as_mut().try_poll_next_unpin(cx) {
+                // If the I/O stream made progress, it returns Ok.
+                Poll::Ready(Some(Ok(()))) => {}
+                // If the I/O stream failed, then propagate the error.
+                Poll::Ready(Some(Err(result))) => {
+                    return Poll::Ready(Some(Err(result)));
+                }
+                // Unexpected end of stream.
+                Poll::Ready(None) => {
+                    return Poll::Ready(Some(Err(vortex_err!("unexpected end of I/O stream"))));
+                }
+                // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
+                Poll::Pending => return Poll::Pending,
             }
         }
     }

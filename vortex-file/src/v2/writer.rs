@@ -1,7 +1,4 @@
-use std::io::Write;
-
 use futures_util::StreamExt;
-use vortex_array::iter::ArrayIterator;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
@@ -34,13 +31,8 @@ impl VortexWriteOptions {
 }
 
 impl VortexWriteOptions {
-    /// Perform a blocking write of the provided iterator of `ArrayData`.
-    pub fn write_sync<W: Write, I: ArrayIterator>(self, _write: W, _iter: I) -> VortexResult<()> {
-        todo!()
-    }
-
     /// Perform an async write of the provided stream of `ArrayData`.
-    pub async fn write_async<W: VortexWrite, S: ArrayStream + Unpin>(
+    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin>(
         self,
         write: W,
         mut stream: S,

@@ -35,6 +35,7 @@ pub struct FileIoDriver<R: VortexReadAt> {
     pub concurrency: usize,
 }
 
+#[derive(Debug)]
 struct FileSegmentRequest {
     /// The segment location.
     pub(crate) location: Segment,
@@ -42,11 +43,27 @@ struct FileSegmentRequest {
     pub(crate) callback: oneshot::Sender<VortexResult<ByteBuffer>>,
 }
 
+#[derive(Debug)]
 struct CoalescedSegmentRequest {
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests.
     pub(crate) requests: Vec<FileSegmentRequest>,
+}
+
+impl CoalescedSegmentRequest {
+    /// Resolve the coalesced segment request.
+    fn resolve(self, buffer: ByteBuffer) -> VortexResult<()> {
+        for req in self.requests {
+            let offset = usize::try_from(req.location.offset - self.byte_range.start)?;
+            req.callback
+                .send(Ok(buffer
+                    .slice(offset..offset + req.location.length as usize)
+                    .aligned(req.location.alignment)))
+                .map_err(|_| vortex_err!("send failed"))?;
+        }
+        Ok(())
+    }
 }
 
 impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
@@ -96,25 +113,22 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
 }
 
 async fn evaluate<R: VortexReadAt>(read: R, request: CoalescedSegmentRequest) -> VortexResult<()> {
-    // TODO(ngates): change VortexReadAt to support reading into a pre-allocated set of aligned
-    //  buffers.
+    log::trace!(
+        "Reading byte range: {:?} {}",
+        request.byte_range,
+        request.byte_range.end - request.byte_range.start
+    );
     let bytes = read
-        .read_byte_range(request.byte_range.start, request.byte_range.end)
-        .await?;
+        .read_byte_range(
+            request.byte_range.start,
+            request.byte_range.end - request.byte_range.start,
+        )
+        .await
+        .map_err(|e| vortex_err!("Failed to read coalesced segment: {:?} {:?}", request, e))?;
 
     // TODO(ngates): traverse the segment map to find un-requested segments that happen to
     //  fall within the range of the request. Then we can populate those in the cache.
-
-    for req in request.requests {
-        let offset = usize::try_from(req.location.offset - request.byte_range.start)?;
-        let buffer = bytes.slice(offset..offset + req.location.length as usize);
-        let buffer = ByteBuffer::from(buffer).aligned(req.location.alignment);
-        req.callback
-            .send(Ok(buffer))
-            .map_err(|_| vortex_err!("send failed"))?;
-    }
-
-    Ok(())
+    request.resolve(ByteBuffer::from(bytes))
 }
 
 /// TODO(ngates): outsource coalescing to a trait

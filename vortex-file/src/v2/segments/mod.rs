@@ -8,6 +8,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::segments::SegmentId;
 
+#[derive(Debug)]
 pub struct SegmentRequest {
     // The ID of the requested segment
     pub id: SegmentId,

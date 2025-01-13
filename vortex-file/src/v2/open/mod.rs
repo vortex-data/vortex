@@ -30,6 +30,8 @@ pub struct VortexOpenOptions {
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
     layout_ctx: LayoutContextRef,
+    /// An optional, externally provided, file size.
+    file_size: Option<u64>,
     /// An optional, externally provided, file layout.
     file_layout: Option<FileLayout>,
     /// An optional, externally provided, dtype.
@@ -50,6 +52,7 @@ impl VortexOpenOptions {
         Self {
             ctx,
             layout_ctx: LayoutContextRef::default(),
+            file_size: None,
             file_layout: None,
             dtype: None,
             initial_read_size: INITIAL_READ_SIZE,
@@ -67,6 +70,18 @@ impl VortexOpenOptions {
         }
         self.initial_read_size = initial_read_size;
         Ok(self)
+    }
+
+    /// Configure a known file size.
+    pub fn with_file_size(mut self, file_size: u64) -> Self {
+        self.file_size = Some(file_size);
+        self
+    }
+
+    /// Configure a known file layout.
+    pub fn with_file_layout(mut self, file_layout: FileLayout) -> Self {
+        self.file_layout = Some(file_layout);
+        self
     }
 
     /// Configure how to split the file into batches for reading.
