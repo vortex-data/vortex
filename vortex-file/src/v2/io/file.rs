@@ -93,6 +93,19 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
                     })
                 }
             })
+            // We support zero-length segments (so layouts don't have to store this information)
+            // If we encounter a zero-length segment, we can just resolve it now.
+            .filter_map(|request| async move {
+                if request.location.length == 0 {
+                    request
+                        .callback
+                        .send(Ok(ByteBuffer::empty_aligned(request.location.alignment)))
+                        .map_err(|_| vortex_err!("send failed"))
+                        .vortex_expect("send failed");
+                    return None;
+                }
+                Some(request)
+            })
             // Grab all available segment requests from the I/O queue so we get maximal visibility into
             // the requests for coalescing.
             // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
