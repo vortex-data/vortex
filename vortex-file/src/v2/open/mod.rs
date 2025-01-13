@@ -43,6 +43,7 @@ pub struct VortexOpenOptions {
     split_by: SplitBy,
     segment_cache: Option<Arc<dyn SegmentCache>>,
     execution_mode: Option<ExecutionMode>,
+    io_concurrency: usize,
 }
 
 impl VortexOpenOptions {
@@ -56,6 +57,7 @@ impl VortexOpenOptions {
             split_by: SplitBy::Layout,
             segment_cache: None,
             execution_mode: None,
+            io_concurrency: 16,
         }
     }
 
@@ -173,7 +175,7 @@ impl VortexOpenOptions {
         let io_driver = FileIoDriver {
             read,
             file_layout: file_layout.clone(),
-            concurrency: 16,
+            concurrency: self.io_concurrency,
         };
 
         // Set up the execution driver.
