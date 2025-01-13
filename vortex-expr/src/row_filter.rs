@@ -64,7 +64,7 @@ impl VortexExpr for RowFilter {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let mut filter_iter = self.conjunction.iter();
         let mut mask = filter_iter
             .next()
@@ -95,5 +95,22 @@ impl VortexExpr for RowFilter {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(self.conjunction.len(), children.len());
         Self::from_conjunction_expr(children)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::{col, not, test_harness, RowFilter};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        let row_filter = RowFilter::from_conjunction_expr(vec![col("bool1"), not(col("bool2"))]);
+        assert_eq!(
+            row_filter.return_dtype(&dtype).unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
     }
 }

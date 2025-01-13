@@ -5,13 +5,13 @@ use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::Identity;
-use vortex_scan::{AsyncEvaluator, RowMask};
+use vortex_scan::RowMask;
 
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutEncoding};
+use crate::{ExprEvaluator, LayoutData, LayoutEncoding};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
@@ -42,14 +42,14 @@ impl ChunkedReader {
         }
 
         // Construct a lazy scan for each chunk of the layout.
-        let chunk_scans = (0..nchunks).map(|_| OnceLock::new()).collect();
+        let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
             layout,
             ctx,
             segments,
             stats_table: Arc::new(OnceCell::new()),
-            chunk_readers: chunk_scans,
+            chunk_readers,
         })
     }
 
@@ -83,7 +83,7 @@ impl ChunkedReader {
 
                         let stats_array = stats_layout
                             .reader(self.segments.clone(), self.ctx.clone())?
-                            .evaluate(
+                            .evaluate_expr(
                                 RowMask::new_valid_between(0, nchunks as u64),
                                 Identity::new_expr(),
                             )
@@ -118,9 +118,5 @@ impl ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
-    }
-
-    fn evaluator(&self) -> &dyn AsyncEvaluator {
-        self
     }
 }

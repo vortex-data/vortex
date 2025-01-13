@@ -1,6 +1,6 @@
-mod evaluator;
+mod eval_expr;
+mod eval_stats;
 mod reader;
-// mod stats;
 pub mod stats_table;
 pub mod writer;
 
@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
 use crate::CHUNKED_LAYOUT_ID;
 

@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, Node as _};
+use crate::traversal::{FoldChildren, FoldDown, FoldUp, FolderMut, Node as _};
 use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
@@ -63,7 +63,7 @@ pub fn nnf(expr: ExprRef) -> VortexResult<ExprRef> {
 #[derive(Default)]
 struct NNFVisitor {}
 
-impl Folder for NNFVisitor {
+impl FolderMut for NNFVisitor {
     type NodeTy = ExprRef;
     type Out = ExprRef;
     type Context = bool;

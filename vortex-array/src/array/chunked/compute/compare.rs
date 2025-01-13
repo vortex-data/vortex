@@ -37,19 +37,17 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
 mod tests {
 
     use super::*;
-    use crate::array::StructArray;
-    use crate::validity::Validity;
+    use crate::array::PrimitiveArray;
 
     #[test]
     fn empty_compare() {
-        let base = StructArray::try_new([].into(), [].into(), 0, Validity::NonNullable)
-            .unwrap()
-            .into_array();
+        let base = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let chunked =
             ChunkedArray::try_new(vec![base.clone(), base.clone()], base.dtype().clone()).unwrap();
         let chunked_empty = ChunkedArray::try_new(vec![], base.dtype().clone()).unwrap();
 
         let r = compare(&chunked, &chunked_empty, Operator::Eq).unwrap();
+
         assert!(r.is_empty());
     }
 }

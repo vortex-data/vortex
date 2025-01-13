@@ -87,6 +87,40 @@ pub enum FoldChildren<Out> {
     Children(Vec<Out>),
 }
 
+impl<Out> IntoIterator for FoldChildren<Out> {
+    type Item = Out;
+    type IntoIter = <Vec<Out> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            FoldChildren::Skipped => {
+                vec![]
+            }
+            FoldChildren::Children(children) => children,
+        }
+        .into_iter()
+    }
+}
+
+impl<Out> FoldChildren<Out> {
+    pub fn contained_children(self) -> Vec<Out> {
+        match self {
+            FoldChildren::Skipped => vec![],
+            FoldChildren::Children(children) => children,
+        }
+    }
+}
+
+impl<Out> FoldChildren<Out> {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            FoldChildren::Skipped => true,
+            FoldChildren::Children(children) => children.is_empty(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum FoldUp<Out> {
     Stop(Out),
     Continue(Out),
@@ -101,7 +135,28 @@ impl<Out> FoldUp<Out> {
     }
 }
 
-pub trait Folder {
+pub trait Folder<'a> {
+    type NodeTy: Node;
+    type Out;
+    type Context: Clone;
+
+    fn visit_down(
+        &mut self,
+        _node: &'a Self::NodeTy,
+        context: Self::Context,
+    ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
+        Ok(FoldDown::Continue(context))
+    }
+
+    fn visit_up(
+        &mut self,
+        node: &'a Self::NodeTy,
+        context: Self::Context,
+        children: FoldChildren<Self::Out>,
+    ) -> VortexResult<FoldUp<Self::Out>>;
+}
+
+pub trait FolderMut {
     type NodeTy: Node;
     type Out;
     type Context: Clone;
@@ -128,12 +183,18 @@ pub trait Node: Sized {
         _visitor: &mut V,
     ) -> VortexResult<TraversalOrder>;
 
+    fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
+        &'a self,
+        visitor: &mut V,
+        context: V::Context,
+    ) -> VortexResult<FoldUp<V::Out>>;
+
     fn transform<V: MutNodeVisitor<NodeTy = Self>>(
         self,
         _visitor: &mut V,
     ) -> VortexResult<TransformResult<Self>>;
 
-    fn transform_with_context<V: Folder<NodeTy = Self>>(
+    fn transform_with_context<V: FolderMut<NodeTy = Self>>(
         self,
         _visitor: &mut V,
         _context: V::Context,
@@ -163,6 +224,29 @@ impl Node for ExprRef {
             return Ok(TraversalOrder::Stop);
         }
         visitor.visit_up(self)
+    }
+
+    fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
+        &'a self,
+        visitor: &mut V,
+        context: V::Context,
+    ) -> VortexResult<FoldUp<V::Out>> {
+        let children = match visitor.visit_down(self, context.clone())? {
+            FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
+            FoldDown::SkipChildren => FoldChildren::Skipped,
+            FoldDown::Continue(child_context) => {
+                let mut new_children = Vec::with_capacity(self.children().len());
+                for child in self.children() {
+                    match child.accept_with_context(visitor, child_context.clone())? {
+                        FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
+                        FoldUp::Continue(out) => new_children.push(out),
+                    }
+                }
+                FoldChildren::Children(new_children)
+            }
+        };
+
+        visitor.visit_up(self, context, children)
     }
 
     // A pre-order transform, with an option to ignore sub-tress (using visit_down).
@@ -217,7 +301,7 @@ impl Node for ExprRef {
         }
     }
 
-    fn transform_with_context<V: Folder<NodeTy = Self>>(
+    fn transform_with_context<V: FolderMut<NodeTy = Self>>(
         self,
         visitor: &mut V,
         context: V::Context,
