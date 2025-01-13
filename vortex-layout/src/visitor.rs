@@ -21,7 +21,8 @@ impl NodeVisitor<'_> for LayoutVisitor<'_, '_> {
     type NodeTy = Arc<dyn LayoutReader + 'static>;
 
     fn visit_down(&mut self, node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
-        writeln!(self.display, "{:?}", node.layout())?;
+        node.layout().fmt(self.display)?;
+        self.display.write_str("\n")?;
         Ok(TraversalOrder::Continue)
     }
 }

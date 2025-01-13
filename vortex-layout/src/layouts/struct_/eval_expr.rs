@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn visitor() {
+    fn test_visitor() {
         let (segments, layout) = struct_layout();
 
         let reader = layout.reader(segments, Default::default()).unwrap();
