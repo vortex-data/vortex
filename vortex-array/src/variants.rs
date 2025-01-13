@@ -219,8 +219,8 @@ pub trait StructArrayTrait: ArrayTrait {
     ///
     /// # Examples
     ///
-    /// The field of a non-nullable struct array is the same whether accessed by [field_by_idx] or
-    /// [maybe_null_field_by_idx]:
+    /// The field of a non-nullable struct array is the same whether accessed by
+    /// [StructArrayTrait::field_by_idx] or [StructArrayTrait::maybe_null_field_by_idx]:
     ///
     /// ```
     /// use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
@@ -247,9 +247,9 @@ pub trait StructArrayTrait: ArrayTrait {
     /// }));
     /// ```
     ///
-    /// When both a struct and its field are nullable, [field_by_idx] returns the intersection of
-    /// the validity, which is to say: a position is valid if and only if both the struct and the
-    /// field are valid at that position.
+    /// When both a struct and its field are nullable, [StructArrayTrait::field_by_idx] returns the
+    /// intersection of the validity, which is to say: a position is valid if and only if both the
+    /// struct and the field are valid at that position.
     ///
     /// ```
     /// use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
@@ -344,7 +344,7 @@ pub trait StructArrayTrait: ArrayTrait {
 
     /// Return a field's array by name, masking by the struct's validity.
     ///
-    /// See also [field_by_idx].
+    /// See also [StructArrayTrait::field_by_idx].
     fn field_by_name(&self, name: &str) -> Option<ArrayData> {
         let field_idx = self
             .names()
@@ -356,7 +356,7 @@ pub trait StructArrayTrait: ArrayTrait {
 
     /// Return a field's array by name or index, masking by the struct's validity.
     ///
-    /// See also [field_by_idx].
+    /// See also [StructArrayTrait::field_by_idx].
     fn field(&self, field: &Field) -> Option<ArrayData> {
         match field {
             Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
