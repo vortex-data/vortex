@@ -32,7 +32,7 @@ impl SegmentChannel {
 
     /// Returns a reader for the segment cache.
     pub fn reader(&self) -> Arc<dyn AsyncSegmentReader + 'static> {
-        Arc::new(SegmentCacheReader(self.request_send.clone()))
+        Arc::new(SegmentChannelReader(self.request_send.clone()))
     }
 
     /// Returns the stream of segment requests.
@@ -41,10 +41,10 @@ impl SegmentChannel {
     }
 }
 
-struct SegmentCacheReader(mpsc::UnboundedSender<SegmentRequest>);
+struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 
 #[async_trait]
-impl AsyncSegmentReader for SegmentCacheReader {
+impl AsyncSegmentReader for SegmentChannelReader {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
@@ -57,12 +57,15 @@ impl AsyncSegmentReader for SegmentCacheReader {
             .clone()
             .send(SegmentRequest { id, callback: send })
             .await
-            .map_err(|e| vortex_err!("Failed to request segment {:?}", e))?;
+            .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
 
         // Await the callback
         match recv.await {
             Ok(result) => result,
-            Err(e) => Err(vortex_err!("Failed to receive segment {:?}", e)),
+            Err(_canceled) => {
+                // The sender was dropped before returning a result to us
+                Err(vortex_err!("Segment request handler was dropped {}", id,))
+            }
         }
     }
 }

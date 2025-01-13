@@ -20,7 +20,7 @@ fn basic_file_roundtrip() -> VortexResult<()> {
         .into_array();
 
         let buffer: Bytes = VortexWriteOptions::default()
-            .write_async(vec![], array.into_array_stream())
+            .write(vec![], array.into_array_stream())
             .await?
             .into();
 
