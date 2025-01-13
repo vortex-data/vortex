@@ -340,7 +340,7 @@ mod tests {
     use vortex_dtype::{DType, StructDType};
 
     use super::*;
-    use crate::transform::simplify::Simplify;
+    use crate::transform::simplify::simplify;
     use crate::{and, get_item, ident, lit, pack, select, Pack};
 
     fn struct_dtype() -> StructDType {
@@ -393,7 +393,7 @@ mod tests {
             &get_item("0", get_item(Field::Name(split_a.name.clone()), ident()))
         );
         assert_eq!(
-            &Simplify::simplify(split_a.expr.clone()).unwrap(),
+            &simplify(split_a.expr.clone()).unwrap(),
             &pack(vec!["0".into()], vec![get_item("b", ident())])
         );
     }
@@ -416,7 +416,7 @@ mod tests {
             .find_partition(&Field::Name("a".into()))
             .unwrap();
         assert_eq!(
-            &Simplify::simplify(split_a.expr.clone()).unwrap(),
+            &simplify(split_a.expr.clone()).unwrap(),
             &pack(
                 vec!["0".into(), "1".into()],
                 vec![get_item("a", ident()), get_item("b", ident())]
@@ -426,7 +426,7 @@ mod tests {
             .find_partition(&Field::Name("c".into()))
             .unwrap();
         assert_eq!(
-            &Simplify::simplify(split_c.expr.clone()).unwrap(),
+            &simplify(split_c.expr.clone()).unwrap(),
             &pack(vec!["0".into()], vec![ident()])
         )
     }
