@@ -333,12 +333,13 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::aliases::hash_set::HashSet;
-    use vortex_dtype::Field;
     use vortex_error::VortexResult;
 
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
-    use crate::{BinaryExpr, Column, ExprRef, Literal, Operator, VortexExpr, VortexExprExt};
+    use crate::{
+        BinaryExpr, Column, ExprRef, FieldName, Literal, Operator, VortexExpr, VortexExprExt,
+    };
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a ExprRef>);
@@ -435,7 +436,7 @@ mod tests {
                 .into_iter()
                 .map(|x| x.references())
                 .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
-            HashSet::from_iter(vec![&Field::from("col3"), &Field::from("col4")])
+            HashSet::from_iter(vec![FieldName::from("col3"), FieldName::from("col4")])
         );
     }
 

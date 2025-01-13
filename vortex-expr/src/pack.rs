@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::{Field, FieldNames};
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
@@ -56,17 +56,18 @@ impl Pack {
         &self.names
     }
 
-    pub fn field(&self, f: &Field) -> VortexResult<ExprRef> {
-        let idx = match f {
-            Field::Name(n) => self
-                .names
-                .iter()
-                .position(|name| name == n)
-                .ok_or_else(|| {
-                    vortex_err!("Cannot find field {} in pack fields {:?}", n, self.names)
-                })?,
-            Field::Index(idx) => *idx,
-        };
+    pub fn field(&self, field_name: &FieldName) -> VortexResult<ExprRef> {
+        let idx = self
+            .names
+            .iter()
+            .position(|name| name == field_name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Cannot find field {} in pack fields {:?}",
+                    field_name,
+                    self.names
+                )
+            })?;
 
         self.values
             .get(idx)
@@ -137,7 +138,7 @@ mod tests {
     use vortex_array::array::{PrimitiveArray, StructArray};
     use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::{Field, FieldNames};
+    use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
     use crate::{col, Column, Pack, VortexExpr};
@@ -223,16 +224,13 @@ mod tests {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![
-                Column::new_expr(Field::from("a")),
+                Column::new_expr("a"),
                 Pack::try_new_expr(
                     ["two_one".into(), "two_two".into()].into(),
-                    vec![
-                        Column::new_expr(Field::from("b")),
-                        Column::new_expr(Field::from("b")),
-                    ],
+                    vec![Column::new_expr("b"), Column::new_expr("b")],
                 )
                 .unwrap(),
-                Column::new_expr(Field::from("a")),
+                col("a"),
             ],
         )
         .unwrap();

@@ -7,8 +7,8 @@ use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayDType, ArrayLen};
-use vortex_dtype::Field;
-use vortex_error::VortexResult;
+use vortex_dtype::{FieldName, FieldNames};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::memory::statistics::chunked_array_df_stats;
 use crate::memory::stream::VortexRecordBatchStream;
@@ -17,7 +17,7 @@ use crate::memory::stream::VortexRecordBatchStream;
 #[derive(Clone)]
 pub struct VortexScanExec {
     array: ChunkedArray,
-    scan_projection: Vec<usize>,
+    scan_projection: FieldNames,
     plan_properties: PlanProperties,
     statistics: Statistics,
 }
@@ -28,7 +28,25 @@ impl VortexScanExec {
         scan_projection: Vec<usize>,
         plan_properties: PlanProperties,
     ) -> VortexResult<Self> {
-        let statistics = chunked_array_df_stats(&array, &scan_projection)?;
+        let dtype = array.dtype().as_struct().ok_or_else(|| {
+            vortex_err!(
+                "VortexScanExec: expected struct array, found {:?}",
+                array.dtype()
+            )
+        })?;
+        let scan_projection: FieldNames = scan_projection
+            .iter()
+            .map(|idx| {
+                dtype.names().get(*idx).cloned().ok_or_else(|| {
+                    vortex_err!(
+                        "VortexScanExec: invalid field index {idx} in dtype {:?}",
+                        dtype.names()
+                    )
+                })
+            })
+            .collect::<VortexResult<Vec<FieldName>>>()?
+            .into();
+        let statistics = chunked_array_df_stats(&array, scan_projection.clone())?;
         Ok(Self {
             array,
             scan_projection,
@@ -91,12 +109,7 @@ impl ExecutionPlan for VortexScanExec {
             idx: 0,
             num_chunks: self.array.nchunks(),
             chunks: self.array.clone(),
-            projection: self
-                .scan_projection
-                .iter()
-                .copied()
-                .map(Field::from)
-                .collect(),
+            projection: self.scan_projection.iter().cloned().collect(),
         }))
     }
 

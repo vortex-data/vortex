@@ -29,7 +29,7 @@ use regex::Regex;
 use simplelog::*;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
-use vortex::dtype::Field;
+use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
@@ -384,7 +384,7 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         .map(|chunk| {
             StructArray::try_from(chunk)
                 .unwrap()
-                .project(&[Field::from("l_comment")])
+                .project(&[FieldName::from("l_comment")])
                 .unwrap()
                 .into_array()
         })

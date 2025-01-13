@@ -4,27 +4,28 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::ArrayData;
-use vortex_dtype::Field;
+use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexResult};
 
+use crate::field::DisplayFieldName;
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct GetItem {
-    field: Field,
+    field: FieldName,
     child: ExprRef,
 }
 
 impl GetItem {
-    pub fn new_expr(field: impl Into<Field>, child: ExprRef) -> ExprRef {
+    pub fn new_expr(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
         Arc::new(Self {
             field: field.into(),
             child,
         })
     }
 
-    pub fn field(&self) -> &Field {
+    pub fn field(&self) -> &FieldName {
         &self.field
     }
 
@@ -33,13 +34,13 @@ impl GetItem {
     }
 }
 
-pub fn get_item(field: impl Into<Field>, child: ExprRef) -> ExprRef {
+pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItem::new_expr(field, child)
 }
 
 impl Display for GetItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.child, self.field)
+        write!(f, "{}.{}", self.child, DisplayFieldName(&self.field))
     }
 }
 
@@ -54,7 +55,7 @@ impl VortexExpr for GetItem {
             .as_struct_array()
             .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
             // TODO(joe): apply struct validity
-            .maybe_null_field(self.field())
+            .maybe_null_field_by_name(self.field())
             .ok_or_else(|| vortex_err!("Field {} not found", self.field))
     }
 
@@ -80,7 +81,7 @@ mod tests {
     use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
-    use vortex_dtype::PType::{I32, I64};
+    use vortex_dtype::PType::I32;
 
     use crate::get_item::get_item;
     use crate::ident;
@@ -106,13 +107,5 @@ mod tests {
         let st = test_array();
         let get_item = get_item("c", ident());
         assert!(get_item.evaluate(st.as_ref()).is_err());
-    }
-
-    #[test]
-    pub fn get_item_by_idx() {
-        let st = test_array();
-        let get_item = get_item(1, ident());
-        let item = get_item.evaluate(st.as_ref()).unwrap();
-        assert_eq!(item.dtype(), &DType::from(I64))
     }
 }

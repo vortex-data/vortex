@@ -8,7 +8,7 @@ use datafusion_physical_expr::PhysicalExpr;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::ContextRef;
-use vortex_dtype::Field;
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{Identity, Select, SelectField};
 use vortex_file::v2::VortexOpenOptions;
@@ -21,7 +21,7 @@ use super::cache::FileLayoutCache;
 pub struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
-    pub projection: Option<Vec<usize>>,
+    pub projection: Option<FieldNames>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,
     pub arrow_schema: SchemaRef,
     pub(crate) file_layout_cache: FileLayoutCache,
@@ -37,10 +37,7 @@ impl FileOpener for VortexFileOpener {
             .projection
             .as_ref()
             .map(|fields| {
-                Select::new_expr(
-                    SelectField::Include(fields.iter().map(|idx| Field::Index(*idx)).collect()),
-                    Identity::new_expr(),
-                )
+                Select::new_expr(SelectField::Include(fields.clone()), Identity::new_expr())
             })
             .unwrap_or_else(|| Identity::new_expr());
 

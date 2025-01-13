@@ -4,29 +4,29 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::{ArrayDType, ArrayData};
-use vortex_dtype::Field;
+use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Column {
-    field: Field,
+    field: FieldName,
 }
 
 impl Column {
-    pub fn new_expr(field: impl Into<Field>) -> ExprRef {
+    pub fn new_expr(field: impl Into<FieldName>) -> ExprRef {
         Arc::new(Self {
             field: field.into(),
         })
     }
 
-    pub fn field(&self) -> &Field {
+    pub fn field(&self) -> &FieldName {
         &self.field
     }
 }
 
-pub fn col(field: impl Into<Field>) -> ExprRef {
+pub fn col(field: impl Into<FieldName>) -> ExprRef {
     Arc::new(Column {
         field: field.into(),
     })
@@ -40,17 +40,9 @@ impl From<String> for Column {
     }
 }
 
-impl From<usize> for Column {
-    fn from(value: usize) -> Self {
-        Column {
-            field: value.into(),
-        }
-    }
-}
-
 impl Display for Column {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.field)
+        write!(f, "${}", self.field)
     }
 }
 
@@ -69,7 +61,7 @@ impl VortexExpr for Column {
                     batch.dtype()
                 )
             })?
-            .maybe_null_field(&self.field)
+            .maybe_null_field_by_name(&self.field)
             .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
     }
 
@@ -97,7 +89,7 @@ mod tests {
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            col(1).return_dtype(&dtype).unwrap(),
+            col("col1").return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::U16, Nullability::Nullable)
         );
     }

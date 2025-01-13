@@ -1,4 +1,4 @@
-use vortex_dtype::Field;
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_bail, VortexResult};
 
 // TODO(robert): Add ability to project nested columns.
@@ -7,15 +7,15 @@ use vortex_error::{vortex_bail, VortexResult};
 pub enum Projection {
     #[default]
     All,
-    Flat(Vec<Field>),
+    Flat(Vec<FieldName>),
 }
 
 impl Projection {
-    pub fn new(indices: impl AsRef<[usize]>) -> Self {
-        Self::Flat(indices.as_ref().iter().copied().map(Field::from).collect())
+    pub fn new(names: impl Into<FieldNames>) -> Self {
+        Self::Flat(names.into().to_vec())
     }
 
-    pub fn project(&self, fields: &[Field]) -> VortexResult<Self> {
+    pub fn project(&self, fields: &[FieldName]) -> VortexResult<Self> {
         Ok(match self {
             Projection::All => Projection::Flat(fields.to_vec()),
             Projection::Flat(own_projection) => {
@@ -28,14 +28,8 @@ impl Projection {
     }
 }
 
-impl From<Vec<Field>> for Projection {
-    fn from(indices: Vec<Field>) -> Self {
-        Self::Flat(indices)
-    }
-}
-
-impl From<Vec<usize>> for Projection {
-    fn from(indices: Vec<usize>) -> Self {
-        Self::Flat(indices.into_iter().map(Field::from).collect())
+impl From<Vec<FieldName>> for Projection {
+    fn from(fields: Vec<FieldName>) -> Self {
+        Self::Flat(fields)
     }
 }

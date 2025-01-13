@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldNames, PType};
+use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldName, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
 use crate::encoding::Encoding;
@@ -228,7 +228,7 @@ pub trait StructArrayTrait: ArrayTrait {
         }
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData>;
 }
 
 pub trait ListArrayTrait: ArrayTrait {}

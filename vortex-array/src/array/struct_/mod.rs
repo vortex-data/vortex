@@ -110,19 +110,16 @@ impl StructArray {
     /// perform column re-ordering, deletion, or duplication at a logical level, without any data
     /// copying.
     #[allow(clippy::same_name_method)]
-    pub fn project(&self, projection: &[Field]) -> VortexResult<Self> {
+    pub fn project(&self, projection: &[FieldName]) -> VortexResult<Self> {
         let mut children = Vec::with_capacity(projection.len());
         let mut names = Vec::with_capacity(projection.len());
 
-        for field in projection.iter() {
-            let idx = match field {
-                Field::Name(n) => self
-                    .names()
-                    .iter()
-                    .position(|name| name == n)
-                    .ok_or_else(|| vortex_err!("Unknown field {n}"))?,
-                Field::Index(i) => *i,
-            };
+        for f_name in projection.iter() {
+            let idx = self
+                .names()
+                .iter()
+                .position(|name| name == f_name)
+                .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
 
             names.push(self.names()[idx].clone());
             children.push(
@@ -170,7 +167,7 @@ impl StructArrayTrait for StructArray {
         )
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
         self.project(projection).map(|a| a.into_array())
     }
 }
@@ -223,7 +220,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Field, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::struct_::StructArray;
@@ -251,7 +248,7 @@ mod test {
         .unwrap();
 
         let struct_b = struct_a
-            .project(&[Field::from(2usize), Field::from(0)])
+            .project(&[FieldName::from("zs"), FieldName::from("xs")])
             .unwrap();
         assert_eq!(
             struct_b.names().as_ref(),

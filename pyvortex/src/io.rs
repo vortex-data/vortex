@@ -72,21 +72,6 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///     null
 ///   ]
 ///
-/// Read just the name column, by its index:
-///
-/// >>> d = vortex.io.read_path("a.vortex", projection = [1])
-/// >>> d.to_arrow_array()
-/// <pyarrow.lib.StructArray object at ...>
-/// -- is_valid: all not null
-/// -- child 0 type: string_view
-///   [
-///     "Joseph",
-///     null,
-///     "Angela",
-///     "Mikhail",
-///     null
-///   ]
-///
 ///
 /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
 ///

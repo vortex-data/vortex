@@ -1,7 +1,6 @@
 use arrow_array::cast::AsArray;
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Schema};
-use itertools::Itertools;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::array::StructArray;
@@ -19,8 +18,7 @@ impl TryFrom<RecordBatch> for ArrayData {
                 .fields()
                 .iter()
                 .map(|f| f.name().as_str().into())
-                .collect_vec()
-                .into(),
+                .collect(),
             value
                 .columns()
                 .iter()

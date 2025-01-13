@@ -23,7 +23,7 @@ impl FolderMut for Simplify {
         children: FoldChildren<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         if let Some(column) = node.as_any().downcast_ref::<Column>() {
-            // FIXME(ngates): we should deprecate Column, or keep at and simplify GetItem(Ident).
+            // TODO(ngates): deprecate Column, or keep at and simplify GetItem(Ident).
             return Ok(FoldUp::Continue(get_item(column.field().clone(), ident())));
         }
 

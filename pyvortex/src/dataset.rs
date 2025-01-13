@@ -5,9 +5,9 @@ use arrow::datatypes::SchemaRef;
 use arrow::pyarrow::{IntoPyArrow, ToPyArrow};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyLong, PyString};
+use pyo3::types::PyString;
 use vortex::arrow::infer_schema;
-use vortex::dtype::{DType, Field};
+use vortex::dtype::{DType, FieldName};
 use vortex::error::VortexResult;
 use vortex::expr::RowFilter;
 use vortex::file::{
@@ -66,14 +66,12 @@ pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> Vorte
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Projection> {
-    fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<Field> {
+    fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<FieldName> {
         if field.clone().is_instance_of::<PyString>() {
-            Ok(Field::from(field.downcast::<PyString>()?.to_str()?))
-        } else if field.is_instance_of::<PyLong>() {
-            Ok(Field::Index(field.extract()?))
+            Ok(FieldName::from(field.downcast::<PyString>()?.to_str()?))
         } else {
             Err(PyTypeError::new_err(format!(
-                "projection: expected list of string, int, and None, but found: {}.",
+                "projection: expected list of strings or None, but found: {}.",
                 field,
             )))
         }
@@ -85,7 +83,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Projec
             columns
                 .iter()
                 .map(field_from_pyany)
-                .collect::<PyResult<Vec<Field>>>()?,
+                .collect::<PyResult<Vec<FieldName>>>()?,
         ),
     })
 }

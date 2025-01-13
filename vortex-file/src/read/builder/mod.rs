@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use initial_read::read_initial_bytes;
+use itertools::Itertools;
 use vortex_array::{ArrayDType, ArrayData};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Field};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::{ident, RowFilter, Select};
 use vortex_io::{IoDispatcher, VortexReadAt};
@@ -147,7 +148,13 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             Projection::All => top_level_dtype.clone(),
             Projection::Flat(ref fields) => {
                 if let Some(struct_dtype) = top_level_dtype.as_struct() {
-                    let projected = struct_dtype.project(fields)?;
+                    let projected = struct_dtype.project(
+                        fields
+                            .iter()
+                            .map(|f| Field::Name(f.clone()))
+                            .collect_vec()
+                            .as_slice(),
+                    )?;
                     Arc::new(DType::Struct(projected, top_level_dtype.nullability()))
                 } else {
                     vortex_bail!("Can't project non-struct dtypes, got {top_level_dtype}");
@@ -161,7 +168,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             initial_read.fb_layout(),
             match self.projection {
                 Projection::All => Scan::empty(),
-                Projection::Flat(p) => Scan::new(Select::include_expr(p, ident())),
+                Projection::Flat(p) => Scan::new(Select::include_expr(p.into(), ident())),
             },
             top_level_dtype.clone(),
         )?;
