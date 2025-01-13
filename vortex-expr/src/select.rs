@@ -102,7 +102,8 @@ impl VortexExpr for Select {
                 let included_names = st
                     .names()
                     .iter()
-                    .filter(|f| !names.contains(&&**f))
+                    .cloned()
+                    .filter(|f| !names.contains(&f))
                     .collect::<Vec<_>>();
                 st.project(included_names.as_slice())
             }

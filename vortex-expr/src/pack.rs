@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::{Field, FieldNames};
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
@@ -56,17 +56,18 @@ impl Pack {
         &self.names
     }
 
-    pub fn field(&self, f: &Field) -> VortexResult<ExprRef> {
-        let idx = match f {
-            Field::Name(n) => self
-                .names
-                .iter()
-                .position(|name| name == n)
-                .ok_or_else(|| {
-                    vortex_err!("Cannot find field {} in pack fields {:?}", n, self.names)
-                })?,
-            Field::Index(idx) => *idx,
-        };
+    pub fn field(&self, field_name: &FieldName) -> VortexResult<ExprRef> {
+        let idx = self
+            .names
+            .iter()
+            .position(|name| name == field_name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Cannot find field {} in pack fields {:?}",
+                    field_name,
+                    self.names
+                )
+            })?;
 
         self.values
             .get(idx)

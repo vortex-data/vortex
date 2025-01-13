@@ -1,8 +1,8 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_dtype::{Field, FieldName, StructDType};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::{FieldName, StructDType};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
@@ -37,16 +37,14 @@ pub struct PartitionedExpr {
 
 impl PartitionedExpr {
     /// Return the partition for a given field, if it exists.
-    pub fn find_partition(&self, field: &Field) -> Option<&Partition> {
-        self.partitions.iter().find(|p| &p.field == field)
+    pub fn find_partition(&self, field: &FieldName) -> Option<&Partition> {
+        self.partitions.iter().find(|p| &p.name == field)
     }
 }
 
 /// A single partition of an expression.
 #[derive(Debug)]
 pub struct Partition {
-    /// The field of the original scope to be used as the scope for this partition.
-    pub field: Field,
     /// The name of the partition, to be used when re-assembling the results.
     // TODO(ngates): we wouldn't need this if we had a MergeExpr.
     pub name: FieldName,
@@ -54,7 +52,7 @@ pub struct Partition {
     pub expr: ExprRef,
 }
 
-type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
+type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 
 // For all subexpressions in an expression, find the fields that are accessed directly from the scope.
 struct ImmediateIdentityAccessesAnalysis<'a> {
@@ -109,18 +107,8 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
             return Ok(FoldDown::SkipChildren);
         } else if node.as_any().downcast_ref::<Identity>().is_some() {
             let st_dtype = &self.scope_dtype;
-            self.sub_expressions.insert(
-                node,
-                st_dtype
-                    .names()
-                    .iter()
-                    .map(|n| Field::Name(n.clone()))
-                    .collect(),
-            );
-            self.sub_expressions.insert(
-                node,
-                st_dtype.names().iter().cloned().map(Field::Name).collect(),
-            );
+            self.sub_expressions
+                .insert(node, st_dtype.names().iter().cloned().collect());
         }
 
         Ok(FoldDown::Continue(()))
@@ -153,7 +141,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
 
 #[derive(Debug)]
 struct StructFieldExpressionSplitter<'a> {
-    sub_expressions: HashMap<Field, Vec<ExprRef>>,
+    sub_expressions: HashMap<FieldName, Vec<ExprRef>>,
     accesses: FieldAccesses<'a>,
     scope_dtype: &'a StructDType,
 }
@@ -164,13 +152,6 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             sub_expressions: HashMap::new(),
             accesses,
             scope_dtype,
-        }
-    }
-
-    fn new_expr_name(f: &Field) -> FieldName {
-        match f {
-            Field::Name(n) => n.clone(),
-            Field::Index(i) => i.to_string().into(),
         }
     }
 
@@ -186,18 +167,14 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         let partitions: Vec<Partition> = splitter
             .sub_expressions
             .into_iter()
-            .map(|(field, exprs)| {
-                let name = Self::new_expr_name(&field);
-                Partition {
-                    field,
-                    name,
-                    expr: pack(
-                        (0..exprs.len())
-                            .map(|i| FieldName::from(i.to_string()))
-                            .collect_vec(),
-                        exprs,
-                    ),
-                }
+            .map(|(name, exprs)| Partition {
+                name,
+                expr: pack(
+                    (0..exprs.len())
+                        .map(|i| FieldName::from(i.to_string()))
+                        .collect_vec(),
+                    exprs,
+                ),
             })
             .collect();
 
@@ -239,52 +216,30 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
     ) -> VortexResult<FoldUp<ExprRef>> {
         if let Some(access) = self.accesses.get(&node) {
             if access.len() == 1 {
-                let field = access.iter().next().vortex_expect("access is non-empty");
-                let sub_exprs = self.sub_expressions.entry(field.clone()).or_default();
+                let field_name = access.iter().next().vortex_expect("access is non-empty");
+                let sub_exprs = self.sub_expressions.entry(field_name.clone()).or_default();
                 let idx = sub_exprs.len();
 
                 // TODO(joe): Resolve idx -> name
-                let fname = match field {
-                    Field::Name(n) => n.clone(),
-                    Field::Index(i) => self
-                        .scope_dtype
-                        .names()
-                        .get(*i)
-                        .ok_or_else(|| {
-                            vortex_err!(
-                                "field access {i} out of bounds struct len {}",
-                                self.scope_dtype.names().len()
-                            )
-                        })?
-                        .clone(),
-                };
 
                 // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
-                let replaced =
-                    node.transform_with_context(&mut ScopeStepIntoFieldExpr(fname), ())?;
+                let replaced = node
+                    .transform_with_context(&mut ScopeStepIntoFieldExpr(field_name.clone()), ())?;
                 sub_exprs.push(replaced.result());
 
-                let access = get_item(
-                    idx.to_string(),
-                    get_item(Field::Name(Self::new_expr_name(field)), ident()),
-                );
+                let access = get_item(idx.to_string(), get_item(field_name.clone(), ident()));
 
                 return Ok(FoldUp::Continue(access));
             }
         };
 
         if node.as_any().downcast_ref::<Identity>().is_some() {
-            let fields = self
-                .scope_dtype
-                .names()
-                .iter()
-                .map(|name| Field::Name(name.clone()))
-                .collect_vec();
+            let field_names = self.scope_dtype.names();
 
-            let mut pack_fields = Vec::with_capacity(fields.len());
-            let mut pack_exprs = Vec::with_capacity(fields.len());
+            let mut pack_fields = Vec::with_capacity(field_names.len());
+            let mut pack_exprs = Vec::with_capacity(field_names.len());
 
-            for f in &fields {
+            for f in field_names.iter() {
                 let sub_exprs = self
                     .sub_expressions
                     .entry(f.clone())
@@ -294,9 +249,9 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
                 sub_exprs.push(ident());
 
-                pack_fields.push(Self::new_expr_name(f));
+                pack_fields.push(f.clone());
                 // Partitions are packed into a struct of field name -> occurrence idx -> array
-                pack_exprs.push(get_item(Field::Index(idx), get_item(f.clone(), ident())));
+                pack_exprs.push(get_item(idx.to_string(), get_item(f.clone(), ident())));
             }
 
             return Ok(FoldUp::Continue(pack(pack_fields, pack_exprs)));

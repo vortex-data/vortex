@@ -31,13 +31,13 @@ impl NodeVisitor<'_> for ReferenceCollector {
     fn visit_up(&mut self, node: &ExprRef) -> VortexResult<TraversalOrder> {
         // TODO(joe): remove columnns
         if let Some(col) = node.as_any().downcast_ref::<Column>() {
-            self.fields.insert(col.field());
+            self.fields.insert(col.field().clone());
         }
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
-            self.fields.insert(get_item.field());
+            self.fields.insert(get_item.field().clone());
         }
         if let Some(sel) = node.as_any().downcast_ref::<Select>() {
-            self.fields.extend(sel.fields().fields());
+            self.fields.extend(sel.fields().fields().iter().cloned());
         }
         Ok(TraversalOrder::Continue)
     }

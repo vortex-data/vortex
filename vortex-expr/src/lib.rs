@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -78,11 +80,11 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
-    fn references(&self) -> HashSet<&FieldName>;
+    fn references(&self) -> HashSet<FieldName>;
 }
 
 impl VortexExprExt for ExprRef {
-    fn references(&self) -> HashSet<&FieldName> {
+    fn references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
