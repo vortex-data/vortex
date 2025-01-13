@@ -23,7 +23,7 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::compute::take;
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{FieldName, FieldNames};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect};
+use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};
 
 /// Physical plan operator that applies a set of [filters][Expr] against the input, producing a
@@ -221,10 +221,12 @@ impl TakeRowsExec {
             .iter()
             .map(|idx| {
                 FieldName::from(
-                    output_schema
+                    schema_ref
                         .fields
                         .get(*idx)
-                        .vortex_expect("Project index not in schema")
+                        .unwrap_or_else(|| {
+                            vortex_panic!("Project index {idx} not in schema {schema_ref}",)
+                        })
                         .name()
                         .clone(),
                 )
