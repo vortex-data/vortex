@@ -53,8 +53,7 @@ impl VortexExpr for GetItem {
         child
             .as_struct_array()
             .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
-            // TODO(joe): apply struct validity
-            .maybe_null_field(self.field())
+            .field(self.field())?
             .ok_or_else(|| vortex_err!("Field {} not found", self.field))
     }
 
@@ -76,11 +75,14 @@ impl PartialEq for GetItem {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::StructArray;
+    use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
+    use vortex_array::compute::scalar_at;
+    use vortex_array::validity::{ArrayValidity as _, Validity};
     use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_dtype::PType::{I32, I64};
+    use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_scalar::Scalar;
 
     use crate::get_item::get_item;
     use crate::ident;
@@ -114,5 +116,31 @@ mod tests {
         let get_item = get_item(1, ident());
         let item = get_item.evaluate(st.as_ref()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I64))
+    }
+
+    #[test]
+    fn evaluate_with_nulls() {
+        let a = PrimitiveArray::from_option_iter([Some(0_i32), None, None, Some(3), Some(4)])
+            .into_array();
+        let array = StructArray::try_new(
+            FieldNames::from(["a".into()]),
+            vec![a],
+            5,
+            Validity::Array(BoolArray::from_iter([true, false, true, false, true]).into_array()),
+        )
+        .unwrap()
+        .into_array();
+
+        let a_result = get_item("a", ident()).evaluate(&array).unwrap();
+
+        assert_eq!(
+            a_result.dtype(),
+            &DType::Primitive(I32, Nullability::Nullable)
+        );
+        assert_eq!(scalar_at(&a_result, 0).unwrap(), Scalar::from(Some(0_i32)));
+        assert!(!a_result.is_valid(1));
+        assert!(!a_result.is_valid(2));
+        assert!(!a_result.is_valid(3));
+        assert_eq!(scalar_at(&a_result, 4).unwrap(), Scalar::from(Some(4_i32)));
     }
 }

@@ -27,9 +27,7 @@ impl Column {
 }
 
 pub fn col(field: impl Into<Field>) -> ExprRef {
-    Arc::new(Column {
-        field: field.into(),
-    })
+    Column::new_expr(field)
 }
 
 impl From<String> for Column {
@@ -69,7 +67,7 @@ impl VortexExpr for Column {
                     batch.dtype()
                 )
             })?
-            .maybe_null_field(&self.field)
+            .field(&self.field)?
             .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
     }
 
@@ -85,7 +83,12 @@ impl VortexExpr for Column {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
+    use vortex_array::compute::scalar_at;
+    use vortex_array::validity::{ArrayValidity as _, Validity};
+    use vortex_array::{ArrayDType as _, IntoArrayData as _};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType};
+    use vortex_scalar::Scalar;
 
     use crate::{col, test_harness};
 
@@ -100,5 +103,31 @@ mod tests {
             col(1).return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::U16, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn evaluate_with_nulls() {
+        let a = PrimitiveArray::from_option_iter([Some(0_i32), None, None, Some(3), Some(4)])
+            .into_array();
+        let array = StructArray::try_new(
+            FieldNames::from(["a".into()]),
+            vec![a],
+            5,
+            Validity::Array(BoolArray::from_iter([true, false, true, false, true]).into_array()),
+        )
+        .unwrap()
+        .into_array();
+
+        let a_result = col("a").evaluate(&array).unwrap();
+
+        assert_eq!(
+            a_result.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        assert_eq!(scalar_at(&a_result, 0).unwrap(), Scalar::from(Some(0_i32)));
+        assert!(!a_result.is_valid(1));
+        assert!(!a_result.is_valid(2));
+        assert!(!a_result.is_valid(3));
+        assert_eq!(scalar_at(&a_result, 4).unwrap(), Scalar::from(Some(4_i32)));
     }
 }
