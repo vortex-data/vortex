@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::ops::Range;
-use std::sync::Arc;
 
 use futures::channel::oneshot;
 use futures::Stream;
@@ -9,9 +8,9 @@ use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 
-use crate::v2::footer::Segment;
-use crate::v2::segments::{SegmentCache, SegmentRequest};
-use crate::v2::IoDriver;
+use crate::v2::footer::{FileLayout, Segment};
+use crate::v2::io::IoDriver;
+use crate::v2::segments::SegmentRequest;
 
 // TODO(ngates): use this sort of trait for I/O?
 #[allow(dead_code)]
@@ -23,27 +22,27 @@ pub trait RangeReader {
     ) -> impl Future<Output = VortexResult<()>> + 'static;
 }
 
+/// An I/O driver for reading segments from a file.
+///
+/// This driver includes functionality for coalescing requests to minimize the number of I/O
+/// operations, as well as executing multiple I/O operations concurrently.
 pub struct FileIoDriver<R: VortexReadAt> {
     /// The file to read from.
-    pub(crate) read: R,
-    /// The map of segment locations within a file.
-    /// TODO(ngates): wrap this up in its own data structure
-    pub(crate) segment_map: Arc<[Segment]>,
-    /// The segment cache.
-    #[allow(dead_code)]
-    pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    pub read: R,
+    /// The file layout
+    pub file_layout: FileLayout,
     /// The number of concurrent I/O requests to submit.
-    pub(crate) concurrency: usize,
+    pub concurrency: usize,
 }
 
-pub(crate) struct FileSegmentRequest {
+struct FileSegmentRequest {
     /// The segment location.
     pub(crate) location: Segment,
     /// The callback channel
     pub(crate) callback: oneshot::Sender<VortexResult<ByteBuffer>>,
 }
 
-pub(crate) struct CoalescedSegmentRequest {
+struct CoalescedSegmentRequest {
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests.
@@ -55,7 +54,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
         &self,
         stream: impl Stream<Item = SegmentRequest> + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        let segment_map = self.segment_map.clone();
+        let segment_map = self.file_layout.segments.clone();
         let read = self.read.clone();
 
         // First, we need to map the segment requests to their respective locations within the file.
@@ -118,6 +117,7 @@ async fn evaluate<R: VortexReadAt>(read: R, request: CoalescedSegmentRequest) ->
     Ok(())
 }
 
+/// TODO(ngates): outsource coalescing to a trait
 fn coalesce(requests: Vec<FileSegmentRequest>) -> Vec<CoalescedSegmentRequest> {
     requests
         .into_iter()

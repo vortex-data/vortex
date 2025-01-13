@@ -1,6 +1,7 @@
-pub mod driver;
+mod exec;
 mod file;
 mod footer;
+pub mod io;
 mod open;
 mod segments;
 mod strategy;

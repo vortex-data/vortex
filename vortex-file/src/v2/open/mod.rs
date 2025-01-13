@@ -1,10 +1,10 @@
-mod execution;
+mod exec;
 mod io;
 mod split_by;
 
 use std::sync::Arc;
 
-pub use execution::*;
+pub use exec::*;
 use flatbuffers::root;
 pub use io::*;
 use itertools::Itertools;
@@ -18,8 +18,8 @@ use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
-use crate::v2::driver::FileIoDriver;
 use crate::v2::footer::{FileLayout, Postscript, Segment};
+use crate::v2::io::file::FileIoDriver;
 use crate::v2::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
@@ -172,8 +172,7 @@ impl VortexOpenOptions {
         // Set up the I/O driver.
         let io_driver = FileIoDriver {
             read,
-            segment_map: file_layout.segments.clone(),
-            segment_cache,
+            file_layout: file_layout.clone(),
             concurrency: 16,
         };
 

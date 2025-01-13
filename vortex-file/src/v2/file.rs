@@ -13,17 +13,9 @@ use vortex_error::VortexResult;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
-use crate::v2::driver::ExecDriver;
+use crate::v2::exec::ExecDriver;
+use crate::v2::io::IoDriver;
 use crate::v2::segments::channel::SegmentChannel;
-use crate::v2::segments::SegmentRequest;
-
-/// A generic I/O trait used by the Vortex file to resolve segments.
-pub trait IoDriver: 'static {
-    fn drive(
-        &self,
-        stream: impl Stream<Item = SegmentRequest> + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static;
-}
 
 /// A Vortex file ready for reading.
 ///
@@ -78,7 +70,7 @@ impl<I: IoDriver> VortexFile<I> {
             .boxed();
         let exec_stream = self.exec_driver.drive(exec_stream);
 
-        // ...and the other end to the I/O driver.
+        // ...and the other end to the segment driver.
         let io_stream = self.io_driver.drive(segment_channel.into_stream());
 
         Ok(ArrayStreamAdapter::new(
