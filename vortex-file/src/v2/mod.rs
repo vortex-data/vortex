@@ -1,7 +1,7 @@
 mod exec;
 mod file;
 mod footer;
-pub mod io;
+mod io;
 mod open;
 pub mod segments;
 mod strategy;

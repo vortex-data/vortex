@@ -41,6 +41,7 @@ pub struct VortexOpenOptions {
     split_by: SplitBy,
     segment_cache: Option<Arc<dyn SegmentCache>>,
     execution_mode: Option<ExecutionMode>,
+    // TODO(ngates): allow fully configurable I/O driver.
     io_concurrency: usize,
 }
 
