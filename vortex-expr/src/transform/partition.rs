@@ -155,7 +155,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
 struct StructFieldExpressionSplitter<'a> {
     sub_expressions: HashMap<Field, Vec<ExprRef>>,
     accesses: FieldAccesses<'a>,
-    dt_ident: &'a StructDType,
+    scope_dtype: &'a StructDType,
 }
 
 impl<'a> StructFieldExpressionSplitter<'a> {
@@ -163,7 +163,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
-            dt_ident,
+            scope_dtype: dt_ident,
         }
     }
 
@@ -247,13 +247,13 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 let fname = match field {
                     Field::Name(n) => n.clone(),
                     Field::Index(i) => self
-                        .dt_ident
+                        .scope_dtype
                         .names()
                         .get(*i)
                         .ok_or_else(|| {
                             vortex_err!(
                                 "field access {i} out of bounds struct len {}",
-                                self.dt_ident.names().len()
+                                self.scope_dtype.names().len()
                             )
                         })?
                         .clone(),
@@ -275,7 +275,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
         if node.as_any().downcast_ref::<Identity>().is_some() {
             let fields = self
-                .dt_ident
+                .scope_dtype
                 .names()
                 .iter()
                 .map(|name| Field::Name(name.clone()))
