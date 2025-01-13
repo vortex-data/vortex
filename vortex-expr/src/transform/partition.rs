@@ -4,7 +4,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{FieldName, StructDType};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
+use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node, NodeMut};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
 
 /// Partition an expression over the fields of the scope.

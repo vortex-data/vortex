@@ -37,6 +37,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub fn pre_order_visit_up<'a, T: 'a + Node>(
     f: impl FnMut(&'a T) -> VortexResult<TraversalOrder>,
 ) -> impl NodeVisitor<'a, NodeTy = T> {
@@ -47,6 +48,7 @@ pub fn pre_order_visit_up<'a, T: 'a + Node>(
     }
 }
 
+#[allow(dead_code)]
 pub fn pre_order_visit_down<'a, T: 'a + Node>(
     f: impl FnMut(&'a T) -> VortexResult<TraversalOrder>,
 ) -> impl NodeVisitor<'a, NodeTy = T> {

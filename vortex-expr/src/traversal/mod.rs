@@ -188,7 +188,9 @@ pub trait Node: Sized {
         visitor: &mut V,
         context: V::Context,
     ) -> VortexResult<FoldUp<V::Out>>;
+}
 
+pub trait NodeMut: Sized {
     fn transform<V: MutNodeVisitor<NodeTy = Self>>(
         self,
         _visitor: &mut V,
@@ -248,7 +250,9 @@ impl Node for ExprRef {
 
         visitor.visit_up(self, context, children)
     }
+}
 
+impl NodeMut for ExprRef {
     // A pre-order transform, with an option to ignore sub-tress (using visit_down).
     fn transform<V: MutNodeVisitor<NodeTy = Self>>(
         self,

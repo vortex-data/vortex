@@ -23,8 +23,7 @@ pub mod pruning;
 mod row_filter;
 mod select;
 pub mod transform;
-#[allow(dead_code)]
-mod traversal;
+pub mod traversal;
 
 pub use binary::*;
 pub use column::*;

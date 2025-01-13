@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldChildren, FoldDown, FoldUp, FolderMut, Node as _};
+use crate::traversal::{FoldChildren, FoldDown, FoldUp, FolderMut, NodeMut};
 use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
