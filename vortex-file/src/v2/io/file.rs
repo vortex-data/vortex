@@ -83,8 +83,8 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
             // file and therefore be reasonably bounded.
             .ready_chunks(1024)
             // Coalesce the segment requests to minimize the number of I/O operations.
-            .map(|requests| coalesce(requests))
-            .flat_map(|requests| stream::iter(requests.into_iter()))
+            .map(coalesce)
+            .flat_map(stream::iter)
             // Submit the coalesced requests to the I/O.
             .map(move |request| {
                 let read = read.clone();
