@@ -18,9 +18,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
-use vortex_file::v2::VortexOpenOptions;
 use vortex_file::VORTEX_FILE_EXTENSION;
-use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;

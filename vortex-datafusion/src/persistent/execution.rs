@@ -122,7 +122,7 @@ impl ExecutionPlan for VortexExec {
             projection
                 .iter()
                 .map(|i| FieldName::from(arrow_schema.fields[*i].name().clone()))
-                .collect_vec()
+                .collect()
         });
 
         let opener = VortexFileOpener {
