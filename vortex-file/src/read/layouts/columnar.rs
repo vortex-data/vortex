@@ -75,7 +75,7 @@ impl ColumnarLayoutBuilder<'_> {
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for field in fields.into_iter() {
+        for field in fields.iter() {
             let FieldInfo {
                 index,
                 name,
@@ -165,7 +165,7 @@ impl ColumnarLayoutBuilder<'_> {
                     SelectField::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),
                 }
             } else {
-                e.references().clone().into_iter().collect_vec().into()
+                e.references().into_iter().collect_vec().into()
             }
         })
     }

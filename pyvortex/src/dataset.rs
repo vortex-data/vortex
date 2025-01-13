@@ -83,8 +83,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Projec
             columns
                 .iter()
                 .map(field_from_pyany)
-                .collect::<PyResult<Vec<FieldName>>>()?
-                .into(),
+                .collect::<PyResult<Vec<FieldName>>>()?,
         ),
     })
 }

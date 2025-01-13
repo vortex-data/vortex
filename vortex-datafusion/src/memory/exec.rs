@@ -8,7 +8,7 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Plan
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayDType, ArrayLen};
-use vortex_dtype::FieldNames;
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::memory::statistics::chunked_array_df_stats;
@@ -37,8 +37,15 @@ impl VortexScanExec {
         })?;
         let scan_projection: FieldNames = scan_projection
             .iter()
-            .map(|idx| dtype.names().get(*idx).unwrap().clone())
-            .collect_vec()
+            .map(|idx| {
+                dtype.names().get(*idx).cloned().ok_or_else(|| {
+                    vortex_err!(
+                        "VortexScanExec: invalid field index {idx} in dtype {:?}",
+                        dtype.names()
+                    )
+                })
+            })
+            .collect::<VortexResult<Vec<FieldName>>>()?
             .into();
         let statistics = chunked_array_df_stats(&array, scan_projection.clone())?;
         Ok(Self {
