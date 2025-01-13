@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use vortex_array::ArrayData;
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
@@ -11,12 +11,22 @@ use crate::strategies::{LayoutStrategy, LayoutWriter};
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
     column_strategies: Vec<Box<dyn LayoutWriter>>,
+    validity_strategy: Box<dyn LayoutWriter>,
     dtype: DType,
     row_count: u64,
 }
 
+// TODO: add a LayoutWriterBuilder for
+//  - Add a validity child
+//  - Validity `() -> LayoutWrite` and
+//  - Fields `(Field) -> LayoutWriter`
+
 impl StructLayoutWriter {
-    pub fn new(dtype: DType, column_layout_writers: Vec<Box<dyn LayoutWriter>>) -> Self {
+    pub fn new(
+        dtype: DType,
+        column_layout_writers: Vec<Box<dyn LayoutWriter>>,
+        validity_layout_writer: Box<dyn LayoutWriter>,
+    ) -> Self {
         let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
         if struct_dtype.dtypes().len() != column_layout_writers.len() {
             vortex_panic!(
@@ -25,6 +35,7 @@ impl StructLayoutWriter {
         }
         Self {
             column_strategies: column_layout_writers,
+            validity_strategy: validity_layout_writer,
             dtype,
             row_count: 0,
         }
@@ -41,6 +52,7 @@ impl StructLayoutWriter {
                 .dtypes()
                 .map(|dtype| factory.new_writer(&dtype))
                 .try_collect()?,
+            factory.new_writer(&DType::Bool(dtype.nullability()))?,
         ))
     }
 }
@@ -72,11 +84,14 @@ impl LayoutWriter for StructLayoutWriter {
             self.column_strategies[i].push_chunk(segments, column)?;
         }
 
+        self.validity_strategy
+            .push_chunk(segments, struct_array.logical_validity().into_array())?;
+
         Ok(())
     }
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
-        let mut column_layouts = vec![];
+        let mut column_layouts = vec![self.validity_strategy.finish(segments)?];
         for writer in self.column_strategies.iter_mut() {
             column_layouts.push(writer.finish(segments)?);
         }

@@ -2,6 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::ContextRef;
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
@@ -17,6 +18,9 @@ pub struct StructReader {
     segments: Arc<dyn AsyncSegmentReader>,
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+
+    validity_reader: Arc<OnceLock<Arc<dyn LayoutReader>>>,
+
     field_lookup: HashMap<FieldName, usize>,
 }
 
@@ -51,6 +55,7 @@ impl StructReader {
             ctx,
             segments,
             field_readers,
+            validity_reader: Arc::new(OnceLock::new()),
             field_lookup,
         })
     }
@@ -73,7 +78,14 @@ impl StructReader {
         self.field_readers[idx].get_or_try_init(|| {
             let child_layout = self
                 .layout
-                .child(idx, self.struct_dtype().field_dtype(idx)?)?;
+                .child(idx + 1, self.struct_dtype().field_dtype(idx)?)?;
+            child_layout.reader(self.segments.clone(), self.ctx.clone())
+        })
+    }
+
+    pub(crate) fn validity(&self) -> VortexResult<&Arc<dyn LayoutReader>> {
+        self.validity_reader.get_or_try_init(|| {
+            let child_layout = self.layout.child(0, DType::Bool(NonNullable))?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }

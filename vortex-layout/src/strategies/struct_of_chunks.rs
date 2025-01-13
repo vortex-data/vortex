@@ -28,6 +28,7 @@ impl LayoutStrategy for StructOfChunks {
                         .dtypes()
                         .map(|col_dtype| default_column_layout(&col_dtype))
                         .collect(),
+                    default_column_layout(&DType::Bool(*nullability)),
                 )))
             }
             _ => Ok(default_column_layout(dtype)),

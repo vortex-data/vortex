@@ -166,7 +166,11 @@ impl LayoutData {
                     .vortex_expect("child bounds already checked")[i]
                     .clone();
                 if child.dtype() != &dtype {
-                    vortex_bail!("child dtype mismatch");
+                    vortex_bail!(
+                        "child dtype mismatch expected {:?} found {:?}",
+                        dtype,
+                        child.dtype()
+                    );
                 }
                 Ok(child)
             }
