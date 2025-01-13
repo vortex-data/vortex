@@ -1,7 +1,9 @@
+mod exec;
 mod file;
-pub mod footer;
+mod footer;
+mod io;
 mod open;
-mod segments;
+pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;

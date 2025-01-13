@@ -21,6 +21,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std"] }
+# TODO(ngates): remove these in favor of futures
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }

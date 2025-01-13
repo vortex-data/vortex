@@ -3,7 +3,6 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
-use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 /// The default Vortex file layout strategy.
@@ -13,11 +12,6 @@ pub struct VortexLayoutStrategy;
 
 impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        if dtype.is_struct() {
-            // Recurse each struct field to use this same strategy
-            Ok(StructLayoutWriter::try_new_with_factory(dtype, VortexLayoutStrategy)?.boxed())
-        } else {
-            Ok(ChunkedLayoutWriter::new(dtype, ChunkedLayoutOptions::default()).boxed())
-        }
+        Ok(ChunkedLayoutWriter::new(dtype, ChunkedLayoutOptions::default()).boxed())
     }
 }

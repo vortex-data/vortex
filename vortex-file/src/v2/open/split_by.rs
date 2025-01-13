@@ -10,8 +10,6 @@ use vortex_layout::LayoutData;
 /// Note that each split must fit into the platform's maximum usize.
 #[derive(Copy, Clone)]
 pub enum SplitBy {
-    /// Read the file as a single batch.
-    None,
     /// Splits any time there is a chunk boundary in the file.
     Layout,
     /// Splits every n rows.
@@ -23,7 +21,6 @@ impl SplitBy {
     /// Compute the splits for the given layout.
     pub(crate) fn splits(&self, layout: &LayoutData) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {
-            SplitBy::None => vec![0..layout.row_count()],
             SplitBy::Layout => {
                 let mut row_splits = BTreeSet::<u64>::new();
                 // Make sure we always have the first and last row.

@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::layouts::struct_::reader::StructReader;
 use crate::StatsEvaluator;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StatsEvaluator for StructReader {
     async fn evaluate_stats(
         &self,

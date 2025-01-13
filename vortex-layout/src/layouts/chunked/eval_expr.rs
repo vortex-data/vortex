@@ -13,7 +13,7 @@ use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReaderExt;
 use crate::ExprEvaluator;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ExprEvaluator for ChunkedReader {
     async fn evaluate_expr(
         self: &Self,
@@ -68,7 +68,7 @@ impl ExprEvaluator for ChunkedReader {
                         Scalar::bool(false, dtype.nullability()),
                         row_mask.true_count(),
                     );
-                    chunks.push(ready(Ok(false_array.into_array())).boxed_local());
+                    chunks.push(ready(Ok(false_array.into_array())).boxed());
                     continue;
                 }
             }
@@ -79,7 +79,7 @@ impl ExprEvaluator for ChunkedReader {
                 .shift(chunk_range.start)?;
 
             let expr = expr.clone();
-            chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr).boxed_local());
+            chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr).boxed());
         }
 
         // Wait for all chunks to be evaluated
