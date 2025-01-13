@@ -172,7 +172,7 @@ impl VortexOpenOptions {
         // Finally, create the VortexFile.
         Ok(VortexFile {
             ctx: self.ctx.clone(),
-            layout: file_layout.root_layout,
+            file_layout,
             io_driver,
             exec_driver,
             splits,
