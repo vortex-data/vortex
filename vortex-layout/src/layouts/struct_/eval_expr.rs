@@ -3,7 +3,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::Field;
 use vortex_error::VortexResult;
 use vortex_expr::transform::partition::partition;
@@ -17,7 +17,7 @@ use crate::ExprEvaluator;
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = partition(expr, self.struct_dtype())?;
+        let partitioned = partition(expr.clone(), self.struct_dtype())?;
         let field_readers: Vec<_> = partitioned
             .partitions
             .iter()
@@ -52,8 +52,14 @@ impl ExprEvaluator for StructReader {
         .into_array();
 
         // Recombine the partitioned expressions into a single expression
-        // println!("Root Expr: {}", &partitioned.root);
-        // println!("Root Scope: {}", &root_scope.dtype());
+        println!("Expr: {}", &expr);
+        println!("Root Expr: {}", &partitioned.root);
+        println!("Root Scope: {}", &root_scope.dtype());
+        println!(
+            "Partitions: {}/{}",
+            &partitioned.partitions.len(),
+            self.struct_dtype().names().len()
+        );
 
         partitioned.root.evaluate(&root_scope)
     }

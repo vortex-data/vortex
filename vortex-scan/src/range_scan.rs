@@ -83,12 +83,17 @@ impl RangeScan {
 
     /// Check for the next operation to perform.
     /// Returns `Poll::Ready` when the scan is complete.
+    ///
+    // FIXME(ngates): currently we have to clone the FilterMask to return it. Doing this
+    //  forces the eager evaluation of the iterators.
     fn next(&self) -> NextOp {
         match &self.state {
             State::FilterEval((mask, expr)) => {
+                println!("FilterEval {} {}", mask.selectivity(), expr.clone());
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
             }
             State::Project((mask, expr)) => {
+                println!("ProjectEval {} {}", mask.selectivity(), expr.clone());
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
             }
             State::Ready(array) => NextOp::Ready(array.clone()),
