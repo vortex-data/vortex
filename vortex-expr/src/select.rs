@@ -102,7 +102,9 @@ impl VortexExpr for Select {
             SelectField::Exclude(names) => {
                 let included_names = st
                     .names()
-                    .iter().filter(|&f| !names.contains(f)).cloned()
+                    .iter()
+                    .filter(|&f| !names.contains(f))
+                    .cloned()
                     .collect::<Vec<_>>();
                 st.project(included_names.as_slice())
             }
