@@ -1,5 +1,4 @@
-mod driver;
-mod driver_io;
+pub mod driver;
 mod file;
 mod footer;
 mod open;

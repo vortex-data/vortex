@@ -1,16 +1,15 @@
-use std::future::ready;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::Stream;
-use futures_util::{stream, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
@@ -39,6 +38,8 @@ impl VortexFile {
 
     /// Performs a scan operation over the file.
     pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
+        let result_dtype = scan.result_dtype(self.dtype())?;
+
         // Set up a segment channel to collect segment requests from the execution stream.
         let segment_channel = SegmentChannel::new();
 
@@ -47,24 +48,27 @@ impl VortexFile {
             .layout
             .reader(segment_channel.reader(), self.ctx.clone())?;
         let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
-            .map(move |row_range| {
-                let reader = reader.clone();
-                ready(scan.clone().range_scan(row_range))
-                    .and_then(|range_scan| {
+            .map(move |row_range| scan.clone().range_scan(row_range))
+            .map(move |range_scan| match range_scan {
+                Ok(range_scan) => {
+                    let reader = reader.clone();
+                    async move {
                         range_scan
                             .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
-                    })
+                            .await
+                    }
                     .boxed()
-                    .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
+                }
+                Err(e) => futures::future::ready(Err(e)).boxed(),
             })
             .boxed();
         let exec_stream = self.exec_driver.drive(exec_stream);
 
         // ...and the other end to the I/O driver.
-        let io_stream = self.io_driver.drive(segment_channel.into_stream());
+        let io_stream = self.io_driver.drive(segment_channel.into_stream().boxed());
 
         Ok(ArrayStreamAdapter::new(
-            scan.result_dtype(self.dtype())?,
+            result_dtype,
             UnifiedDriverStream {
                 exec_stream,
                 io_stream,

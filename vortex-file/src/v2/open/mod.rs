@@ -18,6 +18,7 @@ use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
+use crate::v2::driver::FileIoDriver;
 use crate::v2::footer::{FileLayout, Postscript, Segment};
 use crate::v2::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
 use crate::v2::VortexFile;
@@ -41,6 +42,7 @@ pub struct VortexOpenOptions {
     initial_read_size: u64,
     split_by: SplitBy,
     segment_cache: Option<Arc<dyn SegmentCache>>,
+    execution_mode: Option<ExecutionMode>,
 }
 
 impl VortexOpenOptions {
@@ -53,6 +55,7 @@ impl VortexOpenOptions {
             initial_read_size: INITIAL_READ_SIZE,
             split_by: SplitBy::Layout,
             segment_cache: None,
+            execution_mode: None,
         }
     }
 
@@ -154,18 +157,31 @@ impl VortexOpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = self
+        let segment_cache = self
             .segment_cache
+            .as_ref()
+            .cloned()
             .unwrap_or_else(|| Arc::new(InMemorySegmentCache::default()));
         self.populate_segments(
             initial_offset,
             &initial_read,
             &file_layout,
-            &mut segment_cache,
+            segment_cache.as_ref(),
         )?;
 
-        // Set up the evaluation driver.
-        let driver: Arc<dyn ExecutionDriver>;
+        // Set up the I/O driver.
+        let io_driver = Arc::new(FileIoDriver {
+            read,
+            segment_map: file_layout.segments.clone(),
+            segment_cache,
+            concurrency: 16,
+        });
+
+        // Set up the execution driver.
+        let exec_driver = self
+            .execution_mode
+            .unwrap_or(ExecutionMode::BlockOn)
+            .into_driver();
 
         // Compute the splits of the file.
         let splits = self.split_by.splits(&file_layout.root_layout)?.into();
@@ -174,7 +190,8 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            driver,
+            io_driver,
+            exec_driver,
             splits,
         })
     }
@@ -268,7 +285,8 @@ impl VortexOpenOptions {
     }
 
     /// Populate segments in the cache that were covered by the initial read.
-    fn populate_segments<R>(
+    #[allow(unused_variables)]
+    fn populate_segments(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
@@ -283,7 +301,10 @@ impl VortexOpenOptions {
             let segment_id = SegmentId::from(u32::try_from(idx)?);
             let offset = usize::try_from(segment.offset - initial_offset)?;
             let buffer = initial_read.slice(offset..offset + (segment.length as usize));
-            segments.put(segment_id, buffer)?;
+
+            // FIXME(ngates): how should we write into the segment cache? Feels like it should be
+            //  non-blocking and on some other thread?
+            // segments.put(segment_id, buffer)?;
         }
         Ok(())
     }

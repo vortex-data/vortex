@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
 use futures::Stream;
-use futures_util::{SinkExt, TryFutureExt};
+use futures_util::SinkExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -60,7 +60,9 @@ impl AsyncSegmentReader for SegmentCacheReader {
             .map_err(|e| vortex_err!("Failed to request segment {:?}", e))?;
 
         // Await the callback
-        recv.await
-            .map_err(|cancelled| vortex_err!("segment read cancelled: {:?}", cancelled))
+        match recv.await {
+            Ok(result) => result,
+            Err(e) => Err(vortex_err!("Failed to receive segment {:?}", e)),
+        }
     }
 }

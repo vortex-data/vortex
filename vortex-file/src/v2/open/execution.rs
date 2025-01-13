@@ -1,20 +1,13 @@
 use std::sync::Arc;
 
-use futures_util::future::BoxFuture;
-use futures_util::stream::BoxStream;
-use vortex_array::ArrayData;
-use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
-
-use crate::v2::driver::{ExecutionDriver, IoDriver};
+use crate::v2::driver::{BlockOnDriver, ExecDriver};
 
 /// The [`ExecutionMode`] describes how the CPU-bound layout evaluation tasks are executed.
 /// Typically, there is one task per file split (row-group).
 pub enum ExecutionMode {
     /// Executes the tasks inline as part of polling the returned
     /// [`vortex_array::stream::ArrayStream`].
-    Inline,
+    BlockOn,
     /// Spawns the tasks onto a provided Rayon thread pool.
     // TODO(ngates): feature-flag this dependency.
     RayonThreadPool(Arc<rayon::ThreadPool>),
@@ -24,32 +17,15 @@ pub enum ExecutionMode {
 }
 
 impl ExecutionMode {
-    pub fn new_driver(&self, segments: Arc<dyn IoDriver>) -> Arc<dyn ExecutionDriver> {
+    pub fn into_driver(self) -> Arc<dyn ExecDriver> {
         match self {
-            ExecutionMode::Inline => {}
-            ExecutionMode::RayonThreadPool(_) => {}
-            ExecutionMode::TokioRuntime(_) => {}
+            ExecutionMode::BlockOn => Arc::new(BlockOnDriver),
+            ExecutionMode::RayonThreadPool(_) => {
+                todo!()
+            }
+            ExecutionMode::TokioRuntime(_) => {
+                todo!()
+            }
         }
-    }
-}
-
-struct InlineDriver(Arc<dyn IoDriver>);
-
-impl ExecutionDriver for InlineDriver {
-    fn drive(
-        &self,
-        evaluation: &dyn FnOnce(
-            Arc<dyn AsyncSegmentReader>,
-        )
-            -> BoxStream<'static, BoxFuture<'static, VortexResult<ArrayData>>>,
-    ) -> BoxStream<VortexResult<ArrayData>> {
-        let stream = evaluation(Arc::new(self));
-        todo!()
-    }
-}
-
-impl AsyncSegmentReader for InlineDriver {
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        todo!()
     }
 }
