@@ -62,8 +62,15 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         let validity = array.validity().take(indices)?;
 
         // Convert our views array into an Arrow u128 Buffer (16 bytes per view)
-        let views_buffer =
-            Buffer::<u128>::from_byte_buffer(array.views().into_primitive()?.into_byte_buffer());
+        let views_buffer = Buffer::<u128>::from_byte_buffer(
+            array
+                .views()
+                .into_primitive()?
+                .into_byte_buffer()
+                // FIXME(ngates): this can copy the buffer.
+                //  See https://github.com/spiraldb/vortex/issues/1921
+                .aligned(Alignment::of::<u128>()),
+        );
 
         let indices = indices.clone().into_primitive()?;
 
