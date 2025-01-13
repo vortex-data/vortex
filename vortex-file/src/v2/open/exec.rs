@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::v2::exec::{ExecDriver, InlineDriver};
+use crate::v2::exec::inline::InlineDriver;
+use crate::v2::exec::tokio::TokioDriver;
+use crate::v2::exec::ExecDriver;
 
 /// The [`ExecutionMode`] describes how the CPU-bound layout evaluation tasks are executed.
 /// Typically, there is one task per file split (row-group).
@@ -13,7 +15,7 @@ pub enum ExecutionMode {
     RayonThreadPool(Arc<rayon::ThreadPool>),
     /// Spawns the tasks onto a provided Tokio runtime.
     // TODO(ngates): feature-flag this dependency.
-    TokioRuntime(Arc<tokio::runtime::Handle>),
+    TokioRuntime(tokio::runtime::Handle),
 }
 
 impl ExecutionMode {
@@ -23,9 +25,7 @@ impl ExecutionMode {
             ExecutionMode::RayonThreadPool(_) => {
                 todo!()
             }
-            ExecutionMode::TokioRuntime(_) => {
-                todo!()
-            }
+            ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver(handle)),
         }
     }
 }
