@@ -18,7 +18,9 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
+use vortex_file::v2::VortexOpenOptions;
 use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
@@ -123,6 +125,9 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         _object: &ObjectMeta,
     ) -> DFResult<Statistics> {
+        // TODO(ngates): we should decide if it's worth returning file statistics. Since this
+        //  call doesn't have projection information, I think it's better to wait until we can
+        //  return per-partition statistics from VortexExpr ExecutionPlan node.
         Ok(Statistics::new_unknown(table_schema.as_ref()))
     }
 
