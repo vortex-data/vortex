@@ -1,4 +1,4 @@
-use vortex_dtype::Field;
+use vortex_dtype::FieldName;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -97,7 +97,7 @@ impl StructArrayTrait for ConstantArray {
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
         Ok(
             ConstantArray::new(self.scalar().as_struct().project(projection)?, self.len())
                 .into_array(),

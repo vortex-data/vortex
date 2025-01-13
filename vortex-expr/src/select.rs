@@ -5,15 +5,15 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
-use vortex_dtype::Field;
+use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
-    Include(Vec<Field>),
-    Exclude(Vec<Field>),
+    Include(FieldNames),
+    Exclude(FieldNames),
 }
 
 #[derive(Debug, Clone, Eq, Hash)]
@@ -23,11 +23,11 @@ pub struct Select {
     child: ExprRef,
 }
 
-pub fn select(fields: Vec<Field>, child: ExprRef) -> ExprRef {
+pub fn select(fields: FieldNames, child: ExprRef) -> ExprRef {
     Select::include_expr(fields, child)
 }
 
-pub fn select_exclude(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+pub fn select_exclude(columns: FieldNames, child: ExprRef) -> ExprRef {
     Select::exclude_expr(columns, child)
 }
 
@@ -36,11 +36,11 @@ impl Select {
         Arc::new(Self { fields, child })
     }
 
-    pub fn include_expr(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    pub fn include_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
         Self::new_expr(SelectField::Include(columns), child)
     }
 
-    pub fn exclude_expr(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    pub fn exclude_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
         Self::new_expr(SelectField::Exclude(columns), child)
     }
 
@@ -54,15 +54,15 @@ impl Select {
 }
 
 impl SelectField {
-    pub fn include(columns: Vec<Field>) -> Self {
+    pub fn include(columns: FieldNames) -> Self {
         Self::Include(columns)
     }
 
-    pub fn exclude(columns: Vec<Field>) -> Self {
+    pub fn exclude(columns: FieldNames) -> Self {
         Self::Exclude(columns)
     }
 
-    pub fn fields(&self) -> &[Field] {
+    pub fn fields(&self) -> &FieldNames {
         match self {
             SelectField::Include(fields) => fields,
             SelectField::Exclude(fields) => fields,
@@ -98,22 +98,11 @@ impl VortexExpr for Select {
         match &self.fields {
             SelectField::Include(f) => st.project(f),
             SelectField::Exclude(e) => {
-                let normalized_exclusion = e
-                    .iter()
-                    .map(|ef| match ef {
-                        Field::Name(n) => Ok(&**n),
-                        Field::Index(i) => st
-                            .names()
-                            .get(*i)
-                            .map(|s| &**s)
-                            .ok_or_else(|| vortex_err!("Column doesn't exist")),
-                    })
-                    .collect::<VortexResult<HashSet<_>>>()?;
+                let normalized_exclusion = e.iter().collect::<VortexResult<HashSet<_>>>()?;
                 let included_names = st
                     .names()
                     .iter()
                     .filter(|f| !normalized_exclusion.contains(&&***f))
-                    .map(|f| Field::from(&**f))
                     .collect::<Vec<_>>();
                 st.project(&included_names)
             }
