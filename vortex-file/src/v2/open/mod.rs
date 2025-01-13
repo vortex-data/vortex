@@ -1,3 +1,4 @@
+mod execution;
 mod split_by;
 
 use std::io::Read;
@@ -70,12 +71,24 @@ impl VortexOpenOptions {
 }
 
 impl VortexOpenOptions {
-    /// Open the Vortex file using synchronous IO.
-    pub fn open_sync<R: Read>(self, _read: R) -> VortexResult<VortexFile<R>> {
-        todo!()
-    }
-
     /// Open the Vortex file using asynchronous IO.
+    ///
+    /// FIXME(ngates): what are the types of file we want to support?
+    ///   - Pure async segment cache. Useful for e.g. pluggin in Redis.
+    ///   - ReadAt/ReadAtV => useful for object storage.
+    ///   - AsyncRead + AsyncSeek => useful for local files? Direct I/O?
+    ///   - For local files, we probably want DirectIO + custom caching (see Glommio?)
+    ///   - Do we want I/O to be polled on the current thread, or on a separate thread? We may
+    ///     internally want to use a custom runtime, e.g. CompIO, and therefore spawn an I/O thread.
+    ///
+    /// So what are the modes?
+    ///   * Inline I/O (poller of ArrayStream drives I/O tasks).
+    ///   * Dedicated I/O (I/O tasks are driven by a separate thread).
+    ///   * Inline Exec (poller of ArrayStream drives CPU tasks).
+    ///   * Dedicated Exec (CPU tasks are driven by a separate thread pool).
+    ///
+    /// Where does coalescing come in? A stream of segment requests can be coalesced. Written as
+    /// an extension trait.
     pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<R>> {
         // Fetch the file size and perform the initial read.
         let file_size = read.size().await?;
