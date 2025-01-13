@@ -5,17 +5,12 @@ use vortex_error::VortexResult;
 use crate::traversal::{NodeVisitor, TraversalOrder};
 use crate::{Column, ExprRef, GetItem, Select};
 
+#[derive(Default)]
 pub struct ReferenceCollector {
     fields: HashSet<FieldName>,
 }
 
 impl ReferenceCollector {
-    pub fn new() -> Self {
-        Self {
-            fields: HashSet::new(),
-        }
-    }
-
     pub fn with_set(set: HashSet<FieldName>) -> Self {
         Self { fields: set }
     }

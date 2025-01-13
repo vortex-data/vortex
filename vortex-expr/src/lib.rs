@@ -85,7 +85,7 @@ pub trait VortexExprExt {
 
 impl VortexExprExt for ExprRef {
     fn references(&self) -> HashSet<FieldName> {
-        let mut collector = ReferenceCollector::new();
+        let mut collector = ReferenceCollector::default();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
