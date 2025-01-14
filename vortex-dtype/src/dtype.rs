@@ -106,7 +106,7 @@ impl DType {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
                         .dtypes()
-                        .zip(rhs_dtype.dtypes())
+                        .zip_eq(rhs_dtype.dtypes())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
             (Struct(..), _) => false,
