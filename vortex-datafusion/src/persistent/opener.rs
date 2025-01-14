@@ -46,12 +46,13 @@ impl VortexFileOpener {
             // will rerun the filter expression anyway.
             .map(|expr| {
                 // This
-                split_conjunction(expr)
+                let expr = split_conjunction(expr)
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .fold(lit(true), and)
+                    .fold(lit(true), and);
+
+                simplify_typed(expr, dtype)
             })
-            .map(|expr| simplify_typed(expr.into_iter().fold(lit(true), and), dtype))
             .transpose()?;
 
         let projection = projection
