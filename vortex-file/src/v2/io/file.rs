@@ -51,7 +51,7 @@ struct FileSegmentRequest {
 }
 
 impl FileSegmentRequest {
-    fn resolve(self, buffer: VortexResult<ByteBuffer>) -> () {
+    fn resolve(self, buffer: VortexResult<ByteBuffer>) {
         self.callback
             .send(buffer)
             .map_err(|_| vortex_err!("send failed"))
