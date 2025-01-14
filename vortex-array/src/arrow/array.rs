@@ -123,7 +123,7 @@ where
         };
         VarBinArray::try_new(
             value.offsets().clone().into(),
-            value.values().clone().into(),
+            ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
             dtype,
             nulls(value.nulls(), nullable),
         )
@@ -149,7 +149,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
             value
                 .data_buffers()
                 .iter()
-                .map(|b| b.clone().into())
+                .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
                 .collect::<Vec<_>>(),
             dtype,
             nulls(value.nulls(), nullable),

@@ -1,6 +1,5 @@
 use std::ops::Deref;
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
@@ -66,7 +65,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(
             views_buffer,
-            array.buffers().collect_vec(),
+            array.buffers().collect(),
             array.dtype().clone(),
             validity,
         )?
@@ -88,7 +87,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(
             views_buffer,
-            array.buffers().collect_vec(),
+            array.buffers().collect(),
             array.dtype().clone(),
             validity,
         )?

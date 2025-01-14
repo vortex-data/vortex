@@ -9,23 +9,18 @@ use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArr
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::{Alignment, Buffer};
-use vortex_dtype::{DType, PType};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_dtype::DType;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
 };
 
 use crate::arrow::FromArrowArray;
-use crate::compute::slice;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
-    IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 mod accessor;
 mod compute;
@@ -207,43 +202,17 @@ impl Display for VarBinViewMetadata {
     }
 }
 
-pub struct Buffers<'a> {
-    index: u32,
-    n_buffers: u32,
-    array: &'a VarBinViewArray,
-}
-
-impl Iterator for Buffers<'_> {
-    type Item = ArrayData;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.n_buffers {
-            return None;
-        }
-
-        let bytes = self.array.buffer(self.index as usize);
-        self.index += 1;
-        Some(bytes)
-    }
-}
-
 impl_encoding!("vortex.varbinview", ids::VAR_BIN_VIEW, VarBinView);
 
 impl VarBinViewArray {
     pub fn try_new(
         views: Buffer<BinaryView>,
-        buffers: Vec<ArrayData>,
+        buffers: Vec<ByteBuffer>,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
         if views.alignment() != Alignment::of::<BinaryView>() {
             vortex_bail!("Views must be aligned to a 128 bits");
-        }
-
-        for d in buffers.iter() {
-            if !matches!(d.dtype(), &DType::BYTES) {
-                vortex_bail!(MismatchedTypes: "buffers u8", d.dtype());
-            }
         }
 
         if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
@@ -266,20 +235,19 @@ impl VarBinViewArray {
             buffer_lens,
         };
 
-        let mut children = Vec::with_capacity(buffers.len() + 1);
+        let array_len = views.len();
 
-        children.extend(buffers);
-        if let Some(a) = validity.into_array() {
-            children.push(a)
-        }
+        let mut array_buffers = Vec::with_capacity(buffers.len() + 1);
+        array_buffers.push(views.into_byte_buffer());
+        array_buffers.extend(buffers);
 
         Self::try_from(ArrayData::try_new_owned(
             &VarBinViewEncoding,
             dtype,
-            views.len(),
+            array_len,
             Arc::new(metadata),
-            [views.into_byte_buffer()].into(),
-            children.into(),
+            array_buffers.into(),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?)
     }
@@ -289,22 +257,10 @@ impl VarBinViewArray {
         self.metadata().buffer_lens.len()
     }
 
-    /// Access to the underlying `views` child array as a slice of [BinaryView] structures.
-    ///
-    /// This is useful for iteration over the values, as well as for applying filters that may
-    /// only require hitting the prefixes or inline strings.
-    pub fn binary_views(&self) -> VortexResult<Views> {
-        Ok(Views {
-            inner: self.views(),
-            idx: 0,
-            len: self.len(),
-        })
-    }
-
     /// Retrieve a binary view at a specific index.
     ///
-    /// If you will be calling this method many times, it's recommended that you instead use the
-    /// iterator provided by [`binary_views`][Self::binary_views].
+    /// If you will be calling this method many times, it's recommended that you instead
+    /// iterate over the buffer provided by [`Self::views`].
     pub fn view_at(&self, index: usize) -> VortexResult<BinaryView> {
         Ok(self.views()[index])
     }
@@ -331,45 +287,23 @@ impl VarBinViewArray {
     /// This method panics if the provided index is out of bounds for the set of buffers provided
     /// at construction time.
     #[inline]
-    pub fn buffer(&self, idx: usize) -> ArrayData {
+    pub fn buffer(&self, idx: usize) -> ByteBuffer {
         self.as_ref()
-            .child(
-                idx,
-                &DType::BYTES,
-                self.metadata().buffer_lens[idx] as usize,
-            )
-            .vortex_expect("VarBinViewArray: buffer child")
+            .byte_buffer(idx + 1)
+            .vortex_expect(&format!("{idx} is out of bounds"))
+            .clone()
     }
 
-    /// Retrieve an iterator over the raw data buffers.
-    /// These are the BYTE buffers that make up the array's contents.
-    ///
-    /// Example
-    ///
-    /// ```
-    /// use vortex_array::array::VarBinViewArray;
-    /// let array = VarBinViewArray::from_iter_str(["a", "b", "c"]);
-    /// array.buffers().for_each(|block| {
-    ///     // Do something with the `block`
-    /// });
-    /// ```
-    pub fn buffers(&self) -> Buffers {
-        Buffers {
-            index: 0,
-            n_buffers: u32::try_from(self.buffer_count())
-                .unwrap_or_else(|e| vortex_panic!("n_buffers exceeds u32::MAX: {e}")),
-            array: self,
-        }
+    /// Iterate over the underlying raw data buffers, not including the views buffer.
+    #[inline]
+    pub fn buffers(&self) -> impl Iterator<Item = ByteBuffer> + '_ {
+        self.0.byte_buffers().skip(1)
     }
 
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(
-                    (self.metadata().buffer_lens.len()) as _,
-                    &Validity::DTYPE,
-                    self.len(),
-                )
+                .child(0, &Validity::DTYPE, self.len())
                 .vortex_expect("VarBinViewArray: validity child")
         })
     }
@@ -463,37 +397,16 @@ impl VarBinViewArray {
         // Expect this to be the common case: strings > 12 bytes.
         if !view.is_inlined() {
             let view_ref = view.as_view();
-            let data_buf = slice(
-                self.buffer(view_ref.buffer_index() as usize),
-                view_ref.offset() as usize,
-                (view.len() + view_ref.offset()) as usize,
-            )?
-            .into_primitive()?;
-            Ok(data_buf.as_slice::<u8>().to_vec())
+
+            let start = view_ref.offset() as usize;
+            let stop = (view.len() + view_ref.offset()) as usize;
+            let data_buf = self
+                .buffer(view_ref.buffer_index() as usize)
+                .slice(start..stop);
+            Ok(data_buf.to_vec())
         } else {
             // Return access to the range of bytes around it.
             Ok(view.as_inlined().value().to_vec())
-        }
-    }
-}
-
-pub struct Views {
-    inner: Buffer<BinaryView>,
-    len: usize,
-    idx: usize,
-}
-
-impl Iterator for Views {
-    type Item = BinaryView;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.len {
-            None
-        } else {
-            let view = self.inner[self.idx];
-
-            self.idx += 1;
-            Some(view)
         }
     }
 }
@@ -540,17 +453,12 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
         .vortex_expect("VarBinViewArray: validity child must be bool");
 
     let data = (0..var_bin_view.buffer_count())
-        .map(|i| var_bin_view.buffer(i).into_primitive())
-        .collect::<VortexResult<Vec<_>>>()
-        .vortex_expect("VarBinViewArray: bytes children must be primitive");
-    if !data.is_empty() {
-        assert_eq!(data[0].ptype(), PType::U8);
-        assert!(data.iter().map(|d| d.ptype()).all_equal());
-    }
+        .map(|i| var_bin_view.buffer(i))
+        .collect::<Vec<_>>();
 
     let data = data
         .iter()
-        .map(|p| p.byte_buffer().clone().into_arrow_buffer())
+        .map(|p| p.clone().into_arrow_buffer())
         .collect::<Vec<_>>();
 
     // Switch on Arrow DType.
@@ -585,11 +493,10 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
 
 impl VisitorVTable<VarBinViewArray> for VarBinViewEncoding {
     fn accept(&self, array: &VarBinViewArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        for i in 0..array.metadata().buffer_lens.len() {
-            visitor.visit_child(format!("bytes_{i}").as_str(), &array.buffer(i))?;
+        for buffer in array.as_ref().byte_buffers() {
+            visitor.visit_buffer(&buffer)?;
         }
 
-        visitor.visit_buffer(&array.views().into_byte_buffer())?;
         visitor.visit_validity(&array.validity())
     }
 }
