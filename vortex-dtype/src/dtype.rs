@@ -89,7 +89,27 @@ impl DType {
 
     /// Check if `self` and `other` are equal, ignoring nullability
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
-        self.as_nullable().eq(&other.as_nullable())
+        match (self, other) {
+            (Null, Null) => true,
+            (Bool(_), Bool(_)) => true,
+            (Primitive(lhs_ptype, _), Primitive(rhs_ptype, _)) => lhs_ptype == rhs_ptype,
+            (Utf8(_), Utf8(_)) => true,
+            (Binary(_), Binary(_)) => true,
+            (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
+            (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
+                let names_match = lhs_dtype.names() == rhs_dtype.names();
+                let types_match = lhs_dtype
+                    .dtypes()
+                    .zip(rhs_dtype.dtypes())
+                    .all(|(l, r)| l.eq_ignore_nullability(&r));
+
+                names_match && types_match
+            }
+            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
+                lhs_extdtype.id() == rhs_extdtype.id()
+            }
+            _ => false,
+        }
     }
 
     /// Check if `self` is a `StructDType`
