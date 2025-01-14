@@ -261,18 +261,13 @@ impl VarBinViewArray {
         array_buffers.push(views.into_byte_buffer());
         array_buffers.extend(buffers);
 
-        let mut children = vec![];
-        if let Some(a) = validity.into_array() {
-            children.push(a);
-        }
-
         Self::try_from(ArrayData::try_new_owned(
             &VarBinViewEncoding,
             dtype,
             array_len,
             Arc::new(metadata),
             array_buffers.into(),
-            children.into(),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?)
     }
