@@ -14,7 +14,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, Identity, Select, SelectField};
+use vortex_expr::{get_item, ident, pack, ExprRef, Identity};
 use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_scan::Scan;
@@ -25,7 +25,7 @@ use super::cache::FileLayoutCache;
 pub struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
-    pub projection: Option<FieldNames>,
+    pub projection: ExprRef,
     pub filter: Option<ExprRef>,
     pub(crate) file_layout_cache: FileLayoutCache,
 }
@@ -47,6 +47,20 @@ impl VortexFileOpener {
             .and_then(|expr| convert_expr_to_vortex(expr.clone()).ok())
             .map(|expr| simplify_typed(expr, dtype))
             .transpose()?;
+
+        let projection = projection
+            .as_ref()
+            .map(|fields| {
+                pack(
+                    fields.clone(),
+                    fields
+                        .iter()
+                        .map(|f| get_item(f.clone(), ident()))
+                        .collect(),
+                )
+            })
+            .unwrap_or_else(|| Identity::new_expr());
+
         Ok(Self {
             ctx,
             object_store,
@@ -64,15 +78,8 @@ impl FileOpener for VortexFileOpener {
 
         // Construct the projection expression based on the DataFusion projection mask.
         // Each index in the mask corresponds to the field position of the root DType.
-        let projection = self
-            .projection
-            .as_ref()
-            .map(|fields| {
-                Select::new_expr(SelectField::Include(fields.clone()), Identity::new_expr())
-            })
-            .unwrap_or_else(|| Identity::new_expr());
 
-        let scan = Scan::new(projection, self.filter.clone()).into_arc();
+        let scan = Scan::new(self.projection.clone(), self.filter.clone()).into_arc();
 
         let read_at =
             ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
