@@ -51,8 +51,6 @@ impl MutNodeVisitor for RemoveSelectTransform {
                 .map(|name| get_item(name.clone(), child.clone()))
                 .collect_vec();
 
-            println!("{:?}", pack(names.clone(), pack_children.clone()));
-
             Ok(TransformResult::yes(pack(names, pack_children)))
         } else {
             Ok(TransformResult::no(node))
@@ -67,7 +65,7 @@ mod tests {
     use vortex_dtype::{DType, StructDType};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{ident, select};
+    use crate::{ident, select, Pack};
 
     #[test]
     fn test_remove_select() {
@@ -79,10 +77,8 @@ mod tests {
             NonNullable,
         );
         let e = select(["a".into(), "b".into()], ident());
-        println!("{:?}", e);
-
         let e = remove_select(e, dtype).unwrap();
 
-        println!("{:?}", e);
+        assert!(e.as_any().downcast_ref::<Pack>().is_some());
     }
 }
