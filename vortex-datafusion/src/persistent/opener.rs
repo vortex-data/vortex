@@ -4,7 +4,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
@@ -14,7 +14,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{get_item, ident, pack, ExprRef, Identity};
+use vortex_expr::{and, get_item, ident, lit, pack, ExprRef, Identity};
 use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_scan::Scan;
@@ -44,8 +44,14 @@ impl VortexFileOpener {
             .as_ref()
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
             // will rerun the filter expression anyway.
-            .and_then(|expr| convert_expr_to_vortex(expr.clone()).ok())
-            .map(|expr| simplify_typed(expr, dtype))
+            .map(|expr| {
+                // This
+                split_conjunction(expr)
+                    .into_iter()
+                    .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
+                    .collect::<Vec<_>>()
+            })
+            .map(|expr| simplify_typed(expr.into_iter().fold(lit(true), and), dtype))
             .transpose()?;
 
         let projection = projection
