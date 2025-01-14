@@ -14,9 +14,9 @@ use arrow_array::types::{
 };
 use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
-use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, ScalarBuffer};
+use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
@@ -30,8 +30,8 @@ use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 
-impl From<Buffer> for ArrayData {
-    fn from(value: Buffer) -> Self {
+impl From<ArrowBuffer> for ArrayData {
+    fn from(value: ArrowBuffer) -> Self {
         PrimitiveArray::from_byte_buffer(
             ByteBuffer::from_arrow_buffer(value, Alignment::of::<u8>()),
             PType::U8,
@@ -53,7 +53,7 @@ where
 {
     fn from(value: ScalarBuffer<T>) -> Self {
         PrimitiveArray::new(
-            vortex_buffer::Buffer::<T>::from_arrow_scalar_buffer(value),
+            Buffer::<T>::from_arrow_scalar_buffer(value),
             Validity::NonNullable,
         )
         .into_array()
@@ -66,7 +66,7 @@ where
 {
     fn from(value: OffsetBuffer<O>) -> Self {
         let primitive = PrimitiveArray::new(
-            vortex_buffer::Buffer::from_arrow_scalar_buffer(value.into_inner()),
+            Buffer::from_arrow_scalar_buffer(value.into_inner()),
             Validity::NonNullable,
         );
         primitive.statistics().set(Stat::IsSorted, true.into());
@@ -83,7 +83,7 @@ where
 {
     fn from_arrow(value: &ArrowPrimitiveArray<T>, nullable: bool) -> Self {
         let arr = PrimitiveArray::new(
-            vortex_buffer::Buffer::from_arrow_scalar_buffer(value.values().clone()),
+            Buffer::from_arrow_scalar_buffer(value.values().clone()),
             nulls(value.nulls(), nullable),
         );
 
@@ -139,8 +139,13 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
             DataType::Utf8View => DType::Utf8(nullable.into()),
             _ => vortex_panic!("Invalid data type for ByteViewArray: {}", T::DATA_TYPE),
         };
+
+        let views_buffer = Buffer::from_byte_buffer(
+            Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
+        );
+
         VarBinViewArray::try_new(
-            value.views().inner().clone().into(),
+            views_buffer,
             value
                 .data_buffers()
                 .iter()

@@ -101,7 +101,7 @@ impl Ref {
 }
 
 #[derive(Clone, Copy)]
-#[repr(C, align(8))]
+#[repr(C, align(16))]
 pub union BinaryView {
     // Numeric representation. This is logically `u128`, but we split it into the high and low
     // bits to preserve the alignment.
@@ -117,7 +117,7 @@ pub union BinaryView {
 assert_eq_size!(BinaryView, [u8; 16]);
 assert_eq_size!(Inlined, [u8; 16]);
 assert_eq_size!(Ref, [u8; 16]);
-assert_eq_align!(BinaryView, u64);
+assert_eq_align!(BinaryView, u128);
 
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;
@@ -191,9 +191,6 @@ impl Debug for BinaryView {
     }
 }
 
-// reminder: views are 16 bytes with 8-byte alignment
-pub(crate) const VIEW_SIZE_BYTES: usize = size_of::<BinaryView>();
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VarBinViewMetadata {
     // Validity metadata
@@ -234,13 +231,13 @@ impl_encoding!("vortex.varbinview", ids::VAR_BIN_VIEW, VarBinView);
 
 impl VarBinViewArray {
     pub fn try_new(
-        views: ArrayData,
+        views: Buffer<BinaryView>,
         buffers: Vec<ArrayData>,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        if !matches!(views.dtype(), &DType::BYTES) {
-            vortex_bail!(MismatchedTypes: "views u8", views.dtype());
+        if views.alignment() != Alignment::of::<BinaryView>() {
+            vortex_bail!("Views must be aligned to a 128 bits");
         }
 
         for d in buffers.iter() {
@@ -257,7 +254,6 @@ impl VarBinViewArray {
             vortex_bail!("incorrect validity {:?}", validity);
         }
 
-        let num_views = views.len() / VIEW_SIZE_BYTES;
         let buffer_lens: Vec<u32> = buffers
             .iter()
             .map(|buffer| -> VortexResult<u32> {
@@ -266,24 +262,26 @@ impl VarBinViewArray {
             })
             .try_collect()?;
         let metadata = VarBinViewMetadata {
-            validity: validity.to_metadata(num_views)?,
+            validity: validity.to_metadata(views.len())?,
             buffer_lens,
         };
 
-        let mut children = Vec::with_capacity(buffers.len() + 2);
-        children.push(views);
+        let mut children = Vec::with_capacity(buffers.len() + 1);
+
         children.extend(buffers);
         if let Some(a) = validity.into_array() {
             children.push(a)
         }
 
-        Self::try_from_parts(
+        Self::try_from(ArrayData::try_new_owned(
+            &VarBinViewEncoding,
             dtype,
-            num_views,
-            metadata,
+            views.len(),
+            Arc::new(metadata),
+            [views.into_byte_buffer()].into(),
             children.into(),
             StatsSet::default(),
-        )
+        )?)
     }
 
     /// Number of raw string data buffers held by this array.
@@ -297,7 +295,7 @@ impl VarBinViewArray {
     /// only require hitting the prefixes or inline strings.
     pub fn binary_views(&self) -> VortexResult<Views> {
         Ok(Views {
-            inner: self.views().into_primitive()?.into_byte_buffer(),
+            inner: self.views(),
             idx: 0,
             len: self.len(),
         })
@@ -308,28 +306,22 @@ impl VarBinViewArray {
     /// If you will be calling this method many times, it's recommended that you instead use the
     /// iterator provided by [`binary_views`][Self::binary_views].
     pub fn view_at(&self, index: usize) -> VortexResult<BinaryView> {
-        let start = index * VIEW_SIZE_BYTES;
-        let stop = (index + 1) * VIEW_SIZE_BYTES;
-        let view_bytes = slice(self.views(), start, stop)?
-            .into_primitive()?
-            .into_byte_buffer();
-
-        let mut le_bytes: [u8; 16] = [0u8; 16];
-        le_bytes.copy_from_slice(view_bytes.as_slice());
-
-        Ok(BinaryView { le_bytes })
+        Ok(self.views()[index])
     }
 
-    /// Access to the primitive views array.
+    /// Access to the primitive views buffer.
     ///
-    /// Variable-sized binary view arrays contain a "view" child array, with 16-byte entries that
+    /// Variable-sized binary view buffer contain a "view" child array, with 16-byte entries that
     /// contain either a pointer into one of the array's owned `buffer`s OR an inlined copy of
     /// the string (if the string has 12 bytes or fewer).
     #[inline]
-    pub fn views(&self) -> ArrayData {
-        self.as_ref()
-            .child(0, &DType::BYTES, self.len() * VIEW_SIZE_BYTES)
-            .vortex_expect("VarBinViewArray: views child")
+    pub fn views(&self) -> Buffer<BinaryView> {
+        Buffer::from_byte_buffer(
+            self.0
+                .byte_buffer(0)
+                .vortex_expect("Expected a views buffer")
+                .clone(),
+        )
     }
 
     /// Access one of the backing data buffers.
@@ -342,7 +334,7 @@ impl VarBinViewArray {
     pub fn buffer(&self, idx: usize) -> ArrayData {
         self.as_ref()
             .child(
-                idx + 1,
+                idx,
                 &DType::BYTES,
                 self.metadata().buffer_lens[idx] as usize,
             )
@@ -374,7 +366,7 @@ impl VarBinViewArray {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
                 .child(
-                    (self.metadata().buffer_lens.len() + 1) as _,
+                    (self.metadata().buffer_lens.len()) as _,
                     &Validity::DTYPE,
                     self.len(),
                 )
@@ -486,7 +478,7 @@ impl VarBinViewArray {
 }
 
 pub struct Views {
-    inner: ByteBuffer,
+    inner: Buffer<BinaryView>,
     len: usize,
     idx: usize,
 }
@@ -498,14 +490,10 @@ impl Iterator for Views {
         if self.idx >= self.len {
             None
         } else {
-            // SAFETY: constructing the BinaryView against u128 value
-            let mut le_bytes = [0u8; 16];
-            let start = self.idx * VIEW_SIZE_BYTES;
-            let stop = start + VIEW_SIZE_BYTES;
-            le_bytes.copy_from_slice(&self.inner[start..stop]);
+            let view = self.inner[self.idx];
 
             self.idx += 1;
-            Some(BinaryView { le_bytes })
+            Some(view)
         }
     }
 }
@@ -544,17 +532,7 @@ impl IntoCanonical for VarBinViewArray {
 }
 
 pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
-    // Views should be buffer of u8
-    let views = var_bin_view
-        .views()
-        .into_primitive()
-        .vortex_expect("VarBinViewArray: views child must be primitive");
-    assert_eq!(views.ptype(), PType::U8);
-    let views = Buffer::<u128>::from_byte_buffer(
-        // FIXME(ngates): this can copy the buffer if it's not aligned.
-        //  See https://github.com/spiraldb/vortex/issues/1921
-        views.byte_buffer().clone().aligned(Alignment::of::<u128>()),
-    );
+    let views = var_bin_view.views();
 
     let nulls = var_bin_view
         .logical_validity()
@@ -607,10 +585,11 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
 
 impl VisitorVTable<VarBinViewArray> for VarBinViewEncoding {
     fn accept(&self, array: &VarBinViewArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("views", &array.views())?;
         for i in 0..array.metadata().buffer_lens.len() {
             visitor.visit_child(format!("bytes_{i}").as_str(), &array.buffer(i))?;
         }
+
+        visitor.visit_buffer(&array.views().into_byte_buffer())?;
         visitor.visit_validity(&array.validity())
     }
 }
@@ -643,7 +622,7 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 mod test {
     use vortex_scalar::Scalar;
 
-    use crate::array::varbinview::{BinaryView, VarBinViewArray, VIEW_SIZE_BYTES};
+    use crate::array::varbinview::{BinaryView, VarBinViewArray};
     use crate::compute::{scalar_at, slice};
     use crate::{ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
@@ -691,8 +670,7 @@ mod test {
 
     #[test]
     pub fn binary_view_size_and_alignment() {
-        assert_eq!(size_of::<BinaryView>(), VIEW_SIZE_BYTES);
         assert_eq!(size_of::<BinaryView>(), 16);
-        assert_eq!(align_of::<BinaryView>(), 8);
+        assert_eq!(align_of::<BinaryView>(), 16);
     }
 }

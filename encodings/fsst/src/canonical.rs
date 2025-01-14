@@ -1,8 +1,8 @@
 use arrow_array::builder::make_view;
-use vortex_array::array::{VarBinArray, VarBinViewArray};
+use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
@@ -36,7 +36,7 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Directly create the binary views.
-            let mut views = BufferMut::<u128>::with_capacity(uncompressed_lens_array.len());
+            let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
 
             match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
                 let mut offset = 0;
@@ -48,16 +48,16 @@ impl IntoCanonical for FSSTArray {
                         offset as u32,
                     );
                     // SAFETY: we reserved the right capacity beforehand
-                    unsafe { views.push_unchecked(view) };
+                    unsafe { views.push_unchecked(view.into()) };
                     offset += len;
                 }
             });
 
-            let views_array: ArrayData = views.freeze().into_byte_buffer().into_array();
+            let views = views.freeze();
             let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes).into_array();
 
             VarBinViewArray::try_new(
-                views_array,
+                views,
                 vec![uncompressed_bytes_array],
                 self.dtype().clone(),
                 self.validity(),

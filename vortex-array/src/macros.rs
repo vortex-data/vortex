@@ -46,7 +46,7 @@ macro_rules! impl_encoding {
                     dtype: vortex_dtype::DType,
                     len: usize,
                     metadata: [<$Name Metadata>],
-                    children: std::sync::Arc<[$crate::ArrayData]>,
+                    children: Box<[$crate::ArrayData]>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
                     Self::try_from($crate::ArrayData::try_new_owned(
