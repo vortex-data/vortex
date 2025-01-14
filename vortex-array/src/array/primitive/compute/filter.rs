@@ -14,9 +14,7 @@ impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
         match_each_native_ptype!(array.ptype(), |$T| {
             let values = match mask.iter()? {
                 FilterIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
-                FilterIter::IndicesIter(iter) => filter_primitive_indices(array.as_slice::<$T>(), iter),
                 FilterIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
-                FilterIter::SlicesIter(iter) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), iter),
             };
             Ok(PrimitiveArray::new(values, validity).into_array())
         })

@@ -11,17 +11,11 @@ impl FilterFn<BoolArray> for BoolEncoding {
 
         let buffer = match mask.iter()? {
             FilterIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
-            FilterIter::IndicesIter(iter) => {
-                filter_indices(&array.boolean_buffer(), mask.true_count(), iter)
-            }
             FilterIter::Slices(slices) => filter_slices(
                 &array.boolean_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
             ),
-            FilterIter::SlicesIter(iter) => {
-                filter_slices(&array.boolean_buffer(), mask.true_count(), iter)
-            }
         };
 
         Ok(BoolArray::try_new(buffer, validity)?.into_array())

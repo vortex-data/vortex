@@ -1,18 +1,18 @@
-use std::iter::TrustedLen;
 use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
-use num_traits::AsPrimitive;
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+};
 
-use crate::array::{BoolArray, ConstantArray};
+use crate::array::ConstantArray;
 use crate::arrow::FromArrowArray;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical};
 
 /// If the filter selects more than this fraction of rows, iterate over slices instead of indices.
 ///
@@ -92,7 +92,7 @@ fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
 
     // We can use scalar_at if the mask has length 1.
     if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
-        let idx = mask.indices()?[0];
+        let idx = mask.first().vortex_expect("true_count == 1");
         return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
     }
 
@@ -103,210 +103,277 @@ fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     );
 
     let array_ref = array.clone().into_arrow()?;
-    let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
+    let mask_array = BooleanArray::new(mask.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
     Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
 /// Represents the mask argument to a filter function.
-/// Internally this will cache the canonical representation of the mask if it is ever used.
+///
+/// A [`FilterMask`] can be constructed from various representations, and converted to various
+/// others. Internally, these are cached.
+#[derive(Clone, Debug)]
+pub struct FilterMask(Arc<Inner>);
+
 #[derive(Debug)]
-pub struct FilterMask {
-    array: ArrayData,
+struct Inner {
+    // The three possible representations of the mask.
+    buffer: OnceLock<BooleanBuffer>,
+    indices: OnceLock<Vec<usize>>,
+    slices: OnceLock<Vec<(usize, usize)>>,
+
+    // Pre-computed values.
+    len: usize,
     true_count: usize,
-    range_selectivity: f64,
-    indices: Arc<OnceLock<Vec<usize>>>,
-    slices: Arc<OnceLock<Vec<(usize, usize)>>>,
-    buffer: Arc<OnceLock<BooleanBuffer>>,
+    selectivity: f64,
 }
 
-/// We implement Clone manually to trigger population of our cached indices or slices.
-/// By making the filter API take FilterMask by value, whenever it gets used multiple times
-/// in a recursive function, we will cache the slices internally.
-impl Clone for FilterMask {
-    fn clone(&self) -> Self {
-        if self.range_selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            let _: VortexResult<_> = self
-                .slices
-                .get_or_try_init(|| Ok(self.boolean_buffer()?.set_slices().collect()));
-        } else {
-            let _: VortexResult<_> = self.indices();
+impl Inner {
+    /// Constructs a [`BooleanBuffer`] from one of the other representations.
+    fn buffer(&self) -> &BooleanBuffer {
+        self.buffer.get_or_init(|| {
+            if self.true_count == self.len {
+                return BooleanBuffer::new_set(self.len);
+            }
+
+            if let Some(indices) = self.indices.get() {
+                let mut buf = BooleanBufferBuilder::new(self.len);
+                if indices.len() < self.len / 2 {
+                    buf.append_n(self.len, false);
+                    indices.iter().for_each(|idx| buf.set_bit(*idx, true));
+                } else {
+                    buf.append_n(self.len, true);
+                    indices.iter().for_each(|idx| buf.set_bit(*idx, false));
+                }
+                return BooleanBuffer::from(buf);
+            }
+
+            if let Some(slices) = self.slices.get() {
+                let mut buf = BooleanBufferBuilder::new(self.len);
+                slices.iter().for_each(|(start, end)| {
+                    buf.append_n(*start - buf.len(), false);
+                    buf.append_n(end - start, true);
+                });
+                return BooleanBuffer::from(buf);
+            }
+
+            vortex_panic!("No mask representation found")
+        })
+    }
+
+    /// Constructs an indices vector from one of the other representations.
+    fn indices(&self) -> &[usize] {
+        self.indices.get_or_init(|| {
+            if self.true_count == self.len {
+                return (0..self.len).collect();
+            }
+
+            if let Some(buffer) = self.buffer.get() {
+                let mut indices = Vec::with_capacity(self.true_count);
+                indices.extend(buffer.set_indices());
+                return indices;
+            }
+
+            if let Some(slices) = self.slices.get() {
+                let mut indices = Vec::with_capacity(self.true_count);
+                indices.extend(slices.iter().flat_map(|(start, end)| *start..*end));
+                return indices;
+            }
+
+            vortex_panic!("No mask representation found")
+        })
+    }
+
+    /// Constructs a slices vector from one of the other representations.
+    fn slices(&self) -> &[(usize, usize)] {
+        self.slices.get_or_init(|| {
+            if self.true_count == self.len {
+                return vec![(0, self.len)];
+            }
+
+            if let Some(buffer) = self.buffer.get() {
+                return buffer.set_slices().collect();
+            }
+
+            if let Some(indices) = self.indices.get() {
+                let mut slices = Vec::with_capacity(self.true_count); // Upper bound
+                let mut start = 0;
+                let mut end = 0;
+                for idx in indices {
+                    if *idx == end {
+                        end += 1;
+                    } else {
+                        if end >= start {
+                            // Only push if we have a valid range
+                            slices.push((start, end + 1));
+                        }
+                        start = *idx;
+                        end = idx + 1;
+                    }
+                }
+                if end >= start {
+                    slices.push((start, end + 1));
+                }
+                return slices;
+            }
+
+            vortex_panic!("No mask representation found")
+        })
+    }
+
+    fn first(&self) -> Option<usize> {
+        if self.true_count == 0 {
+            return None;
         }
-
-        Self {
-            array: self.array.clone(),
-            true_count: self.true_count,
-            range_selectivity: self.range_selectivity,
-            indices: self.indices.clone(),
-            slices: self.slices.clone(),
-            buffer: self.buffer.clone(),
+        if self.true_count == self.len {
+            return Some(0);
         }
-    }
-}
-
-/// Wrapper around Arrow's BitIndexIterator that knows its total length.
-pub struct BitIndexIterator<'a> {
-    inner: arrow_buffer::bit_iterator::BitIndexIterator<'a>,
-    index: usize,
-    trusted_len: usize,
-}
-
-impl<'a> BitIndexIterator<'a> {
-    pub fn new(
-        inner: arrow_buffer::bit_iterator::BitIndexIterator<'a>,
-        trusted_len: usize,
-    ) -> Self {
-        Self {
-            inner,
-            index: 0,
-            trusted_len,
+        if let Some(buffer) = self.buffer.get() {
+            return buffer.set_indices().next();
         }
+        if let Some(indices) = self.indices.get() {
+            return indices.first().copied();
+        }
+        if let Some(slices) = self.slices.get() {
+            return slices.first().map(|(start, _)| *start);
+        }
+        None
     }
-}
-
-impl Iterator for BitIndexIterator<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.index += 1;
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.trusted_len - self.index;
-        (remaining, Some(remaining))
-    }
-}
-
-/// Safety: BitIndexIterator is TrustedLen because it knows its total length.
-unsafe impl TrustedLen for BitIndexIterator<'_> {}
-impl ExactSizeIterator for BitIndexIterator<'_> {}
-
-pub enum FilterIter<'a> {
-    // Slice of pre-cached indices of a filter mask.
-    Indices(&'a [usize]),
-    // Iterator over set bits of the filter mask's boolean buffer.
-    IndicesIter(BitIndexIterator<'a>),
-    // Slice of pre-cached slices of a filter mask.
-    Slices(&'a [(usize, usize)]),
-    // Iterator over contiguous ranges of set bits of the filter mask's boolean buffer.
-    SlicesIter(arrow_buffer::bit_iterator::BitSliceIterator<'a>),
 }
 
 impl FilterMask {
     /// Create a new FilterMask where all values are set.
     pub fn new_true(length: usize) -> Self {
-        Self::from(BooleanBuffer::new_set(length))
+        Self(Arc::new(Inner {
+            buffer: Default::default(),
+            indices: Default::default(),
+            slices: Default::default(),
+            len: length,
+            true_count: length,
+            selectivity: 1.0,
+        }))
     }
 
-    /// Create a new FilterMask where the given indices are set.
-    pub fn from_indices<V: AsPrimitive<usize>, I: IntoIterator<Item = V>>(
-        length: usize,
-        indices: I,
-    ) -> Self {
-        let mut buffer = MutableBuffer::new_null(length);
-        indices
-            .into_iter()
-            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx.as_()));
-        Self::from(BooleanBufferBuilder::new_from_buffer(buffer, length).finish())
+    /// Create a new FilterMask where no values are set.
+    pub fn new_false(length: usize) -> Self {
+        Self(Arc::new(Inner {
+            buffer: Default::default(),
+            indices: Default::default(),
+            slices: Default::default(),
+            len: length,
+            true_count: 0,
+            selectivity: 0.0,
+        }))
     }
 
+    /// Create a new [`FilterMask`] from a [`BooleanBuffer`].
+    pub fn from_buffer(buffer: BooleanBuffer) -> Self {
+        let true_count = buffer.count_set_bits();
+        let len = buffer.len();
+        Self(Arc::new(Inner {
+            buffer: OnceLock::from(buffer),
+            indices: Default::default(),
+            slices: Default::default(),
+            len,
+            true_count,
+            selectivity: true_count as f64 / len as f64,
+        }))
+    }
+
+    /// Create a new [`FilterMask`] from a [`Vec<usize>`].
+    pub fn from_indices(len: usize, vec: Vec<usize>) -> Self {
+        let true_count = vec.len();
+        debug_assert!(vec.iter().all(|&idx| idx < len));
+        Self(Arc::new(Inner {
+            buffer: Default::default(),
+            indices: OnceLock::from(vec),
+            slices: Default::default(),
+            len,
+            true_count,
+            selectivity: true_count as f64 / len as f64,
+        }))
+    }
+
+    /// Create a new [`FilterMask`] from a [`Vec<(usize, usize)>`] where each range
+    /// represents a contiguous range of true values.
+    pub fn from_slices(len: usize, vec: Vec<(usize, usize)>) -> Self {
+        let true_count = vec.len();
+        debug_assert!(vec.iter().all(|&(b, e)| b < e && e < len));
+        Self(Arc::new(Inner {
+            buffer: Default::default(),
+            indices: Default::default(),
+            slices: OnceLock::from(vec),
+            len,
+            true_count,
+            selectivity: true_count as f64 / len as f64,
+        }))
+    }
+
+    #[inline]
     pub fn len(&self) -> usize {
-        self.array.len()
+        self.0.len
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.array.is_empty()
+        self.0.len == 0
     }
 
     /// Get the true count of the mask.
+    #[inline]
     pub fn true_count(&self) -> usize {
-        self.true_count
+        self.0.true_count
     }
 
     /// Get the false count of the mask.
+    #[inline]
     pub fn false_count(&self) -> usize {
-        self.array.len() - self.true_count
+        self.len() - self.true_count()
     }
 
     /// Return the selectivity of the full mask.
+    #[inline]
     pub fn selectivity(&self) -> f64 {
-        self.true_count as f64 / self.len() as f64
-    }
-
-    /// Return the selectivity of the range of true values of the mask.
-    pub fn range_selectivity(&self) -> f64 {
-        self.range_selectivity
+        self.0.selectivity
     }
 
     /// Get the canonical representation of the mask.
-    pub fn to_boolean_buffer(&self) -> VortexResult<BooleanBuffer> {
-        log::debug!(
-            "FilterMask: len {} selectivity: {} true_count: {}",
-            self.len(),
-            self.range_selectivity(),
-            self.true_count,
-        );
-        self.boolean_buffer().cloned()
+    pub fn boolean_buffer(&self) -> &BooleanBuffer {
+        self.0.buffer()
     }
 
-    fn boolean_buffer(&self) -> VortexResult<&BooleanBuffer> {
-        self.buffer.get_or_try_init(|| {
-            Ok(self
-                .array
-                .clone()
-                .into_canonical()?
-                .into_bool()?
-                .boolean_buffer())
-        })
+    /// Get the indices of the true values in the mask.
+    pub fn indices(&self) -> &[usize] {
+        self.0.indices()
     }
 
-    fn indices(&self) -> VortexResult<&[usize]> {
-        self.indices
-            .get_or_try_init(|| {
-                let mut indices = Vec::with_capacity(self.true_count());
-                indices.extend(self.boolean_buffer()?.set_indices());
-                Ok(indices)
-            })
-            .map(|v| v.as_slice())
+    /// Get the slices of the true values in the mask.
+    pub fn slices(&self) -> &[(usize, usize)] {
+        self.0.slices()
+    }
+
+    /// Returns the first true index in the mask.
+    pub fn first(&self) -> Option<usize> {
+        self.0.first()
     }
 
     /// Returns the best iterator based on a selectivity threshold.
     ///
     /// Currently, this threshold is fixed at 0.8 based on Arrow Rust.
     pub fn iter(&self) -> VortexResult<FilterIter> {
-        Ok(
-            if self.range_selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-                // Iterate over slices
-                if let Some(slices) = self.slices.get() {
-                    FilterIter::Slices(slices.as_slice())
-                } else {
-                    FilterIter::SlicesIter(self.boolean_buffer()?.set_slices())
-                }
-            } else {
-                // Iterate over indices
-                if let Some(indices) = self.indices.get() {
-                    FilterIter::Indices(indices.as_slice())
-                } else {
-                    FilterIter::IndicesIter(BitIndexIterator::new(
-                        self.boolean_buffer()?.set_indices(),
-                        self.true_count,
-                    ))
-                }
-            },
-        )
+        if self.selectivity() > FILTER_SLICES_SELECTIVITY_THRESHOLD {
+            return Ok(FilterIter::Slices(self.slices()));
+        }
+        Ok(FilterIter::Indices(self.indices()))
     }
+}
 
-    #[deprecated(note = "Move to using iter() instead")]
-    pub fn iter_slices(&self) -> VortexResult<impl Iterator<Item = (usize, usize)> + '_> {
-        Ok(self.boolean_buffer()?.set_slices())
-    }
-
-    #[deprecated(note = "Move to using iter() instead")]
-    pub fn iter_indices(&self) -> VortexResult<impl Iterator<Item = usize> + '_> {
-        Ok(self.boolean_buffer()?.set_indices())
-    }
+pub enum FilterIter<'a> {
+    /// Slice of pre-cached indices of a filter mask.
+    Indices(&'a [usize]),
+    /// Slice of pre-cached slices of a filter mask.
+    Slices(&'a [(usize, usize)]),
 }
 
 impl TryFrom<ArrayData> for FilterMask {
@@ -325,29 +392,28 @@ impl TryFrom<ArrayData> for FilterMask {
             .compute_true_count()
             .ok_or_else(|| vortex_err!("Failed to compute true count for boolean array"))?;
 
-        let selectivity = true_count as f64 / array.len() as f64;
+        if true_count == 0 {
+            return Ok(Self::new_false(array.len()));
+        }
+        if true_count == array.len() {
+            return Ok(Self::new_true(array.len()));
+        }
 
-        Ok(Self {
-            array,
-            true_count,
-            range_selectivity: selectivity,
-            indices: Arc::new(OnceLock::new()),
-            slices: Arc::new(OnceLock::new()),
-            buffer: Arc::new(OnceLock::new()),
-        })
+        // TODO(ngates): should we have a `to_filter_mask` compute function where encodings
+        //  pick the best possible conversion? E.g. SparseArray may want from_indices.
+        Ok(Self::from_buffer(array.into_bool()?.boolean_buffer()))
     }
 }
 
 impl From<BooleanBuffer> for FilterMask {
     fn from(value: BooleanBuffer) -> Self {
-        Self::try_from(BoolArray::from(value).into_array())
-            .vortex_expect("Failed to convert BooleanBuffer to FilterMask")
+        Self::from_buffer(value)
     }
 }
 
 impl FromIterator<bool> for FilterMask {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::from(BooleanBuffer::from_iter(iter))
+        Self::from_buffer(BooleanBuffer::from_iter(iter))
     }
 }
 

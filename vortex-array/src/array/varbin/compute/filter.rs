@@ -61,7 +61,7 @@ where
     if let Some(val) = logical_validity.to_null_buffer()? {
         let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
-        for (start, end) in mask.iter_slices()? {
+        for (start, end) in mask.slices().iter().copied() {
             let null_sl = val.slice(start, end - start);
             if null_sl.null_count() == 0 {
                 update_non_nullable_slice(data, offsets, &mut builder, start, end)
@@ -93,8 +93,8 @@ where
 
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
-    mask.iter_slices()?.for_each(|(start, end)| {
-        update_non_nullable_slice(data, offsets, &mut builder, start, end)
+    mask.slices().into_iter().for_each(|(start, end)| {
+        update_non_nullable_slice(data, offsets, &mut builder, *start, *end)
     });
 
     Ok(builder.finish(dtype))
@@ -154,7 +154,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
-    for idx in mask.iter_indices()? {
+    for idx in mask.indices().iter().copied() {
         if validity.is_valid(idx) {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {

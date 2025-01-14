@@ -115,7 +115,7 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     let mut start = 0u64;
     let mut j = 0;
     let mut count = R::zero();
-    let filter_values = mask.to_boolean_buffer()?;
+    let filter_values = mask.boolean_buffer();
 
     let new_mask: FilterMask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;

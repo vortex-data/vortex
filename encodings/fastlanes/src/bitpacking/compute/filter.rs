@@ -51,11 +51,9 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         FilterIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
         }
-        FilterIter::IndicesIter(iter) => filter_indices(array, mask.true_count(), iter),
         FilterIter::Slices(slices) => {
             filter_slices(array, mask.true_count(), slices.iter().copied())
         }
-        FilterIter::SlicesIter(iter) => filter_slices(array, mask.true_count(), iter),
     };
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
@@ -143,7 +141,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let mask = FilterMask::from_indices(bitpacked.len(), [0, 125, 2047, 2049, 2151, 2790]);
+        let mask = FilterMask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
         let primitive_result = filter(bitpacked.as_ref(), mask)
             .unwrap()
@@ -160,7 +158,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
-        let mask = FilterMask::from_indices(sliced.len(), [1919, 1921]);
+        let mask = FilterMask::from_indices(sliced.len(), vec![1919, 1921]);
 
         let primitive_result = filter(&sliced, mask).unwrap().into_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
@@ -171,7 +169,11 @@ mod test {
     fn filter_bitpacked() {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let filtered = filter(bitpacked.as_ref(), FilterMask::from_indices(4096, 0..1024)).unwrap();
+        let filtered = filter(
+            bitpacked.as_ref(),
+            FilterMask::from_indices(4096, (0..1024).collect()),
+        )
+        .unwrap();
         assert_eq!(
             filtered.into_primitive().unwrap().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
@@ -185,7 +187,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            FilterMask::from_indices(values.len(), 0..250),
+            FilterMask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()
         .into_primitive()

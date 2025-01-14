@@ -199,7 +199,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let buffer = mask.to_boolean_buffer()?;
+        let buffer = mask.boolean_buffer();
         let mut coordinate_indices = BufferMut::<u64>::empty();
         let mut value_indices = BufferMut::<u64>::empty();
         let mut last_inserted_index: usize = 0;
@@ -402,7 +402,7 @@ mod test {
         );
 
         let filtered = patches
-            .filter(FilterMask::from_indices(100, [10u32, 20, 30]))
+            .filter(FilterMask::from_indices(100, vec![10, 20, 30]))
             .unwrap()
             .unwrap();
 

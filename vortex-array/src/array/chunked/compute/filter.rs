@@ -72,8 +72,8 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
-    for (slice_start, slice_end) in mask.iter_slices()? {
-        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
+    for (slice_start, slice_end) in mask.slices() {
+        let (start_chunk, start_idx) = find_chunk_idx(*slice_start, chunk_ends);
         // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
         // want to index into the unused chunk.
         let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_ends);
@@ -148,8 +148,8 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
     let chunk_ends = chunk_ends.as_slice::<u64>();
 
-    for set_index in mask.iter_indices()? {
-        let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);
+    for set_index in mask.indices() {
+        let (chunk_id, index) = find_chunk_idx(*set_index, chunk_ends);
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
@@ -215,7 +215,7 @@ mod test {
         let slices = [(2, 4), (6, 8), (9, 10)];
         let predicate = slices_to_mask(&slices, 11);
 
-        let bools = predicate.to_boolean_buffer().unwrap().iter().collect_vec();
+        let bools = predicate.boolean_buffer().iter().collect_vec();
 
         assert_eq!(
             bools,

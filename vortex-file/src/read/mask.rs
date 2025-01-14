@@ -27,7 +27,7 @@ impl PartialEq for RowMask {
     fn eq(&self, other: &Self) -> bool {
         self.begin == other.begin
             && self.end == other.end
-            && self.mask.to_boolean_buffer().unwrap() == other.mask.to_boolean_buffer().unwrap()
+            && self.mask.boolean_buffer() == other.mask.boolean_buffer()
     }
 }
 
@@ -110,7 +110,11 @@ impl RowMask {
         // TODO(ngates): should from_indices take u64?
         let mask = FilterMask::from_indices(
             end - begin,
-            indices.as_slice::<u64>().iter().map(|i| *i as usize),
+            indices
+                .as_slice::<u64>()
+                .iter()
+                .map(|i| *i as usize)
+                .collect(),
         );
 
         RowMask::try_new(mask, begin, end)
@@ -145,10 +149,10 @@ impl RowMask {
 
         // If both masks align perfectly
         if self.begin == other.begin && self.end == other.end {
-            let this_buffer = self.mask.to_boolean_buffer()?;
-            let other_buffer = other.mask.to_boolean_buffer()?;
+            let this_buffer = self.mask.boolean_buffer();
+            let other_buffer = other.mask.boolean_buffer();
 
-            let unified = &this_buffer & (&other_buffer);
+            let unified = this_buffer & other_buffer;
             return RowMask::from_mask_array(
                 BoolArray::from(unified).as_ref(),
                 self.begin,
@@ -166,8 +170,8 @@ impl RowMask {
 
         let output_end = max(self.end, other.end);
 
-        let this_buffer = self.mask.to_boolean_buffer()?;
-        let other_buffer = other.mask.to_boolean_buffer()?;
+        let this_buffer = self.mask.boolean_buffer();
+        let other_buffer = other.mask.boolean_buffer();
         let self_indices = this_buffer
             .set_indices()
             .map(|v| v + self.begin)
@@ -179,7 +183,7 @@ impl RowMask {
 
         let output_mask = FilterMask::from_indices(
             output_end,
-            self_indices.intersection(&other_indices).copied(),
+            self_indices.intersection(&other_indices).copied().collect(),
         );
 
         Self::try_new(output_mask, 0, output_end)
@@ -215,7 +219,7 @@ impl RowMask {
             } else {
                 FilterMask::from(
                     self.mask
-                        .to_boolean_buffer()?
+                        .boolean_buffer()
                         .slice(range_begin - self.begin, range_end - range_begin),
                 )
             },
@@ -255,8 +259,9 @@ impl RowMask {
     fn to_indices_array(&self) -> VortexResult<ArrayData> {
         Ok(PrimitiveArray::new(
             self.mask
-                .iter_indices()?
-                .map(|i| i as u64)
+                .indices()
+                .iter()
+                .map(|i| *i as u64)
                 .collect::<Buffer<u64>>(),
             Validity::NonNullable,
         )
