@@ -36,7 +36,7 @@ fn filter_select_var_bin_by_slice(
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
-            values.bytes().into_primitive()?.as_slice::<u8>(),
+            values.bytes().as_slice(),
             mask,
             values.validity(),
             selection_count
@@ -136,7 +136,7 @@ fn filter_select_var_bin_by_index(
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
-            values.bytes().into_primitive()?.as_slice::<u8>(),
+            values.bytes().as_slice(),
             mask,
             values.validity(),
             selection_count
@@ -187,7 +187,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::{scalar_at, FilterMask};
     use crate::validity::Validity;
-    use crate::{IntoArrayData, ToArrayData};
+    use crate::ToArrayData;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
         Scalar::utf8(s.to_owned(), Nullable)
@@ -240,7 +240,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_null_test() {
-        let x = [
+        let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
             b"three".as_slice(),
@@ -252,7 +252,6 @@ mod test {
         .flat_map(|x| x.iter().cloned())
         .collect::<ByteBuffer>();
 
-        let bytes = x.into_array();
         let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).to_array();
         let validity =
             Validity::Array(BoolArray::from_iter([true, false, true, true, true, true]).to_array());

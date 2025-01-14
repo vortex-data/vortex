@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
@@ -13,12 +14,12 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
-use crate::compute::{scalar_at, slice};
+use crate::compute::scalar_at;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayVariant};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait};
 
 mod accessor;
 mod array;
@@ -47,7 +48,7 @@ impl Display for VarBinMetadata {
 impl VarBinArray {
     pub fn try_new(
         offsets: ArrayData,
-        bytes: ArrayData,
+        bytes: ByteBuffer,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -55,9 +56,7 @@ impl VarBinArray {
             vortex_bail!(MismatchedTypes: "non nullable int", offsets.dtype());
         }
         let offsets_ptype = PType::try_from(offsets.dtype()).vortex_unwrap();
-        if !matches!(bytes.dtype(), &DType::BYTES) {
-            vortex_bail!(MismatchedTypes: "u8", bytes.dtype());
-        }
+
         if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
             vortex_bail!(MismatchedTypes: "utf8 or binary", dtype);
         }
@@ -73,20 +72,32 @@ impl VarBinArray {
             bytes_len: bytes.len(),
         };
 
-        let mut children = Vec::with_capacity(3);
-        children.push(offsets);
-        children.push(bytes);
-        if let Some(a) = validity.into_array() {
-            children.push(a)
-        }
+        let children = match validity.into_array() {
+            Some(validity) => {
+                vec![offsets, validity]
+            }
+            None => {
+                vec![offsets]
+            }
+        };
 
-        Self::try_from_parts(
+        Self::try_from(ArrayData::try_new_owned(
+            &VarBinEncoding,
             dtype,
             length,
-            metadata,
+            Arc::new(metadata),
+            [bytes].into(),
             children.into(),
             StatsSet::default(),
-        )
+        )?)
+
+        // Self::try_from_parts(
+        //     dtype,
+        //     length,
+        //     metadata,
+        //     children.into(),
+        //     StatsSet::default(),
+        // )
     }
 
     #[inline]
@@ -117,28 +128,28 @@ impl VarBinArray {
     /// that are not logically present in the array. Users should prefer [sliced_bytes][Self::sliced_bytes]
     /// unless they're resolving values via offset child array.
     #[inline]
-    pub fn bytes(&self) -> ArrayData {
+    pub fn bytes(&self) -> ByteBuffer {
         self.as_ref()
-            .child(1, &DType::BYTES, self.metadata().bytes_len)
-            .vortex_expect("Missing bytes in VarBinArray")
+            .byte_buffer(0)
+            .vortex_expect("Missing data buffer")
+            .clone()
     }
 
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(2, &Validity::DTYPE, self.len())
+                .child(1, &Validity::DTYPE, self.len())
                 .vortex_expect("VarBinArray: validity child")
         })
     }
 
     /// Access value bytes child array limited to values that are logically present in
     /// the array unlike [bytes][Self::bytes].
-    pub fn sliced_bytes(&self) -> VortexResult<ArrayData> {
-        let first_offset: usize = scalar_at(self.offsets(), 0)?.as_ref().try_into()?;
-        let last_offset: usize = scalar_at(self.offsets(), self.offsets().len() - 1)?
-            .as_ref()
-            .try_into()?;
-        slice(self.bytes(), first_offset, last_offset)
+    pub fn sliced_bytes(&self) -> ByteBuffer {
+        let first_offset: usize = self.offset_at(0);
+        let last_offset = self.offset_at(self.offsets().len() - 1);
+
+        self.bytes().slice(first_offset..last_offset)
     }
 
     pub fn from_vec<T: AsRef<[u8]>>(vec: Vec<T>, dtype: DType) -> Self {
@@ -188,8 +199,7 @@ impl VarBinArray {
     }
 
     pub fn offset_at(&self, index: usize) -> usize {
-        PrimitiveArray::try_from(self.offsets())
-            .ok()
+        PrimitiveArray::maybe_from(self.offsets())
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
                     p.as_slice::<$P>()[index].as_()
@@ -209,13 +219,13 @@ impl VarBinArray {
     pub fn bytes_at(&self, index: usize) -> VortexResult<ByteBuffer> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
-        let sliced = slice(self.bytes(), start, end)?;
-        Ok(sliced.into_primitive()?.into_byte_buffer())
+
+        Ok(self.bytes().slice(start..end))
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, ArrayData, ArrayData, Validity) {
+    pub fn into_parts(self) -> (DType, ByteBuffer, ArrayData, Validity) {
         (
             self.dtype().clone(),
             self.bytes(),
@@ -299,15 +309,12 @@ mod test {
 
     #[fixture]
     fn binary_array() -> ArrayData {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from("hello worldhello world this is a long string".as_bytes()),
-            Validity::NonNullable,
-        );
+        let values = Buffer::copy_from("hello worldhello world this is a long string".as_bytes());
         let offsets = PrimitiveArray::from_iter([0, 11, 44]);
 
         VarBinArray::try_new(
             offsets.into_array(),
-            values.into_array(),
+            values,
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
         )

@@ -123,7 +123,7 @@ where
         };
         VarBinArray::try_new(
             value.offsets().clone().into(),
-            value.values().clone().into(),
+            ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
             dtype,
             nulls(value.nulls(), nullable),
         )

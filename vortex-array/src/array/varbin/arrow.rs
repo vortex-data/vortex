@@ -31,14 +31,7 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
         .to_null_buffer()
         .map_err(|err| err.with_context("Failed to get null buffer from logical validity"))?;
 
-    let data = varbin_array
-        .bytes()
-        .into_primitive()
-        .map_err(|err| err.with_context("Failed to canonicalize bytes"))?;
-    if data.dtype() != &DType::BYTES {
-        vortex_bail!("Expected bytes to be of type U8, got {}", data.ptype());
-    }
-    let data = data.byte_buffer();
+    let data = varbin_array.bytes();
 
     // Switch on Arrow DType.
     Ok(match varbin_array.dtype() {
