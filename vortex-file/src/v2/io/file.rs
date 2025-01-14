@@ -135,7 +135,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
             // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
             // file and therefore be reasonably bounded.
             .ready_chunks(1024)
-            .inspect(|requests| println!("Processing {} segment requests", requests.len()))
+            .inspect(|requests| log::debug!("Processing {} segment requests", requests.len()))
             // Coalesce the segment requests to minimize the number of I/O operations.
             .map(coalesce)
             .flat_map(stream::iter)
