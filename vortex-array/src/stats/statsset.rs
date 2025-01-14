@@ -188,12 +188,16 @@ impl IntoIterator for StatsSet {
     }
 }
 
+impl FromIterator<(Stat, Scalar)> for StatsSet {
+    fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
+        Self::new_unchecked(iter.into_iter().collect())
+    }
+}
+
 impl Extend<(Stat, Scalar)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        iter.into_iter().for_each(|(stat, scalar)| {
-            self.set(stat, scalar);
-        });
+        self.values.extend(iter);
     }
 }
 

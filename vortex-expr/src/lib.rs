@@ -75,7 +75,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
         let empty = Canonical::empty(scope_dtype)?.into_array();
         self.unchecked_evaluate(&empty)
-            .map(|array| array.into_dtype())
+            .map(|array| array.dtype().clone())
     }
 }
 
