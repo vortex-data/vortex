@@ -202,26 +202,6 @@ impl Display for VarBinViewMetadata {
     }
 }
 
-pub struct Buffers<'a> {
-    index: u32,
-    n_buffers: u32,
-    array: &'a VarBinViewArray,
-}
-
-impl Iterator for Buffers<'_> {
-    type Item = ByteBuffer;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.n_buffers {
-            return None;
-        }
-
-        let bytes = self.array.buffer(self.index as usize);
-        self.index += 1;
-        Some(bytes)
-    }
-}
-
 impl_encoding!("vortex.varbinview", ids::VAR_BIN_VIEW, VarBinView);
 
 impl VarBinViewArray {
@@ -277,18 +257,6 @@ impl VarBinViewArray {
         self.metadata().buffer_lens.len()
     }
 
-    /// Access to the underlying `views` child array as a slice of [BinaryView] structures.
-    ///
-    /// This is useful for iteration over the values, as well as for applying filters that may
-    /// only require hitting the prefixes or inline strings.
-    pub fn binary_views(&self) -> VortexResult<Views> {
-        Ok(Views {
-            inner: self.views(),
-            idx: 0,
-            len: self.len(),
-        })
-    }
-
     /// Retrieve a binary view at a specific index.
     ///
     /// If you will be calling this method many times, it's recommended that you instead use the
@@ -319,6 +287,7 @@ impl VarBinViewArray {
     /// This method panics if the provided index is out of bounds for the set of buffers provided
     /// at construction time.
     #[inline]
+
     pub fn buffer(&self, idx: usize) -> ByteBuffer {
         self.as_ref()
             .byte_buffer(idx + 1)
@@ -326,25 +295,10 @@ impl VarBinViewArray {
             .clone()
     }
 
-    /// Retrieve an iterator over the raw data buffers.
-    /// These are the BYTE buffers that make up the array's contents.
-    ///
-    /// Example
-    ///
-    /// ```
-    /// use vortex_array::array::VarBinViewArray;
-    /// let array = VarBinViewArray::from_iter_str(["a", "b", "c"]);
-    /// array.buffers().for_each(|block| {
-    ///     // Do something with the `block`
-    /// });
-    /// ```
-    pub fn buffers(&self) -> Buffers {
-        Buffers {
-            index: 0,
-            n_buffers: u32::try_from(self.buffer_count())
-                .unwrap_or_else(|e| vortex_panic!("n_buffers exceeds u32::MAX: {e}")),
-            array: self,
-        }
+    /// Iterate over the underlying raw data buffers, not including the views buffer.
+    #[inline]
+    pub fn buffers(&self) -> impl Iterator<Item = ByteBuffer> + '_ {
+        self.0.byte_buffers().skip(1)
     }
 
     pub fn validity(&self) -> Validity {
@@ -458,27 +412,6 @@ impl VarBinViewArray {
     }
 }
 
-pub struct Views {
-    inner: Buffer<BinaryView>,
-    len: usize,
-    idx: usize,
-}
-
-impl Iterator for Views {
-    type Item = BinaryView;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.len {
-            None
-        } else {
-            let view = self.inner[self.idx];
-
-            self.idx += 1;
-            Some(view)
-        }
-    }
-}
-
 // Generic helper to create an Arrow ByteViewBuilder of the appropriate type.
 fn generic_byte_view_builder<B, V, F>(
     values: impl Iterator<Item = Option<V>>,
@@ -565,7 +498,6 @@ impl VisitorVTable<VarBinViewArray> for VarBinViewEncoding {
             visitor.visit_buffer(&buffer)?;
         }
 
-        visitor.visit_buffer(&array.views().into_byte_buffer())?;
         visitor.visit_validity(&array.validity())
     }
 }

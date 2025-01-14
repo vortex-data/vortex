@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbinview::VarBinViewArray;
-use crate::array::BinaryView;
+// use crate::array::BinaryView;
 use crate::validity::ArrayValidity;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
@@ -14,7 +14,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 
-        let views: Vec<BinaryView> = self.binary_views()?.collect();
+        let views = self.views();
         let validity = self.logical_validity().to_null_buffer()?;
 
         match validity {
