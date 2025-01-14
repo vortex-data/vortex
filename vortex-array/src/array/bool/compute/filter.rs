@@ -9,7 +9,7 @@ impl FilterFn<BoolArray> for BoolEncoding {
     fn filter(&self, array: &BoolArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(&mask)?;
 
-        let buffer = match mask.iter()? {
+        let buffer = match mask.iter() {
             FilterIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
             FilterIter::Slices(slices) => filter_slices(
                 &array.boolean_buffer(),

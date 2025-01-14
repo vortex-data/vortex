@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::ops::BitAnd;
 use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
@@ -133,28 +135,32 @@ impl Inner {
     /// Constructs a [`BooleanBuffer`] from one of the other representations.
     fn buffer(&self) -> &BooleanBuffer {
         self.buffer.get_or_init(|| {
+            if self.true_count == 0 {
+                return BooleanBuffer::new_unset(self.len);
+            }
+
             if self.true_count == self.len {
                 return BooleanBuffer::new_set(self.len);
             }
 
             if let Some(indices) = self.indices.get() {
                 let mut buf = BooleanBufferBuilder::new(self.len);
-                if indices.len() < self.len / 2 {
-                    buf.append_n(self.len, false);
-                    indices.iter().for_each(|idx| buf.set_bit(*idx, true));
-                } else {
-                    buf.append_n(self.len, true);
-                    indices.iter().for_each(|idx| buf.set_bit(*idx, false));
-                }
+                // TODO(ngates): for dense indices, we can do better by collecting into u64s.
+                buf.append_n(self.len, false);
+                indices.iter().for_each(|idx| buf.set_bit(*idx, true));
                 return BooleanBuffer::from(buf);
             }
 
             if let Some(slices) = self.slices.get() {
                 let mut buf = BooleanBufferBuilder::new(self.len);
-                slices.iter().for_each(|(start, end)| {
-                    buf.append_n(*start - buf.len(), false);
+                for (start, end) in slices.iter().copied() {
+                    buf.append_n(start - buf.len(), false);
                     buf.append_n(end - start, true);
-                });
+                }
+                if let Some((_, end)) = slices.last() {
+                    buf.append_n(self.len - end, false);
+                }
+                debug_assert_eq!(buf.len(), self.len);
                 return BooleanBuffer::from(buf);
             }
 
@@ -165,6 +171,10 @@ impl Inner {
     /// Constructs an indices vector from one of the other representations.
     fn indices(&self) -> &[usize] {
         self.indices.get_or_init(|| {
+            if self.true_count == 0 {
+                return vec![];
+            }
+
             if self.true_count == self.len {
                 return (0..self.len).collect();
             }
@@ -198,23 +208,26 @@ impl Inner {
 
             if let Some(indices) = self.indices.get() {
                 let mut slices = Vec::with_capacity(self.true_count); // Upper bound
-                let mut start = 0;
-                let mut end = 0;
-                for idx in indices {
-                    if *idx == end {
-                        end += 1;
-                    } else {
-                        if end >= start {
-                            // Only push if we have a valid range
-                            slices.push((start, end + 1));
-                        }
-                        start = *idx;
-                        end = idx + 1;
+                let mut iter = indices.iter().copied();
+
+                // Handle empty input
+                let Some(first) = iter.next() else {
+                    return slices;
+                };
+
+                let mut start = first;
+                let mut prev = first;
+                while let Some(curr) = iter.next() {
+                    if curr != prev + 1 {
+                        slices.push((start, prev + 1));
+                        start = curr;
                     }
+                    prev = curr;
                 }
-                if end >= start {
-                    slices.push((start, end + 1));
-                }
+
+                // Don't forget the last range
+                slices.push((start, prev + 1));
+
                 return slices;
             }
 
@@ -284,7 +297,7 @@ impl FilterMask {
     /// Create a new [`FilterMask`] from a [`Vec<usize>`].
     pub fn from_indices(len: usize, vec: Vec<usize>) -> Self {
         let true_count = vec.len();
-        debug_assert!(vec.iter().all(|&idx| idx < len));
+        assert!(vec.iter().all(|&idx| idx < len));
         Self(Arc::new(Inner {
             buffer: Default::default(),
             indices: OnceLock::from(vec),
@@ -298,8 +311,8 @@ impl FilterMask {
     /// Create a new [`FilterMask`] from a [`Vec<(usize, usize)>`] where each range
     /// represents a contiguous range of true values.
     pub fn from_slices(len: usize, vec: Vec<(usize, usize)>) -> Self {
-        let true_count = vec.len();
-        debug_assert!(vec.iter().all(|&(b, e)| b < e && e < len));
+        assert!(vec.iter().all(|&(b, e)| b < e && e < len));
+        let true_count = vec.iter().map(|(b, e)| e - b).sum();
         Self(Arc::new(Inner {
             buffer: Default::default(),
             indices: Default::default(),
@@ -361,11 +374,12 @@ impl FilterMask {
     /// Returns the best iterator based on a selectivity threshold.
     ///
     /// Currently, this threshold is fixed at 0.8 based on Arrow Rust.
-    pub fn iter(&self) -> VortexResult<FilterIter> {
+    pub fn iter(&self) -> FilterIter {
         if self.selectivity() > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            return Ok(FilterIter::Slices(self.slices()));
+            FilterIter::Slices(self.slices())
+        } else {
+            FilterIter::Indices(self.indices())
         }
-        Ok(FilterIter::Indices(self.indices()))
     }
 }
 
@@ -374,6 +388,89 @@ pub enum FilterIter<'a> {
     Indices(&'a [usize]),
     /// Slice of pre-cached slices of a filter mask.
     Slices(&'a [(usize, usize)]),
+}
+
+impl PartialEq for FilterMask {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        if self.true_count() != other.true_count() {
+            return false;
+        }
+
+        // Since the true counts are the same, a full or empty mask is equal to the other mask.
+        if self.true_count() == 0 || self.true_count() == self.len() {
+            return true;
+        }
+
+        // Compare the buffer if both masks are non-empty.
+        if let (Some(buffer), Some(other)) = (self.0.buffer.get(), other.0.buffer.get()) {
+            return buffer == other;
+        }
+
+        // Compare the indices if both masks are non-empty.
+        if let (Some(indices), Some(other)) = (self.0.indices.get(), other.0.indices.get()) {
+            return indices == other;
+        }
+
+        // Compare the slices if both masks are non-empty.
+        if let (Some(slices), Some(other)) = (self.0.slices.get(), other.0.slices.get()) {
+            return slices == other;
+        }
+
+        // Otherwise, we fall back to comparison based on sparsity.
+        // We could go further an exhaustively check whose OnceLocks are initialized, but that's
+        // probably not worth the effort.
+        self.boolean_buffer() == other.boolean_buffer()
+    }
+}
+
+impl Eq for FilterMask {}
+
+impl BitAnd for FilterMask {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        if self.len() != rhs.len() {
+            vortex_panic!("FilterMasks must have the same length");
+        }
+        if self.true_count() == 0 || rhs.true_count() == 0 {
+            return Self::new_false(self.len());
+        }
+        if self.true_count() == self.len() {
+            return rhs;
+        }
+        if rhs.true_count() == self.len() {
+            return self;
+        }
+
+        if let (Some(lhs), Some(rhs)) = (self.0.buffer.get(), rhs.0.buffer.get()) {
+            return Self::from_buffer(lhs & rhs);
+        }
+
+        if let (Some(lhs), Some(rhs)) = (self.0.indices.get(), rhs.0.indices.get()) {
+            // TODO(ngates): this may only make sense for sparse indices.
+            let mut intersection = Vec::with_capacity(self.len());
+            let mut l = 0;
+            let mut r = 0;
+            while l < lhs.len() && r < rhs.len() {
+                match lhs[l].cmp(&rhs[r]) {
+                    Ordering::Less => l += 1,
+                    Ordering::Greater => r += 1,
+                    Ordering::Equal => {
+                        intersection.push(lhs[l]);
+                        l += 1;
+                        r += 1;
+                    }
+                }
+            }
+            return Self::from_indices(self.len(), intersection);
+        }
+
+        // TODO(ngates): we could perform a more efficient intersection for slices.
+        Self::from_buffer(self.boolean_buffer() & rhs.boolean_buffer())
+    }
 }
 
 impl TryFrom<ArrayData> for FilterMask {
@@ -419,6 +516,8 @@ impl FromIterator<bool> for FilterMask {
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
+
     use super::*;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
@@ -443,6 +542,69 @@ mod test {
                 .unwrap()
                 .as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
+        );
+    }
+
+    #[test]
+    fn filter_mask_all_true() {
+        let mask = FilterMask::new_true(5);
+        assert_eq!(mask.len(), 5);
+        assert_eq!(mask.true_count(), 5);
+        assert_eq!(mask.selectivity(), 1.0);
+        assert_eq!(mask.indices(), &[0, 1, 2, 3, 4]);
+        assert_eq!(mask.slices(), &[(0, 5)]);
+        assert_eq!(mask.boolean_buffer(), &BooleanBuffer::new_set(5));
+    }
+
+    #[test]
+    fn filter_mask_all_false() {
+        let mask = FilterMask::new_false(5);
+        assert_eq!(mask.len(), 5);
+        assert_eq!(mask.true_count(), 0);
+        assert_eq!(mask.selectivity(), 0.0);
+        assert_eq!(mask.indices(), &[]);
+        assert_eq!(mask.slices(), &[]);
+        assert_eq!(mask.boolean_buffer(), &BooleanBuffer::new_unset(5));
+    }
+
+    #[test]
+    fn filter_mask_from() {
+        let masks = [
+            FilterMask::from_indices(5, vec![0, 2, 3]),
+            FilterMask::from_slices(5, vec![(0, 1), (2, 4)]),
+            FilterMask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false])),
+        ];
+
+        for mask in &masks {
+            assert_eq!(mask.len(), 5);
+            assert_eq!(mask.true_count(), 3);
+            assert_eq!(mask.selectivity(), 0.6);
+            assert_eq!(mask.indices(), &[0, 2, 3]);
+            assert_eq!(mask.slices(), &[(0, 1), (2, 4)]);
+            assert_eq!(
+                &mask.boolean_buffer().iter().collect_vec(),
+                &[true, false, true, true, false]
+            );
+        }
+    }
+
+    #[test]
+    fn filter_mask_eq() {
+        assert_eq!(
+            FilterMask::new_true(5),
+            FilterMask::from_buffer(BooleanBuffer::new_set(5))
+        );
+        assert_eq!(
+            FilterMask::new_false(5),
+            FilterMask::from_buffer(BooleanBuffer::new_unset(5))
+        );
+        assert_eq!(
+            FilterMask::from_indices(5, vec![0, 2, 3]),
+            FilterMask::from_slices(5, vec![(0, 1), (2, 4)])
+        );
+        assert_eq!(
+            FilterMask::from_indices(5, vec![0, 2, 3]),
+            FilterMask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]))
         );
     }
 }

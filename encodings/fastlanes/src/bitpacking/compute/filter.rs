@@ -47,7 +47,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
             .and_then(|a| a.into_primitive());
     }
 
-    let values: Buffer<T> = match mask.iter()? {
+    let values: Buffer<T> = match mask.iter() {
         FilterIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
         }
