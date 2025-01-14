@@ -34,8 +34,6 @@ pub struct VortexOpenOptions {
     file_size: Option<u64>,
     /// An optional, externally provided, file layout.
     file_layout: Option<FileLayout>,
-    /// An optional, externally provided, file size.
-    file_size: Option<u64>,
     // TODO(ngates): also support a messages_middleware that can wrap a message cache to provide
     //  additional caching, metrics, or other intercepts, etc. It should support synchronous
     //  read + write of Map<MessageId, ByteBuffer> or similar.
@@ -54,7 +52,6 @@ impl VortexOpenOptions {
             layout_ctx: LayoutContextRef::default(),
             file_size: None,
             file_layout: None,
-            file_size: None,
             initial_read_size: INITIAL_READ_SIZE,
             split_by: SplitBy::Layout,
             segment_cache: None,
@@ -89,18 +86,6 @@ impl VortexOpenOptions {
         }
         self.initial_read_size = initial_read_size;
         Ok(self)
-    }
-
-    /// Configure a known file size.
-    pub fn with_file_size(mut self, file_size: u64) -> Self {
-        self.file_size = Some(file_size);
-        self
-    }
-
-    /// Configure a known file layout.
-    pub fn with_file_layout(mut self, file_layout: FileLayout) -> Self {
-        self.file_layout = Some(file_layout);
-        self
     }
 
     /// Configure how to split the file into batches for reading.

@@ -8,10 +8,13 @@ use datafusion_physical_expr::PhysicalExpr;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
+use vortex_array::arrow::FromArrowType;
 use vortex_array::ContextRef;
-use vortex_dtype::FieldNames;
+use vortex_dtype::{DType, FieldNames};
+use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::{Identity, Select, SelectField};
+use vortex_expr::transform::simplify_typed::simplify_typed;
+use vortex_expr::{ExprRef, Identity, Select, SelectField};
 use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 use vortex_scan::Scan;
@@ -23,9 +26,36 @@ pub struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: Option<FieldNames>,
-    pub predicate: Option<Arc<dyn PhysicalExpr>>,
-    pub arrow_schema: SchemaRef,
+    pub filter: Option<ExprRef>,
     pub(crate) file_layout_cache: FileLayoutCache,
+}
+
+impl VortexFileOpener {
+    pub fn new(
+        ctx: ContextRef,
+        object_store: Arc<dyn ObjectStore>,
+        projection: Option<FieldNames>,
+        predicate: Option<Arc<dyn PhysicalExpr>>,
+        arrow_schema: SchemaRef,
+        file_layout_cache: FileLayoutCache,
+    ) -> VortexResult<Self> {
+        let dtype = DType::from_arrow(arrow_schema);
+        let filter = predicate
+            .as_ref()
+            // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+            // will rerun the filter expression anyway.
+            .and_then(|expr| convert_expr_to_vortex(expr.clone()).ok())
+            .map(|expr| simplify_typed(expr, dtype))
+            .transpose()?;
+        Ok(Self {
+            ctx,
+            object_store,
+            projection,
+            filter,
+            // arrow_schema,
+            file_layout_cache,
+        })
+    }
 }
 
 impl FileOpener for VortexFileOpener {
@@ -42,14 +72,7 @@ impl FileOpener for VortexFileOpener {
             })
             .unwrap_or_else(|| Identity::new_expr());
 
-        let scan = Scan::new(
-            projection,
-            self.predicate
-                .as_ref()
-                .map(|expr| convert_expr_to_vortex(expr.clone()))
-                .transpose()?,
-        )
-        .into_arc();
+        let scan = Scan::new(projection, self.filter.clone()).into_arc();
 
         let read_at =
             ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());

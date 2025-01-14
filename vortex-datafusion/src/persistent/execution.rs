@@ -125,14 +125,15 @@ impl ExecutionPlan for VortexExec {
                 .collect()
         });
 
-        let opener = VortexFileOpener {
-            ctx: self.ctx.clone(),
+        // TODO(joe): apply the predicate/filter mapping to vortex-expr once.
+        let opener = VortexFileOpener::new(
+            self.ctx.clone(),
             object_store,
             projection,
-            predicate: self.predicate.clone(),
-            file_layout_cache: self.initial_read_cache.clone(),
+            self.predicate.clone(),
             arrow_schema,
-        };
+            self.initial_read_cache.clone(),
+        )?;
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
 
         Ok(Box::pin(stream))
