@@ -259,8 +259,8 @@ impl VarBinViewArray {
 
     /// Retrieve a binary view at a specific index.
     ///
-    /// If you will be calling this method many times, it's recommended that you instead use the
-    /// iterator provided by [`binary_views`][Self::binary_views].
+    /// If you will be calling this method many times, it's recommended that you instead
+    /// iterate over the buffer provided by [`Self::views`].
     pub fn view_at(&self, index: usize) -> VortexResult<BinaryView> {
         Ok(self.views()[index])
     }
@@ -287,7 +287,6 @@ impl VarBinViewArray {
     /// This method panics if the provided index is out of bounds for the set of buffers provided
     /// at construction time.
     #[inline]
-
     pub fn buffer(&self, idx: usize) -> ByteBuffer {
         self.as_ref()
             .byte_buffer(idx + 1)
