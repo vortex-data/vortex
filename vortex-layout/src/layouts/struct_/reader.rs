@@ -2,9 +2,13 @@ use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 =======
 >>>>>>> bb1760c0c (Fix: Remove StructReader field_lookup)
+=======
+use vortex_array::aliases::hash_map::HashMap;
+>>>>>>> 83bacebab (arbitrary)
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -44,6 +48,12 @@ impl StructReader {
 
         let field_readers = (0..layout.nchildren()).map(|_| OnceLock::new()).collect();
 
+        let field_lookup = if layout.nchildren() > 80 {
+            Some(struct_dt.names().iter().enumerate().collect())
+        } else {
+            None
+        };
+
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
         Ok(Self {
@@ -66,8 +76,10 @@ impl StructReader {
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, name: &FieldName) -> VortexResult<&Arc<dyn LayoutReader>> {
         let idx = self
-            .struct_dtype()
-            .find_name(name)
+            .field_lookup
+            .as_ref()
+            .and_then(|lookup| lookup.get(name).copied())
+            .or_else(|| self.struct_dtype().find_name(name))
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
 
         // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
