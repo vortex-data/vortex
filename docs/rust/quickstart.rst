@@ -45,7 +45,7 @@ Use :func:`~vortex.encoding.compress` to compress the Vortex array and check the
 
    >>> cvtx = vortex.compress(vtx)
    >>> cvtx.nbytes
-   15755
+   15732
    >>> cvtx.nbytes / vtx.nbytes
    0.11...
 

@@ -1,13 +1,13 @@
-use vortex_alp::{
-    alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPRDEncoding,
-};
+use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::fill_null;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPackedEncoding;
+use vortex_scalar::Scalar;
 
 use super::alp_rd::ALPRDCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -43,12 +43,9 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = array.clone().into_primitive()?;
-
-        let (exponents, encoded, patches) = match_each_alp_float_ptype!(
-            parray.ptype(), |$T| {
-            alp_encode_components::<$T>(&parray, None)
-        });
+        let nulls_zeroed =
+            fill_null(array, Scalar::from(0.0).cast(array.dtype())?)?.into_primitive()?;
+        let (exponents, encoded, patches) = alp_encode_components(&nulls_zeroed)?;
 
         let compressed_encoded = ctx
             .named("packed")

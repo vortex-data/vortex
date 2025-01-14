@@ -5252,9 +5252,11 @@ dependencies = [
 name = "vortex-alp"
 version = "0.23.0"
 dependencies = [
+ "arrow-array",
  "divan",
  "itertools 0.14.0",
  "num-traits",
+ "rand",
  "rstest",
  "serde",
  "vortex-array",

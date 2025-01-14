@@ -17,6 +17,7 @@ readme = { workspace = true }
 workspace = true
 
 [dependencies]
+arrow-array = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -30,6 +31,7 @@ vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
