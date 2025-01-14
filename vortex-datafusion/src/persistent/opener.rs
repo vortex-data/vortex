@@ -49,7 +49,7 @@ impl VortexFileOpener {
                 split_conjunction(expr)
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .collect::<Vec<_>>()
+                    .fold(lit(true), and)
             })
             .map(|expr| simplify_typed(expr.into_iter().fold(lit(true), and), dtype))
             .transpose()?;
