@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
@@ -89,7 +88,7 @@ impl FSSTArray {
         let len = codes.len();
         let uncompressed_lengths_ptype = PType::try_from(uncompressed_lengths.dtype())?;
         let codes_nullability = codes.dtype().nullability();
-        let children = Arc::new([symbols, symbol_lengths, codes, uncompressed_lengths]);
+        let children = [symbols, symbol_lengths, codes, uncompressed_lengths].into();
 
         Self::try_from_parts(
             dtype,
