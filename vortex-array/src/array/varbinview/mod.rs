@@ -588,6 +588,8 @@ impl VisitorVTable<VarBinViewArray> for VarBinViewEncoding {
         for i in 0..array.metadata().buffer_lens.len() {
             visitor.visit_child(format!("bytes_{i}").as_str(), &array.buffer(i))?;
         }
+
+        visitor.visit_buffer(&array.views().into_byte_buffer())?;
         visitor.visit_validity(&array.validity())
     }
 }
