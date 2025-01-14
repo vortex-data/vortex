@@ -1,42 +1,88 @@
 use itertools::Itertools;
-use vortex_dtype::{DType, Field};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::{vortex_err, VortexResult};
 
-use crate::traversal::{MutNodeVisitor, TransformResult};
-use crate::{get_item, pack, ExprRef, Select, SelectField, VortexExpr};
+use crate::traversal::{MutNodeVisitor, Node, TransformResult};
+use crate::{get_item, pack, ExprRef, Select};
 
 /// Select is a useful expression, however it can be defined in terms of get_item & pack,
 /// once the expression type is known, this simplifications pass removes the select expression.
-pub struct RemoveSelectTransform{
-    ident_dtype: DType
+pub fn remove_select(e: ExprRef, scope_dt: DType) -> VortexResult<ExprRef> {
+    let mut transform = RemoveSelectTransform::new(scope_dt);
+    e.transform(&mut transform).map(|e| e.result)
+}
+
+struct RemoveSelectTransform {
+    ident_dtype: DType,
 }
 
 impl RemoveSelectTransform {
-    pub fn new(ident_dtype: DType) -> Self {
+    fn new(ident_dtype: DType) -> Self {
         Self { ident_dtype }
     }
-
+}
 
 impl MutNodeVisitor for RemoveSelectTransform {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
+            let child = select.child();
+            let child_dtype = child.return_dtype(&self.ident_dtype)?;
+            let child_dtype = child_dtype.as_struct().ok_or_else(|| {
+                vortex_err!(
+                    "Select child must return a struct dtype, however it was a {}",
+                    child_dtype
+                )
+            })?;
 
-            let select_dtype = select.return_dtype(&self.ident_dtype)?.as_struct().vortex_expect("select must return a struct");
+            let names = select
+                .fields()
+                .as_include_names(child_dtype.names())
+                .map_err(|e| {
+                    vortex_err!(
+                        "Select fields must be a subset of child fields, however {}",
+                        e
+                    )
+                })?;
 
-            let new_fields = match select.fields() {
-                SelectField::Include(fields) => fields,
-                SelectField::Exclude(fields) => select_dtype.field_info(fields).map(|f_info| Field::Name(f_info.name))
-            };
+            let pack_children = names
+                .iter()
+                .map(|name| get_item(name.clone(), child.clone()))
+                .collect_vec();
 
-            let new_f = new_fields.into_iter().map(|f| f.clone().into_named_field(select_dtype.names())).collect::<VortexResult<Vec<_>>>()?;
+            println!("{:?}", pack(names.clone(), pack_children.clone()));
 
-            let new_expr = pack(new_f.iter().map(|f| f), select.expr().clone());
-            let inner = new_f.into_iter().map(|f| get_item(f, ))
-        }
+            Ok(TransformResult::yes(pack(names, pack_children)))
         } else {
             Ok(TransformResult::no(node))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{DType, StructDType};
+
+    use crate::transform::remove_select::remove_select;
+    use crate::{ident, select};
+
+    #[test]
+    fn test_remove_select() {
+        let dtype = DType::Struct(
+            StructDType::new(
+                ["a".into(), "b".into()].into(),
+                vec![I32.into(), I32.into()],
+            ),
+            NonNullable,
+        );
+        let e = select(["a".into(), "b".into()], ident());
+        println!("{:?}", e);
+
+        let e = remove_select(e, dtype).unwrap();
+
+        println!("{:?}", e);
     }
 }

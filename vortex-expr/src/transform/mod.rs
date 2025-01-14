@@ -2,3 +2,4 @@
 pub mod partition;
 pub(crate) mod remove_select;
 pub mod simplify;
+pub mod typed_simplify;
