@@ -1,7 +1,5 @@
-use std::future::ready;
-
 use async_trait::async_trait;
-use futures::future::try_join_all;
+use futures::future::{ready, try_join_all};
 use futures::FutureExt;
 use vortex_array::array::{ChunkedArray, ConstantArray};
 use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
