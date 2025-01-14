@@ -445,7 +445,7 @@ impl VarBinViewArray {
 
     // TODO(aduffy): do we really need to do this with copying?
     pub fn bytes_at(&self, index: usize) -> VortexResult<Vec<u8>> {
-        let view: BinaryView = self.view_at(index)?;
+        let view = self.view_at(index)?;
         // Expect this to be the common case: strings > 12 bytes.
         if !view.is_inlined() {
             let view_ref = view.as_view();
