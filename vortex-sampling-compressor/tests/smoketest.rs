@@ -155,7 +155,7 @@ mod tests {
             );
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(2441248_u64))
+                Some(Scalar::from(1392672_u64))
             );
         }
 
