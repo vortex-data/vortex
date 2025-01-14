@@ -89,7 +89,7 @@ impl SearchSortedUsizeFn<SparseArray> for SparseEncoding {
 }
 
 impl FilterFn<SparseArray> for SparseEncoding {
-    fn filter(&self, array: &SparseArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &SparseArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let new_length = mask.true_count();
 
         let Some(new_patches) = array.resolved_patches()?.filter(mask)? else {
@@ -188,7 +188,7 @@ mod test {
         predicate.extend_from_slice(&[false; 17]);
         let mask = FilterMask::from_iter(predicate);
 
-        let filtered_array = filter(&array, mask).unwrap();
+        let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
 
         assert_eq!(filtered_array.len(), 1);
@@ -208,7 +208,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let filtered_array = filter(&array, mask).unwrap();
+        let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
 
         assert_eq!(filtered_array.len(), 4);

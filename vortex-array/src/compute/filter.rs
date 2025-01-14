@@ -24,7 +24,7 @@ const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 pub trait FilterFn<Array> {
     /// Filter an array by the provided predicate.
-    fn filter(&self, array: &Array, mask: FilterMask) -> VortexResult<ArrayData>;
+    fn filter(&self, array: &Array, mask: &FilterMask) -> VortexResult<ArrayData>;
 }
 
 impl<E: Encoding> FilterFn<ArrayData> for E
@@ -32,7 +32,7 @@ where
     E: FilterFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn filter(&self, array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
         let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
@@ -48,7 +48,7 @@ where
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
+pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -87,7 +87,7 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     Ok(filtered)
 }
 
-fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
+fn filter_impl(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
     if let Some(filter_fn) = array.encoding().filter_fn() {
         return filter_fn.filter(array, mask);
     }
@@ -588,7 +588,7 @@ mod test {
         )
         .unwrap();
 
-        let filtered = filter(&items, mask).unwrap();
+        let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
             filtered
                 .into_canonical()

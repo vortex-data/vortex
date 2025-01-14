@@ -222,11 +222,11 @@ impl RowMask {
                 self.mask.clone()
             } else {
                 self.mask.slice(
-                        usize::try_from(range_begin - self.begin)
-                            .vortex_expect("we know this must fit into usize"),
-                        usize::try_from(range_end - range_begin)
-                            .vortex_expect("we know this must fit into usize"),
-                    )
+                    usize::try_from(range_begin - self.begin)
+                        .vortex_expect("we know this must fit into usize"),
+                    usize::try_from(range_end - range_begin)
+                        .vortex_expect("we know this must fit into usize"),
+                )
             },
             range_begin,
         ))
@@ -261,7 +261,7 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        filter(sliced, self.mask.clone()).map(Some)
+        filter(sliced, &self.mask).map(Some)
     }
 
     #[allow(deprecated)]

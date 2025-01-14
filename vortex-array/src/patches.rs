@@ -194,7 +194,7 @@ impl Patches {
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
-    pub fn filter(&self, mask: FilterMask) -> VortexResult<Option<Self>> {
+    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Option<Self>> {
         if mask.is_empty() {
             return Ok(None);
         }
@@ -403,7 +403,7 @@ mod test {
         );
 
         let filtered = patches
-            .filter(FilterMask::from_indices(100, vec![10, 20, 30]))
+            .filter(&FilterMask::from_indices(100, vec![10, 20, 30]))
             .unwrap()
             .unwrap();
 

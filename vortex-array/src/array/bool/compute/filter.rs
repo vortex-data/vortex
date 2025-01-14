@@ -6,7 +6,7 @@ use crate::compute::{FilterFn, FilterIter, FilterMask};
 use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn<BoolArray> for BoolEncoding {
-    fn filter(&self, array: &BoolArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BoolArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(&mask)?;
 
         let buffer = match mask.iter() {
@@ -78,7 +78,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = FilterMask::from_iter([true, false, true]);
 
-        let filtered = filter(&arr.into_array(), mask)
+        let filtered = filter(&arr.into_array(), &mask)
             .unwrap()
             .into_bool()
             .unwrap();

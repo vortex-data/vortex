@@ -51,7 +51,7 @@ impl ExprEvaluator for FlatReader {
         // And finally apply the expression
         // TODO(ngates): what's the best order to apply the filter mask / expression?
         let array = expr.evaluate(&array)?;
-        filter(&array, row_mask.into_filter_mask()?)
+        filter(&array, &row_mask.into_filter_mask()?)
     }
 }
 

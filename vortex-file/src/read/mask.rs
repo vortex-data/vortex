@@ -241,7 +241,7 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        filter(sliced, self.mask.clone()).map(Some)
+        filter(sliced, &self.mask).map(Some)
     }
 
     #[allow(deprecated)]
