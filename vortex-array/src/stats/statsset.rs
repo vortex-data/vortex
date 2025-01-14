@@ -190,14 +190,23 @@ impl IntoIterator for StatsSet {
 
 impl FromIterator<(Stat, Scalar)> for StatsSet {
     fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
-        Self::new_unchecked(iter.into_iter().collect())
+        let iter = iter.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+        let mut this = Self {
+            values: Vec::with_capacity(lower_bound),
+        };
+        this.extend(iter);
+        this
     }
 }
 
 impl Extend<(Stat, Scalar)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        self.values.extend(iter);
+        let iter = iter.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+        self.values.reserve(lower_bound);
+        iter.for_each(|(stat, value)| self.set(stat, value));
     }
 }
 
