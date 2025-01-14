@@ -39,14 +39,14 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
             PType::I32 => Arc::new(unsafe {
                 BinaryArray::new_unchecked(
                     offsets.buffer::<i32>().into_arrow_offset_buffer(),
-                    data.clone().into_arrow_buffer(),
+                    data.into_arrow_buffer(),
                     nulls,
                 )
             }),
             PType::I64 => Arc::new(unsafe {
                 LargeBinaryArray::new_unchecked(
                     offsets.buffer::<i64>().into_arrow_offset_buffer(),
-                    data.clone().into_arrow_buffer(),
+                    data.into_arrow_buffer(),
                     nulls,
                 )
             }),
@@ -56,14 +56,14 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
             PType::I32 => Arc::new(unsafe {
                 StringArray::new_unchecked(
                     offsets.buffer::<i32>().into_arrow_offset_buffer(),
-                    data.clone().into_arrow_buffer(),
+                    data.into_arrow_buffer(),
                     nulls,
                 )
             }),
             PType::I64 => Arc::new(unsafe {
                 LargeStringArray::new_unchecked(
                     offsets.buffer::<i64>().into_arrow_offset_buffer(),
-                    data.clone().into_arrow_buffer(),
+                    data.into_arrow_buffer(),
                     nulls,
                 )
             }),

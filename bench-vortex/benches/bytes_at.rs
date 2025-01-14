@@ -16,7 +16,7 @@ use vortex::{Context, IntoArrayData, IntoArrayVariant};
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(
         buffer![0i32, 5i32, 10i32, 15i32, 20i32].into_array(),
-        ByteBuffer::copy_from(b"helloworldhelloworld".as_bytes()).into_array(),
+        ByteBuffer::copy_from(b"helloworldhelloworld".as_bytes()),
         DType::Utf8(Nullability::NonNullable),
         Validity::NonNullable,
     )
