@@ -1,12 +1,9 @@
-mod cast;
 mod filter;
-mod mask;
 mod take;
 
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::{
-    scalar_at, slice, try_cast, CastFn, ComputeVTable, FilterFn, MaskFn, ScalarAtFn, SliceFn,
-    TakeFn,
+    scalar_at, slice, try_cast, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -20,15 +17,7 @@ use vortex_scalar::{PrimitiveScalar, Scalar};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
-        Some(self)
-    }
-
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
-        Some(self)
-    }
-
-    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         Some(self)
     }
 
