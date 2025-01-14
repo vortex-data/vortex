@@ -45,7 +45,8 @@ impl VortexFileOpener {
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
             // will rerun the filter expression anyway.
             .map(|expr| {
-                // This
+                // This splits expressions into conjunctions and converts them to vortex expressions.
+                // Any inconvertible expressions are dropped since true /\ a == a.
                 let expr = split_conjunction(expr)
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
