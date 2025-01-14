@@ -1,14 +1,7 @@
 use std::hash::Hash;
 use std::sync::{Arc, OnceLock, RwLock};
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 use vortex_array::aliases::hash_map::{Entry, HashMap};
-=======
->>>>>>> bb1760c0c (Fix: Remove StructReader field_lookup)
-=======
-use vortex_array::aliases::hash_map::HashMap;
->>>>>>> 83bacebab (arbitrary)
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -48,11 +41,15 @@ impl StructReader {
 
         let field_readers = (0..layout.nchildren()).map(|_| OnceLock::new()).collect();
 
-        let field_lookup = if layout.nchildren() > 80 {
-            Some(struct_dt.names().iter().enumerate().collect())
-        } else {
-            None
-        };
+        // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
+        let field_lookup = (layout.nchildren() > 80).then(|| {
+            struct_dt
+                .names()
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.clone(), i))
+                .collect()
+        });
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
