@@ -181,8 +181,9 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             })
             .collect();
 
+        assert!(expression_accesses <= Some(partitions.len()));
         // Ensure that there are as many partitions as there are accesses/fields in the scope
-        debug_assert!(expression_accesses == Some(partitions.len()));
+        debug_assert_eq!(expression_accesses, Some(partitions.len()));
 
         Ok(PartitionedExpr {
             root: split.result(),
