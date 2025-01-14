@@ -186,8 +186,19 @@ impl RowMask {
 
         let output_mask = FilterMask::from_intersection_indices(
             output_len,
-            self.mask.indices().iter().copied(),
-            other.mask.indices().iter().copied(),
+            self.mask
+                .indices()
+                .iter()
+                .copied()
+                .map(|v| v as u64 + self.begin - output_begin)
+                .map(|v| usize::try_from(v).vortex_expect("mask index must fit into usize")),
+            other
+                .mask
+                .indices()
+                .iter()
+                .copied()
+                .map(|v| v as u64 + other.begin - output_begin)
+                .map(|v| usize::try_from(v).vortex_expect("mask index must fit into usize")),
         );
 
         Ok(Self::new(output_mask, output_begin))

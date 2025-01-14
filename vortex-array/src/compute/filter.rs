@@ -311,7 +311,7 @@ impl FilterMask {
     /// Create a new [`FilterMask`] from a [`Vec<(usize, usize)>`] where each range
     /// represents a contiguous range of true values.
     pub fn from_slices(len: usize, vec: Vec<(usize, usize)>) -> Self {
-        assert!(vec.iter().all(|&(b, e)| b < e && e < len));
+        assert!(vec.iter().all(|&(b, e)| b < e && e <= len));
         let true_count = vec.iter().map(|(b, e)| e - b).sum();
         Self(Arc::new(Inner {
             buffer: Default::default(),

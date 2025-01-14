@@ -9,7 +9,7 @@ use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 
 /// A RowMask captures a set of selected rows offset by a range.
 ///
@@ -167,15 +167,27 @@ impl RowMask {
             ));
         }
 
+        let output_begin = min(self.begin, other.begin);
         let output_end = max(self.end, other.end);
+        let output_len = usize::try_from(output_end - output_begin)
+            .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 
         let output_mask = FilterMask::from_intersection_indices(
-            output_end,
-            self.mask.indices().iter().copied(),
-            other.mask.indices().iter().copied(),
+            output_len,
+            self.mask
+                .indices()
+                .iter()
+                .copied()
+                .map(|v| v + self.begin - output_begin),
+            other
+                .mask
+                .indices()
+                .iter()
+                .copied()
+                .map(|v| v + other.begin - output_begin),
         );
 
-        Self::try_new(output_mask, 0, output_end)
+        Self::try_new(output_mask, output_begin, output_end)
     }
 
     pub fn is_all_false(&self) -> bool {
