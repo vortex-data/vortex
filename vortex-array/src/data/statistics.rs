@@ -115,11 +115,18 @@ impl Statistics for ArrayData {
         if let Some(s) = self.get(stat) {
             return Some(s);
         }
-        self.encoding()
+        let s = self
+            .encoding()
             .compute_statistics(self, stat)
             .ok()?
             .get(stat)
-            .cloned()
+            .cloned();
+
+        if let Some(s) = &s {
+            self.set(stat, s.clone());
+        }
+
+        s
     }
 
     fn retain_only(&self, stats: &[Stat]) {
