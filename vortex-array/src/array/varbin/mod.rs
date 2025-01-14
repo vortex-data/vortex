@@ -90,14 +90,6 @@ impl VarBinArray {
             children.into(),
             StatsSet::default(),
         )?)
-
-        // Self::try_from_parts(
-        //     dtype,
-        //     length,
-        //     metadata,
-        //     children.into(),
-        //     StatsSet::default(),
-        // )
     }
 
     #[inline]
@@ -111,36 +103,27 @@ impl VarBinArray {
             .vortex_expect("Missing offsets in VarBinArray")
     }
 
-    pub fn first_offset<T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-    ) -> VortexResult<T> {
-        scalar_at(self.offsets(), 0)?
-            .cast(&DType::from(T::PTYPE))?
-            .as_ref()
-            .try_into()
-    }
-
-    /// Access the value bytes child array
-    ///
-    /// # Note
-    ///
-    /// Bytes child array is never sliced when the array is sliced so this can include values
-    /// that are not logically present in the array. Users should prefer [sliced_bytes][Self::sliced_bytes]
-    /// unless they're resolving values via offset child array.
-    #[inline]
-    pub fn bytes(&self) -> ByteBuffer {
-        self.as_ref()
-            .byte_buffer(0)
-            .vortex_expect("Missing data buffer")
-            .clone()
-    }
-
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
                 .child(1, &Validity::DTYPE, self.len())
                 .vortex_expect("VarBinArray: validity child")
         })
+    }
+
+    /// Access the value bytes child buffer
+    ///
+    /// # Note
+    ///
+    /// Bytes child buffer is never sliced when the array is sliced so this can include values
+    /// that are not logically present in the array. Users should prefer [sliced_bytes][Self::sliced_bytes]
+    /// unless they're resolving values via the offset child array.
+    #[inline]
+    pub fn bytes(&self) -> ByteBuffer {
+        self.as_ref()
+            .byte_buffer(0)
+            .vortex_expect("Missing data buffer")
+            .clone()
     }
 
     /// Access value bytes child array limited to values that are logically present in
