@@ -290,8 +290,8 @@ impl Node for ExprRef {
         };
 
         if ord == TraversalOrder::Continue {
-            let up = visitor.visit_up(self)?;
-            Ok(TransformResult::yes(up.result.replacing_children(children)))
+            let up = visitor.visit_up(self.replacing_children(children))?;
+            Ok(TransformResult::yes(up.result))
         } else {
             Ok(TransformResult {
                 result: self.replacing_children(children),

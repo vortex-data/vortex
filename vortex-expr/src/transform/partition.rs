@@ -296,6 +296,7 @@ mod tests {
 
     use super::*;
     use crate::transform::simplify::simplify;
+    use crate::transform::simplify_typed::simplify_typed;
     use crate::{and, get_item, ident, lit, pack, select, Pack};
 
     fn struct_dtype() -> StructDType {
@@ -407,18 +408,20 @@ mod tests {
         assert_eq!(partitioned.partitions.len(), 2);
     }
 
+    // Test that typed_simplify removes select and partition precise
     #[test]
-    fn test_expr_partition_many_occurances_of_field() {
+    fn test_expr_partition_many_occurrences_of_field() {
         let dtype = struct_dtype();
 
         let expr = and(
             get_item("b", get_item("a", ident())),
             select(vec!["a".into(), "b".into()], ident()),
         );
+        let expr = simplify_typed(expr, DType::Struct(dtype.clone(), NonNullable)).unwrap();
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
-        assert_eq!(partitioned.partitions.len(), 3);
+        assert_eq!(partitioned.partitions.len(), 2);
 
         // This fetches [].$c which is unused, however a previous optimisation should replace select
         // with get_item and pack removing this field.
@@ -426,16 +429,12 @@ mod tests {
             &partitioned.root,
             &and(
                 get_item("0", get_item("a", ident())),
-                select(
+                pack(
                     vec!["a".into(), "b".into()],
-                    pack(
-                        vec!["a".into(), "b".into(), "c".into()],
-                        vec![
-                            get_item("1", get_item("a", ident())),
-                            get_item("0", get_item("b", ident())),
-                            get_item("0", get_item("c", ident())),
-                        ]
-                    )
+                    vec![
+                        get_item("1", get_item("a", ident())),
+                        get_item("0", get_item("b", ident())),
+                    ]
                 )
             )
         )
