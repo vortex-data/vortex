@@ -63,7 +63,7 @@ impl VortexExpr for Like {
 
     fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child().evaluate(batch)?;
-        let pattern = self.pattern().evaluate(batch)?;
+        let pattern = self.pattern().evaluate(&child)?;
         like(
             &child,
             &pattern,
@@ -75,7 +75,7 @@ impl VortexExpr for Like {
     }
 
     fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.pattern, &self.child]
+        vec![&self.child, &self.pattern]
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
