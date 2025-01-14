@@ -63,18 +63,17 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             values
                 .iter()
                 .step_by(values.len() / SAMPLE_SIZE)
+                .take(SAMPLE_SIZE)
                 .cloned()
                 .collect_vec()
         });
 
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
-                let (_, encoded, _, exc_patches) = Self::encode(
-                    sample.as_deref().unwrap_or(values),
-                    Some(Exponents { e, f }),
-                );
+                let (encoded, exceptional_positions) =
+                    Self::encode(sample.as_deref().unwrap_or(values), Exponents { e, f });
 
-                let size = Self::estimate_encoded_size(&encoded, &exc_patches);
+                let size = Self::estimate_encoded_size(&encoded, exceptional_positions.len());
                 if size < best_nbytes {
                     best_nbytes = size;
                     best_exp = Exponents { e, f };
@@ -88,7 +87,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     }
 
     #[inline]
-    fn estimate_encoded_size(encoded: &[Self::ALPInt], patches: &[Self]) -> usize {
+    fn estimate_encoded_size(encoded: &[Self::ALPInt], n_exceptions: usize) -> usize {
         let bits_per_encoded = encoded
             .iter()
             .minmax()
@@ -107,42 +106,57 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         let encoded_bytes = (encoded.len() * bits_per_encoded + 7) / 8;
         // each patch is a value + a position
         // in practice, patch positions are in [0, u16::MAX] because of how we chunk
-        let patch_bytes = patches.len() * (size_of::<Self>() + size_of::<u16>());
+        let patch_bytes = n_exceptions * (size_of::<Self>() + size_of::<u16>());
 
         encoded_bytes + patch_bytes
     }
 
-    fn encode(
+    /// A quantity of [Self] expected to fit into L1 cache.
+    const ENCODE_CHUNK_SIZE: usize = (32 << 10) / size_of::<Self::ALPInt>();
+
+    /// ALP encode chunk-by-chunk.
+    ///
+    /// Unlike [Self::encode], this operation processes no more than [Self::ENCODE_CHUNK_SIZE]
+    /// elements at once which can make better use of the L1 cache because [Self::encode] makes two
+    /// passes over `values`: first to encode and second to extract the exceptional values.
+    fn encode_chunkwise(
         values: &[Self],
-        exponents: Option<Exponents>,
-    ) -> (Exponents, Buffer<Self::ALPInt>, Buffer<u64>, Buffer<Self>) {
-        let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
-
-        let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
-        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len());
-        let mut patch_values = BufferMut::<Self>::with_capacity(values.len());
-        let mut fill_value: Option<Self::ALPInt> = None;
-
-        // this is intentionally branchless
-        // we batch this into 32KB of values at a time to make it more L1 cache friendly
-        let encode_chunk_size: usize = (32 << 10) / size_of::<Self::ALPInt>();
-        for chunk in values.chunks(encode_chunk_size) {
-            encode_chunk_unchecked(
-                chunk,
-                exp,
-                &mut encoded_output,
-                &mut patch_indices,
-                &mut patch_values,
-                &mut fill_value,
-            );
+        exponents: Exponents,
+    ) -> (Buffer<Self::ALPInt>, Buffer<u64>) {
+        let mut encoded = BufferMut::<Self::ALPInt>::with_capacity(values.len());
+        let mut patch_indices = BufferMut::<u64>::empty();
+        for chunk in values.chunks(Self::ENCODE_CHUNK_SIZE) {
+            let (encoded_chunk, patches_indices_chunk) = Self::encode(chunk, exponents);
+            encoded.extend(encoded_chunk);
+            patch_indices.extend(patches_indices_chunk);
         }
+        (encoded.freeze(), patch_indices.freeze())
+    }
 
-        (
-            exp,
-            encoded_output.freeze(),
-            patch_indices.freeze(),
-            patch_values.freeze(),
-        )
+    /// ALP encode the given values using the given exponents.
+    ///
+    /// The index of each value for which encode-decode is not the identity function is returned.
+    ///
+    /// See also: [Self::encode_chunkwise].
+    fn encode(values: &[Self], exponents: Exponents) -> (Vec<Self::ALPInt>, Vec<u64>) {
+        let (encoded, needs_patch): (Vec<Self::ALPInt>, Vec<bool>) = values
+            .iter()
+            .map(|value| {
+                let encoded = unsafe { Self::encode_single_unchecked(*value, exponents) };
+                let maybe_decoded = Self::decode_single(encoded, exponents);
+                let needs_patch = maybe_decoded != *value;
+                (encoded, needs_patch)
+            })
+            .unzip();
+
+        let patch_indices: Vec<u64> = needs_patch
+            .into_iter()
+            .enumerate()
+            .filter(|(_, needs_patch)| *needs_patch)
+            .map(|(index, _)| index as u64)
+            .collect();
+
+        (encoded, patch_indices)
     }
 
     #[inline]
@@ -192,79 +206,6 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
             .fast_round()
             .as_int()
-    }
-}
-
-#[allow(clippy::cast_possible_truncation)]
-fn encode_chunk_unchecked<T: ALPFloat>(
-    chunk: &[T],
-    exp: Exponents,
-    encoded_output: &mut BufferMut<T::ALPInt>,
-    patch_indices: &mut BufferMut<u64>,
-    patch_values: &mut BufferMut<T>,
-    fill_value: &mut Option<T::ALPInt>,
-) {
-    let num_prev_encoded = encoded_output.len();
-    let num_prev_patches = patch_indices.len();
-    assert_eq!(patch_indices.len(), patch_values.len());
-    let has_filled = fill_value.is_some();
-
-    // encode the chunk, counting the number of patches
-    let mut chunk_patch_count = 0;
-    encoded_output.extend(chunk.iter().map(|v| {
-        let encoded = unsafe { T::encode_single_unchecked(*v, exp) };
-        let decoded = T::decode_single(encoded, exp);
-        let neq = (decoded != *v) as usize;
-        chunk_patch_count += neq;
-        encoded
-    }));
-    let chunk_patch_count = chunk_patch_count; // immutable hereafter
-    assert_eq!(encoded_output.len(), num_prev_encoded + chunk.len());
-
-    if chunk_patch_count > 0 {
-        // we need to gather the patches for this chunk
-        // preallocate space for the patches (plus one because our loop may attempt to write one past the end)
-        patch_indices.reserve(chunk_patch_count + 1);
-        patch_values.reserve(chunk_patch_count + 1);
-
-        // record the patches in this chunk
-        let patch_indices_mut = patch_indices.spare_capacity_mut();
-        let patch_values_mut = patch_values.spare_capacity_mut();
-        let mut chunk_patch_index = 0;
-        for i in num_prev_encoded..encoded_output.len() {
-            let decoded = T::decode_single(encoded_output[i], exp);
-            // write() is only safe to call more than once because the values are primitive (i.e., Drop is a no-op)
-            patch_indices_mut[chunk_patch_index].write(i as u64);
-            patch_values_mut[chunk_patch_index].write(chunk[i - num_prev_encoded]);
-            chunk_patch_index += (decoded != chunk[i - num_prev_encoded]) as usize;
-        }
-        assert_eq!(chunk_patch_index, chunk_patch_count);
-        unsafe {
-            patch_indices.set_len(num_prev_patches + chunk_patch_count);
-            patch_values.set_len(num_prev_patches + chunk_patch_count);
-        }
-    }
-
-    // find the first successfully encoded value (i.e., not patched)
-    // this is our fill value for missing values
-    if fill_value.is_none() && (num_prev_encoded + chunk_patch_count < encoded_output.len()) {
-        assert_eq!(num_prev_encoded, num_prev_patches);
-        for i in num_prev_encoded..encoded_output.len() {
-            if i >= patch_indices.len() || patch_indices[i] != i as u64 {
-                *fill_value = Some(encoded_output[i]);
-                break;
-            }
-        }
-    }
-
-    // replace the patched values in the encoded array with the fill value
-    // for better downstream compression
-    if let Some(fill_value) = fill_value {
-        // handle the edge case where the first N >= 1 chunks are all patches
-        let start_patch = if !has_filled { 0 } else { num_prev_patches };
-        for patch_idx in &patch_indices[start_patch..] {
-            encoded_output[*patch_idx as usize] = *fill_value;
-        }
     }
 }
 
