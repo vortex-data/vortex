@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::mem::take;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
@@ -103,11 +104,10 @@ impl RangeScan {
         match &self.state {
             State::FilterEval(_) => {
                 // Intersect the result of the filter expression with our initial row mask.
-                let mask = result.into_bool()?.boolean_buffer();
-                let mask = self.mask.boolean_buffer().bitand(&mask);
+                let mask = FilterMask::from_buffer(result.into_bool()?.boolean_buffer());
+                let mask = self.mask.clone().bitand(mask);
                 // Then move onto the projection
-                self.state =
-                    State::Project((FilterMask::from(mask), self.scan.projection().clone()))
+                self.state = State::Project((mask, self.scan.projection().clone()))
             }
             State::Project(_) => {
                 // We're done.

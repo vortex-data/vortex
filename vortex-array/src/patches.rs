@@ -199,6 +199,7 @@ impl Patches {
             return Ok(None);
         }
 
+        // TODO(ngates): add functions to operate with FilterMask directly
         let buffer = mask.boolean_buffer();
         let mut coordinate_indices = BufferMut::<u64>::empty();
         let mut value_indices = BufferMut::<u64>::empty();

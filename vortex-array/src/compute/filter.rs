@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::ops::BitAnd;
+use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
@@ -323,6 +323,33 @@ impl FilterMask {
         }))
     }
 
+    /// Create a new [`FilterMask`] from the intersection of two indices slices.
+    pub fn from_intersection_indices(
+        len: usize,
+        lhs: impl Iterator<Item = usize>,
+        rhs: impl Iterator<Item = usize>,
+    ) -> Self {
+        let mut intersection = Vec::with_capacity(len);
+        let mut lhs = lhs.peekable();
+        let mut rhs = rhs.peekable();
+        while let (Some(&l), Some(&r)) = (lhs.peek(), rhs.peek()) {
+            match l.cmp(&r) {
+                Ordering::Less => {
+                    lhs.next();
+                }
+                Ordering::Greater => {
+                    rhs.next();
+                }
+                Ordering::Equal => {
+                    intersection.push(l);
+                    lhs.next();
+                    rhs.next();
+                }
+            }
+        }
+        Self::from_indices(len, intersection)
+    }
+
     #[inline]
     pub fn len(&self) -> usize {
         self.0.len
@@ -380,6 +407,42 @@ impl FilterMask {
         } else {
             FilterIter::Indices(self.indices())
         }
+    }
+
+    /// Slice the mask with a range.
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        if self.true_count() == 0 {
+            return Self::new_false(range.len());
+        }
+        if self.true_count() == self.len() {
+            return Self::new_true(range.len());
+        }
+
+        if let Some(buffer) = self.0.buffer.get() {
+            return Self::from_buffer(buffer.slice(range.start, range.end - range.start));
+        }
+
+        if let Some(indices) = self.0.indices.get() {
+            let indices = indices
+                .iter()
+                .copied()
+                .filter(|&idx| range.start <= idx && idx < range.end)
+                .map(|idx| idx - range.start)
+                .collect();
+            return Self::from_indices(range.len(), indices);
+        }
+
+        if let Some(slices) = self.0.slices.get() {
+            let slices = slices
+                .iter()
+                .copied()
+                .filter(|(s, e)| *s < range.end && *e > range.start)
+                .map(|(s, e)| (s.max(range.start), e.min(range.end)))
+                .collect();
+            return Self::from_slices(range.len(), slices);
+        }
+
+        vortex_panic!("No mask representation found")
     }
 }
 
@@ -451,21 +514,11 @@ impl BitAnd for FilterMask {
 
         if let (Some(lhs), Some(rhs)) = (self.0.indices.get(), rhs.0.indices.get()) {
             // TODO(ngates): this may only make sense for sparse indices.
-            let mut intersection = Vec::with_capacity(self.len());
-            let mut l = 0;
-            let mut r = 0;
-            while l < lhs.len() && r < rhs.len() {
-                match lhs[l].cmp(&rhs[r]) {
-                    Ordering::Less => l += 1,
-                    Ordering::Greater => r += 1,
-                    Ordering::Equal => {
-                        intersection.push(lhs[l]);
-                        l += 1;
-                        r += 1;
-                    }
-                }
-            }
-            return Self::from_indices(self.len(), intersection);
+            return Self::from_intersection_indices(
+                self.len(),
+                lhs.iter().copied(),
+                rhs.iter().copied(),
+            );
         }
 
         // TODO(ngates): we could perform a more efficient intersection for slices.

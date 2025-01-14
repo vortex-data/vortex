@@ -170,20 +170,10 @@ impl RowMask {
 
         let output_end = max(self.end, other.end);
 
-        let this_buffer = self.mask.boolean_buffer();
-        let other_buffer = other.mask.boolean_buffer();
-        let self_indices = this_buffer
-            .set_indices()
-            .map(|v| v + self.begin)
-            .collect::<HashSet<_>>();
-        let other_indices = other_buffer
-            .set_indices()
-            .map(|v| v + other.begin)
-            .collect::<HashSet<_>>();
-
-        let output_mask = FilterMask::from_indices(
+        let output_mask = FilterMask::from_intersection_indices(
             output_end,
-            self_indices.intersection(&other_indices).copied().collect(),
+            self.mask.indices(),
+            other.mask.indices(),
         );
 
         Self::try_new(output_mask, 0, output_end)

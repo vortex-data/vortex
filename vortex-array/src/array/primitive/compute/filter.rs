@@ -12,7 +12,7 @@ impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
     fn filter(&self, array: &PrimitiveArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(&mask)?;
         match_each_native_ptype!(array.ptype(), |$T| {
-            let values = match mask.iter()? {
+            let values = match mask.iter() {
                 FilterIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
                 FilterIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
             };

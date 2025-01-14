@@ -1,6 +1,6 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
-use std::ops::RangeBounds;
+use std::ops::{BitAnd, RangeBounds};
 
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, SparseArray};
@@ -25,9 +25,7 @@ pub struct RowMask {
 #[cfg(test)]
 impl PartialEq for RowMask {
     fn eq(&self, other: &Self) -> bool {
-        self.begin == other.begin
-            && self.end == other.end
-            && self.mask.boolean_buffer() == other.mask.boolean_buffer()
+        self.begin == other.begin && self.end == other.end && self.mask == other.mask
     }
 }
 
@@ -164,18 +162,14 @@ impl RowMask {
         }
     }
 
-    pub fn and_rowmask(&self, other: RowMask) -> VortexResult<Self> {
+    pub fn and_rowmask(self, other: RowMask) -> VortexResult<Self> {
         if other.true_count() == other.len() {
-            return Ok(self.clone());
+            return Ok(self);
         }
 
         // If both masks align perfectly
         if self.begin == other.begin && self.end == other.end {
-            let this_buffer = self.mask.boolean_buffer();
-            let other_buffer = other.mask.boolean_buffer();
-
-            let unified = this_buffer & other_buffer;
-            return RowMask::from_mask_array(BoolArray::from(unified).as_ref(), self.begin);
+            return Ok(RowMask::new(self.mask.bitand(other.mask), self.begin));
         }
 
         // Disjoint row ranges
@@ -191,29 +185,10 @@ impl RowMask {
         let output_len = usize::try_from(output_end - output_begin)
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 
-        let this_buffer = self.mask.boolean_buffer();
-        let other_buffer = other.mask.boolean_buffer();
-
-        // TODO(ngates): do not use a set for this. We know both iterators are sorted.
-        let self_indices = this_buffer
-            .set_indices()
-            .map(|v| v as u64 + self.begin)
-            .collect::<HashSet<_>>();
-        let other_indices = other_buffer
-            .set_indices()
-            .map(|v| v as u64 + other.begin)
-            .collect::<HashSet<_>>();
-
-        let output_mask = FilterMask::from_indices(
+        let output_mask = FilterMask::from_intersection_indices(
             output_len,
-            self_indices
-                .intersection(&other_indices)
-                .copied()
-                .map(|i| {
-                    usize::try_from(i - output_begin)
-                        .vortex_expect("we know this must fit within usize")
-                })
-                .collect(),
+            self.mask.indices(),
+            other.mask.indices(),
         );
 
         Ok(Self::new(output_mask, output_begin))
@@ -248,7 +223,7 @@ impl RowMask {
                 self.mask.clone()
             } else {
                 FilterMask::from(
-                    self.mask.boolean_buffer().slice(
+                    self.mask.slice(
                         usize::try_from(range_begin - self.begin)
                             .vortex_expect("we know this must fit into usize"),
                         usize::try_from(range_end - range_begin)
