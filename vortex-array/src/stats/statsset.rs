@@ -1,4 +1,4 @@
-use enum_iterator::all;
+use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError};
@@ -6,9 +6,17 @@ use vortex_scalar::Scalar;
 
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatsSet {
     values: Vec<(Stat, Scalar)>,
+}
+
+impl Default for StatsSet {
+    fn default() -> Self {
+        Self {
+            values: Vec::with_capacity(Stat::CARDINALITY),
+        }
+    }
 }
 
 impl StatsSet {

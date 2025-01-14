@@ -1,9 +1,12 @@
-use std::sync::{Arc, OnceLock};
+use std::hash::Hash;
+use std::sync::{Arc, OnceLock, RwLock};
 
-use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_expr::transform::partition::{partition, PartitionedExpr};
+use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
@@ -18,6 +21,8 @@ pub struct StructReader {
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: HashMap<FieldName, usize>,
+
+    expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
 }
 
 impl StructReader {
@@ -52,6 +57,7 @@ impl StructReader {
             segments,
             field_readers,
             field_lookup,
+            expr_cache: Arc::new(Default::default()),
         })
     }
 
@@ -77,10 +83,46 @@ impl StructReader {
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }
+
+    /// Utility for partitioning an expression over the fields of a struct.
+    pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
+        Ok(
+            match self
+                .expr_cache
+                .write()
+                .map_err(|_| vortex_err!("poisoned lock"))?
+                .entry(ExactExpr(expr.clone()))
+            {
+                Entry::Occupied(entry) => entry.get().clone(),
+                Entry::Vacant(entry) => entry
+                    .insert(Arc::new(partition(expr, self.struct_dtype())?))
+                    .clone(),
+            },
+        )
+    }
 }
 
 impl LayoutReader for StructReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
+    }
+}
+
+/// An expression wrapper that performs pointer equality.
+/// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
+#[derive(Clone)]
+struct ExactExpr(ExprRef);
+
+impl PartialEq for ExactExpr {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExactExpr {}
+
+impl Hash for ExactExpr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state)
     }
 }
