@@ -50,6 +50,7 @@ impl ExprEvaluator for StructReader {
         .into_array();
 
         // Recombine the partitioned expressions into a single expression
+        // use vortex_array::ArrayDType;
         // println!("Expr: {}", &expr);
         // println!("Root Expr: {}", &partitioned.root);
         // println!("Root Scope: {}", &root_scope.dtype());

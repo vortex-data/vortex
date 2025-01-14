@@ -6,7 +6,6 @@ use ::serde::{Deserialize, Serialize};
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
-use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
@@ -556,18 +555,10 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     // Switch on Arrow DType.
     match var_bin_view.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
-            BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.into_arrow_scalar_buffer()),
-                data,
-                nulls,
-            )
+            BinaryViewArray::new_unchecked(views.into_arrow_scalar_buffer(), data, nulls)
         }),
         DType::Utf8(_) => Arc::new(unsafe {
-            StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.into_arrow_scalar_buffer()),
-                data,
-                nulls,
-            )
+            StringViewArray::new_unchecked(views.into_arrow_scalar_buffer(), data, nulls)
         }),
         _ => vortex_panic!("expected utf8 or binary, got {}", var_bin_view.dtype()),
     }
