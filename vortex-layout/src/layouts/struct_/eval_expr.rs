@@ -3,7 +3,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_expr::transform::partition::partition;
 use vortex_expr::ExprRef;
