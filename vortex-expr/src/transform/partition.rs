@@ -296,7 +296,7 @@ mod tests {
 
     use super::*;
     use crate::transform::simplify::simplify;
-    use crate::transform::typed_simplify::typed_simplify;
+    use crate::transform::simplify_typed::simplify_typed;
     use crate::{and, get_item, ident, lit, pack, select, Pack};
 
     fn struct_dtype() -> StructDType {
@@ -417,7 +417,7 @@ mod tests {
             get_item("b", get_item("a", ident())),
             select(vec!["a".into(), "b".into()], ident()),
         );
-        let expr = typed_simplify(expr, DType::Struct(dtype.clone(), NonNullable)).unwrap();
+        let expr = simplify_typed(expr, DType::Struct(dtype.clone(), NonNullable)).unwrap();
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
