@@ -1,27 +1,60 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_alp::{ALPFloat, ALPRDFloat, Exponents, RDEncoder};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng as _};
+use vortex_alp::{alp_encode, ALPFloat, ALPRDFloat, RDEncoder};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::IntoCanonical;
-use vortex_buffer::{buffer, Buffer};
+use vortex_buffer::buffer;
+use vortex_dtype::NativePType;
 
 fn main() {
     divan::main();
 }
 
-#[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]
-fn compress_alp<T: ALPFloat>(n: usize) -> (Exponents, Buffer<T::ALPInt>, Buffer<u64>, Buffer<T>) {
-    let values: Vec<T> = vec![T::from(1.234).unwrap(); n];
-    T::encode(values.as_slice(), None)
+#[divan::bench(types = [f32, f64], args = [
+    (100_000, 1.0),
+    (10_000_000, 1.0),
+    (100_000, 0.25),
+    (10_000_000, 0.25),
+    (100_000, 0.95),
+    (10_000_000, 0.95),
+])]
+fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) -> () {
+    let (n, fraction_valid) = args;
+    let mut rng = StdRng::seed_from_u64(0);
+    let values = buffer![T::from(1.234).unwrap(); n];
+    let validity = if fraction_valid < 1.0 {
+        Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
+    } else {
+        Validity::NonNullable
+    };
+    bencher.bench_local(move || {
+        alp_encode(&PrimitiveArray::new(values.clone(), validity.clone())).unwrap()
+    })
 }
 
-#[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]
-fn decompress_alp<T: ALPFloat>(bencher: Bencher, n: usize) {
-    let values: Vec<T> = vec![T::from(1.234).unwrap(); n];
-    let (exponents, encoded, ..) = T::encode(values.as_slice(), None);
-    bencher.bench_local(move || T::decode(&encoded, exponents));
+#[divan::bench(types = [f32, f64], args = [
+    (100_000, 1.0),
+    (10_000_000, 1.0),
+    (100_000, 0.25),
+    (10_000_000, 0.25),
+    (100_000, 0.95),
+    (10_000_000, 0.95),
+])]
+fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
+    let (n, fraction_valid) = args;
+    let mut rng = StdRng::seed_from_u64(0);
+    let values = buffer![T::from(1.234).unwrap(); n];
+    let validity = if fraction_valid < 1.0 {
+        Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
+    } else {
+        Validity::NonNullable
+    };
+    let array = alp_encode(&PrimitiveArray::new(values, validity)).unwrap();
+    bencher.bench_local(move || array.clone().into_canonical().unwrap());
 }
 
 #[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]

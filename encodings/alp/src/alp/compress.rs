@@ -3,7 +3,7 @@ use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ScalarType;
 
 use crate::alp::{ALPArray, ALPFloat};
@@ -27,33 +27,29 @@ macro_rules! match_each_alp_float_ptype {
 pub fn alp_encode_components<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
-) -> (Exponents, ArrayData, Option<Patches>)
+) -> VortexResult<(Exponents, ArrayData, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
     T: ScalarType,
 {
-    let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
+    let (exponents, encoded, exc_pos, exc) =
+        T::encode(values.as_slice::<T>(), &values.validity(), exponents)?;
     let len = encoded.len();
-    (
+    Ok((
         exponents,
         PrimitiveArray::new(encoded, values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
             let position_arr = exc_pos.into_array();
-            let patch_validity = values.validity().take(&position_arr).vortex_unwrap();
-            Patches::new(
-                len,
-                position_arr,
-                PrimitiveArray::new(exc, patch_validity).into_array(),
-            )
+            Patches::new(len, position_arr, exc.into_array())
         }),
-    )
+    ))
 }
 
 pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
     let (exponents, encoded, patches) = match parray.ptype() {
-        PType::F32 => alp_encode_components::<f32>(parray, None),
-        PType::F64 => alp_encode_components::<f64>(parray, None),
+        PType::F32 => alp_encode_components::<f32>(parray, None)?,
+        PType::F64 => alp_encode_components::<f64>(parray, None)?,
         _ => vortex_bail!("ALP can only encode f32 and f64"),
     };
     ALPArray::try_new(encoded, exponents, patches)
@@ -83,7 +79,7 @@ mod tests {
     use core::f64;
 
     use vortex_array::compute::scalar_at;
-    use vortex_array::validity::Validity;
+    use vortex_array::validity::{ArrayValidity as _, Validity};
     use vortex_buffer::{buffer, Buffer};
 
     use super::*;
@@ -150,6 +146,39 @@ mod tests {
 
     #[test]
     #[allow(clippy::approx_constant)] // ALP doesn't like E
+    fn test_compress_ignores_invalid_exceptional_values() {
+        let values = buffer![1.234f64, 2.718, f64::consts::PI, 4.0];
+        let array = PrimitiveArray::new(values, Validity::from_iter([true, true, false, true]));
+        let encoded = alp_encode(&array).unwrap();
+        assert!(encoded.patches().is_none());
+        assert_eq!(
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i64>(),
+            vec![1234i64, 2718, 3142, 4000] // fill forward
+        );
+        assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
+
+        let decoded = decompress(encoded).unwrap();
+        assert_eq!(
+            scalar_at(&decoded, 0).unwrap(),
+            scalar_at(&array, 0).unwrap()
+        );
+        assert_eq!(
+            scalar_at(&decoded, 1).unwrap(),
+            scalar_at(&array, 1).unwrap()
+        );
+        assert!(!decoded.is_valid(2));
+        assert_eq!(
+            scalar_at(&decoded, 3).unwrap(),
+            scalar_at(&array, 3).unwrap()
+        );
+    }
+
+    #[test]
+    #[allow(clippy::approx_constant)] // ALP doesn't like E
     fn test_nullable_patched_scalar_at() {
         let array = PrimitiveArray::from_option_iter([
             Some(1.234f64),
@@ -168,6 +197,7 @@ mod tests {
             assert!(s.is_valid());
         }
 
+        assert!(!encoded.is_valid(4));
         let s = scalar_at(encoded.as_ref(), 4).unwrap();
         assert!(s.is_null());
 
@@ -190,7 +220,6 @@ mod tests {
         );
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
-        assert_eq!(original.as_slice::<f64>(), decompressed.as_slice::<f64>());
         assert_eq!(original.validity(), decompressed.validity());
     }
 }

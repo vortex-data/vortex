@@ -4873,6 +4873,7 @@ dependencies = [
  "divan",
  "itertools 0.14.0",
  "num-traits",
+ "rand",
  "rstest",
  "serde",
  "vortex-array",

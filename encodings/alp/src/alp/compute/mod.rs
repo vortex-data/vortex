@@ -2,6 +2,7 @@ use vortex_array::compute::{
     filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
     TakeFn,
 };
+use vortex_array::validity::ArrayValidity as _;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -29,9 +30,13 @@ impl ComputeVTable for ALPEncoding {
 
 impl ScalarAtFn<ALPArray> for ALPEncoding {
     fn scalar_at(&self, array: &ALPArray, index: usize) -> VortexResult<Scalar> {
+        if !array.encoded().is_valid(index) {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
         if let Some(patches) = array.patches() {
             if let Some(patch) = patches.get_patched(index)? {
-                return Ok(patch);
+                return patch.cast(array.dtype());
             }
         }
 
