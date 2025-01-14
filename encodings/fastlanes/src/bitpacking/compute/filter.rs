@@ -33,7 +33,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     mask: &FilterMask,
 ) -> VortexResult<PrimitiveArray> {
-    let validity = array.validity().filter(&mask)?;
+    let validity = array.validity().filter(mask)?;
 
     let patches = array
         .patches()

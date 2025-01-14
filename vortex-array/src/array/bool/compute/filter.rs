@@ -7,7 +7,7 @@ use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn<BoolArray> for BoolEncoding {
     fn filter(&self, array: &BoolArray, mask: &FilterMask) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(&mask)?;
+        let validity = array.validity().filter(mask)?;
 
         let buffer = match mask.iter() {
             FilterIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
