@@ -2,8 +2,7 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, RangeBounds};
 
-use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, SparseArray};
+use vortex_array::array::{BooleanBuffer, PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -187,8 +186,8 @@ impl RowMask {
 
         let output_mask = FilterMask::from_intersection_indices(
             output_len,
-            self.mask.indices(),
-            other.mask.indices(),
+            self.mask.indices().iter().copied(),
+            other.mask.indices().iter().copied(),
         );
 
         Ok(Self::new(output_mask, output_begin))
@@ -222,14 +221,12 @@ impl RowMask {
             if range_begin == self.begin && range_end == self.end {
                 self.mask.clone()
             } else {
-                FilterMask::from(
-                    self.mask.slice(
+                self.mask.slice(
                         usize::try_from(range_begin - self.begin)
                             .vortex_expect("we know this must fit into usize"),
                         usize::try_from(range_end - range_begin)
                             .vortex_expect("we know this must fit into usize"),
-                    ),
-                )
+                    )
             },
             range_begin,
         ))

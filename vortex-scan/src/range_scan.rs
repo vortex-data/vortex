@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::mem::take;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 

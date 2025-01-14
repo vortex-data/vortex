@@ -2,7 +2,6 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
@@ -172,8 +171,8 @@ impl RowMask {
 
         let output_mask = FilterMask::from_intersection_indices(
             output_end,
-            self.mask.indices(),
-            other.mask.indices(),
+            self.mask.indices().iter().copied(),
+            other.mask.indices().iter().copied(),
         );
 
         Self::try_new(output_mask, 0, output_end)

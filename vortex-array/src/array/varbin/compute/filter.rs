@@ -93,7 +93,7 @@ where
 
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
-    mask.slices().into_iter().for_each(|(start, end)| {
+    mask.slices().iter().for_each(|(start, end)| {
         update_non_nullable_slice(data, offsets, &mut builder, *start, *end)
     });
 

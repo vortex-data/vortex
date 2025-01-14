@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::ops::{BitAnd, Range};
+use std::ops::BitAnd;
 use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
@@ -217,7 +217,7 @@ impl Inner {
 
                 let mut start = first;
                 let mut prev = first;
-                while let Some(curr) = iter.next() {
+                for curr in iter {
                     if curr != prev + 1 {
                         slices.push((start, prev + 1));
                         start = curr;
@@ -409,37 +409,39 @@ impl FilterMask {
         }
     }
 
-    /// Slice the mask with a range.
-    pub fn slice(&self, range: Range<usize>) -> Self {
+    /// Slice the mask.
+    pub fn slice(&self, offset: usize, length: usize) -> Self {
         if self.true_count() == 0 {
-            return Self::new_false(range.len());
+            return Self::new_false(length);
         }
         if self.true_count() == self.len() {
-            return Self::new_true(range.len());
+            return Self::new_true(length);
         }
 
         if let Some(buffer) = self.0.buffer.get() {
-            return Self::from_buffer(buffer.slice(range.start, range.end - range.start));
+            return Self::from_buffer(buffer.slice(offset, length));
         }
+
+        let end = offset + length;
 
         if let Some(indices) = self.0.indices.get() {
             let indices = indices
                 .iter()
                 .copied()
-                .filter(|&idx| range.start <= idx && idx < range.end)
-                .map(|idx| idx - range.start)
+                .filter(|&idx| offset <= idx && idx < end)
+                .map(|idx| idx - offset)
                 .collect();
-            return Self::from_indices(range.len(), indices);
+            return Self::from_indices(length, indices);
         }
 
         if let Some(slices) = self.0.slices.get() {
             let slices = slices
                 .iter()
                 .copied()
-                .filter(|(s, e)| *s < range.end && *e > range.start)
-                .map(|(s, e)| (s.max(range.start), e.min(range.end)))
+                .filter(|(s, e)| *s < end && *e > offset)
+                .map(|(s, e)| (s.max(offset), e.min(end)))
                 .collect();
-            return Self::from_slices(range.len(), slices);
+            return Self::from_slices(length, slices);
         }
 
         vortex_panic!("No mask representation found")
@@ -615,7 +617,7 @@ mod test {
         assert_eq!(mask.len(), 5);
         assert_eq!(mask.true_count(), 0);
         assert_eq!(mask.selectivity(), 0.0);
-        assert_eq!(mask.indices(), &[]);
+        assert_eq!(mask.indices(), &[] as &[usize]);
         assert_eq!(mask.slices(), &[]);
         assert_eq!(mask.boolean_buffer(), &BooleanBuffer::new_unset(5));
     }
