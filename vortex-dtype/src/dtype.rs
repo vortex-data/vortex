@@ -91,11 +91,17 @@ impl DType {
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         match (self, other) {
             (Null, Null) => true,
+            (Null, _) => false,
             (Bool(_), Bool(_)) => true,
+            (Bool(_), _) => false,
             (Primitive(lhs_ptype, _), Primitive(rhs_ptype, _)) => lhs_ptype == rhs_ptype,
+            (Primitive(..), _) => false,
             (Utf8(_), Utf8(_)) => true,
+            (Utf8(_), _) => false,
             (Binary(_), Binary(_)) => true,
+            (Binary(_), _) => false,
             (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
+            (List(..), _) => false,
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
@@ -103,10 +109,11 @@ impl DType {
                         .zip(rhs_dtype.dtypes())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
+            (Struct(..), _) => false,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.id() == rhs_extdtype.id()
             }
-            _ => false,
+            (Extension(_), _) => false,
         }
     }
 
