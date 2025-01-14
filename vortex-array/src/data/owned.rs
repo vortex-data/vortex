@@ -10,14 +10,14 @@ use crate::stats::{Stat, Statistics, StatsSet};
 use crate::{ArrayDType, ArrayData, ArrayMetadata};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct OwnedArrayData {
     pub(super) encoding: EncodingRef,
-    pub(super) dtype: DType, // FIXME(ngates): Arc?
+    pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) buffers: Arc<[ByteBuffer]>,
-    pub(super) children: Arc<[ArrayData]>,
+    pub(super) buffers: Box<[ByteBuffer]>,
+    pub(super) children: Box<[ArrayData]>,
     pub(super) stats_set: Arc<RwLock<StatsSet>>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -68,7 +68,7 @@ impl OwnedArrayData {
         self.children.len()
     }
 
-    pub fn children(&self) -> &Arc<[ArrayData]> {
+    pub fn children(&self) -> &[ArrayData] {
         &self.children
     }
 }

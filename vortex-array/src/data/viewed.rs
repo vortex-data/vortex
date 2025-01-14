@@ -24,7 +24,7 @@ pub(super) struct ViewedArrayData {
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: FlatBuffer,
     pub(super) flatbuffer_loc: usize,
-    pub(super) buffers: Arc<[ByteBuffer]>,
+    pub(super) buffers: Box<[ByteBuffer]>,
     pub(super) ctx: ContextRef,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -80,7 +80,7 @@ impl ViewedArrayData {
             buffers: self.buffers.clone(),
             ctx: self.ctx.clone(),
             #[cfg(feature = "canonical_counter")]
-            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            canonical_counter: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
