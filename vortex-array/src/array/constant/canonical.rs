@@ -1,15 +1,13 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{Buffer, ByteBufferMut};
+use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
-use crate::array::{
-    BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES,
-};
+use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
@@ -73,19 +71,14 @@ fn canonical_byte_view(
 ) -> VortexResult<VarBinViewArray> {
     match scalar_bytes {
         None => {
-            let views = ConstantArray::new(0u8, len * VIEW_SIZE_BYTES);
+            let views = buffer![BinaryView::from(0_u128); len];
 
-            VarBinViewArray::try_new(
-                views.into_array(),
-                Vec::new(),
-                dtype.clone(),
-                Validity::AllInvalid,
-            )
+            VarBinViewArray::try_new(views, Vec::new(), dtype.clone(), Validity::AllInvalid)
         }
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
             // If the scalar cannot be inlined, allocate a single buffer large enough to hold it.
-            let view: u128 = make_view(scalar_bytes, 0, 0);
+            let view = BinaryView::from(make_view(scalar_bytes, 0, 0));
             let mut buffers = Vec::new();
             if scalar_bytes.len() >= BinaryView::MAX_INLINED_SIZE {
                 buffers.push(
@@ -97,14 +90,10 @@ fn canonical_byte_view(
             // Clone our constant view `len` times.
             // TODO(aduffy): switch this out for a ConstantArray once we
             //   add u128 PType, see https://github.com/spiraldb/vortex/issues/1110
-            let mut views = ByteBufferMut::with_capacity_aligned(
-                len * VIEW_SIZE_BYTES,
-                align_of::<u128>().into(),
-            );
+            let mut views = BufferMut::with_capacity_aligned(len, align_of::<u128>().into());
             for _ in 0..len {
-                views.extend_from_slice(&view.to_le_bytes());
+                views.push(view);
             }
-            let views = views.into_array();
 
             let validity = if dtype.nullability() == Nullability::NonNullable {
                 Validity::NonNullable
@@ -112,7 +101,7 @@ fn canonical_byte_view(
                 Validity::AllValid
             };
 
-            VarBinViewArray::try_new(views, buffers, dtype.clone(), validity)
+            VarBinViewArray::try_new(views.freeze(), buffers, dtype.clone(), validity)
         }
     }
 }
