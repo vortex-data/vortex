@@ -149,7 +149,7 @@ async fn evaluate<R: VortexReadAt>(
     request: CoalescedSegmentRequest,
     segment_cache: Arc<dyn SegmentCache>,
 ) -> VortexResult<()> {
-    log::warn!(
+    log::debug!(
         "Reading byte range: {:?} {}",
         request.byte_range,
         request.byte_range.end - request.byte_range.start
