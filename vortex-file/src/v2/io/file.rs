@@ -1,16 +1,19 @@
 use std::future::Future;
 use std::ops::Range;
+use std::sync::Arc;
 
 use futures::channel::oneshot;
 use futures::Stream;
+use futures_util::future::try_join_all;
 use futures_util::{stream, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
+use vortex_layout::segments::SegmentId;
 
 use crate::v2::footer::{FileLayout, Segment};
 use crate::v2::io::IoDriver;
-use crate::v2::segments::SegmentRequest;
+use crate::v2::segments::{SegmentCache, SegmentRequest};
 
 // TODO(ngates): use this sort of trait for I/O?
 #[allow(dead_code)]
@@ -33,14 +36,27 @@ pub struct FileIoDriver<R: VortexReadAt> {
     pub file_layout: FileLayout,
     /// The number of concurrent I/O requests to submit.
     pub concurrency: usize,
+    /// A segment cache to store segments in memory.
+    pub segment_cache: Arc<dyn SegmentCache>,
 }
 
 #[derive(Debug)]
 struct FileSegmentRequest {
+    /// The segment ID.
+    pub(crate) id: SegmentId,
     /// The segment location.
     pub(crate) location: Segment,
     /// The callback channel
-    pub(crate) callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+}
+
+impl FileSegmentRequest {
+    fn resolve(self, buffer: VortexResult<ByteBuffer>) -> () {
+        self.callback
+            .send(buffer)
+            .map_err(|_| vortex_err!("send failed"))
+            .vortex_expect("send failed");
+    }
 }
 
 #[derive(Debug)]
@@ -51,21 +67,6 @@ struct CoalescedSegmentRequest {
     pub(crate) requests: Vec<FileSegmentRequest>,
 }
 
-impl CoalescedSegmentRequest {
-    /// Resolve the coalesced segment request.
-    fn resolve(self, buffer: ByteBuffer) -> VortexResult<()> {
-        for req in self.requests {
-            let offset = usize::try_from(req.location.offset - self.byte_range.start)?;
-            req.callback
-                .send(Ok(buffer
-                    .slice(offset..offset + req.location.length as usize)
-                    .aligned(req.location.alignment)))
-                .map_err(|_| vortex_err!("send failed"))?;
-        }
-        Ok(())
-    }
-}
-
 impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
     fn drive(
         &self,
@@ -73,9 +74,11 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
         let segment_map = self.file_layout.segments.clone();
         let read = self.read.clone();
+        let segment_cache1 = self.segment_cache.clone();
+        let segment_cache2 = self.segment_cache.clone();
 
-        // First, we need to map the segment requests to their respective locations within the file.
         stream
+            // We map the segment requests to their respective locations within the file.
             .filter_map(move |request| {
                 let segment_map = segment_map.clone();
                 async move {
@@ -88,6 +91,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
                         return None;
                     };
                     Some(FileSegmentRequest {
+                        id: request.id,
                         location: location.clone(),
                         callback: request.callback,
                     })
@@ -95,16 +99,34 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
             })
             // We support zero-length segments (so layouts don't have to store this information)
             // If we encounter a zero-length segment, we can just resolve it now.
-            .filter_map(|request| async move {
+            .filter_map(move |request| async move {
                 if request.location.length == 0 {
-                    request
-                        .callback
-                        .send(Ok(ByteBuffer::empty_aligned(request.location.alignment)))
-                        .map_err(|_| vortex_err!("send failed"))
-                        .vortex_expect("send failed");
-                    return None;
+                    let alignment = request.location.alignment;
+                    request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
+                    None
+                } else {
+                    Some(request)
                 }
-                Some(request)
+            })
+            // Check if the segment exists in the cache
+            .filter_map(move |request| {
+                let segment_cache = segment_cache1.clone();
+                async move {
+                    match segment_cache
+                        .get(request.id, request.location.alignment)
+                        .await
+                    {
+                        Ok(None) => Some(request),
+                        Ok(Some(buffer)) => {
+                            request.resolve(Ok(buffer));
+                            None
+                        }
+                        Err(e) => {
+                            request.resolve(Err(e));
+                            None
+                        }
+                    }
+                }
             })
             // Grab all available segment requests from the I/O queue so we get maximal visibility into
             // the requests for coalescing.
@@ -116,32 +138,52 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
             .map(coalesce)
             .flat_map(stream::iter)
             // Submit the coalesced requests to the I/O.
-            .map(move |request| {
-                let read = read.clone();
-                evaluate(read, request)
-            })
+            .map(move |request| evaluate(read.clone(), request, segment_cache2.clone()))
             // Buffer some number of concurrent I/O operations.
             .buffer_unordered(self.concurrency)
     }
 }
 
-async fn evaluate<R: VortexReadAt>(read: R, request: CoalescedSegmentRequest) -> VortexResult<()> {
+async fn evaluate<R: VortexReadAt>(
+    read: R,
+    request: CoalescedSegmentRequest,
+    segment_cache: Arc<dyn SegmentCache>,
+) -> VortexResult<()> {
     log::warn!(
         "Reading byte range: {:?} {}",
         request.byte_range,
         request.byte_range.end - request.byte_range.start
     );
-    let bytes = read
+    let buffer: ByteBuffer = read
         .read_byte_range(
             request.byte_range.start,
             request.byte_range.end - request.byte_range.start,
         )
         .await
-        .map_err(|e| vortex_err!("Failed to read coalesced segment: {:?} {:?}", request, e))?;
+        .map_err(|e| vortex_err!("Failed to read coalesced segment: {:?} {:?}", request, e))?
+        .into();
 
     // TODO(ngates): traverse the segment map to find un-requested segments that happen to
     //  fall within the range of the request. Then we can populate those in the cache.
-    request.resolve(ByteBuffer::from(bytes))
+    let mut cache_futures = Vec::with_capacity(request.requests.len());
+    for req in request.requests {
+        let offset = usize::try_from(req.location.offset - request.byte_range.start)?;
+        let buf = buffer
+            .slice(offset..offset + req.location.length as usize)
+            .aligned(req.location.alignment);
+
+        // Send the callback
+        req.callback
+            .send(Ok(buf.clone()))
+            .map_err(|_| vortex_err!("send failed"))?;
+
+        cache_futures.push(segment_cache.put(req.id, buf));
+    }
+
+    // Populate the cache
+    try_join_all(cache_futures).await?;
+
+    Ok(())
 }
 
 /// TODO(ngates): outsource coalescing to a trait

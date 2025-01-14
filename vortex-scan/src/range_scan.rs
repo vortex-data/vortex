@@ -89,11 +89,9 @@ impl RangeScan {
     fn next(&self) -> NextOp {
         match &self.state {
             State::FilterEval((mask, expr)) => {
-                println!("FilterEval {} {}", mask.selectivity(), expr.clone());
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
             }
             State::Project((mask, expr)) => {
-                println!("ProjectEval {} {}", mask.selectivity(), expr.clone());
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
             }
             State::Ready(array) => NextOp::Ready(array.clone()),

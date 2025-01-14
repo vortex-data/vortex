@@ -138,6 +138,7 @@ impl VortexOpenOptions {
             read,
             file_layout: file_layout.clone(),
             concurrency: self.io_concurrency,
+            segment_cache,
         };
 
         // Set up the execution driver.
