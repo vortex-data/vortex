@@ -244,11 +244,7 @@ fn pack_views(
         // merged buffers list.
         let buffers_offset = u32::try_from(buffers.len())?;
         let canonical_chunk = chunk.clone().into_varbinview()?;
-
-        for buffer in canonical_chunk.buffers() {
-            let canonical_buffer = buffer.into_canonical()?.into_primitive()?.into_array();
-            buffers.push(canonical_buffer);
-        }
+        buffers.extend(canonical_chunk.buffers());
 
         for view in canonical_chunk.binary_views()? {
             if view.is_inlined() {

@@ -1,9 +1,7 @@
 use arrow_array::builder::make_view;
 use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{
-    ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
-};
+use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -54,7 +52,7 @@ impl IntoCanonical for FSSTArray {
             });
 
             let views = views.freeze();
-            let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes).into_array();
+            let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes);
 
             VarBinViewArray::try_new(
                 views,
