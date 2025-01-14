@@ -73,6 +73,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
         stream: impl Stream<Item = SegmentRequest> + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
         let segment_map = self.file_layout.segments.clone();
+        let segment_map2 = self.file_layout.segments.clone();
         let read = self.read.clone();
         let segment_cache1 = self.segment_cache.clone();
         let segment_cache2 = self.segment_cache.clone();
@@ -134,11 +135,19 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
             // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
             // file and therefore be reasonably bounded.
             .ready_chunks(1024)
+            .inspect(|requests| println!("Processing {} segment requests", requests.len()))
             // Coalesce the segment requests to minimize the number of I/O operations.
             .map(coalesce)
             .flat_map(stream::iter)
             // Submit the coalesced requests to the I/O.
-            .map(move |request| evaluate(read.clone(), request, segment_cache2.clone()))
+            .map(move |request| {
+                evaluate(
+                    read.clone(),
+                    request,
+                    segment_map2.clone(),
+                    segment_cache2.clone(),
+                )
+            })
             // Buffer some number of concurrent I/O operations.
             .buffer_unordered(self.concurrency)
     }
@@ -147,37 +156,56 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
 async fn evaluate<R: VortexReadAt>(
     read: R,
     request: CoalescedSegmentRequest,
+    segment_map: Arc<[Segment]>,
     segment_cache: Arc<dyn SegmentCache>,
 ) -> VortexResult<()> {
     log::debug!(
         "Reading byte range: {:?} {}",
         request.byte_range,
-        request.byte_range.end - request.byte_range.start
+        request.byte_range.end - request.byte_range.start,
     );
     let buffer: ByteBuffer = read
         .read_byte_range(
             request.byte_range.start,
             request.byte_range.end - request.byte_range.start,
         )
-        .await
-        .map_err(|e| vortex_err!("Failed to read coalesced segment: {:?} {:?}", request, e))?
+        .await?
         .into();
 
-    // TODO(ngates): traverse the segment map to find un-requested segments that happen to
-    //  fall within the range of the request. Then we can populate those in the cache.
-    let mut cache_futures = Vec::with_capacity(request.requests.len());
+    // Figure out the segments covered by the read.
+    let start = segment_map.partition_point(|s| s.offset < request.byte_range.start);
+    let end = segment_map.partition_point(|s| s.offset < request.byte_range.end);
+
+    let mut requests = Vec::with_capacity(end - start);
+    for _ in start..end {
+        // We can't use `iter::repeat` since FileSegmentRequest doesn't implement `Clone`.
+        requests.push(None);
+    }
     for req in request.requests {
-        let offset = usize::try_from(req.location.offset - request.byte_range.start)?;
+        let id: usize = *req.id as usize;
+        requests[id - start] = Some(req);
+    }
+
+    let mut cache_futures = Vec::with_capacity(requests.len());
+    for (i, (segment, maybe_req)) in segment_map[start..end]
+        .iter()
+        .zip(requests.into_iter())
+        .enumerate()
+    {
+        let offset = usize::try_from(segment.offset - request.byte_range.start)?;
         let buf = buffer
-            .slice(offset..offset + req.location.length as usize)
-            .aligned(req.location.alignment);
+            .slice(offset..offset + segment.length as usize)
+            .aligned(segment.alignment);
 
         // Send the callback
-        req.callback
-            .send(Ok(buf.clone()))
-            .map_err(|_| vortex_err!("send failed"))?;
+        if let Some(req) = maybe_req {
+            req.callback
+                .send(Ok(buf.clone()))
+                .map_err(|_| vortex_err!("send failed"))?;
+        }
 
-        cache_futures.push(segment_cache.put(req.id, buf));
+        let id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
+        cache_futures.push(segment_cache.put(id, buf));
     }
 
     // Populate the cache
