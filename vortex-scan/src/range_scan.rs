@@ -109,12 +109,10 @@ impl RangeScan {
                 // Then move onto the projection
                 if mask.is_empty() {
                     // If the mask is empty, then we're done.
-                    // Canonical::Null()
                     let len = mask.len();
-                    let mut b = builder_with_capacity(&self.scan.dtype, len);
-                    b.append_nulls(len);
-
-                    self.state = State::Ready(b.finish()?);
+                    let mut builder = builder_with_capacity(&self.scan.dtype, len);
+                    builder.append_nulls(len);
+                    self.state = State::Ready(builder.finish()?);
                 } else {
                     self.state =
                         State::Project((FilterMask::from(mask), self.scan.projection().clone()))
