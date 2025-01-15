@@ -68,13 +68,14 @@ pub struct ExtDType {
 
 impl PartialEq for ExtDType {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.id == other.id && self.storage_dtype == other.storage_dtype
     }
 }
 
 impl std::hash::Hash for ExtDType {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
+        self.storage_dtype.hash(state);
     }
 }
 

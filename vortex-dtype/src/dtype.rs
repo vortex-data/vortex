@@ -110,7 +110,12 @@ impl DType {
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
             (Struct(..), _) => false,
-            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => lhs_extdtype == rhs_extdtype,
+            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
+                lhs_extdtype.id() == rhs_extdtype.id()
+                    && lhs_extdtype
+                        .storage_dtype()
+                        .eq_ignore_nullability(rhs_extdtype.storage_dtype())
+            }
             (Extension(_), _) => false,
         }
     }
