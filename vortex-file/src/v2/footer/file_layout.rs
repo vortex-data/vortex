@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
@@ -21,7 +22,10 @@ impl FileLayout {
     /// Panics if the segments are not ordered by byte offset.
     pub fn new(root_layout: LayoutData, segments: Arc<[Segment]>) -> Self {
         // Note this assertion is `<=` since we allow zero-length segments
-        assert!(segments.windows(2).all(|w| w[0].offset <= w[1].offset));
+        assert!(segments
+            .iter()
+            .tuple_windows()
+            .all(|(a, b)| a.offset <= b.offset));
         Self {
             root_layout,
             segments,

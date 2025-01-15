@@ -148,7 +148,7 @@ impl VortexOpenOptions {
             .into_driver();
 
         // Compute the splits of the file.
-        let splits = self.split_by.splits(&file_layout.root_layout())?.into();
+        let splits = self.split_by.splits(file_layout.root_layout())?.into();
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
