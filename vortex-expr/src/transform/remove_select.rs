@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::traversal::{MutNodeVisitor, Node, TransformResult};
+use crate::traversal::{MutNodeVisitor, NodeMut, TransformResult};
 use crate::{get_item, pack, ExprRef, Select};
 
 /// Select is a useful expression, however it can be defined in terms of get_item & pack,

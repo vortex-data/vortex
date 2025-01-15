@@ -80,7 +80,8 @@ impl StructReader {
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_dtype().find_name(name));
+            .or_else(|| self.struct_dtype().find_name(name))
+            .ok_or_else(|| vortex_err!("StructReader::Field {} not found", name))?;
         self.child_idx(idx)
     }
 
