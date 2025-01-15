@@ -78,7 +78,7 @@ impl Scan {
         Ok(RangeScan::new(
             self,
             row_mask.begin(),
-            row_mask.into_filter_mask()?,
+            row_mask.filter_mask().clone(),
         ))
     }
 }

@@ -67,13 +67,7 @@ impl VortexWriteOptions {
         // Write the DType + FileLayout segments
         let dtype_segment = self.write_flatbuffer(&mut write, stream.dtype()).await?;
         let file_layout_segment = self
-            .write_flatbuffer(
-                &mut write,
-                &FileLayout {
-                    root_layout,
-                    segments: segments.into(),
-                },
-            )
+            .write_flatbuffer(&mut write, &FileLayout::new(root_layout, segments.into()))
             .await?;
 
         // Assemble the postscript, and write it manually to avoid any framing.

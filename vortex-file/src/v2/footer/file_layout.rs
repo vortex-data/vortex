@@ -9,11 +9,35 @@ use crate::v2::footer::segment::Segment;
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct FileLayout {
-    pub(crate) root_layout: LayoutData,
-    pub(crate) segments: Arc<[Segment]>,
+    root_layout: LayoutData,
+    segments: Arc<[Segment]>,
 }
 
 impl FileLayout {
+    /// Create a new `FileLayout` from the root layout and segments.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the segments are not ordered by byte offset.
+    pub fn new(root_layout: LayoutData, segments: Arc<[Segment]>) -> Self {
+        // Note this assertion is `<=` since we allow zero-length segments
+        assert!(segments.windows(2).all(|w| w[0].offset <= w[1].offset));
+        Self {
+            root_layout,
+            segments,
+        }
+    }
+
+    /// Returns the root [`LayoutData`] of the file.
+    pub fn root_layout(&self) -> &LayoutData {
+        &self.root_layout
+    }
+
+    /// Returns the segment map of the file.
+    pub fn segment_map(&self) -> &Arc<[Segment]> {
+        &self.segments
+    }
+
     /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
         self.root_layout.dtype()

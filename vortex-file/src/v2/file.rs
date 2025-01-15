@@ -123,7 +123,7 @@ impl<I: IoDriver> VortexFile<I> {
         // Create a single LayoutReader that is reused for the entire scan.
         let reader: Arc<dyn LayoutReader> = self
             .file_layout
-            .root_layout
+            .root_layout()
             .reader(segment_channel.reader(), self.ctx.clone())?;
 
         // Now we give one end of the channel to the layout reader...

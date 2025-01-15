@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use flatbuffers::root;
 use futures::future::try_join_all;
-use vortex_array::compute::filter;
+use vortex_array::compute::{filter, slice};
 use vortex_array::parts::ArrayParts;
 use vortex_array::ArrayData;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -47,11 +47,24 @@ impl ExprEvaluator for FlatReader {
 
         // Decode into an ArrayData.
         let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
+        assert_eq!(
+            array.len() as u64,
+            self.row_count(),
+            "FlatLayout array length mismatch {} != {}",
+            array.len(),
+            self.row_count()
+        );
 
-        // And finally apply the expression
         // TODO(ngates): what's the best order to apply the filter mask / expression?
-        let array = expr.evaluate(&array)?;
-        filter(&array, row_mask.into_filter_mask()?)
+
+        // Filter the array based on the row mask.
+        let begin = usize::try_from(row_mask.begin())
+            .vortex_expect("RowMask begin must fit within FlatLayout size");
+        let array = slice(array, begin, begin + row_mask.len())?;
+        let array = filter(&array, row_mask.filter_mask().clone())?;
+
+        // Then apply the expression
+        expr.evaluate(&array)
     }
 }
 

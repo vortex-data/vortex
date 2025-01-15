@@ -1,5 +1,5 @@
+use std::cmp::Ordering;
 use std::future::Future;
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use futures::Stream;
 use futures_util::future::try_join_all;
 use futures_util::{stream, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 
@@ -64,7 +64,7 @@ impl FileSegmentRequest {
 struct CoalescedSegmentRequest {
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
-    /// The original segment requests.
+    /// The original segment requests, ordered by segment ID.
     pub(crate) requests: Vec<FileSegmentRequest>,
 }
 
@@ -74,7 +74,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
         stream: impl Stream<Item = SegmentRequest> + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
         // We map the segment requests to their respective locations within the file.
-        let segment_map = self.file_layout.segments.clone();
+        let segment_map = self.file_layout.segment_map().clone();
         let stream = stream.filter_map(move |request| {
             let segment_map = segment_map.clone();
             async move {
@@ -142,7 +142,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
 
         // Submit the coalesced requests to the I/O.
         let read = self.read.clone();
-        let segment_map = self.file_layout.segments.clone();
+        let segment_map = self.file_layout.segment_map().clone();
         let segment_cache = self.segment_cache.clone();
         let stream = stream.map(move |request| {
             let read = read.clone();
@@ -187,34 +187,40 @@ async fn evaluate<R: VortexReadAt>(
     let start = segment_map.partition_point(|s| s.offset < request.byte_range.start);
     let end = segment_map.partition_point(|s| s.offset < request.byte_range.end);
 
-    let mut requests = iter::repeat_with(|| None)
-        .take(end - start)
-        .collect::<Vec<_>>();
-    for req in request.requests {
-        let id = *req.id as usize;
-        requests[id - start] = Some(req);
-    }
+    // Note that we may have multiple requests for the same segment.
+    let mut requests_iter = request.requests.into_iter().peekable();
 
-    let mut cache_futures = Vec::with_capacity(requests.len());
-    for (i, (segment, maybe_req)) in segment_map[start..end]
-        .iter()
-        .zip(requests.into_iter())
-        .enumerate()
-    {
+    let mut cache_futures = Vec::with_capacity(end - start);
+    for (i, segment) in segment_map[start..end].iter().enumerate() {
+        let segment_id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
         let offset = usize::try_from(segment.offset - request.byte_range.start)?;
         let buf = buffer
             .slice(offset..offset + segment.length as usize)
             .aligned(segment.alignment);
 
-        // Send the callback
-        if let Some(req) = maybe_req {
-            req.callback
-                .send(Ok(buf.clone()))
-                .map_err(|_| vortex_err!("send failed"))?;
+        // Find any request callbacks and send the buffer
+        while let Some(req) = requests_iter.peek() {
+            // If the request is before the current segment, we should have already resolved it.
+            match req.id.cmp(&segment_id) {
+                Ordering::Less => {
+                    // This should never happen, it means we missed a segment request.
+                    vortex_panic!("Skipped segment request");
+                }
+                Ordering::Equal => {
+                    // Resolve the request
+                    requests_iter
+                        .next()
+                        .vortex_expect("next request")
+                        .resolve(Ok(buf.clone()));
+                }
+                Ordering::Greater => {
+                    // No request for this segment, so we continue
+                    break;
+                }
+            }
         }
 
-        let id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
-        cache_futures.push(segment_cache.put(id, buf));
+        cache_futures.push(segment_cache.put(segment_id, buf));
     }
 
     // Populate the cache
@@ -243,6 +249,11 @@ fn coalesce(requests: Vec<FileSegmentRequest>) -> Vec<CoalescedSegmentRequest> {
     for req in requests {
         let idx = fetch_ranges.partition_point(|v| v.start <= req.location.offset) - 1;
         coalesced.as_mut_slice()[idx].requests.push(req);
+    }
+
+    // Ensure we sort the requests by segment ID within the coalesced request.
+    for req in coalesced.iter_mut() {
+        req.requests.sort_unstable_by_key(|r| r.id);
     }
 
     coalesced

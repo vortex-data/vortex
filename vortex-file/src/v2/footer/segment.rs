@@ -4,7 +4,7 @@ use vortex_flatbuffers::footer2 as fb;
 
 /// The location of a segment within a Vortex file.
 #[derive(Clone, Debug)]
-pub(crate) struct Segment {
+pub struct Segment {
     pub(crate) offset: u64,
     pub(crate) length: u32,
     pub(crate) alignment: Alignment,
