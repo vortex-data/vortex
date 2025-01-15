@@ -68,7 +68,7 @@ impl RangeScanner {
                 // TODO(ngates): we should decide based on mask.true_count() whether to include the
                 //  current mask or not. But note that the resulting expression would need to be
                 //  aligned and intersected with the given mask.
-                State::FilterEval((FilterMask::new_true(mask.len()), filter.clone()))
+                State::FilterEval((FilterMask::new_true(mask.len()), filter))
             })
             .unwrap_or_else(|| {
                 // If there is no filter expression, then we immediately perform a mask + project.
