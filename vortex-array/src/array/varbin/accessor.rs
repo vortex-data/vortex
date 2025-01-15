@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -26,14 +27,14 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 None => {
                     let mut iter = offsets
                         .iter()
-                        .zip(offsets.iter().skip(1))
+                        .tuple_windows()
                         .map(|(start, end)| Some(&bytes[*start as usize..*end as usize]));
                     Ok(f(&mut iter))
                 }
                 Some(validity) => {
                     let mut iter = offsets
                         .iter()
-                        .zip(offsets.iter().skip(1))
+                        .tuple_windows()
                         .zip(validity.iter())
                         .map(|((start, end), valid)| {
                             if valid {
