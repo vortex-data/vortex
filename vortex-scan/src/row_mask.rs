@@ -225,6 +225,11 @@ impl RowMask {
         self.mask.is_empty()
     }
 
+    /// Returns the [`FilterMask`] whose true values are relative to the range of this `RowMask`.
+    pub fn filter_mask(&self) -> &FilterMask {
+        &self.mask
+    }
+
     /// Limit mask to `[begin..end)` range
     pub fn slice(&self, begin: u64, end: u64) -> VortexResult<Self> {
         let range_begin = max(self.begin, begin);
@@ -303,12 +308,6 @@ impl RowMask {
     // Get the true count of the underlying mask.
     pub fn true_count(&self) -> usize {
         self.mask.true_count()
-    }
-
-    // Convert the [`RowMask`] into a [`FilterMask`].
-    pub fn into_filter_mask(self) -> VortexResult<FilterMask> {
-        let offset = self.begin;
-        Ok(self.shift(offset)?.mask)
     }
 }
 

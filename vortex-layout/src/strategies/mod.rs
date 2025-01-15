@@ -66,7 +66,7 @@ pub trait LayoutWriterExt: LayoutWriter {
 impl<L: LayoutWriter> LayoutWriterExt for L {}
 
 /// A trait for creating new layout writers given a DType.
-pub trait LayoutStrategy: Send {
+pub trait LayoutStrategy: Send + Sync {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
 }
 

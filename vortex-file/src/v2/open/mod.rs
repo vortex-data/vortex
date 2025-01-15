@@ -148,7 +148,7 @@ impl VortexOpenOptions {
             .into_driver();
 
         // Compute the splits of the file.
-        let splits = self.split_by.splits(&file_layout.root_layout)?.into();
+        let splits = self.split_by.splits(file_layout.root_layout())?.into();
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
@@ -304,10 +304,7 @@ impl VortexOpenOptions {
             .ok_or_else(|| vortex_err!("FileLayout missing segments"))?;
         let segments = fb_segments.iter().map(Segment::try_from).try_collect()?;
 
-        Ok(FileLayout {
-            root_layout,
-            segments,
-        })
+        Ok(FileLayout::new(root_layout, segments))
     }
 
     /// Populate segments in the cache that were covered by the initial read.
@@ -318,7 +315,7 @@ impl VortexOpenOptions {
         file_layout: &FileLayout,
         segments: &dyn SegmentCache,
     ) -> VortexResult<()> {
-        for (idx, segment) in file_layout.segments.iter().enumerate() {
+        for (idx, segment) in file_layout.segment_map().iter().enumerate() {
             if segment.offset < initial_offset {
                 // Skip segments that aren't in the initial read.
                 continue;

@@ -7,9 +7,7 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use futures::executor::block_on;
-use itertools::Itertools;
-use rayon::prelude::*;
+use futures::{stream, StreamExt, TryStreamExt};
 use tokio::fs::{create_dir_all, OpenOptions};
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
@@ -152,9 +150,7 @@ pub async fn register_vortex_files(
     let vortex_dir = input_path.join("vortex");
     create_dir_all(&vortex_dir).await?;
 
-    (0..100)
-        .collect_vec()
-        .par_iter()
+    stream::iter(0..100)
         .map(|idx| {
             let parquet_file_path = input_path
                 .join("parquet")
@@ -163,7 +159,7 @@ pub async fn register_vortex_files(
             let session = session.clone();
             let schema = schema.clone();
 
-            block_on(async move {
+            tokio::spawn(async move {
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
                     eprintln!("Processing file {idx}");
@@ -234,7 +230,9 @@ pub async fn register_vortex_files(
                 .expect("Failed to write Vortex file")
             })
         })
-        .collect::<Vec<_>>();
+        .buffered(16)
+        .try_collect::<Vec<_>>()
+        .await?;
 
     let format = Arc::new(VortexFormat::new(CTX.clone()));
     let table_path = vortex_dir
