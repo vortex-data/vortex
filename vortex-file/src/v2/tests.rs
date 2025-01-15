@@ -5,7 +5,6 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
-use vortex_expr::ident;
 
 use crate::v2::*;
 
@@ -27,7 +26,7 @@ fn basic_file_roundtrip() -> VortexResult<()> {
         let vxf = VortexOpenOptions::new(ContextRef::default())
             .open(buffer)
             .await?;
-        let result = vxf.scan_all().into_array_data().await?.into_primitive()?;
+        let result = vxf.scan_all()?.into_array_data().await?.into_primitive()?;
 
         assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
