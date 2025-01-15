@@ -357,7 +357,7 @@ impl FilterMask {
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.0.len == 0
+        self.0.true_count == 0
     }
 
     /// Get the true count of the mask.

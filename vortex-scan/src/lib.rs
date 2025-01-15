@@ -63,11 +63,6 @@ impl Scanner {
         })
     }
 
-    /// Returns the filter expression, if any.
-    pub fn filter(&self) -> &[ExprRef] {
-        self.filter.as_ref()
-    }
-
     /// Returns the projection expression.
     pub fn projection(&self) -> &ExprRef {
         &self.projection
