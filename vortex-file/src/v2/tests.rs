@@ -27,11 +27,7 @@ fn basic_file_roundtrip() -> VortexResult<()> {
         let vxf = VortexOpenOptions::new(ContextRef::default())
             .open(buffer)
             .await?;
-        let result = vxf
-            .scan(ident(), None)?
-            .into_array_data()
-            .await?
-            .into_primitive()?;
+        let result = vxf.scan_all().into_array_data().await?.into_primitive()?;
 
         assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
