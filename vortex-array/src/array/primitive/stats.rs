@@ -403,7 +403,7 @@ mod test {
         let min: Option<Scalar> = arr.statistics().compute(Stat::Min);
         let max: Option<Scalar> = arr.statistics().compute(Stat::Max);
         let null_i32 = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
-        assert_eq!(min, Some(null_i32.clone()));
-        assert_eq!(max, Some(null_i32));
+        assert_eq!(min, None);
+        assert_eq!(max, None);
     }
 }
