@@ -49,6 +49,7 @@ impl<I: IoDriver> VortexFile<I> {
         &self.file_layout
     }
 
+    /// Performs a scan operation over the file, loading all rows.
     pub fn scan_all(&self) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         self.scan(ident(), None)
     }
