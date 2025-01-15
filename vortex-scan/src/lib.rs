@@ -45,7 +45,6 @@ impl Scanner {
             .dtype()
             .clone();
 
-
         let conjuncts: Box<[ExprRef]> = if let Some(filter) = filter {
             let conjuncts = cnf(filter)?;
             conjuncts
@@ -61,7 +60,6 @@ impl Scanner {
             projection,
             filter: conjuncts,
             projection_dtype: result_dtype,
-
         })
     }
 
