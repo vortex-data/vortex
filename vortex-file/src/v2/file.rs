@@ -53,12 +53,12 @@ impl<I: IoDriver> VortexFile<I> {
     /// Performs a scan operation over the file.
     pub fn scan(
         &self,
-        scan_builder: Scan,
+        scan: Scan,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         self.scan_with_masks(
             ArcIter::new(self.splits.clone())
                 .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end)),
-            scan_builder,
+            scan,
         )
     }
 
@@ -67,7 +67,7 @@ impl<I: IoDriver> VortexFile<I> {
     pub fn take(
         &self,
         row_indices: Buffer<u64>,
-        scan_builder: Scan,
+        scan: Scan,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         if !row_indices.windows(2).all(|w| w[0] <= w[1]) {
             vortex_bail!("row indices must be sorted")
@@ -110,7 +110,7 @@ impl<I: IoDriver> VortexFile<I> {
             Some(RowMask::new(filter_mask, row_range.start))
         });
 
-        self.scan_with_masks(row_masks, scan_builder)
+        self.scan_with_masks(row_masks, scan)
     }
 
     fn scan_with_masks<R>(
