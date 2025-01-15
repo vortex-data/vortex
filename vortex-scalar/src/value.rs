@@ -147,7 +147,7 @@ impl ScalarValue {
                 ScalarValue(InnerScalarValue::List(
                     values
                         .iter()
-                        .map(|value| value.cast(&dtype))
+                        .map(|value| value.cast(dtype))
                         .process_results(|iter| iter.collect())?,
                 ))
             }
@@ -157,7 +157,7 @@ impl ScalarValue {
                 }
                 self.clone()
             }
-            // (_, Extension(..)) we are never allowed to cast _to_ an extension type
+            (_, DType::Extension(ext_dtype)) => self.cast(ext_dtype.storage_dtype())?,
             _ => vortex_bail!("cannot cast {} to {}", self, dtype),
         })
     }
