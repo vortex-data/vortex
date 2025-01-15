@@ -6,22 +6,16 @@ use crate::compute::{FilterFn, FilterIter, FilterMask};
 use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn<BoolArray> for BoolEncoding {
-    fn filter(&self, array: &BoolArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(&mask)?;
+    fn filter(&self, array: &BoolArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(mask)?;
 
-        let buffer = match mask.iter()? {
+        let buffer = match mask.iter() {
             FilterIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
-            FilterIter::IndicesIter(iter) => {
-                filter_indices(&array.boolean_buffer(), mask.true_count(), iter)
-            }
             FilterIter::Slices(slices) => filter_slices(
                 &array.boolean_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
             ),
-            FilterIter::SlicesIter(iter) => {
-                filter_slices(&array.boolean_buffer(), mask.true_count(), iter)
-            }
         };
 
         Ok(BoolArray::try_new(buffer, validity)?.into_array())
@@ -84,7 +78,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = FilterMask::from_iter([true, false, true]);
 
-        let filtered = filter(&arr.into_array(), mask)
+        let filtered = filter(&arr.into_array(), &mask)
             .unwrap()
             .into_bool()
             .unwrap();

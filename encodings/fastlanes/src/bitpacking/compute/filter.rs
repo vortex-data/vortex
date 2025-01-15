@@ -13,7 +13,7 @@ use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
-    fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BitPackedArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
@@ -31,13 +31,13 @@ impl FilterFn<BitPackedArray> for BitPackedEncoding {
 /// dictates the final `PType` of the result.
 fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
-    mask: FilterMask,
+    mask: &FilterMask,
 ) -> VortexResult<PrimitiveArray> {
-    let validity = array.validity().filter(&mask)?;
+    let validity = array.validity().filter(mask)?;
 
     let patches = array
         .patches()
-        .map(|patches| patches.filter(mask.clone()))
+        .map(|patches| patches.filter(mask))
         .transpose()?
         .flatten();
 
@@ -47,15 +47,13 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
             .and_then(|a| a.into_primitive());
     }
 
-    let values: Buffer<T> = match mask.iter()? {
+    let values: Buffer<T> = match mask.iter() {
         FilterIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
         }
-        FilterIter::IndicesIter(iter) => filter_indices(array, mask.true_count(), iter),
         FilterIter::Slices(slices) => {
             filter_slices(array, mask.true_count(), slices.iter().copied())
         }
-        FilterIter::SlicesIter(iter) => filter_slices(array, mask.true_count(), iter),
     };
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
@@ -143,9 +141,9 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let mask = FilterMask::from_indices(bitpacked.len(), [0, 125, 2047, 2049, 2151, 2790]);
+        let mask = FilterMask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
-        let primitive_result = filter(bitpacked.as_ref(), mask)
+        let primitive_result = filter(bitpacked.as_ref(), &mask)
             .unwrap()
             .into_primitive()
             .unwrap();
@@ -160,9 +158,9 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
-        let mask = FilterMask::from_indices(sliced.len(), [1919, 1921]);
+        let mask = FilterMask::from_indices(sliced.len(), vec![1919, 1921]);
 
-        let primitive_result = filter(&sliced, mask).unwrap().into_primitive().unwrap();
+        let primitive_result = filter(&sliced, &mask).unwrap().into_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
@@ -171,7 +169,11 @@ mod test {
     fn filter_bitpacked() {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let filtered = filter(bitpacked.as_ref(), FilterMask::from_indices(4096, 0..1024)).unwrap();
+        let filtered = filter(
+            bitpacked.as_ref(),
+            &FilterMask::from_indices(4096, (0..1024).collect()),
+        )
+        .unwrap();
         assert_eq!(
             filtered.into_primitive().unwrap().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
@@ -185,7 +187,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            FilterMask::from_indices(values.len(), 0..250),
+            &FilterMask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()
         .into_primitive()

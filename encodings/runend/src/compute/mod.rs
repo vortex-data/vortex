@@ -92,12 +92,12 @@ impl SliceFn<RunEndArray> for RunEndEncoding {
 }
 
 impl FilterFn<RunEndArray> for RunEndEncoding {
-    fn filter(&self, array: &RunEndArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let primitive_run_ends = array.ends().into_primitive()?;
         let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
             filter_run_ends(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
         });
-        let values = filter(&array.values(), values_mask)?;
+        let values = filter(&array.values(), &values_mask)?;
 
         RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
     }
@@ -108,14 +108,14 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
-    mask: FilterMask,
+    mask: &FilterMask,
 ) -> VortexResult<(PrimitiveArray, FilterMask)> {
     let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
     let mut start = 0u64;
     let mut j = 0;
     let mut count = R::zero();
-    let filter_values = mask.to_boolean_buffer()?;
+    let filter_values = mask.boolean_buffer();
 
     let new_mask: FilterMask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;
@@ -278,7 +278,7 @@ mod test {
         let arr = ree_array();
         let filtered = filter(
             arr.as_ref(),
-            FilterMask::from_iter([
+            &FilterMask::from_iter([
                 true, true, false, false, false, false, false, false, false, false, true, true,
             ]),
         )
@@ -308,7 +308,7 @@ mod test {
         let arr = slice(ree_array(), 2, 7).unwrap();
         let filtered = filter(
             &arr,
-            FilterMask::from_iter([true, false, false, true, true]),
+            &FilterMask::from_iter([true, false, false, true, true]),
         )
         .unwrap();
         let filtered_run_end = RunEndArray::try_from(filtered).unwrap();

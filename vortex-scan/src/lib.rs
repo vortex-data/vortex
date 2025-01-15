@@ -1,15 +1,13 @@
 mod range_scan;
 mod row_mask;
 
-use std::ops::Range;
 use std::sync::Arc;
 
 pub use range_scan::*;
 pub use row_mask::*;
-use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, Identity};
 
 /// Represents a scan operation to read data from a set of rows, with an optional filter expression,
@@ -82,14 +80,11 @@ impl Scan {
 
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
     /// parent scan in order to optimize future range scans.
-    pub fn range_scan(self: &Arc<Self>, range: Range<u64>) -> VortexResult<RangeScan> {
-        // TODO(ngates): binary search take_indices to compute initial mask.
-        let length = usize::try_from(range.end - range.start)
-            .map_err(|_| vortex_err!("Range length must fit within usize"))?;
+    pub fn range_scan(self: Arc<Self>, row_mask: RowMask) -> VortexResult<RangeScan> {
         Ok(RangeScan::new(
-            self.clone(),
-            range.start,
-            FilterMask::new_true(length),
+            self,
+            row_mask.begin(),
+            row_mask.into_filter_mask()?,
         ))
     }
 }
