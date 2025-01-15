@@ -78,7 +78,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, lit, Identity};
+    use vortex_expr::{gt, ident, lit, Identity};
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -133,6 +133,28 @@ mod test {
                 BooleanBuffer::from_iter([false, false, false, true, true]),
                 result.boolean_buffer()
             );
+        })
+    }
+
+    #[test]
+    fn flat_unaligned_row_mask() {
+        block_on(async {
+            let mut segments = TestSegments::default();
+            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+            let layout = FlatLayoutWriter::new(array.dtype().clone())
+                .push_one(&mut segments, array.to_array())
+                .unwrap();
+
+            let result = layout
+                .reader(Arc::new(segments), Default::default())
+                .unwrap()
+                .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
+                .await
+                .unwrap()
+                .into_primitive()
+                .unwrap();
+
+            assert_eq!(result.as_slice::<i32>(), &[3, 4],);
         })
     }
 }
