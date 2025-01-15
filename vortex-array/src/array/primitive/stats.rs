@@ -334,7 +334,6 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
