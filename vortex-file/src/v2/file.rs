@@ -121,9 +121,9 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scan = scan_builder.build(self.dtype().clone());
+        let scan = scan_builder.build(self.dtype().clone())?;
 
-        let result_dtype = scan.result_dtype()?;
+        let result_dtype = scan.result_dtype();
 
         // Set up a segment channel to collect segment requests from the execution stream.
         let segment_channel = SegmentChannel::new();

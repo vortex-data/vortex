@@ -23,9 +23,11 @@ use vortex_expr::{ExprRef, Identity};
 /// the second filter over the reduced set of rows.
 #[derive(Debug, Clone)]
 pub struct Scan {
+    #[allow(dead_code)]
     dtype: DType,
     projection: ExprRef,
     filter: Option<ExprRef>,
+    projection_dtype: DType,
     // A sorted list of row indices to include in the scan. We store row indices since they may
     // produce a very sparse RowMask.
     // take_indices: Vec<u64>,
@@ -34,14 +36,20 @@ pub struct Scan {
 
 impl Scan {
     /// Create a new scan with the given projection and optional filter.
-    pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> Self {
+    pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> VortexResult<Self> {
         // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
         //  Where FieldMask ~= Vec<FieldPath>
-        Self {
+        let result_dtype = projection
+            .evaluate(&Canonical::empty(&dtype)?.into_array())?
+            .dtype()
+            .clone();
+
+        Ok(Self {
             dtype,
             projection,
             filter,
-        }
+            projection_dtype: result_dtype,
+        })
     }
 
     /// Returns the filter expression, if any.
@@ -55,12 +63,8 @@ impl Scan {
     }
 
     /// Compute the result dtype of the scan given the input dtype.
-    pub fn result_dtype(&self) -> VortexResult<DType> {
-        Ok(self
-            .projection
-            .evaluate(&Canonical::empty(&self.dtype)?.into_array())?
-            .dtype()
-            .clone())
+    pub fn result_dtype(&self) -> DType {
+        self.projection_dtype.clone()
     }
 
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
@@ -98,11 +102,7 @@ impl ScanBuilder {
         Self { filter, ..self }
     }
 
-    pub fn build(self, dtype: DType) -> Arc<Scan> {
-        Arc::new(Scan {
-            dtype,
-            projection: self.projection,
-            filter: self.filter,
-        })
+    pub fn build(self, dtype: DType) -> VortexResult<Arc<Scan>> {
+        Ok(Arc::new(Scan::new(dtype, self.projection, self.filter)?))
     }
 }

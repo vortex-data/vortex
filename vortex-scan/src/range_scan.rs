@@ -109,7 +109,7 @@ impl RangeScan {
                 if mask.is_empty() {
                     // If the mask is empty, then we're done.
                     self.state =
-                        State::Ready(Canonical::empty(&self.scan.result_dtype()?)?.into_array());
+                        State::Ready(Canonical::empty(&self.scan.result_dtype())?.into_array());
                 } else {
                     self.state = State::Project((mask, self.scan.projection().clone()))
                 }
