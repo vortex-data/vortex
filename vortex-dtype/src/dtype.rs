@@ -111,7 +111,7 @@ impl DType {
             }
             (Struct(..), _) => false,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
-                lhs_extdtype.as_ref().eq_ignore_nullability(&rhs_extdtype)
+                lhs_extdtype.as_ref().eq_ignore_nullability(rhs_extdtype)
             }
             (Extension(_), _) => false,
         }
