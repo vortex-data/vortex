@@ -71,6 +71,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "always_send"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b628c617100dc3b59649fd9092ca9105433b5289ad9b43a82a71e3b6e08d26d"
+
+[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4954,6 +4960,7 @@ dependencies = [
 name = "vortex-datafusion"
 version = "0.21.1"
 dependencies = [
+ "always_send",
  "anyhow",
  "arrow-array",
  "arrow-schema",
