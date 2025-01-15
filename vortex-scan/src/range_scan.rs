@@ -62,7 +62,6 @@ impl RangeScanner {
         let first_filter = scan.filter.first().cloned();
         let remaining_filter_conjuncts = scan.filter().iter().skip(1).cloned().collect();
         let state = first_filter
-            .filter()
             .map(|filter| {
                 // If we have a filter expression, then for now we evaluate it against all rows
                 // of the range.
