@@ -77,25 +77,3 @@ impl Scanner {
         ))
     }
 }
-
-pub struct Scan {
-    projection: ExprRef,
-    filter: Option<ExprRef>,
-}
-
-impl Scan {
-    pub fn all() -> Self {
-        Self {
-            projection: Identity::new_expr(),
-            filter: None,
-        }
-    }
-
-    pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
-        Self { projection, filter }
-    }
-
-    pub fn build(self, dtype: DType) -> VortexResult<Arc<Scanner>> {
-        Ok(Arc::new(Scanner::new(dtype, self.projection, self.filter)?))
-    }
-}

@@ -12,8 +12,9 @@ use vortex_array::{ArrayData, ContextRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_expr::{ExprRef, Identity};
 use vortex_layout::{ExprEvaluator, LayoutReader};
-use vortex_scan::{RowMask, Scan};
+use vortex_scan::{RowMask, Scanner};
 
 use crate::v2::exec::ExecDriver;
 use crate::v2::io::IoDriver;
@@ -31,6 +32,28 @@ pub struct VortexFile<I> {
     pub(crate) io_driver: I,
     pub(crate) exec_driver: Arc<dyn ExecDriver>,
     pub(crate) splits: Arc<[Range<u64>]>,
+}
+
+pub struct Scan {
+    projection: ExprRef,
+    filter: Option<ExprRef>,
+}
+
+impl Scan {
+    pub fn all() -> Self {
+        Self {
+            projection: Identity::new_expr(),
+            filter: None,
+        }
+    }
+
+    pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
+        Self { projection, filter }
+    }
+
+    pub fn build(self, dtype: DType) -> VortexResult<Arc<Scanner>> {
+        Ok(Arc::new(Scanner::new(dtype, self.projection, self.filter)?))
+    }
 }
 
 /// Async implementation of Vortex File.
