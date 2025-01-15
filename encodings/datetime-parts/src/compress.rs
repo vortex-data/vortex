@@ -101,14 +101,14 @@ mod tests {
             days,
             seconds,
             subseconds,
-        } = split_temporal(temporal_array.clone()).unwrap();
-        assert_eq!(days.clone().into_primitive().unwrap().validity(), validity);
+        } = split_temporal(temporal_array).unwrap();
+        assert_eq!(days.into_primitive().unwrap().validity(), validity);
         assert_eq!(
-            seconds.clone().into_primitive().unwrap().validity(),
+            seconds.into_primitive().unwrap().validity(),
             Validity::NonNullable
         );
         assert_eq!(
-            subseconds.clone().into_primitive().unwrap().validity(),
+            subseconds.into_primitive().unwrap().validity(),
             Validity::NonNullable
         );
     }
