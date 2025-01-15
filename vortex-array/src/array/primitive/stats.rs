@@ -402,7 +402,6 @@ mod test {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
         let min: Option<Scalar> = arr.statistics().compute(Stat::Min);
         let max: Option<Scalar> = arr.statistics().compute(Stat::Max);
-        let null_i32 = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         assert_eq!(min, None);
         assert_eq!(max, None);
     }
