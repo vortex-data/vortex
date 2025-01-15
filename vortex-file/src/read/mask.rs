@@ -9,7 +9,7 @@ use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 
 /// A RowMask captures a set of selected rows offset by a range.
 ///
@@ -169,8 +169,7 @@ impl RowMask {
 
         let output_begin = min(self.begin, other.begin);
         let output_end = max(self.end, other.end);
-        let output_len = usize::try_from(output_end - output_begin)
-            .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
+        let output_len = output_end - output_begin;
 
         let output_mask = FilterMask::from_intersection_indices(
             output_len,
