@@ -60,16 +60,12 @@ impl ChunkedReader {
     pub(crate) async fn stats_table(&self) -> VortexResult<Option<&StatsTable>> {
         self.stats_table
             .get_or_try_init(async {
-                // The number of chunks
-                let mut nchunks = self.layout.nchildren();
-                if self.layout.metadata().is_some() {
-                    // The final child is the statistics table.
-                    nchunks -= 1;
-                }
-
                 Ok(match self.layout.metadata() {
                     None => None,
                     Some(metadata) => {
+                        // The final child is the statistics table.
+                        let nchunks = self.layout.nchildren() - 1;
+
                         // Figure out which stats are present
                         let present_stats: Arc<[Stat]> =
                             Arc::from(stats_from_bitset_bytes(metadata.as_ref()));

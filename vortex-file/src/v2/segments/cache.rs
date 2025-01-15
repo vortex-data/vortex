@@ -36,13 +36,14 @@ pub(crate) struct InMemorySegmentCache(RwLock<HashMap<SegmentId, ByteBuffer>>);
 
 #[async_trait]
 impl SegmentCache for InMemorySegmentCache {
-    async fn get(&self, id: SegmentId, _alignment: Alignment) -> VortexResult<Option<ByteBuffer>> {
+    async fn get(&self, id: SegmentId, alignment: Alignment) -> VortexResult<Option<ByteBuffer>> {
         Ok(self
             .0
             .read()
             .map_err(|_| vortex_err!("poisoned"))?
             .get(&id)
-            .cloned())
+            .cloned()
+            .map(|b| b.aligned(alignment)))
     }
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {

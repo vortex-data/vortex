@@ -14,7 +14,7 @@ use itertools::Itertools;
 use vortex_array::ContextRef;
 use vortex_dtype::FieldName;
 
-use super::cache::InitialReadCache;
+use super::cache::FileLayoutCache;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ pub struct VortexExec {
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
     ctx: ContextRef,
-    initial_read_cache: InitialReadCache,
+    initial_read_cache: FileLayoutCache,
 }
 
 impl VortexExec {
@@ -34,7 +34,7 @@ impl VortexExec {
         metrics: ExecutionPlanMetricsSet,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: ContextRef,
-        initial_read_cache: InitialReadCache,
+        initial_read_cache: FileLayoutCache,
     ) -> DFResult<Self> {
         let projected_schema = project_schema(
             &file_scan_config.file_schema,
@@ -122,17 +122,18 @@ impl ExecutionPlan for VortexExec {
             projection
                 .iter()
                 .map(|i| FieldName::from(arrow_schema.fields[*i].name().clone()))
-                .collect_vec()
+                .collect()
         });
 
-        let opener = VortexFileOpener {
-            ctx: self.ctx.clone(),
+        // TODO(joe): apply the predicate/filter mapping to vortex-expr once.
+        let opener = VortexFileOpener::new(
+            self.ctx.clone(),
             object_store,
             projection,
-            predicate: self.predicate.clone(),
-            initial_read_cache: self.initial_read_cache.clone(),
+            self.predicate.clone(),
             arrow_schema,
-        };
+            self.initial_read_cache.clone(),
+        )?;
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
 
         Ok(Box::pin(stream))

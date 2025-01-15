@@ -8,35 +8,26 @@ use datafusion::datasource::file_format::{FileFormat, FilePushdownSupport};
 use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
 use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
-use datafusion_common::stats::Precision;
-use datafusion_common::{
-    not_impl_err, ColumnStatistics, DataFusionError, Result as DFResult, Statistics,
-};
+use datafusion_common::{not_impl_err, DataFusionError, Result as DFResult, Statistics};
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
-use vortex_file::metadata::fetch_metadata;
-use vortex_file::{
-    LayoutContext, LayoutDeserializer, LayoutMessageCache, LayoutPath, Scan, VORTEX_FILE_EXTENSION,
-};
-use vortex_io::{IoDispatcher, ObjectStoreReadAt};
+use vortex_file::VORTEX_FILE_EXTENSION;
 
-use super::cache::InitialReadCache;
+use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
-use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
 
 #[derive(Debug)]
 pub struct VortexFormat {
     context: ContextRef,
-    initial_read_cache: InitialReadCache,
+    file_layout_cache: FileLayoutCache,
     opts: VortexFormatOptions,
 }
 
@@ -61,7 +52,7 @@ impl Default for VortexFormat {
 
         Self {
             context: Default::default(),
-            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
             opts,
         }
     }
@@ -72,7 +63,7 @@ impl VortexFormat {
         let opts = VortexFormatOptions::default();
         Self {
             context,
-            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
             opts,
         }
     }
@@ -109,12 +100,10 @@ impl FileFormat for VortexFormat {
         let file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
-                let cache = self.initial_read_cache.clone();
+                let cache = self.file_layout_cache.clone();
                 async move {
-                    let initial_read = cache.try_get(&o, store).await?;
-                    let top_level_dtype = initial_read.dtype();
-                    let s = infer_schema(&top_level_dtype)?;
-
+                    let file_layout = cache.try_get(&o, store).await?;
+                    let s = infer_schema(file_layout.dtype())?;
                     VortexResult::Ok(s)
                 }
             })
@@ -130,60 +119,14 @@ impl FileFormat for VortexFormat {
     async fn infer_stats(
         &self,
         _state: &SessionState,
-        store: &Arc<dyn ObjectStore>,
+        _store: &Arc<dyn ObjectStore>,
         table_schema: SchemaRef,
-        object: &ObjectMeta,
+        _object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let initial_read = self
-            .initial_read_cache
-            .try_get(object, store.clone())
-            .await?;
-
-        let layout = initial_read.fb_layout();
-        let row_count = layout.row_count();
-
-        let layout_deserializer =
-            LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
-
-        let root_layout = layout_deserializer.read_layout(
-            LayoutPath::default(),
-            initial_read.fb_layout(),
-            Scan::empty(),
-            initial_read.dtype().into(),
-        )?;
-
-        let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-        let io = IoDispatcher::default();
-        let mut stats = Statistics::new_unknown(&table_schema);
-        stats.num_rows = Precision::Exact(row_count as usize);
-
-        let msgs = LayoutMessageCache::default();
-
-        if let Some(metadata_table) =
-            fetch_metadata(os_read_at, io.into(), root_layout, msgs).await?
-        {
-            let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
-            let mut total_size = 0_u64;
-
-            for col_stats in metadata_table.into_iter() {
-                let col_stats = match col_stats {
-                    Some(array) => {
-                        let col_metadata_array = StructArray::try_from(array)?;
-                        let col_stats = array_to_col_statistics(&col_metadata_array)?;
-
-                        total_size +=
-                            uncompressed_col_size(&col_metadata_array)?.unwrap_or_default();
-                        col_stats
-                    }
-                    None => ColumnStatistics::new_unknown(),
-                };
-                column_statistics.push(col_stats);
-            }
-            stats.column_statistics = column_statistics;
-            stats.total_byte_size = Precision::Inexact(total_size as usize);
-        }
-
-        Ok(stats)
+        // TODO(ngates): we should decide if it's worth returning file statistics. Since this
+        //  call doesn't have projection information, I think it's better to wait until we can
+        //  return per-partition statistics from VortexExpr ExecutionPlan node.
+        Ok(Statistics::new_unknown(table_schema.as_ref()))
     }
 
     async fn create_physical_plan(
@@ -199,7 +142,7 @@ impl FileFormat for VortexFormat {
             metrics,
             filters.cloned(),
             self.context.clone(),
-            self.initial_read_cache.clone(),
+            self.file_layout_cache.clone(),
         )?
         .into_arc();
 

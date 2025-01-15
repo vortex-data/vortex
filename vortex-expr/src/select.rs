@@ -5,7 +5,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayData;
 use vortex_dtype::FieldNames;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::field::DisplayFieldNames;
 use crate::{ExprRef, VortexExpr};
@@ -51,6 +51,13 @@ impl Select {
     pub fn child(&self) -> &ExprRef {
         &self.child
     }
+
+    pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<ExprRef> {
+        Ok(Self::new_expr(
+            SelectField::Include(self.fields.as_include_names(field_names)?),
+            self.child.clone(),
+        ))
+    }
 }
 
 impl SelectField {
@@ -64,10 +71,36 @@ impl SelectField {
         Self::Exclude(columns)
     }
 
+    pub fn is_include(&self) -> bool {
+        matches!(self, Self::Include(_))
+    }
+
+    pub fn is_exclude(&self) -> bool {
+        matches!(self, Self::Exclude(_))
+    }
+
     pub fn fields(&self) -> &FieldNames {
         match self {
             SelectField::Include(fields) => fields,
             SelectField::Exclude(fields) => fields,
+        }
+    }
+
+    pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
+        if self.fields().iter().any(|f| !field_names.contains(f)) {
+            vortex_bail!(
+                "Field {:?} in select not in field names {:?}",
+                self,
+                field_names
+            );
+        }
+        match self {
+            SelectField::Include(fields) => Ok(fields.clone()),
+            SelectField::Exclude(exc_fields) => Ok(field_names
+                .iter()
+                .filter(|f| exc_fields.contains(f))
+                .cloned()
+                .collect()),
         }
     }
 }

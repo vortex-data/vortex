@@ -58,12 +58,24 @@ impl From<&[u8]> for ExtMetadata {
 }
 
 /// A type descriptor for an extension type
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialOrd, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
     id: ExtID,
     storage_dtype: Arc<DType>,
     metadata: Option<ExtMetadata>,
+}
+
+impl PartialEq for ExtDType {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl std::hash::Hash for ExtDType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
 impl ExtDType {

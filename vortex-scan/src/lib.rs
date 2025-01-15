@@ -76,12 +76,12 @@ impl Scan {
 
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
     /// parent scan in order to optimize future range scans.
-    pub fn range_scan(self: Arc<Self>, range: Range<u64>) -> VortexResult<RangeScan> {
+    pub fn range_scan(self: &Arc<Self>, range: Range<u64>) -> VortexResult<RangeScan> {
         // TODO(ngates): binary search take_indices to compute initial mask.
         let length = usize::try_from(range.end - range.start)
             .map_err(|_| vortex_err!("Range length must fit within usize"))?;
         Ok(RangeScan::new(
-            self,
+            self.clone(),
             range.start,
             FilterMask::new_true(length),
         ))

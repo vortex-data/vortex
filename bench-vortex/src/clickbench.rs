@@ -7,13 +7,16 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::executor::block_on;
+use itertools::Itertools;
+use rayon::prelude::*;
 use tokio::fs::{create_dir_all, OpenOptions};
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::DType;
 use vortex::error::vortex_err;
-use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
+use vortex::file::v2::VortexWriteOptions;
+use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -149,7 +152,9 @@ pub async fn register_vortex_files(
     let vortex_dir = input_path.join("vortex");
     create_dir_all(&vortex_dir).await?;
 
-    stream::iter(0..100)
+    (0..100)
+        .collect_vec()
+        .par_iter()
         .map(|idx| {
             let parquet_file_path = input_path
                 .join("parquet")
@@ -158,7 +163,7 @@ pub async fn register_vortex_files(
             let session = session.clone();
             let schema = schema.clone();
 
-            tokio::spawn(async move {
+            block_on(async move {
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
                     eprintln!("Processing file {idx}");
@@ -219,9 +224,9 @@ pub async fn register_vortex_files(
                         .open(&vtx_file)
                         .await?;
 
-                    let mut writer = VortexFileWriter::new(f);
-                    writer = writer.write_array_columns(data).await?;
-                    writer.finalize().await?;
+                    VortexWriteOptions::default()
+                        .write(f, data.into_array_stream())
+                        .await?;
 
                     anyhow::Ok(())
                 })
@@ -229,9 +234,7 @@ pub async fn register_vortex_files(
                 .expect("Failed to write Vortex file")
             })
         })
-        .buffered(16)
-        .try_collect::<Vec<_>>()
-        .await?;
+        .collect::<Vec<_>>();
 
     let format = Arc::new(VortexFormat::new(CTX.clone()));
     let table_path = vortex_dir
