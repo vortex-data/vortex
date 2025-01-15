@@ -7,10 +7,10 @@ use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
-use crate::{RowMask, Scan};
+use crate::{RowMask, Scanner};
 
-pub struct RangeScan {
-    scan: Arc<Scan>,
+pub struct RangeScanner {
+    scan: Arc<Scanner>,
     row_range: Range<u64>,
     mask: FilterMask,
     state: State,
@@ -56,8 +56,8 @@ pub enum NextOp {
 // If instead we make the projection API `project(row_mask, expr)`, then the project API is
 // identical to the filter API and there's no point having both. Hence, a single
 // `evaluate(row_mask, expr)` API.
-impl RangeScan {
-    pub(crate) fn new(scan: Arc<Scan>, row_offset: u64, mask: FilterMask) -> Self {
+impl RangeScanner {
+    pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
         let state = scan
             .filter()
             .map(|filter| {
@@ -109,7 +109,7 @@ impl RangeScan {
                 if mask.is_empty() {
                     // If the mask is empty, then we're done.
                     self.state =
-                        State::Ready(Canonical::empty(&self.scan.result_dtype())?.into_array());
+                        State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
                 } else {
                     self.state = State::Project((mask, self.scan.projection().clone()))
                 }
@@ -123,7 +123,7 @@ impl RangeScan {
         Ok(())
     }
 
-    /// Evaluate the [`RangeScan`] operation using a synchronous expression evaluator.
+    /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
     pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<ArrayData>
     where
         E: Fn(RowMask, ExprRef) -> VortexResult<ArrayData>,
@@ -138,7 +138,7 @@ impl RangeScan {
         }
     }
 
-    /// Evaluate the [`RangeScan`] operation using an async expression evaluator.
+    /// Evaluate the [`RangeScanner`] operation using an async expression evaluator.
     pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<ArrayData>
     where
         E: Fn(RowMask, ExprRef) -> F,

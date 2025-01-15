@@ -17,7 +17,7 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{and, get_item, ident, lit, pack, ExprRef, Identity};
 use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
-use vortex_scan::ScanBuilder;
+use vortex_scan::Scan;
 
 use super::cache::FileLayoutCache;
 
@@ -102,10 +102,7 @@ impl FileOpener for VortexFileOpener {
                 .await?;
 
             Ok(vxf
-                .scan(
-                    ScanBuilder::new_projection(this.projection.clone())
-                        .with_filter(this.filter.clone()),
-                )?
+                .scan(Scan::new(this.projection.clone(), this.filter.clone()))?
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())

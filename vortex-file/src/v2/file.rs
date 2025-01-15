@@ -13,7 +13,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_layout::{ExprEvaluator, LayoutReader};
-use vortex_scan::{RowMask, ScanBuilder};
+use vortex_scan::{RowMask, Scan};
 
 use crate::v2::exec::ExecDriver;
 use crate::v2::io::IoDriver;
@@ -53,7 +53,7 @@ impl<I: IoDriver> VortexFile<I> {
     /// Performs a scan operation over the file.
     pub fn scan(
         &self,
-        scan_builder: ScanBuilder,
+        scan_builder: Scan,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         self.scan_with_masks(
             ArcIter::new(self.splits.clone())
@@ -67,7 +67,7 @@ impl<I: IoDriver> VortexFile<I> {
     pub fn take(
         &self,
         row_indices: Buffer<u64>,
-        scan_builder: ScanBuilder,
+        scan_builder: Scan,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         if !row_indices.windows(2).all(|w| w[0] <= w[1]) {
             vortex_bail!("row indices must be sorted")
@@ -116,14 +116,14 @@ impl<I: IoDriver> VortexFile<I> {
     fn scan_with_masks<R>(
         &self,
         row_masks: R,
-        scan_builder: ScanBuilder,
+        scan: Scan,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I, R>>
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scan = scan_builder.build(self.dtype().clone())?;
+        let scanner = scan.build(self.dtype().clone())?;
 
-        let result_dtype = scan.result_dtype();
+        let result_dtype = scanner.result_dtype().clone();
 
         // Set up a segment channel to collect segment requests from the execution stream.
         let segment_channel = SegmentChannel::new();
@@ -136,18 +136,22 @@ impl<I: IoDriver> VortexFile<I> {
 
         // Now we give one end of the channel to the layout reader...
         let exec_stream = stream::iter(row_masks)
-            .map(move |row_mask| match scan.clone().range_scan(row_mask) {
-                Ok(range_scan) => {
-                    let reader = reader.clone();
-                    async move {
-                        range_scan
-                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
-                            .await
+            .map(
+                move |row_mask| match scanner.clone().range_scanner(row_mask) {
+                    Ok(range_scan) => {
+                        let reader = reader.clone();
+                        async move {
+                            range_scan
+                                .evaluate_async(|row_mask, expr| {
+                                    reader.evaluate_expr(row_mask, expr)
+                                })
+                                .await
+                        }
+                        .boxed()
                     }
-                    .boxed()
-                }
-                Err(e) => futures::future::ready(Err(e)).boxed(),
-            })
+                    Err(e) => futures::future::ready(Err(e)).boxed(),
+                },
+            )
             .boxed();
         let exec_stream = self.exec_driver.drive(exec_stream);
 
