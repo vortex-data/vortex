@@ -49,7 +49,7 @@ impl EncodingCompressor for ALPCompressor {
         let (exponents, encoded, patches) = match_each_alp_float_ptype!(
             parray.ptype(), |$T| {
             alp_encode_components::<$T>(&parray, None)
-        });
+        })?;
 
         let compressed_encoded = ctx
             .named("packed")

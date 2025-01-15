@@ -70,13 +70,15 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
                 &PrimitiveArray::from_iter(
                     (0..values.len())
                         .step_by(values.len() / SAMPLE_SIZE)
-                        .map(|x| x as u64),
+                        .map(|x| x as u64)
+                        .take(SAMPLE_SIZE),
                 )
                 .into_array(),
             )?;
             let values = values
                 .iter()
                 .step_by(values.len() / SAMPLE_SIZE)
+                .take(SAMPLE_SIZE)
                 .cloned()
                 .collect_vec();
             Self::find_best_exponents(&values, &validity)
