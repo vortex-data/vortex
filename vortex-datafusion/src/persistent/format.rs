@@ -16,9 +16,11 @@ use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
-use vortex_array::ContextRef;
+use vortex_array::{ArrayData, ContextRef};
 use vortex_error::VortexResult;
+use vortex_file::v2::{Scan, VortexOpenOptions};
 use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
@@ -119,10 +121,25 @@ impl FileFormat for VortexFormat {
     async fn infer_stats(
         &self,
         _state: &SessionState,
-        _store: &Arc<dyn ObjectStore>,
+        store: &Arc<dyn ObjectStore>,
         table_schema: SchemaRef,
-        _object: &ObjectMeta,
+        object: &ObjectMeta,
     ) -> DFResult<Statistics> {
+        let file_layout = self
+            .file_layout_cache
+            .try_get(object, store.clone())
+            .await?;
+        let read = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+
+        // This stream should be inferred to be Send based on ObjectStoreReadAt.
+        let _chunks: Vec<ArrayData> = VortexOpenOptions::new(self.context.clone())
+            .with_file_layout(file_layout)
+            .open(read)
+            .await?
+            .scan(Scan::all())?
+            .try_collect()
+            .await?;
+
         // TODO(ngates): we should decide if it's worth returning file statistics. Since this
         //  call doesn't have projection information, I think it's better to wait until we can
         //  return per-partition statistics from VortexExpr ExecutionPlan node.
