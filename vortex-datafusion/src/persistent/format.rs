@@ -193,8 +193,6 @@ impl FileFormat for VortexFormat {
             })
             .collect::<Vec<_>>();
 
-        println!("column_stats: {:?}", column_statistics);
-
         Ok(Statistics {
             num_rows: Precision::Exact(
                 usize::try_from(vxf.row_count())
