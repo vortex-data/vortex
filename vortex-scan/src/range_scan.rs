@@ -2,6 +2,7 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
@@ -106,8 +107,18 @@ impl RangeScan {
                 let mask = result.into_bool()?.boolean_buffer();
                 let mask = self.mask.to_boolean_buffer()?.bitand(&mask);
                 // Then move onto the projection
-                self.state =
-                    State::Project((FilterMask::from(mask), self.scan.projection().clone()))
+                if mask.is_empty() {
+                    // If the mask is empty, then we're done.
+                    // Canonical::Null()
+                    let len = mask.len();
+                    let mut b = builder_with_capacity(&self.scan.dtype, len);
+                    b.append_nulls(len);
+
+                    self.state = State::Ready(b.finish()?);
+                } else {
+                    self.state =
+                        State::Project((FilterMask::from(mask), self.scan.projection().clone()))
+                }
             }
             State::Project(_) => {
                 // We're done.

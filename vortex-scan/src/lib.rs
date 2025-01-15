@@ -25,6 +25,7 @@ use vortex_expr::{ExprRef, Identity};
 /// the second filter over the reduced set of rows.
 #[derive(Debug, Clone)]
 pub struct Scan {
+    dtype: DType,
     projection: ExprRef,
     filter: Option<ExprRef>,
     // A sorted list of row indices to include in the scan. We store row indices since they may
@@ -35,10 +36,14 @@ pub struct Scan {
 
 impl Scan {
     /// Create a new scan with the given projection and optional filter.
-    pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
+    pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> Self {
         // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
         //  Where FieldMask ~= Vec<FieldPath>
-        Self { projection, filter }
+        Self {
+            dtype,
+            projection,
+            filter,
+        }
     }
 
     /// Convert this scan into an Arc.
@@ -47,8 +52,9 @@ impl Scan {
     }
 
     /// Scan all rows with the identity projection.
-    pub fn all() -> Arc<Self> {
+    pub fn all(dtype: DType) -> Arc<Self> {
         Self {
+            dtype,
             projection: Identity::new_expr(),
             filter: None,
         }
@@ -66,10 +72,10 @@ impl Scan {
     }
 
     /// Compute the result dtype of the scan given the input dtype.
-    pub fn result_dtype(&self, dtype: &DType) -> VortexResult<DType> {
+    pub fn result_dtype(&self) -> VortexResult<DType> {
         Ok(self
             .projection
-            .evaluate(&Canonical::empty(dtype)?.into_array())?
+            .evaluate(&Canonical::empty(&self.dtype)?.into_array())?
             .dtype()
             .clone())
     }

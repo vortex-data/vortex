@@ -10,6 +10,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
+use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::Scan;
 
@@ -48,9 +49,19 @@ impl<I: IoDriver> VortexFile<I> {
         &self.file_layout
     }
 
+    pub fn scan_all(&self) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
+        self.scan(ident(), None)
+    }
+
     /// Performs a scan operation over the file.
-    pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        let result_dtype = scan.result_dtype(self.dtype())?;
+    pub fn scan(
+        &self,
+        projection: ExprRef,
+        filter: Option<ExprRef>,
+    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
+        let scan = Scan::new(self.dtype().clone(), projection, filter).into_arc();
+
+        let result_dtype = scan.result_dtype()?;
 
         // Set up a segment channel to collect segment requests from the execution stream.
         let segment_channel = SegmentChannel::new();

@@ -30,7 +30,6 @@ use vortex::error::VortexResult;
 use vortex::file::v2::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::scan::Scan;
 use vortex::stream::ArrayStreamExt;
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
 
@@ -49,7 +48,7 @@ pub async fn open_vortex(path: &Path) -> VortexResult<ArrayData> {
     VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(file)
         .await?
-        .scan(Scan::all())?
+        .scan_all()?
         .into_array_data()
         .await
 }
@@ -113,7 +112,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
         .await?
         // FIXME(ngates): support row indices
         // .scan_rows(Scan::all(), indices.iter().copied())?
-        .scan(Scan::all())?
+        .scan_all()?
         .into_array_data()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.

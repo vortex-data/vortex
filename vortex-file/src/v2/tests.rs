@@ -5,7 +5,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
-use vortex_scan::Scan;
+use vortex_expr::ident;
 
 use crate::v2::*;
 
@@ -28,7 +28,7 @@ fn basic_file_roundtrip() -> VortexResult<()> {
             .open(buffer)
             .await?;
         let result = vxf
-            .scan(Scan::all())?
+            .scan(ident(), None)?
             .into_array_data()
             .await?
             .into_primitive()?;
