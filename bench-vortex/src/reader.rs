@@ -77,7 +77,7 @@ pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<C
         .map(|batch_result| batch_result.unwrap())
         .map(ArrayData::try_from)
         .collect::<VortexResult<Vec<_>>>()?;
-    ChunkedArray::try_new(chunks, dtype)
+    ChunkedArray::try_new(chunks, Arc::new(dtype))
 }
 
 pub fn compress_parquet_to_vortex(parquet_path: &Path) -> VortexResult<ArrayData> {

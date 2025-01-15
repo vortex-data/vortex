@@ -24,8 +24,8 @@ impl EncodingCompressor for StructCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        let is_struct =
-            matches!(array.dtype(), DType::Struct(..)) && array.is_encoding(StructEncoding::ID);
+        let is_struct = matches!(array.dtype().as_ref(), DType::Struct(..))
+            && array.is_encoding(StructEncoding::ID);
         is_struct.then_some(self)
     }
 

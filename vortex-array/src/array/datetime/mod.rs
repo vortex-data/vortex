@@ -41,7 +41,7 @@ pub struct TemporalArray {
 
 macro_rules! assert_width {
     ($width:ty, $array:expr) => {{
-        let DType::Primitive(ptype, _) = $array.dtype() else {
+        let DType::Primitive(ptype, _) = $array.dtype().as_ref() else {
             panic!("array must have primitive type");
         };
 
@@ -82,7 +82,7 @@ impl TemporalArray {
 
         let ext_dtype = ExtDType::new(
             DATE_ID.clone(),
-            Arc::new(array.dtype().clone()),
+            array.dtype().clone(),
             Some(TemporalMetadata::Date(time_unit).into()),
         );
 
@@ -123,7 +123,7 @@ impl TemporalArray {
             ext: ExtensionArray::new(
                 Arc::new(ExtDType::new(
                     TIME_ID.clone(),
-                    Arc::new(array.dtype().clone()),
+                    array.dtype().clone(),
                     Some(temporal_metadata.clone().into()),
                 )),
                 array,
@@ -149,7 +149,7 @@ impl TemporalArray {
             ext: ExtensionArray::new(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(array.dtype().clone()),
+                    array.dtype().clone(),
                     Some(temporal_metadata.clone().into()),
                 )),
                 array,

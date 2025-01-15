@@ -1,9 +1,11 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
+use crate::dtypes::DTYPE_BOOL_NONNULL;
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -33,7 +35,7 @@ impl StructArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(self.nfields(), &Validity::DTYPE, self.len())
+                .child(self.nfields(), &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("StructArray: validity child")
         })
     }
@@ -67,7 +69,8 @@ impl StructArray {
             }
         }
 
-        let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
+        // TODO(aduffy): fix clones.
+        let field_dtypes: Vec<DType> = fields.iter().map(|d| d.dtype().as_ref()).cloned().collect();
 
         let validity_metadata = validity.to_metadata(length)?;
 
@@ -78,7 +81,10 @@ impl StructArray {
         }
 
         Self::try_from_parts(
-            DType::Struct(StructDType::new(names, field_dtypes), nullability),
+            Arc::new(DType::Struct(
+                StructDType::new(names, field_dtypes),
+                nullability,
+            )),
             length,
             StructMetadata {
                 validity: validity_metadata,
@@ -153,10 +159,13 @@ impl StructArrayTrait for StructArray {
                     self.as_ref()
                         .child(
                             idx,
-                            &field_info
-                                .dtype
-                                .value()
-                                .vortex_expect("FieldInfo could not access dtype"),
+                            // TODO(aduffy): fix clones.
+                            &Arc::new(
+                                field_info
+                                    .dtype
+                                    .value()
+                                    .vortex_expect("FieldInfo could not access dtype"),
+                            ),
                             self.len(),
                         )
                         .unwrap_or_else(|e| {

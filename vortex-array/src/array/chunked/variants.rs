@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_dtype::{DType, Field, FieldName};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -73,7 +75,8 @@ impl StructArrayTrait for ChunkedArray {
         }
 
         let projected_dtype = self.dtype().as_struct().map(|s| s.field_dtype(idx))?.ok()?;
-        let chunked = ChunkedArray::try_new(chunks, projected_dtype.clone())
+        // TODO(aduffy): fix cloning.
+        let chunked = ChunkedArray::try_new(chunks, Arc::new(projected_dtype.clone()))
             .unwrap_or_else(|err| {
                 vortex_panic!(
                     err,
@@ -109,7 +112,8 @@ impl StructArrayTrait for ChunkedArray {
             )?;
         ChunkedArray::try_new(
             chunks,
-            DType::Struct(projected_dtype, self.dtype().nullability()),
+            // TODO(aduffy): fix cloning.
+            Arc::new(DType::Struct(projected_dtype, self.dtype().nullability())),
         )
         .map(|a| a.into_array())
     }

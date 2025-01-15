@@ -90,7 +90,8 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            // TODO(aduffy): fix extra clone
+            let layout = FlatLayoutWriter::new(array.dtype().as_ref().clone())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 
@@ -115,7 +116,8 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            // TODO(aduffy): fix extra clone
+            let layout = FlatLayoutWriter::new(array.dtype().as_ref().clone())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 
@@ -141,7 +143,8 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            // TODO(aduffy): fix extra clone
+            let layout = FlatLayoutWriter::new(array.dtype().as_ref().clone())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 

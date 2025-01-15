@@ -532,7 +532,7 @@ impl TryFrom<ArrayData> for FilterMask {
     type Error = VortexError;
 
     fn try_from(array: ArrayData) -> Result<Self, Self::Error> {
-        if array.dtype() != &DType::Bool(Nullability::NonNullable) {
+        if array.dtype().as_ref() != &DType::Bool(Nullability::NonNullable) {
             vortex_bail!(
                 "mask must be non-nullable bool, has dtype {}",
                 array.dtype(),

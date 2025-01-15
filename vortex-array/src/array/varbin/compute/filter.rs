@@ -34,7 +34,8 @@ fn filter_select_var_bin_by_slice(
     let offsets = values.offsets().into_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_slice_primitive_offset(
-            values.dtype().clone(),
+            // TODO(aduffy): fix clones.
+            values.dtype().as_ref().clone(),
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask,
@@ -134,7 +135,8 @@ fn filter_select_var_bin_by_index(
     let offsets = values.offsets().into_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_index_primitive_offset(
-            values.dtype().clone(),
+            // TODO(aduffy): fix clones.
+            values.dtype().as_ref().clone(),
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask,
@@ -186,6 +188,7 @@ mod test {
     use crate::array::varbin::VarBinArray;
     use crate::array::BoolArray;
     use crate::compute::{scalar_at, FilterMask};
+    use crate::dtypes::DTYPE_STRING_NULL;
     use crate::validity::Validity;
     use crate::ToArrayData;
 
@@ -255,7 +258,8 @@ mod test {
         let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).to_array();
         let validity =
             Validity::Array(BoolArray::from_iter([true, false, true, true, true, true]).to_array());
-        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+        let arr =
+            VarBinArray::try_new(offsets, bytes, DTYPE_STRING_NULL.clone(), validity).unwrap();
         let filter = FilterMask::from_iter([true, true, true, false, true, true]);
 
         let buf = filter_select_var_bin_by_slice(&arr, &filter, 5)

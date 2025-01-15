@@ -55,7 +55,7 @@ fn compare_fsst_constant(
     }
     let compressor = compressor.build();
 
-    let encoded_scalar = match left.dtype() {
+    let encoded_scalar = match left.dtype().as_ref() {
         DType::Utf8(_) => {
             let value = right
                 .scalar()

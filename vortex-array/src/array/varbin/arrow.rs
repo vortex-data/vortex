@@ -34,7 +34,7 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
     let data = varbin_array.bytes();
 
     // Switch on Arrow DType.
-    Ok(match varbin_array.dtype() {
+    Ok(match varbin_array.dtype().as_ref() {
         DType::Binary(_) => match offsets.ptype() {
             PType::I32 => Arc::new(unsafe {
                 BinaryArray::new_unchecked(

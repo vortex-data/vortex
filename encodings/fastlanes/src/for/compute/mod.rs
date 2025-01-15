@@ -81,7 +81,8 @@ impl ScalarAtFn<FoRArray> for FoREncoding {
                              .typed_value::<$P>()
                              .vortex_expect("FoRArray Reference value cannot be null")))
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
-                .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
+                // TODO(aduffy): fix cloning
+                .unwrap_or_else(|| Scalar::null(array.dtype().as_ref().clone()))
         }))
     }
 }

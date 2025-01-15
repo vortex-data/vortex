@@ -12,6 +12,8 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
+use std::sync::Arc;
+
 pub use canonical::*;
 pub use children::*;
 pub use context::*;
@@ -36,6 +38,7 @@ pub mod compress;
 pub mod compute;
 mod context;
 mod data;
+pub mod dtypes;
 pub mod encoding;
 pub mod iter;
 mod macros;
@@ -106,7 +109,7 @@ pub trait ArrayTrait:
 
 pub trait ArrayDType {
     // TODO(ngates): move into ArrayTrait?
-    fn dtype(&self) -> &DType;
+    fn dtype(&self) -> &Arc<DType>;
 }
 
 pub trait ArrayLen {

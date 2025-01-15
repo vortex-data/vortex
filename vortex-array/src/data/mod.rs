@@ -59,7 +59,7 @@ impl From<ViewedArrayData> for ArrayData {
 impl ArrayData {
     pub fn try_new_owned(
         encoding: EncodingRef,
-        dtype: DType,
+        dtype: Arc<DType>,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
         buffers: Box<[ByteBuffer]>,
@@ -81,7 +81,7 @@ impl ArrayData {
 
     pub fn try_new_viewed<F>(
         ctx: ContextRef,
-        dtype: DType,
+        dtype: Arc<DType>,
         len: usize,
         flatbuffer: FlatBuffer,
         flatbuffer_init: F,
@@ -126,7 +126,7 @@ impl ArrayData {
 
         // Sanity check that the encoding implements the correct array trait
         debug_assert!(
-            match array.dtype() {
+            match array.dtype().as_ref() {
                 DType::Null => array.as_null_array().is_some(),
                 DType::Bool(_) => array.as_bool_array().is_some(),
                 DType::Primitive(..) => array.as_primitive_array().is_some(),
@@ -203,11 +203,11 @@ impl ArrayData {
             .then(|| scalar_at(self, 0).vortex_expect("expected a scalar value"))
     }
 
-    pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
+    pub fn child(&self, idx: usize, dtype: &Arc<DType>, len: usize) -> VortexResult<Self> {
         match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.child(idx, dtype, len).cloned(),
             InnerArrayData::Viewed(v) => v
-                .child(idx, dtype, len)
+                .child(idx, Arc::clone(dtype), len)
                 .map(|view| ArrayData(Arc::new(InnerArrayData::Viewed(view)))),
         }
     }
@@ -362,12 +362,14 @@ impl ArrayData {
         let iter = ChunkedArray::maybe_from(self.clone())
             .map(|chunked| ArrayDataIterator::Chunked(chunked, 0))
             .unwrap_or_else(|| ArrayDataIterator::Single(Some(self)));
-        ArrayIteratorAdapter::new(dtype, iter)
+        // TODO(aduffy): fix cloning.
+        ArrayIteratorAdapter::new(dtype.as_ref().clone(), iter)
     }
 
     pub fn into_array_stream(self) -> impl ArrayStream {
         ArrayStreamAdapter::new(
-            self.dtype().clone(),
+            // TODO(aduffy): fix cloning.
+            self.dtype().as_ref().clone(),
             futures_util::stream::iter(self.into_array_iterator()),
         )
     }
@@ -431,7 +433,7 @@ impl Display for ArrayData {
 }
 
 impl<T: AsRef<ArrayData>> ArrayDType for T {
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         match self.as_ref().0.as_ref() {
             InnerArrayData::Owned(d) => &d.dtype,
             InnerArrayData::Viewed(v) => &v.dtype,

@@ -70,7 +70,8 @@ impl<R: VortexReadAt + Unpin> VortexReadArrayStream<R> {
                 )
             })
         } else {
-            ChunkedArray::try_new(arrays, dtype).map(|e| e.into_array())
+            // TODO(aduffy): fix extra clone
+            ChunkedArray::try_new(arrays, Arc::new(dtype)).map(|e| e.into_array())
         }
     }
 }

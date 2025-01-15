@@ -23,8 +23,9 @@ where
 ///
 /// Some array support the ability to narrow or upcast.
 pub fn try_cast(array: impl AsRef<ArrayData>, dtype: &DType) -> VortexResult<ArrayData> {
+    // TODO(aduffy): have this receive an &Arc<DType> instead.
     let array = array.as_ref();
-    if array.dtype() == dtype {
+    if array.dtype().as_ref() == dtype {
         return Ok(array.clone());
     }
 
@@ -37,7 +38,7 @@ pub fn try_cast(array: impl AsRef<ArrayData>, dtype: &DType) -> VortexResult<Arr
         array.encoding().id()
     );
     debug_assert_eq!(
-        casted.dtype(),
+        casted.dtype().as_ref(),
         dtype,
         "Cast dtype mismatch {}",
         array.encoding().id()

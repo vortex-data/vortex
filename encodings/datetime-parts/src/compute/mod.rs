@@ -1,6 +1,8 @@
 mod filter;
 mod take;
 
+use std::sync::Arc;
+
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::{
     scalar_at, slice, try_cast, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
@@ -42,7 +44,8 @@ impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
         stop: usize,
     ) -> VortexResult<ArrayData> {
         Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             slice(array.days(), start, stop)?,
             slice(array.seconds(), start, stop)?,
             slice(array.subsecond(), start, stop)?,
@@ -53,7 +56,7 @@ impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
 
 impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
     fn scalar_at(&self, array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
-        let DType::Extension(ext) = array.dtype().clone() else {
+        let DType::Extension(ext) = array.dtype().as_ref() else {
             vortex_bail!(
                 "DateTimePartsArray must have extension dtype, found {}",
                 array.dtype()
@@ -66,7 +69,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
         };
 
         if !array.is_valid(index) {
-            return Ok(Scalar::null(DType::Extension(ext)));
+            return Ok(Scalar::null(DType::Extension(Arc::clone(&ext))));
         }
 
         let divisor = match time_unit {
@@ -89,7 +92,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
 
         let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
 
-        Ok(Scalar::extension(ext, Scalar::from(scalar)))
+        Ok(Scalar::extension(Arc::clone(ext), Scalar::from(scalar)))
     }
 }
 
@@ -97,7 +100,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
 ///
 /// Enforces that the passed array is actually a [DateTimePartsArray] with proper metadata.
 pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalArray> {
-    let DType::Extension(ext) = array.dtype().clone() else {
+    let DType::Extension(ext) = array.dtype().as_ref() else {
         vortex_bail!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 

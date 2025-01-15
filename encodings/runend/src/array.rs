@@ -11,11 +11,11 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoArrayVariant, IntoCanonical,
+    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -52,7 +52,10 @@ impl RunEndArray {
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
-        if !matches!(values.dtype(), &DType::Bool(_) | &DType::Primitive(_, _)) {
+        if !matches!(
+            values.dtype().as_ref(),
+            DType::Bool(_) | DType::Primitive(_, _)
+        ) {
             vortex_bail!(
                 "RunEnd array can only have Bool or Primitive values, {} given",
                 values.dtype()
@@ -135,7 +138,7 @@ impl RunEndArray {
         self.as_ref()
             .child(
                 0,
-                &DType::from(self.metadata().ends_ptype),
+                primitive_dtype_ref!(self.metadata().ends_ptype, Nullability::NonNullable),
                 self.metadata().num_runs,
             )
             .vortex_expect("RunEndArray is missing its run ends")
@@ -201,7 +204,7 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
 impl IntoCanonical for RunEndArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         let pends = self.ends().into_primitive()?;
-        match self.dtype() {
+        match self.dtype().as_ref() {
             DType::Bool(_) => {
                 let bools = self.values().into_bool()?;
                 runend_decode_bools(pends, bools, self.offset(), self.len()).map(Canonical::Bool)
@@ -278,7 +281,7 @@ mod tests {
         .unwrap();
         assert_eq!(arr.len(), 10);
         assert_eq!(
-            arr.dtype(),
+            arr.dtype().as_ref(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 

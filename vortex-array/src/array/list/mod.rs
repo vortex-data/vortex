@@ -7,7 +7,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
@@ -18,6 +17,7 @@ use crate::array::PrimitiveArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
+use crate::dtypes::{primitive_dtype_ref, DTYPE_BOOL_NONNULL};
 use crate::encoding::ids;
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -73,7 +73,8 @@ impl ListArray {
 
         let offset_ptype = PType::try_from(offsets.dtype())?;
 
-        let list_dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
+        // TODO(aduffy): figure out if there's a way to internet the schema.
+        let list_dtype = Arc::new(DType::List(Arc::clone(elements.dtype()), nullability));
 
         let mut children = vec![elements, offsets];
         if let Some(val) = validity.into_array() {
@@ -96,7 +97,7 @@ impl ListArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(2, &Validity::DTYPE, self.len())
+                .child(2, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("ListArray: validity child")
         })
     }
@@ -136,7 +137,11 @@ impl ListArray {
     pub fn offsets(&self) -> ArrayData {
         // TODO: find cheap transform
         self.as_ref()
-            .child(1, &self.metadata().offset_ptype.into(), self.len() + 1)
+            .child(
+                1,
+                primitive_dtype_ref!(self.metadata().offset_ptype, Nullability::NonNullable),
+                self.len() + 1,
+            )
             .vortex_expect("array contains offsets")
     }
 
@@ -146,8 +151,9 @@ impl ListArray {
             .dtype()
             .as_list_element()
             .vortex_expect("must be list dtype");
+        // TODO(aduffy): fix dtype clone.
         self.as_ref()
-            .child(0, dtype, self.metadata().elements_len)
+            .child(0, &Arc::new(dtype.clone()), self.metadata().elements_len)
             .vortex_expect("array contains elements")
     }
 }

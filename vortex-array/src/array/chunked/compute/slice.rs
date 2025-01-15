@@ -44,11 +44,12 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, NativePType, Nullability, PType};
+    use vortex_dtype::{NativePType, Nullability, PType};
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::dtypes::DTYPE_U32_NONNULL;
+    use crate::{primitive_dtype, ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -57,7 +58,7 @@ mod tests {
                 PrimitiveArray::from_iter([4u64, 5, 6]).into_array(),
                 PrimitiveArray::from_iter([7u64, 8, 9]).into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap()
     }
@@ -116,7 +117,7 @@ mod tests {
 
     #[test]
     fn slice_empty() {
-        let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
+        let chunked = ChunkedArray::try_new(vec![], DTYPE_U32_NONNULL.clone()).unwrap();
         let sliced = slice(chunked, 0, 0).unwrap();
 
         assert!(sliced.is_empty());

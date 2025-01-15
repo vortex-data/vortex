@@ -5,9 +5,10 @@ use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect as _, VortexResult};
 
+use crate::dtypes::{bool_dtype, DTYPE_BOOL_NONNULL};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -92,7 +93,7 @@ impl BoolArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(0, &Validity::DTYPE, self.len())
+                .child(0, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("BoolArray: validity child")
         })
     }
@@ -121,7 +122,7 @@ impl BoolArray {
 
         ArrayData::try_new_owned(
             &BoolEncoding,
-            DType::Bool(validity.nullability()),
+            bool_dtype!(validity.nullability()),
             buffer_len,
             Arc::new(BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,

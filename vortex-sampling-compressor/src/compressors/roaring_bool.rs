@@ -29,7 +29,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
         }
 
         // Only support non-nullable bool arrays
-        if array.dtype() != &DType::Bool(NonNullable) {
+        if array.dtype().as_ref() != &DType::Bool(NonNullable) {
             return None;
         }
 

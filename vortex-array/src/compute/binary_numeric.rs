@@ -104,9 +104,10 @@ pub fn binary_numeric(
             rhs.len()
         )
     }
-    if !matches!(lhs.dtype(), DType::Primitive(_, _))
-        || !matches!(rhs.dtype(), DType::Primitive(_, _))
-        || lhs.dtype() != rhs.dtype()
+
+    if !matches!(lhs.dtype().as_ref(), DType::Primitive(_, _))
+        || !matches!(rhs.dtype().as_ref(), DType::Primitive(_, _))
+        || lhs.dtype().as_ref() != rhs.dtype().as_ref()
     {
         vortex_bail!(
             "Numeric operations are only supported on two arrays sharing the same primitive-type: {} {}",
@@ -180,7 +181,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         rhs.encoding().id()
     );
     debug_assert_eq!(
-        result.dtype(),
+        result.dtype().as_ref(),
         &DType::Primitive(
             PType::try_from(lhs.dtype())
                 .vortex_expect("Numeric operation DType failed to convert to PType"),

@@ -14,11 +14,11 @@ impl ScalarAtFn<ChunkedArray> for ChunkedEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{Nullability, PType};
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::scalar_at;
-    use crate::IntoArrayData;
+    use crate::{primitive_dtype, IntoArrayData};
 
     #[test]
     fn empty_children_both_sides() {
@@ -30,7 +30,7 @@ mod tests {
                 Buffer::<u64>::empty().into_array(),
                 Buffer::<u64>::empty().into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
         assert_eq!(scalar_at(array.as_ref(), 0).unwrap(), 1u64.into());
@@ -46,7 +46,7 @@ mod tests {
                 Buffer::<u64>::empty().into_array(),
                 PrimitiveArray::from_iter([3u64, 4]).into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
         assert_eq!(scalar_at(array.as_ref(), 0).unwrap(), 1u64.into());
@@ -64,7 +64,7 @@ mod tests {
                 PrimitiveArray::from_iter([1u64, 2]).into_array(),
                 PrimitiveArray::from_iter([3u64, 4]).into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
         assert_eq!(scalar_at(array.as_ref(), 0).unwrap(), 1u64.into());

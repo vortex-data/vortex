@@ -14,6 +14,7 @@ use vortex::array::{
 use vortex::buffer::buffer;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
+use vortex::dtypes::DTYPE_BOOL_NONNULL;
 use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
 use vortex::encodings::bytebool::ByteBoolArray;
 use vortex::encodings::datetime_parts::DateTimePartsArray;
@@ -79,7 +80,7 @@ fn enc_impls() -> Vec<ArrayData> {
                 BoolArray::from_iter([false]).into_array(),
                 BoolArray::from_iter([true]).into_array(),
             ],
-            DType::Bool(Nullability::NonNullable),
+            DTYPE_BOOL_NONNULL.clone(),
         )
         .unwrap()
         .into_array(),

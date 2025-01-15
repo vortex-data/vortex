@@ -249,7 +249,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .decode(Default::default(), expected.dtype().clone())
+            .decode(Default::default(), expected.dtype().as_ref().clone())
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

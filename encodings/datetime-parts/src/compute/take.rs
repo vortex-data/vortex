@@ -7,7 +7,8 @@ use crate::{DateTimePartsArray, DateTimePartsEncoding};
 impl TakeFn<DateTimePartsArray> for DateTimePartsEncoding {
     fn take(&self, array: &DateTimePartsArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             take(array.days(), indices)?,
             take(array.seconds(), indices)?,
             take(array.subsecond(), indices)?,

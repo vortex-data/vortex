@@ -198,7 +198,7 @@ pub fn fetch_taxi_data() -> ArrayData {
             .map(ArrayData::try_from)
             .map(Result::unwrap)
             .collect_vec(),
-        DType::from_arrow(schema),
+        Arc::new(DType::from_arrow(schema)),
     )
     .unwrap()
     .into_array()

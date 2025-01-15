@@ -111,7 +111,7 @@ pub fn binary_boolean(
             lhs.encoding().id()
         );
         debug_assert_eq!(
-            result.dtype(),
+            result.dtype().as_ref(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
             lhs.encoding().id()
@@ -132,7 +132,7 @@ pub fn binary_boolean(
             rhs.encoding().id()
         );
         debug_assert_eq!(
-            result.dtype(),
+            result.dtype().as_ref(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
             rhs.encoding().id()

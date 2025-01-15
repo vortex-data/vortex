@@ -1,6 +1,6 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
 use vortex_buffer::buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{match_each_native_ptype, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -18,7 +18,7 @@ impl IntoCanonical for SparseArray {
             return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
         }
 
-        if matches!(self.dtype(), DType::Bool(_)) {
+        if self.dtype().is_boolean() {
             canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
         } else {
             let ptype = PType::try_from(resolved_patches.values().dtype())?;
@@ -94,7 +94,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
+    use crate::{primitive_dtype, ArrayDType, IntoArrayData, IntoCanonical};
 
     #[rstest]
     #[case(Some(true))]
@@ -106,7 +106,10 @@ mod test {
             .into_array();
         let sparse_bools =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
+        assert_eq!(
+            sparse_bools.dtype().as_ref(),
+            &DType::Bool(Nullability::Nullable)
+        );
 
         let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
         let expected = bool_array_from_nullable_vec(
@@ -167,7 +170,7 @@ mod test {
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(
             *sparse_ints.dtype(),
-            DType::Primitive(PType::I32, Nullability::Nullable)
+            primitive_dtype!(PType::I32, Nullability::Nullable)
         );
 
         let flat_ints = sparse_ints

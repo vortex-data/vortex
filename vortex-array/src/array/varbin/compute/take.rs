@@ -19,7 +19,8 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
         match_each_integer_ptype!(offsets.ptype(), |$O| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
-                    array.dtype().clone(),
+                    // TODO(aduffy): fix cloning.
+                    array.dtype().as_ref().clone(),
                     offsets.as_slice::<$O>(),
                     data.as_slice(),
                     indices.as_slice::<$I>(),

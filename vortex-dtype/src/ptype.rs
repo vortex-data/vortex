@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::panic::RefUnwindSafe;
+use std::sync::Arc;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
@@ -313,6 +314,14 @@ impl TryFrom<&DType> for PType {
             Primitive(p, _) => Ok(*p),
             _ => Err(vortex_err!("Cannot convert DType {} into PType", value)),
         }
+    }
+}
+
+impl TryFrom<&Arc<DType>> for PType {
+    type Error = VortexError;
+
+    fn try_from(value: &Arc<DType>) -> VortexResult<Self> {
+        Self::try_from(value.as_ref())
     }
 }
 

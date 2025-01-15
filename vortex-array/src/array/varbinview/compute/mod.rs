@@ -45,7 +45,8 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
             (0..array.metadata().buffer_lens.len())
                 .map(|i| array.buffer(i))
                 .collect::<Vec<_>>(),
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             array.validity().slice(start, stop)?,
         )?
         .into_array())
@@ -66,7 +67,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         Ok(VarBinViewArray::try_new(
             views_buffer,
             array.buffers().collect(),
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning.
+            array.dtype().as_ref().clone(),
             validity,
         )?
         .into_array())
@@ -88,7 +90,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         Ok(VarBinViewArray::try_new(
             views_buffer,
             array.buffers().collect(),
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning.
+            array.dtype().as_ref().clone(),
             validity,
         )?
         .into_array())

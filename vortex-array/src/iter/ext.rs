@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
@@ -26,7 +28,8 @@ pub trait ArrayIteratorExt: ArrayIterator {
         if chunks.len() == 1 {
             Ok(chunks.remove(0))
         } else {
-            Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+            // TODO(aduffy): fix cloning.
+            Ok(ChunkedArray::try_new(chunks, Arc::new(dtype))?.into_array())
         }
     }
 }

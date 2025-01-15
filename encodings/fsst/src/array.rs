@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,9 @@ use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoCanonical};
+use vortex_array::{
+    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoCanonical,
+};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -47,11 +50,11 @@ impl FSSTArray {
         uncompressed_lengths: ArrayData,
     ) -> VortexResult<Self> {
         // Check: symbols must be a u64 array
-        if symbols.dtype() != &SYMBOLS_DTYPE {
+        if symbols.dtype().as_ref() != &SYMBOLS_DTYPE {
             vortex_bail!(InvalidArgument: "symbols array must be of type u64")
         }
 
-        if symbol_lengths.dtype() != &SYMBOL_LENS_DTYPE {
+        if symbol_lengths.dtype().as_ref() != &SYMBOL_LENS_DTYPE {
             vortex_bail!(InvalidArgument: "symbol_lengths array must be of type u8")
         }
 
@@ -80,7 +83,7 @@ impl FSSTArray {
         }
 
         // Check: strings must be a Binary array.
-        if !matches!(codes.dtype(), DType::Binary(_)) {
+        if !matches!(codes.dtype().as_ref(), DType::Binary(_)) {
             vortex_bail!(InvalidArgument: "codes array must be DType::Binary type");
         }
 
@@ -91,7 +94,8 @@ impl FSSTArray {
         let children = [symbols, symbol_lengths, codes, uncompressed_lengths].into();
 
         Self::try_from_parts(
-            dtype,
+            // TODO(aduffy): fix cloning
+            Arc::new(dtype),
             len,
             FSSTMetadata {
                 symbols_len,
@@ -106,21 +110,30 @@ impl FSSTArray {
     /// Access the symbol table array
     pub fn symbols(&self) -> ArrayData {
         self.as_ref()
-            .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len)
+            .child(
+                0,
+                primitive_dtype_ref!(PType::U64, Nullability::NonNullable),
+                self.metadata().symbols_len,
+            )
             .vortex_expect("FSSTArray symbols child")
     }
 
     /// Access the symbol table array
     pub fn symbol_lengths(&self) -> ArrayData {
         self.as_ref()
-            .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len)
+            .child(
+                1,
+                primitive_dtype_ref!(PType::U8, Nullability::NonNullable),
+                self.metadata().symbols_len,
+            )
             .vortex_expect("FSSTArray symbol_lengths child")
     }
 
     /// Access the codes array
     pub fn codes(&self) -> ArrayData {
         self.as_ref()
-            .child(2, &self.codes_dtype(), self.len())
+            // TODO(aduffy): fix cloning
+            .child(2, &Arc::new(self.codes_dtype()), self.len())
             .vortex_expect("FSSTArray codes child")
     }
 
@@ -139,10 +152,10 @@ impl FSSTArray {
 
     /// Get the DType of the uncompressed lengths array
     #[inline]
-    pub fn uncompressed_lengths_dtype(&self) -> DType {
-        DType::Primitive(
+    pub fn uncompressed_lengths_dtype(&self) -> &Arc<DType> {
+        primitive_dtype_ref!(
             self.metadata().uncompressed_lengths_ptype,
-            Nullability::NonNullable,
+            Nullability::NonNullable
         )
     }
 

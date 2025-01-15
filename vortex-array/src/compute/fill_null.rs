@@ -46,7 +46,7 @@ pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResu
         array.encoding().id()
     );
     debug_assert_eq!(
-        filled.dtype(),
+        filled.dtype().as_ref(),
         &array.dtype().with_nullability(fill_value_nullability),
         "FillNull dtype mismatch {}",
         array.encoding().id()

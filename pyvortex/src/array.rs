@@ -190,7 +190,8 @@ impl PyArray {
     ///     utf8(False)
     #[getter]
     fn dtype(self_: PyRef<Self>) -> PyResult<Py<PyDType>> {
-        PyDType::wrap(self_.py(), self_.inner.dtype().clone())
+        // TODO(aduffy): fix extra clone
+        PyDType::wrap(self_.py(), self_.inner.dtype().as_ref().clone())
     }
 
     // Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326

@@ -192,20 +192,26 @@ mod test {
         );
         assert_eq!(
             scalar_at(&compressed, 1).unwrap(),
-            Scalar::null(array.dtype().clone())
+            // TODO(aduffy): fix cloning
+            Scalar::null(array.dtype().as_ref().clone())
         );
 
         let sparse = SparseArray::try_from(compressed.encoded()).unwrap();
         assert!(sparse.dtype().is_unsigned_int());
         assert!(sparse.statistics().to_set().into_iter().next().is_none());
-        assert_eq!(sparse.fill_scalar(), Scalar::null(sparse.dtype().clone()));
+        // TODO(aduffy): fix cloning
+        assert_eq!(
+            sparse.fill_scalar(),
+            Scalar::null(sparse.dtype().as_ref().clone())
+        );
         assert_eq!(
             scalar_at(&sparse, 0).unwrap(),
             Scalar::primitive(0u32, Nullability::Nullable)
         );
         assert_eq!(
             scalar_at(&sparse, 1).unwrap(),
-            Scalar::null(sparse.dtype().clone())
+            // TODO(aduffy): fix cloning
+            Scalar::null(sparse.dtype().as_ref().clone())
         );
     }
 

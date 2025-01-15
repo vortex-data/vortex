@@ -5,6 +5,7 @@ use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
@@ -147,7 +148,8 @@ impl BitPackedArray {
 
         ArrayData::try_new_owned(
             &BitPackedEncoding,
-            dtype,
+            // TODO(aduffy): fix cloning
+            Arc::new(dtype),
             length,
             Arc::new(metadata),
             [packed].into(),
@@ -215,7 +217,7 @@ impl BitPackedArray {
         };
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(validity_child_idx, &Validity::DTYPE, self.len())
+                .child(validity_child_idx, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("BitPackedArray: validity child")
         })
     }

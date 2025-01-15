@@ -3,6 +3,7 @@ use std::fs::File;
 use std::future::Future;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
 use bzip2::read::BzDecoder;
@@ -49,7 +50,7 @@ pub fn data_vortex_uncompressed(fname_out: &str, downloaded_data: PathBuf) -> Pa
                 .into_iter()
                 .map(|batch_result| ArrayData::try_from(batch_result.unwrap()).unwrap())
                 .collect(),
-            dtype,
+            Arc::new(dtype),
         )
         .unwrap()
         .into_array();

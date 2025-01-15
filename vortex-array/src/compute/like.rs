@@ -47,10 +47,10 @@ pub fn like(
     pattern: &ArrayData,
     options: LikeOptions,
 ) -> VortexResult<ArrayData> {
-    if !matches!(array.dtype(), DType::Utf8(..)) {
+    if !matches!(array.dtype().as_ref(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
-    if !matches!(pattern.dtype(), DType::Utf8(..)) {
+    if !matches!(pattern.dtype().as_ref(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 pattern, got {}", array.dtype());
     }
 
@@ -76,7 +76,7 @@ fn check_like_result(result: &ArrayData, array: &ArrayData, pattern: &ArrayData)
         array.encoding().id()
     );
     debug_assert_eq!(
-        result.dtype(),
+        result.dtype().as_ref(),
         &DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into()),
         "Like dtype mismatch {}",
         array.encoding().id()

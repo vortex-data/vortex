@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::sync::{Arc, LazyLock};
 
 use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
@@ -25,10 +26,12 @@ impl Display for NullMetadata {
     }
 }
 
+static DTYPE_NULL: LazyLock<Arc<DType>> = LazyLock::new(|| Arc::new(DType::Null));
+
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self::try_from_parts(
-            DType::Null,
+            DTYPE_NULL.clone(),
             len,
             NullMetadata,
             [].into(),

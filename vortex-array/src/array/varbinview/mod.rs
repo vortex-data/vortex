@@ -16,6 +16,7 @@ use vortex_error::{
 };
 
 use crate::arrow::FromArrowArray;
+use crate::dtypes::DTYPE_BOOL_NONNULL;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -243,7 +244,8 @@ impl VarBinViewArray {
 
         Self::try_from(ArrayData::try_new_owned(
             &VarBinViewEncoding,
-            dtype,
+            // TODO(aduffy): fix cloning.
+            Arc::new(dtype),
             array_len,
             Arc::new(metadata),
             array_buffers.into(),
@@ -303,7 +305,7 @@ impl VarBinViewArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(0, &Validity::DTYPE, self.len())
+                .child(0, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("VarBinViewArray: validity child")
         })
     }
@@ -462,7 +464,7 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
         .collect::<Vec<_>>();
 
     // Switch on Arrow DType.
-    match var_bin_view.dtype() {
+    match var_bin_view.dtype().as_ref() {
         DType::Binary(_) => Arc::new(unsafe {
             BinaryViewArray::new_unchecked(
                 ScalarBuffer::<u128>::from(views.into_byte_buffer().into_arrow_buffer()),

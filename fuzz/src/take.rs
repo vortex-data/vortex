@@ -26,7 +26,7 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
         Validity::NonNullable
     };
 
-    match array.dtype() {
+    match array.dtype().as_ref() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
@@ -47,7 +47,8 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .unwrap();
             VarBinViewArray::from_iter(
                 indices.iter().map(|i| values[*i].clone()),
-                array.dtype().clone(),
+                // TODO(aduffy): fix extra clone
+                array.dtype().as_ref().clone(),
             )
             .into_array()
         }

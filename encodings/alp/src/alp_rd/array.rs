@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -8,7 +9,8 @@ use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
+    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    IntoCanonical,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -34,7 +36,7 @@ impl Display for ALPRDMetadata {
 
 impl ALPRDArray {
     pub fn try_new(
-        dtype: DType,
+        dtype: Arc<DType>,
         left_parts: ArrayData,
         left_parts_dict: impl AsRef<[u16]>,
         right_parts: ArrayData,
@@ -123,27 +125,25 @@ impl ALPRDArray {
 
     /// The dtype of the left parts of the array.
     #[inline]
-    fn left_parts_dtype(&self) -> DType {
-        DType::Primitive(self.metadata().left_parts_ptype, self.dtype().nullability())
+    fn left_parts_dtype(&self) -> &Arc<DType> {
+        primitive_dtype_ref!(self.metadata().left_parts_ptype, self.dtype().nullability())
     }
 
     /// The dtype of the right parts of the array.
     #[inline]
-    fn right_parts_dtype(&self) -> DType {
-        DType::Primitive(
-            if self.is_f32() {
-                PType::U32
-            } else {
-                PType::U64
-            },
-            Nullability::NonNullable,
-        )
+    fn right_parts_dtype(&self) -> &Arc<DType> {
+        let ptype = if self.is_f32() {
+            PType::U32
+        } else {
+            PType::U64
+        };
+        primitive_dtype_ref!(ptype, Nullability::NonNullable)
     }
 
     /// The dtype of the patches of the left parts of the array.
     #[inline]
-    fn left_parts_patches_dtype(&self) -> DType {
-        DType::Primitive(self.metadata().left_parts_ptype, Nullability::NonNullable)
+    fn left_parts_patches_dtype(&self) -> &Arc<DType> {
+        primitive_dtype_ref!(self.metadata().left_parts_ptype, Nullability::NonNullable)
     }
 
     /// The leftmost (most significant) bits of the floating point values stored in the array.
@@ -169,10 +169,10 @@ impl ALPRDArray {
             Patches::new(
                 self.len(),
                 self.as_ref()
-                    .child(2, &metadata.indices_dtype(), metadata.len())
+                    .child(2, metadata.indices_dtype(), metadata.len())
                     .vortex_expect("ALPRDArray: patch indices"),
                 self.as_ref()
-                    .child(3, &self.left_parts_patches_dtype(), metadata.len())
+                    .child(3, self.left_parts_patches_dtype(), metadata.len())
                     .vortex_expect("ALPRDArray: patch values"),
             )
         })

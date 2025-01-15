@@ -1,4 +1,5 @@
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use hashbrown::hash_map::Entry;
 use hashbrown::HashTable;
@@ -87,14 +88,16 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
 pub fn dict_encode_varbin(array: &VarBinArray) -> (PrimitiveArray, VarBinArray) {
     array
-        .with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().clone(), iter))
+        // TODO(aduffy): fix cloning
+        .with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().as_ref().clone(), iter))
         .vortex_unwrap()
 }
 
 /// Dictionary encode a VarbinViewArray.
 pub fn dict_encode_varbinview(array: &VarBinViewArray) -> (PrimitiveArray, VarBinViewArray) {
     let (codes, values) = array
-        .with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().clone(), iter))
+        // TODO(aduffy): fix cloning
+        .with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().as_ref().clone(), iter))
         .vortex_unwrap();
     (
         codes,
@@ -153,8 +156,14 @@ fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
     let values_validity = dict_values_validity(dtype.is_nullable(), offsets.len() - 1);
     (
         PrimitiveArray::new(codes, Validity::NonNullable),
-        VarBinArray::try_new(offsets.into_array(), bytes.freeze(), dtype, values_validity)
-            .vortex_expect("Failed to create VarBinArray dictionary during encoding"),
+        // TODO(aduffy): fix cloning
+        VarBinArray::try_new(
+            offsets.into_array(),
+            bytes.freeze(),
+            Arc::new(dtype),
+            values_validity,
+        )
+        .vortex_expect("Failed to create VarBinArray dictionary during encoding"),
     )
 }
 

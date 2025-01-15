@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
@@ -70,7 +71,8 @@ impl ArrayParts {
     pub fn decode(self, ctx: ContextRef, dtype: DType) -> VortexResult<ArrayData> {
         ArrayData::try_new_viewed(
             ctx,
-            dtype,
+            // TODO(aduffy): fix cloning.
+            Arc::new(dtype),
             self.row_count,
             self.flatbuffer,
             // SAFETY: ArrayComponents guarantees the buffers are valid.

@@ -28,7 +28,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
         Validity::NonNullable
     };
 
-    match array.dtype() {
+    match array.dtype().as_ref() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
             BoolArray::try_new(
@@ -67,7 +67,8 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                         .collect::<Vec<_>>()
                 })
                 .unwrap();
-            VarBinViewArray::from_iter(values, array.dtype().clone()).into_array()
+            // TODO(aduffy): fix extra clone
+            VarBinViewArray::from_iter(values, array.dtype().as_ref().clone()).into_array()
         }
         DType::Struct(..) => {
             let struct_array = array.clone().into_struct().unwrap();

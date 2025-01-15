@@ -16,7 +16,7 @@ pub async fn vortex_chunk_sizes(path: PathBuf) -> VortexResult<CompressionRunSta
     let file = File::open(path.as_path())?;
     let total_compressed_size = file.metadata()?.size();
     let vortex = open_vortex(path.as_path()).await?;
-    let DType::Struct(st, _) = vortex.dtype() else {
+    let DType::Struct(st, _) = vortex.dtype().as_ref() else {
         unreachable!()
     };
 
@@ -32,7 +32,8 @@ pub async fn vortex_chunk_sizes(path: PathBuf) -> VortexResult<CompressionRunSta
     }
 
     let stats = CompressionRunStats {
-        schema: chunked_array.dtype().clone(),
+        // TODO(aduffy): fix extra clone
+        schema: chunked_array.dtype().as_ref().clone(),
         file_type: FileType::Vortex,
         total_compressed_size: Some(total_compressed_size),
         compressed_sizes,

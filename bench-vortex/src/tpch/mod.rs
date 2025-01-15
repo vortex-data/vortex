@@ -249,7 +249,7 @@ async fn register_vortex_file(
                 let name: Arc<str> = field.name().as_str().into();
                 let dtype = types_map[&name].clone();
                 let chunks = arrays_map.remove(&name).unwrap();
-                let mut chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
+                let mut chunked_child = ChunkedArray::try_new(chunks, Arc::new(dtype)).unwrap();
                 if !enable_compression {
                     chunked_child = chunked_child
                         .rechunk(TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE)

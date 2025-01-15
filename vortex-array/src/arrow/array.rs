@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arrow_array::array::{
     Array as ArrowArray, ArrayRef as ArrowArrayRef, ArrowPrimitiveType,
     BooleanArray as ArrowBooleanArray, GenericByteArray, NullArray as ArrowNullArray,
@@ -124,7 +126,8 @@ where
         VarBinArray::try_new(
             value.offsets().clone().into(),
             ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
-            dtype,
+            // TODO(aduffy): see if we can elide this extra Arc::new().
+            Arc::new(dtype),
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow GenericByteArray to Vortex VarBinArray")

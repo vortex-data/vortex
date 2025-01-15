@@ -55,7 +55,8 @@ impl IntoCanonical for FSSTArray {
             VarBinViewArray::try_new(
                 views,
                 vec![uncompressed_bytes_array],
-                self.dtype().clone(),
+                // TODO(aduffy): fix cloning
+                self.dtype().as_ref().clone(),
                 self.validity(),
             )
             .map(Canonical::VarBinView)

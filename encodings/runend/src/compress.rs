@@ -20,7 +20,8 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
             // We can trivially return an all-null REE array
             return Ok((
                 PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable),
-                ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
+                // TODO(aduffy): fix cloning
+                ConstantArray::new(Scalar::null(array.dtype().as_ref().clone()), 1).into_array(),
             ));
         }
         Validity::Array(a) => Some(a.into_bool()?.boolean_buffer()),

@@ -77,7 +77,7 @@ impl SparseArray {
         indices_offset: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
-        if fill_value.dtype() != patches.values().dtype() {
+        if fill_value.dtype() != patches.values().dtype().as_ref() {
             vortex_bail!(
                 "fill value, {:?}, should be instance of values dtype, {}",
                 fill_value,
@@ -132,7 +132,11 @@ impl SparseArray {
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.metadata().fill_value.clone())
+        // TODO(aduffy): fix clone
+        Scalar::new(
+            self.dtype().as_ref().clone(),
+            self.metadata().fill_value.clone(),
+        )
     }
 }
 

@@ -202,7 +202,9 @@ pub async fn register_vortex_files(
                             let name: Arc<str> = field.name().as_str().into();
                             let dtype = types_map[&name].clone();
                             let chunks = arrays_map.remove(&name).unwrap();
-                            let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
+                            // TODO(aduffy): fix extra clone
+                            let chunked_child =
+                                ChunkedArray::try_new(chunks, Arc::new(dtype)).unwrap();
 
                             (name, chunked_child.into_array())
                         })

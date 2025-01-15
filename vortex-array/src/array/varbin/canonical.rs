@@ -13,7 +13,7 @@ impl IntoCanonical for VarBinArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         let nullable = self.dtype().is_nullable();
         let array_ref = varbin_to_arrow(&self)?;
-        let array = match self.dtype() {
+        let array = match self.dtype().as_ref() {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
 
@@ -63,7 +63,7 @@ mod test {
         let varbin = varbin.finish(dtype.clone());
 
         let canonical = varbin.into_canonical().unwrap().into_varbinview().unwrap();
-        assert_eq!(canonical.dtype(), &dtype);
+        assert_eq!(canonical.dtype().as_ref(), &dtype);
 
         assert!(!canonical.is_valid(0));
         assert!(!canonical.is_valid(1));

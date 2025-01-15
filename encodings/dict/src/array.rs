@@ -10,10 +10,10 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoArrayVariant, IntoCanonical,
+    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
 impl_encoding!("vortex.dict", ids::DICT, Dict);
@@ -51,7 +51,11 @@ impl DictArray {
     #[inline]
     pub fn codes(&self) -> ArrayData {
         self.as_ref()
-            .child(0, &DType::from(self.metadata().codes_ptype), self.len())
+            .child(
+                0,
+                primitive_dtype_ref!(self.metadata().codes_ptype, Nullability::NonNullable),
+                self.len(),
+            )
             .vortex_expect("DictArray is missing its codes child array")
     }
 
@@ -67,7 +71,7 @@ impl ArrayTrait for DictArray {}
 
 impl IntoCanonical for DictArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        match self.dtype() {
+        match self.dtype().as_ref() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create

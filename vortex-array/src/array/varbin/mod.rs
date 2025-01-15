@@ -14,6 +14,7 @@ use vortex_scalar::Scalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
+use crate::dtypes::{primitive_dtype_ref, DTYPE_BOOL_NONNULL};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
@@ -48,7 +49,7 @@ impl VarBinArray {
     pub fn try_new(
         offsets: ArrayData,
         bytes: ByteBuffer,
-        dtype: DType,
+        dtype: Arc<DType>,
         validity: Validity,
     ) -> VortexResult<Self> {
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
@@ -56,7 +57,7 @@ impl VarBinArray {
         }
         let offsets_ptype = PType::try_from(offsets.dtype()).vortex_unwrap();
 
-        if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
+        if !matches!(dtype.as_ref(), DType::Binary(_) | DType::Utf8(_)) {
             vortex_bail!(MismatchedTypes: "utf8 or binary", dtype);
         }
         if dtype.is_nullable() == (validity == Validity::NonNullable) {
@@ -96,7 +97,7 @@ impl VarBinArray {
         self.as_ref()
             .child(
                 0,
-                &DType::Primitive(self.metadata().offsets_ptype, Nullability::NonNullable),
+                primitive_dtype_ref!(self.metadata().offsets_ptype, Nullability::NonNullable),
                 self.len() + 1,
             )
             .vortex_expect("Missing offsets in VarBinArray")
@@ -105,7 +106,7 @@ impl VarBinArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(1, &Validity::DTYPE, self.len())
+                .child(1, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("VarBinArray: validity child")
         })
     }
@@ -207,7 +208,7 @@ impl VarBinArray {
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, ByteBuffer, ArrayData, Validity) {
+    pub fn into_parts(self) -> (Arc<DType>, ByteBuffer, ArrayData, Validity) {
         (
             self.dtype().clone(),
             self.bytes(),
@@ -281,11 +282,11 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
 mod test {
     use rstest::{fixture, rstest};
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Nullability};
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
+    use crate::dtypes::DTYPE_STRING_NONNULL;
     use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData};
 
@@ -297,7 +298,7 @@ mod test {
         VarBinArray::try_new(
             offsets.into_array(),
             values,
-            DType::Utf8(Nullability::NonNullable),
+            DTYPE_STRING_NONNULL.clone(),
             Validity::NonNullable,
         )
         .unwrap()

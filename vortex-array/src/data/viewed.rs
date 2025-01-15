@@ -14,7 +14,7 @@ use crate::{flatbuffers as fb, ArrayMetadata, ContextRef};
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 pub(super) struct ViewedArrayData {
     pub(super) encoding: EncodingRef,
-    pub(super) dtype: DType,
+    pub(super) dtype: Arc<DType>,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: FlatBuffer,
@@ -46,7 +46,7 @@ impl ViewedArrayData {
     }
 
     // TODO(ngates): should we separate self and DType lifetimes? Should DType be cloned?
-    pub fn child(&self, idx: usize, dtype: &DType, len: usize) -> VortexResult<Self> {
+    pub fn child(&self, idx: usize, dtype: Arc<DType>, len: usize) -> VortexResult<Self> {
         let child = self
             .array_child(idx)
             .ok_or_else(|| vortex_err!("ArrayView: array_child({idx}) not found"))?;
@@ -67,7 +67,7 @@ impl ViewedArrayData {
 
         Ok(Self {
             encoding,
-            dtype: dtype.clone(),
+            dtype,
             len,
             metadata,
             flatbuffer: self.flatbuffer.clone(),

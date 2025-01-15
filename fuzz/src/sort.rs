@@ -10,7 +10,7 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use crate::take::take_canonical_array;
 
 pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
-    match array.dtype() {
+    match array.dtype().as_ref() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
             let mut opt_values = bool_array
@@ -58,7 +58,8 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();
             sort_opt_slice(&mut opt_values);
-            VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array()
+            // TODO(aduffy): fix extra clone
+            VarBinViewArray::from_iter(opt_values, array.dtype().as_ref().clone()).into_array()
         }
         DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();

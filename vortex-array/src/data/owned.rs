@@ -12,7 +12,7 @@ use crate::{ArrayDType, ArrayData, ArrayMetadata};
 #[derive(Debug)]
 pub(super) struct OwnedArrayData {
     pub(super) encoding: EncodingRef,
-    pub(super) dtype: DType,
+    pub(super) dtype: Arc<DType>,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) buffers: Box<[ByteBuffer]>,
@@ -33,7 +33,7 @@ impl OwnedArrayData {
 
     // We want to allow these panics because they are indicative of implementation error.
     #[allow(clippy::panic_in_result_fn)]
-    pub fn child(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<&ArrayData> {
+    pub fn child(&self, index: usize, dtype: &Arc<DType>, len: usize) -> VortexResult<&ArrayData> {
         match self.children.get(index) {
             None => vortex_bail!(
                 "ArrayData::child({}): child {index} not found",

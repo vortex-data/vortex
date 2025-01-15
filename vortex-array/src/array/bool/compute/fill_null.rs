@@ -58,7 +58,7 @@ mod tests {
             expected
         );
         assert_eq!(
-            non_null_array.dtype(),
+            non_null_array.dtype().as_ref(),
             &DType::Bool(Nullability::NonNullable)
         );
     }

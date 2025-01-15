@@ -29,7 +29,7 @@ impl StatsTable {
         array: ArrayData,
         stats: Arc<[Stat]>,
     ) -> VortexResult<Self> {
-        if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
+        if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype().as_ref() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
         Ok(Self {

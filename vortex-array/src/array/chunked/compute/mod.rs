@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -68,18 +70,19 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
             cast_chunks.push(try_cast(&chunk, dtype)?);
         }
 
-        Ok(ChunkedArray::try_new(cast_chunks, dtype.clone())?.into_array())
+        // TODO(aduffy): fix cloning.
+        Ok(ChunkedArray::try_new(cast_chunks, Arc::new(dtype.clone()))?.into_array())
     }
 }
 
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{Nullability, PType};
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::try_cast;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::{primitive_dtype, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {
@@ -88,7 +91,7 @@ mod test {
 
         let chunked = ChunkedArray::try_new(
             vec![arr0, arr1],
-            DType::Primitive(PType::U32, Nullability::NonNullable),
+            primitive_dtype!(PType::U32, Nullability::NonNullable),
         )
         .unwrap()
         .into_array();
@@ -96,7 +99,7 @@ mod test {
         // Two levels of chunking, just to be fancy.
         let root = ChunkedArray::try_new(
             vec![chunked],
-            DType::Primitive(PType::U32, Nullability::NonNullable),
+            primitive_dtype!(PType::U32, Nullability::NonNullable),
         )
         .unwrap()
         .into_array();
@@ -104,7 +107,7 @@ mod test {
         assert_eq!(
             try_cast(
                 &root,
-                &DType::Primitive(PType::U64, Nullability::NonNullable)
+                primitive_dtype!(PType::U64, Nullability::NonNullable).as_ref()
             )
             .unwrap()
             .into_primitive()

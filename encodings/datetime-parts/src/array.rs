@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
@@ -9,10 +10,10 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityV
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    IntoArrayData, IntoCanonical,
 };
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
 use crate::compute::decode_to_temporal;
@@ -72,7 +73,8 @@ impl DateTimePartsArray {
         };
 
         Self::try_from_parts(
-            dtype,
+            // TODO(aduffy): fix cloning
+            Arc::new(dtype),
             length,
             metadata,
             [days, seconds, subsecond].into(),
@@ -84,7 +86,7 @@ impl DateTimePartsArray {
         self.as_ref()
             .child(
                 0,
-                &DType::Primitive(self.metadata().days_ptype, self.dtype().nullability()),
+                primitive_dtype_ref!(self.metadata().days_ptype, self.dtype().nullability()),
                 self.len(),
             )
             .vortex_expect("DatetimePartsArray missing days array")
@@ -92,13 +94,21 @@ impl DateTimePartsArray {
 
     pub fn seconds(&self) -> ArrayData {
         self.as_ref()
-            .child(1, &self.metadata().seconds_ptype.into(), self.len())
+            .child(
+                1,
+                primitive_dtype_ref!(self.metadata().seconds_ptype, Nullability::NonNullable),
+                self.len(),
+            )
             .vortex_expect("DatetimePartsArray missing seconds array")
     }
 
     pub fn subsecond(&self) -> ArrayData {
         self.as_ref()
-            .child(2, &self.metadata().subseconds_ptype.into(), self.len())
+            .child(
+                2,
+                primitive_dtype_ref!(self.metadata().subseconds_ptype, Nullability::NonNullable),
+                self.len(),
+            )
             .vortex_expect("DatetimePartsArray missing subsecond array")
     }
 

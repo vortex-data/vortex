@@ -99,7 +99,7 @@ mod tests {
         let st = test_array();
         let get_item = get_item("a", ident());
         let item = get_item.evaluate(st.as_ref()).unwrap();
-        assert_eq!(item.dtype(), &DType::from(I32))
+        assert_eq!(item.dtype().as_ref(), &DType::from(I32))
     }
 
     #[test]

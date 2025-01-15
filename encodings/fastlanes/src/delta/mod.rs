@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
+use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -205,7 +206,7 @@ impl DeltaArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(2, &Validity::DTYPE, self.len())
+                .child(2, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("DeltaArray: validity child")
         })
     }

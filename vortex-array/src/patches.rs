@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
     take, FilterMask, SearchResult, SearchSortedSide,
 };
+use crate::dtypes::primitive_dtype_ref;
 use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
@@ -40,12 +42,12 @@ impl PatchesMetadata {
     }
 
     #[inline]
-    pub fn indices_dtype(&self) -> DType {
+    pub fn indices_dtype(&self) -> &Arc<DType> {
         assert!(
             self.indices_ptype.is_unsigned_int(),
             "Patch indices must be unsigned integers"
         );
-        DType::Primitive(self.indices_ptype, NonNullable)
+        primitive_dtype_ref!(self.indices_ptype, NonNullable)
     }
 }
 
@@ -100,7 +102,7 @@ impl Patches {
         self.indices.len()
     }
 
-    pub fn dtype(&self) -> &DType {
+    pub fn dtype(&self) -> &Arc<DType> {
         self.values.dtype()
     }
 
@@ -132,7 +134,7 @@ impl Patches {
                 len
             );
         }
-        if self.values.dtype() != dtype {
+        if self.values.dtype().as_ref() != dtype {
             vortex_bail!(
                 "Patch values dtype {} does not match array dtype {}",
                 self.values.dtype(),

@@ -7,7 +7,8 @@ use crate::{DateTimePartsArray, DateTimePartsEncoding};
 impl FilterFn<DateTimePartsArray> for DateTimePartsEncoding {
     fn filter(&self, array: &DateTimePartsArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             filter(array.days().as_ref(), mask)?,
             filter(array.seconds().as_ref(), mask)?,
             filter(array.subsecond().as_ref(), mask)?,

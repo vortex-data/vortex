@@ -47,7 +47,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
                     array_parts
                         .decode(self.ctx.clone(), self.dtype.clone())
                         .and_then(|array| {
-                            if array.dtype() != self.dtype() {
+                            if array.dtype().as_ref() != self.dtype() {
                                 Err(vortex_err!(
                                     "Array data type mismatch: expected {:?}, got {:?}",
                                     self.dtype(),
@@ -170,7 +170,7 @@ mod test {
 
         let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), Default::default()).unwrap();
 
-        assert_eq!(reader.dtype(), array.dtype());
+        assert_eq!(reader.dtype(), array.dtype().as_ref());
         let result = reader.into_array_data().unwrap().into_primitive().unwrap();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }

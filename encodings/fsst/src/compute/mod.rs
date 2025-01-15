@@ -39,7 +39,8 @@ impl SliceFn<FSSTArray> for FSSTEncoding {
         // Slicing an FSST array leaves the symbol table unmodified,
         // only slicing the `codes` array.
         Ok(FSSTArray::try_new(
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             array.symbols(),
             array.symbol_lengths(),
             slice(array.codes(), start, stop)?,
@@ -53,7 +54,8 @@ impl TakeFn<FSSTArray> for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
     fn take(&self, array: &FSSTArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(FSSTArray::try_new(
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             array.symbols(),
             array.symbol_lengths(),
             take(array.codes(), indices)?,
@@ -82,7 +84,8 @@ impl FilterFn<FSSTArray> for FSSTEncoding {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
     fn filter(&self, array: &FSSTArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         Ok(FSSTArray::try_new(
-            array.dtype().clone(),
+            // TODO(aduffy): fix cloning
+            array.dtype().as_ref().clone(),
             array.symbols(),
             array.symbol_lengths(),
             filter(&array.codes(), mask)?,

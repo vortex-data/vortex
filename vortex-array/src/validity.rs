@@ -5,13 +5,14 @@ use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take, FilterMask};
+use crate::dtypes::DTYPE_BOOL_NONNULL;
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
@@ -92,7 +93,7 @@ pub enum Validity {
 
 impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
-    pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
+    // pub const DTYPE: Arc<DType> = Arc::new(DType::Bool(Nullability::NonNullable));
 
     pub fn to_metadata(&self, length: usize) -> VortexResult<ValidityMetadata> {
         match self {
@@ -442,7 +443,7 @@ pub enum LogicalValidity {
 
 impl LogicalValidity {
     pub fn try_new_from_array(array: ArrayData) -> VortexResult<Self> {
-        if !matches!(array.dtype(), &Validity::DTYPE) {
+        if array.dtype().as_ref() != DTYPE_BOOL_NONNULL.as_ref() {
             vortex_bail!("Expected a non-nullable boolean array");
         }
 

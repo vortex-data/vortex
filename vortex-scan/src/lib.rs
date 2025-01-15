@@ -48,7 +48,8 @@ impl Scanner {
             dtype,
             projection,
             filter,
-            projection_dtype: result_dtype,
+            // TODO(aduffy): fix extra clone
+            projection_dtype: result_dtype.as_ref().clone(),
         })
     }
 

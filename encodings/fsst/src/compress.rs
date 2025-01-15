@@ -18,7 +18,8 @@ use crate::FSSTArray;
 /// If the `strings` array is not encoded as either [`VarBinArray`] or [`VarBinViewArray`].
 pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResult<FSSTArray> {
     let len = strings.len();
-    let dtype = strings.dtype().clone();
+    // TODO(aduffy): fix cloning
+    let dtype = strings.dtype().as_ref().clone();
 
     // Compress VarBinArray
     if let Ok(varbin) = VarBinArray::try_from(strings.clone()) {

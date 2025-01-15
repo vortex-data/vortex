@@ -3,15 +3,17 @@
 //! Vortex is a chunked array library that's able to
 
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
+use crate::dtypes::DTYPE_U64_NONNULL;
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
@@ -42,9 +44,7 @@ impl Display for ChunkedMetadata {
 }
 
 impl ChunkedArray {
-    const ENDS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
-
-    pub fn try_new(chunks: Vec<ArrayData>, dtype: DType) -> VortexResult<Self> {
+    pub fn try_new(chunks: Vec<ArrayData>, dtype: Arc<DType>) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
@@ -102,7 +102,7 @@ impl ChunkedArray {
     #[inline]
     pub fn chunk_offsets(&self) -> ArrayData {
         self.as_ref()
-            .child(0, &Self::ENDS_DTYPE, self.nchunks() + 1)
+            .child(0, &DTYPE_U64_NONNULL, self.nchunks() + 1)
             .vortex_expect("Missing chunk ends in ChunkedArray")
     }
 
@@ -137,12 +137,17 @@ impl ChunkedArray {
         })
     }
 
+    // TODO(aduffy): fix cloning.
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
-        ArrayIteratorAdapter::new(self.dtype().clone(), self.chunks().map(Ok))
+        ArrayIteratorAdapter::new(self.dtype().as_ref().clone(), self.chunks().map(Ok))
     }
 
+    // TODO(aduffy): fix cloning.
     pub fn array_stream(&self) -> impl ArrayStream + '_ {
-        ArrayStreamAdapter::new(self.dtype().clone(), stream::iter(self.chunks().map(Ok)))
+        ArrayStreamAdapter::new(
+            self.dtype().as_ref().clone(),
+            stream::iter(self.chunks().map(Ok)),
+        )
     }
 
     pub fn rechunk(&self, target_bytesize: usize, target_rowsize: usize) -> VortexResult<Self> {
@@ -242,7 +247,7 @@ mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{assert_arrays_eq, primitive_dtype, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -251,7 +256,7 @@ mod test {
                 buffer![4u64, 5, 6].into_array(),
                 buffer![7u64, 8, 9].into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap()
     }
@@ -295,7 +300,7 @@ mod test {
     fn test_rechunk_one_chunk() {
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array()],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
 
@@ -308,7 +313,7 @@ mod test {
     fn test_rechunk_two_chunks() {
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
 
@@ -325,7 +330,7 @@ mod test {
                 buffer![0u64, 1, 2, 3].into_array(),
                 buffer![4u64, 5].into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
 
@@ -346,7 +351,7 @@ mod test {
                 buffer![6u64, 7].into_array(),
                 buffer![8u64, 9].into_array(),
             ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
+            primitive_dtype!(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
 

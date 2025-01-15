@@ -182,7 +182,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            arr.dtype(),
+            arr.dtype().as_ref(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(arr.len(), 5);
@@ -230,7 +230,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            arr.dtype(),
+            arr.dtype().as_ref(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(arr.len(), 6);

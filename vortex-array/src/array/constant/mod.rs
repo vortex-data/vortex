@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vortex_error::{VortexExpect, VortexResult};
@@ -40,7 +41,8 @@ impl ConstantArray {
         let stats = StatsSet::constant(&scalar, length);
         let (dtype, scalar_value) = scalar.into_parts();
         Self::try_from_parts(
-            dtype,
+            // TODO(aduffy): fix cloning.
+            Arc::new(dtype),
             length,
             ConstantMetadata { scalar_value },
             [].into(),
@@ -52,7 +54,11 @@ impl ConstantArray {
     /// Returns the [`Scalar`] value of this constant array.
     pub fn scalar(&self) -> Scalar {
         // NOTE(ngates): these clones are pretty cheap.
-        Scalar::new(self.dtype().clone(), self.metadata().scalar_value.clone())
+        // TODO(aduffy): no they're not. fix cloning.
+        Scalar::new(
+            self.dtype().as_ref().clone(),
+            self.metadata().scalar_value.clone(),
+        )
     }
 }
 

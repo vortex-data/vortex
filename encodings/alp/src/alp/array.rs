@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -9,8 +10,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, primitive_dtype, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen,
+    ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -37,9 +38,9 @@ impl ALPArray {
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<Self> {
-        let dtype = match encoded.dtype() {
-            DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
-            DType::Primitive(PType::I64, nullability) => DType::Primitive(PType::F64, *nullability),
+        let dtype = match encoded.dtype().as_ref() {
+            DType::Primitive(PType::I32, nullability) => primitive_dtype!(PType::F32, *nullability),
+            DType::Primitive(PType::I64, nullability) => primitive_dtype!(PType::F64, *nullability),
             d => vortex_bail!(MismatchedTypes: "int32 or int64", d),
         };
 
@@ -76,7 +77,7 @@ impl ALPArray {
 
     pub fn encoded(&self) -> ArrayData {
         self.as_ref()
-            .child(0, &self.encoded_dtype(), self.len())
+            .child(0, self.encoded_dtype(), self.len())
             .vortex_expect("Missing encoded child in ALPArray")
     }
 
@@ -100,13 +101,13 @@ impl ALPArray {
     }
 
     #[inline]
-    fn encoded_dtype(&self) -> DType {
-        match self.dtype() {
+    fn encoded_dtype(&self) -> &Arc<DType> {
+        match self.dtype().as_ref() {
             DType::Primitive(PType::F32, _) => {
-                DType::Primitive(PType::I32, self.dtype().nullability())
+                primitive_dtype_ref!(PType::I32, self.dtype().nullability())
             }
             DType::Primitive(PType::F64, _) => {
-                DType::Primitive(PType::I64, self.dtype().nullability())
+                primitive_dtype_ref!(PType::I64, self.dtype().nullability())
             }
             d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
         }

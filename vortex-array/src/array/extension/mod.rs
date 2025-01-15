@@ -30,12 +30,12 @@ impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
-            storage.dtype(),
+            storage.dtype().as_ref(),
             "ExtensionArray: storage_dtype must match storage array DType",
         );
 
         Self::try_from_parts(
-            DType::Extension(ext_dtype),
+            Arc::new(DType::Extension(ext_dtype)),
             storage.len(),
             ExtensionMetadata,
             [storage].into(),
@@ -45,8 +45,13 @@ impl ExtensionArray {
     }
 
     pub fn storage(&self) -> ArrayData {
+        // TODO(aduffy): fix cloning.
         self.as_ref()
-            .child(0, self.ext_dtype().storage_dtype(), self.len())
+            .child(
+                0,
+                &Arc::new(self.ext_dtype().storage_dtype().clone()),
+                self.len(),
+            )
             .vortex_expect("Missing storage array for ExtensionArray")
     }
 

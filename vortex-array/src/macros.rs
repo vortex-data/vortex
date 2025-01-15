@@ -43,7 +43,7 @@ macro_rules! impl_encoding {
 
                 #[allow(dead_code)]
                 fn try_from_parts(
-                    dtype: vortex_dtype::DType,
+                    dtype: std::sync::Arc<vortex_dtype::DType>,
                     len: usize,
                     metadata: [<$Name Metadata>],
                     children: Box<[$crate::ArrayData]>,

@@ -4,14 +4,16 @@ use std::sync::Arc;
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
+use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use vortex_array::{
+    bool_dtype, impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
+};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
 impl_encoding!("vortex.bytebool", ids::BYTE_BOOL, ByteBool);
@@ -31,7 +33,7 @@ impl ByteBoolArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(0, &Validity::DTYPE, self.len())
+                .child(0, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("ByteBoolArray: accessing validity child")
         })
     }
@@ -41,7 +43,7 @@ impl ByteBoolArray {
 
         ArrayData::try_new_owned(
             &ByteBoolEncoding,
-            DType::Bool(validity.nullability()),
+            bool_dtype!(validity.nullability()),
             length,
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,

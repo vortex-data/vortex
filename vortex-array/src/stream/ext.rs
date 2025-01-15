@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::sync::Arc;
 
 use futures_util::TryStreamExt;
 use vortex_error::VortexResult;
@@ -22,7 +23,8 @@ pub trait ArrayStreamExt: ArrayStream {
             if chunks.len() == 1 {
                 Ok(chunks.remove(0))
             } else {
-                Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+                // TODO(aduffy): fix cloning.
+                Ok(ChunkedArray::try_new(chunks, Arc::new(dtype))?.into_array())
             }
         }
     }

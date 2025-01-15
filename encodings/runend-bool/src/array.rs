@@ -3,16 +3,19 @@ use std::fmt::{Debug, Display};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
+use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoArrayVariant, IntoCanonical,
+    bool_dtype, impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait,
+    Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
-use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
+use vortex_dtype::{
+    match_each_integer_ptype, match_each_unsigned_integer_ptype, Nullability, PType,
+};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -71,7 +74,6 @@ impl RunEndBoolArray {
             }
         }
 
-        let dtype = DType::Bool(validity.nullability());
         let ends_ptype = ends.dtype().try_into()?;
         let metadata = RunEndBoolMetadata {
             start,
@@ -102,6 +104,7 @@ impl RunEndBoolArray {
             StatsSet::default()
         };
 
+        let dtype = bool_dtype!(validity.nullability());
         let mut children = Vec::with_capacity(2);
         children.push(ends);
         if let Some(a) = validity.into_array() {
@@ -131,7 +134,7 @@ impl RunEndBoolArray {
         self.as_ref()
             .child(
                 0,
-                &self.metadata().ends_ptype.into(),
+                primitive_dtype_ref!(self.metadata().ends_ptype, Nullability::NonNullable),
                 self.metadata().num_runs,
             )
             .vortex_expect("RunEndBoolArray is missing its run ends")
@@ -140,7 +143,7 @@ impl RunEndBoolArray {
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
-                .child(1, &Validity::DTYPE, self.len())
+                .child(1, &DTYPE_BOOL_NONNULL, self.len())
                 .vortex_expect("RunEndBoolArray: validity child")
         })
     }
@@ -286,7 +289,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(arr.len(), 5);
-        assert_eq!(arr.dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_eq!(arr.dtype().as_ref(), &DType::Bool(Nullability::NonNullable));
 
         assert_eq!(scalar_at(arr.as_ref(), 0).unwrap(), false.into());
         assert_eq!(scalar_at(arr.as_ref(), 2).unwrap(), true.into());
@@ -308,7 +311,7 @@ mod test {
             8,
         )
         .unwrap();
-        assert_eq!(arr.dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_eq!(arr.dtype().as_ref(), &DType::Bool(Nullability::NonNullable));
 
         assert_eq!(
             to_bool_vec(&arr),
@@ -323,7 +326,7 @@ mod test {
         ])
         .to_array();
         let arr = slice(&raw, 2, 8).unwrap();
-        assert_eq!(arr.dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_eq!(arr.dtype().as_ref(), &DType::Bool(Nullability::NonNullable));
 
         assert_eq!(
             to_bool_vec(&arr),

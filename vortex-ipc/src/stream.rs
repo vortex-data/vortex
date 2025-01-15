@@ -62,7 +62,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
                     array_parts
                         .decode(this.ctx.clone(), this.dtype.clone())
                         .and_then(|array| {
-                            if array.dtype() != this.dtype {
+                            if array.dtype().as_ref() != this.dtype {
                                 Err(vortex_err!(
                                     "Array data type mismatch: expected {:?}, got {:?}",
                                     this.dtype,
@@ -207,7 +207,7 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(reader.dtype(), array.dtype());
+        assert_eq!(reader.dtype(), array.dtype().as_ref());
         let result = reader
             .into_array_data()
             .await

@@ -61,7 +61,7 @@ pub fn search_sorted_canonical_array(
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> SearchResult {
-    match array.dtype() {
+    match array.dtype().as_ref() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
             let validity = bool_array
@@ -104,7 +104,7 @@ pub fn search_sorted_canonical_array(
             let opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();
-            let to_find = if matches!(array.dtype(), DType::Utf8(_)) {
+            let to_find = if matches!(array.dtype().as_ref(), DType::Utf8(_)) {
                 BufferString::try_from(scalar)
                     .unwrap()
                     .as_str()

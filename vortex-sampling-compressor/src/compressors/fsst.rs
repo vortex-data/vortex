@@ -44,7 +44,7 @@ impl EncodingCompressor for FSSTCompressor {
         // FSST arrays must have DType::Utf8.
         //
         // Note that while it can accept binary data, it is unlikely to perform well.
-        if !matches!(array.dtype(), &DType::Utf8(_)) {
+        if !matches!(array.dtype().as_ref(), &DType::Utf8(_)) {
             return None;
         }
 
@@ -115,7 +115,8 @@ impl EncodingCompressor for FSSTCompressor {
 
         Ok(CompressedArray::compressed(
             FSSTArray::try_new(
-                fsst_array.dtype().clone(),
+                // TODO(aduffy): fix extra clone
+                fsst_array.dtype().as_ref().clone(),
                 fsst_array.symbols(),
                 fsst_array.symbol_lengths(),
                 compressed_codes.array,

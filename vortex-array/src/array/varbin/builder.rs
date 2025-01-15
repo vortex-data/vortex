@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::BufferMut;
@@ -89,8 +91,14 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
             Validity::NonNullable
         };
 
-        VarBinArray::try_new(offsets.into_array(), self.data.freeze(), dtype, validity)
-            .vortex_expect("Unexpected error while building VarBinArray")
+        // TODO(aduffy): remove extra Arc::new() wrapper, instead receive an Arc<DType> in parameters.
+        VarBinArray::try_new(
+            offsets.into_array(),
+            self.data.freeze(),
+            Arc::new(dtype),
+            validity,
+        )
+        .vortex_expect("Unexpected error while building VarBinArray")
     }
 }
 

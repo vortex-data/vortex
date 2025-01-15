@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arrow::array::{make_array, ArrayData as ArrowArrayData};
 use arrow::datatypes::{DataType, Field};
 use arrow::ffi_stream::ArrowArrayStreamReader;
@@ -42,7 +44,8 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
         Bound::new(
             obj.py(),
-            PyArray::new(ChunkedArray::try_new(encoded_chunks, dtype)?.into_array()),
+            // TODO(aduffy): fix extra clone
+            PyArray::new(ChunkedArray::try_new(encoded_chunks, Arc::new(dtype))?.into_array()),
         )
     } else if obj.is_instance(&table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow_bound(obj)?;
@@ -54,7 +57,8 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .collect::<VortexResult<Vec<_>>>()?;
         Bound::new(
             obj.py(),
-            PyArray::new(ChunkedArray::try_new(chunks, dtype)?.into_array()),
+            // TODO(aduffy): fix extra clone
+            PyArray::new(ChunkedArray::try_new(chunks, Arc::new(dtype))?.into_array()),
         )
     } else {
         Err(PyValueError::new_err(

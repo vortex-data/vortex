@@ -8,10 +8,10 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, primitive_dtype, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen,
+    ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
 };
-use vortex_dtype::{DType, PType};
+use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
@@ -37,8 +37,8 @@ impl ZigZagArray {
             vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
         }
 
-        let dtype = DType::from(PType::try_from(&encoded_dtype)?.to_signed())
-            .with_nullability(encoded_dtype.nullability());
+        let ptype = PType::try_from(&encoded_dtype)?.to_signed();
+        let dtype = primitive_dtype!(ptype, encoded_dtype.nullability());
 
         let len = encoded.len();
         let children = [encoded];
@@ -62,9 +62,12 @@ impl ZigZagArray {
         let ptype = PType::try_from(self.dtype()).unwrap_or_else(|err| {
             vortex_panic!(err, "Failed to convert DType {} to PType", self.dtype())
         });
-        let encoded = DType::from(ptype.to_unsigned()).with_nullability(self.dtype().nullability());
         self.as_ref()
-            .child(0, &encoded, self.len())
+            .child(
+                0,
+                primitive_dtype_ref!(ptype.to_unsigned(), self.dtype().nullability()),
+                self.len(),
+            )
             .vortex_expect("ZigZagArray is missing its encoded child array")
     }
 }

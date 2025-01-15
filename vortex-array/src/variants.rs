@@ -111,49 +111,50 @@ where
 /// Provide functions on type-erased ArrayData to downcast into dtype-specific array variants.
 impl ArrayData {
     pub fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        matches!(self.dtype(), DType::Null)
+        matches!(self.dtype().as_ref(), DType::Null)
             .then(|| self.encoding().as_null_array(self))
             .flatten()
     }
 
     pub fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        matches!(self.dtype(), DType::Bool(..))
+        self.dtype()
+            .is_boolean()
             .then(|| self.encoding().as_bool_array(self))
             .flatten()
     }
 
     pub fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        matches!(self.dtype(), DType::Primitive(..))
+        matches!(self.dtype().as_ref(), DType::Primitive(..))
             .then(|| self.encoding().as_primitive_array(self))
             .flatten()
     }
 
     pub fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(..))
+        matches!(self.dtype().as_ref(), DType::Utf8(..))
             .then(|| self.encoding().as_utf8_array(self))
             .flatten()
     }
 
     pub fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(..))
+        matches!(self.dtype().as_ref(), DType::Binary(..))
             .then(|| self.encoding().as_binary_array(self))
             .flatten()
     }
 
     pub fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        matches!(self.dtype(), DType::Struct(..))
+        matches!(self.dtype().as_ref(), DType::Struct(..))
             .then(|| self.encoding().as_struct_array(self))
             .flatten()
     }
 
     pub fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        matches!(self.dtype(), DType::List(..))
+        matches!(self.dtype().as_ref(), DType::List(..))
             .then(|| self.encoding().as_list_array(self))
             .flatten()
     }
 
     pub fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        matches!(self.dtype(), DType::Extension(..))
+        matches!(self.dtype().as_ref(), DType::Extension(..))
             .then(|| self.encoding().as_extension_array(self))
             .flatten()
     }
@@ -169,7 +170,7 @@ pub trait PrimitiveArrayTrait: ArrayTrait {
     /// This is a type that can safely be converted into a `NativePType` for use in
     /// `maybe_null_slice` or `into_maybe_null_slice`.
     fn ptype(&self) -> PType {
-        if let DType::Primitive(ptype, ..) = self.dtype() {
+        if let DType::Primitive(ptype, ..) = self.dtype().as_ref() {
             *ptype
         } else {
             vortex_panic!("array must have primitive data type");
@@ -183,14 +184,14 @@ pub trait BinaryArrayTrait: ArrayTrait {}
 
 pub trait StructArrayTrait: ArrayTrait {
     fn names(&self) -> &FieldNames {
-        let DType::Struct(st, _) = self.dtype() else {
+        let DType::Struct(st, _) = self.dtype().as_ref() else {
             unreachable!()
         };
         st.names()
     }
 
     fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
-        let DType::Struct(st, _) = self.dtype() else {
+        let DType::Struct(st, _) = self.dtype().as_ref() else {
             unreachable!()
         };
 
@@ -198,7 +199,7 @@ pub trait StructArrayTrait: ArrayTrait {
     }
 
     fn dtypes(&self) -> Vec<DType> {
-        let DType::Struct(st, _) = self.dtype() else {
+        let DType::Struct(st, _) = self.dtype().as_ref() else {
             unreachable!()
         };
         st.dtypes().collect()
@@ -236,7 +237,7 @@ pub trait ListArrayTrait: ArrayTrait {}
 pub trait ExtensionArrayTrait: ArrayTrait {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &Arc<ExtDType> {
-        let DType::Extension(ext_dtype) = self.dtype() else {
+        let DType::Extension(ext_dtype) = self.dtype().as_ref() else {
             vortex_panic!("Expected ExtDType")
         };
         ext_dtype

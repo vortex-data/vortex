@@ -203,7 +203,7 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         rhs.len()
     );
     debug_assert_eq!(
-        result.dtype(),
+        result.dtype().as_ref(),
         &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
         "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
         result.dtype(),

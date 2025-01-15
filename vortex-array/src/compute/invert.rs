@@ -22,7 +22,7 @@ where
 
 /// Logically invert a boolean array.
 pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
-    if !matches!(array.dtype(), DType::Bool(..)) {
+    if !matches!(array.dtype().as_ref(), DType::Bool(..)) {
         vortex_bail!("Expected boolean array, got {}", array.dtype());
     }
 

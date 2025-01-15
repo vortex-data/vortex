@@ -62,7 +62,8 @@ impl EncodingCompressor for DateTimePartsCompressor {
         )?;
         Ok(CompressedArray::compressed(
             DateTimePartsArray::try_new(
-                array.dtype().clone(),
+                // TODO(aduffy): fix extra clone
+                array.dtype().as_ref().clone(),
                 days.array,
                 seconds.array,
                 subsecond.array,

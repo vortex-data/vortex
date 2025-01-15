@@ -30,7 +30,8 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
     }
 
     if !array.is_valid(index) {
-        return Ok(Scalar::null(array.dtype().clone()));
+        // TODO(aduffy): fix cloning.
+        return Ok(Scalar::null(array.dtype().as_ref().clone()));
     }
 
     let scalar = array
@@ -41,7 +42,7 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
 
     debug_assert_eq!(
         scalar.dtype(),
-        array.dtype(),
+        array.dtype().as_ref(),
         "ScalarAt dtype mismatch {}",
         array.encoding().id()
     );

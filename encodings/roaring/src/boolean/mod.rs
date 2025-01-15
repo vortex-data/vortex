@@ -13,10 +13,11 @@ use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+    bool_dtype, impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoCanonical,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 mod compress;
@@ -52,7 +53,7 @@ impl RoaringBoolArray {
 
         ArrayData::try_new_owned(
             &RoaringBoolEncoding,
-            DType::Bool(Nullability::NonNullable),
+            bool_dtype!(Nullability::NonNullable),
             length,
             Arc::new(RoaringBoolMetadata),
             [ByteBuffer::from(bitmap.serialize::<Native>())].into(),

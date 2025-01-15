@@ -1,8 +1,9 @@
-use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{binary_boolean, slice, BinaryBooleanFn, BinaryOperator};
+use crate::dtypes::bool_dtype;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl BinaryBooleanFn<ChunkedArray> for ChunkedEncoding {
@@ -23,30 +24,30 @@ impl BinaryBooleanFn<ChunkedArray> for ChunkedEncoding {
         }
 
         let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-        let dtype = DType::Bool(nullable.into());
-        Ok(Some(ChunkedArray::try_new(chunks, dtype)?.into_array()))
+        let nullability: Nullability = nullable.into();
+        Ok(Some(
+            ChunkedArray::try_new(chunks, bool_dtype!(nullability))?.into_array(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
 
     use crate::array::{BoolArray, ChunkedArray};
     use crate::compute::{binary_boolean, BinaryOperator};
+    use crate::dtypes::{DTYPE_BOOL_NONNULL, DTYPE_BOOL_NULL};
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_bin_bool_chunked() {
         let arr0 = BoolArray::from_iter(vec![true, false]).into_array();
         let arr1 = BoolArray::from_iter(vec![false, false, true]).into_array();
-        let chunked1 =
-            ChunkedArray::try_new(vec![arr0, arr1], DType::Bool(Nullability::NonNullable)).unwrap();
+        let chunked1 = ChunkedArray::try_new(vec![arr0, arr1], DTYPE_BOOL_NONNULL.clone()).unwrap();
 
         let arr2 = BoolArray::from_iter(vec![Some(false), Some(true)]).into_array();
         let arr3 = BoolArray::from_iter(vec![Some(false), None, Some(false)]).into_array();
-        let chunked2 =
-            ChunkedArray::try_new(vec![arr2, arr3], DType::Bool(Nullability::Nullable)).unwrap();
+        let chunked2 = ChunkedArray::try_new(vec![arr2, arr3], DTYPE_BOOL_NULL.clone()).unwrap();
 
         assert_eq!(
             binary_boolean(

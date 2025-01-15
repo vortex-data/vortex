@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
@@ -8,9 +9,9 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
+    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    IntoCanonical,
 };
-use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -52,7 +53,8 @@ impl FoRArray {
             .vortex_expect("Reference value is non-null");
 
         Self::try_from_parts(
-            dtype,
+            // TODO(aduffy): fix cloning
+            Arc::new(dtype),
             child.len(),
             FoRMetadata { reference, shift },
             [child].into(),
@@ -63,7 +65,7 @@ impl FoRArray {
     #[inline]
     pub fn encoded(&self) -> ArrayData {
         let dtype = if self.ptype().is_signed_int() {
-            &DType::Primitive(self.ptype().to_unsigned(), self.dtype().nullability())
+            primitive_dtype_ref!(self.ptype().to_unsigned(), self.dtype().nullability())
         } else {
             self.dtype()
         };

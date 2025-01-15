@@ -140,6 +140,6 @@ mod tests {
 
         let struct_ = builder.finish().unwrap();
         assert_eq!(struct_.len(), 1);
-        assert_eq!(struct_.dtype(), &dtype);
+        assert_eq!(struct_.dtype().as_ref(), &dtype);
     }
 }

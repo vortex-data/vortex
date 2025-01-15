@@ -1,8 +1,9 @@
-use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{compare, slice, CompareFn, Operator};
+use crate::dtypes::bool_dtype;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl CompareFn<ChunkedArray> for ChunkedEncoding {
@@ -23,12 +24,11 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
             idx += chunk.len();
         }
 
+        let nullability: Nullability =
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into();
+
         Ok(Some(
-            ChunkedArray::try_new(
-                compare_chunks,
-                DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
-            )?
-            .into_array(),
+            ChunkedArray::try_new(compare_chunks, bool_dtype!(nullability))?.into_array(),
         ))
     }
 }

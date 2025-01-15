@@ -23,7 +23,7 @@ impl IntoCanonical for ConstantArray {
             },
         };
 
-        Ok(match self.dtype() {
+        Ok(match self.dtype().as_ref() {
             DType::Null => Canonical::Null(NullArray::new(self.len())),
             DType::Bool(..) => Canonical::Bool(BoolArray::try_new(
                 if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {

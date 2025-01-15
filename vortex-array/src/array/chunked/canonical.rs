@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
@@ -28,7 +30,7 @@ impl IntoCanonical for ChunkedArray {
 pub(crate) fn try_canonicalize_chunks(
     chunks: Vec<ArrayData>,
     validity: Validity,
-    dtype: &DType,
+    dtype: &Arc<DType>,
 ) -> VortexResult<Canonical> {
     let mismatched = chunks
         .iter()
@@ -38,7 +40,7 @@ pub(crate) fn try_canonicalize_chunks(
         vortex_bail!(MismatchedTypes: dtype.clone(), ErrString::from(format!("{:?}", mismatched)))
     }
 
-    match dtype {
+    match dtype.as_ref() {
         // Structs can have their internal field pointers swizzled to push the chunking down
         // one level internally without copying or decompressing any data.
         DType::Struct(struct_dtype, _) => {
@@ -80,8 +82,9 @@ pub(crate) fn try_canonicalize_chunks(
                 .map(|chunk| chunk.clone().into_extension().map(|ext| ext.storage()))
                 .collect::<VortexResult<Vec<ArrayData>>>()?;
             let storage_dtype = ext_dtype.storage_dtype().clone();
+            // TODO(aduffy): fix cloning.
             let chunked_storage =
-                ChunkedArray::try_new(storage_chunks, storage_dtype)?.into_array();
+                ChunkedArray::try_new(storage_chunks, Arc::new(storage_dtype))?.into_array();
 
             Ok(Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
@@ -160,7 +163,9 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
                 .map(|off| off + adjustment_from_previous - first_offset_value as i64),
         );
     }
-    let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
+    // TODO(aduffy): fix cloning.
+    let chunked_elements =
+        ChunkedArray::try_new(elements, Arc::new(elem_dtype.clone()))?.into_array();
     let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
 
     ListArray::try_new(chunked_elements, offsets.into_array(), validity)
@@ -185,7 +190,8 @@ fn swizzle_struct_chunks(
                 .maybe_null_field_by_idx(field_idx)
                 .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype()))
         ).collect::<VortexResult<Vec<_>>>()?;
-        let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
+        // TODO(aduffy): fix cloning.
+        let field_array = ChunkedArray::try_new(field_chunks, Arc::new(field_dtype.clone()))?;
         field_arrays.push(field_array.into_array());
     }
 
@@ -366,7 +372,8 @@ mod tests {
 
         let chunked_list = ChunkedArray::try_new(
             vec![l1.clone().into_array(), l2.clone().into_array()],
-            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
+            // TODO(aduffy): find a way not to clone this again.
+            Arc::new(List(Arc::new(Primitive(I32, NonNullable)), NonNullable)),
         );
 
         let canon_values = chunked_list.unwrap().into_list().unwrap();
