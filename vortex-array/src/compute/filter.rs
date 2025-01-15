@@ -493,30 +493,30 @@ impl PartialEq for FilterMask {
 
 impl Eq for FilterMask {}
 
-impl BitAnd for FilterMask {
-    type Output = Self;
+impl BitAnd for &FilterMask {
+    type Output = FilterMask;
 
     fn bitand(self, rhs: Self) -> Self::Output {
         if self.len() != rhs.len() {
             vortex_panic!("FilterMasks must have the same length");
         }
         if self.true_count() == 0 || rhs.true_count() == 0 {
-            return Self::new_false(self.len());
+            return FilterMask::new_false(self.len());
         }
         if self.true_count() == self.len() {
-            return rhs;
+            return rhs.clone();
         }
         if rhs.true_count() == self.len() {
-            return self;
+            return self.clone();
         }
 
         if let (Some(lhs), Some(rhs)) = (self.0.buffer.get(), rhs.0.buffer.get()) {
-            return Self::from_buffer(lhs & rhs);
+            return FilterMask::from_buffer(lhs & rhs);
         }
 
         if let (Some(lhs), Some(rhs)) = (self.0.indices.get(), rhs.0.indices.get()) {
             // TODO(ngates): this may only make sense for sparse indices.
-            return Self::from_intersection_indices(
+            return FilterMask::from_intersection_indices(
                 self.len(),
                 lhs.iter().copied(),
                 rhs.iter().copied(),
@@ -524,7 +524,7 @@ impl BitAnd for FilterMask {
         }
 
         // TODO(ngates): we could perform a more efficient intersection for slices.
-        Self::from_buffer(self.boolean_buffer() & rhs.boolean_buffer())
+        FilterMask::from_buffer(self.boolean_buffer() & rhs.boolean_buffer())
     }
 }
 

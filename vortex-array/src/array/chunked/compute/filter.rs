@@ -38,7 +38,6 @@ enum ChunkFilter {
 }
 
 /// Filter the chunks using slice ranges.
-#[allow(deprecated)]
 fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
 

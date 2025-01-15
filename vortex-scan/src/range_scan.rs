@@ -104,7 +104,7 @@ impl RangeScan {
             State::FilterEval(_) => {
                 // Intersect the result of the filter expression with our initial row mask.
                 let mask = FilterMask::from_buffer(result.into_bool()?.boolean_buffer());
-                let mask = self.mask.clone().bitand(mask);
+                let mask = self.mask.bitand(&mask);
                 // Then move onto the projection
                 self.state = State::Project((mask, self.scan.projection().clone()))
             }

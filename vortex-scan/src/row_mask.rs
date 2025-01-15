@@ -21,6 +21,7 @@ pub struct RowMask {
     end: u64,
 }
 
+// We don't want to implement full logical equality, this naive equality is sufficient for tests.
 #[cfg(test)]
 impl PartialEq for RowMask {
     fn eq(&self, other: &Self) -> bool {
@@ -168,7 +169,7 @@ impl RowMask {
 
         // If both masks align perfectly
         if self.begin == other.begin && self.end == other.end {
-            return Ok(RowMask::new(self.mask.bitand(other.mask), self.begin));
+            return Ok(RowMask::new(self.mask.bitand(&other.mask), self.begin));
         }
 
         // Disjoint row ranges
@@ -275,7 +276,6 @@ impl RowMask {
         filter(sliced, &self.mask).map(Some)
     }
 
-    #[allow(deprecated)]
     fn to_indices_array(&self) -> VortexResult<ArrayData> {
         Ok(PrimitiveArray::new(
             self.mask
