@@ -51,10 +51,7 @@ impl<I: IoDriver> VortexFile<I> {
     }
 
     /// Performs a scan operation over the file.
-    pub fn scan(
-        &self,
-        scan: Scan,
-    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
+    pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         self.scan_with_masks(
             ArcIter::new(self.splits.clone())
                 .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end)),
