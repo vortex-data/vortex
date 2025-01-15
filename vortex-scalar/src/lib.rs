@@ -101,16 +101,31 @@ impl Scalar {
     }
 
     pub fn cast(&self, dtype: &DType) -> VortexResult<Self> {
-        if self.dtype().eq_ignore_nullability(dtype) {
-            if self.dtype.is_nullable() && dtype.is_nullable() && self.value.is_null() {
-                vortex_bail!("cannot cast null value to {}", dtype);
-            }
-            // ScalarValue::cast must reject casting _to_ an extension type because it does not know
-            // its own type.
+        if self.is_null() && !dtype.is_nullable() {
+            vortex_bail!("Can't cast null scalar to non-nullable type")
+        }
+
+        if self.is_null() && dtype.is_nullable() {
             return Ok(Scalar::new(dtype.clone(), self.value.clone()));
         }
 
-        Ok(Scalar::new(dtype.clone(), self.value.cast(dtype)?))
+        if self.dtype().eq_ignore_nullability(dtype) {
+            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+        }
+
+        match &self.dtype {
+            DType::Null => {
+                assert!(dtype.is_nullable());
+                Ok(Scalar::new(dtype.clone(), self.value.clone()))
+            }
+            DType::Bool(_) => self.as_bool().cast(dtype),
+            DType::Primitive(..) => self.as_primitive().cast(dtype),
+            DType::Utf8(_) => self.as_utf8().cast(dtype),
+            DType::Binary(_) => self.as_binary().cast(dtype),
+            DType::Struct(..) => self.as_struct().cast(dtype),
+            DType::List(..) => self.as_list().cast(dtype),
+            DType::Extension(..) => self.as_extension().cast(dtype),
+        }
     }
 
     pub fn into_nullable(self) -> Self {
@@ -278,9 +293,112 @@ from_vec_for_scalar!(ByteBuffer);
 mod test {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability};
+    use rstest::rstest;
+    use vortex_buffer::{BufferString, ByteBuffer};
+    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType, StructDType};
 
-    use crate::{InnerScalarValue, Scalar, ScalarValue};
+    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+
+    #[rstest]
+    #[case(Scalar::null(DType::Null))]
+    //
+    #[case(Scalar::from(true))]
+    #[case(Scalar::from(Some(true)))]
+    #[case(Scalar::null(DType::Bool(Nullability::Nullable)))]
+    //
+    #[case(Scalar::from(1u8))]
+    #[case(Scalar::from(-1i8))]
+    #[case(Scalar::from(Some(1u8)))]
+    #[case(Scalar::from(Some(-1i8)))]
+    #[case(Scalar::null(DType::Primitive(PType::U8, Nullability::Nullable)))]
+    #[case(Scalar::null(DType::Primitive(PType::I8, Nullability::Nullable)))]
+    //
+    #[case(Scalar::from(1u64))]
+    #[case(Scalar::from(-1i64))]
+    #[case(Scalar::from(Some(1u64)))]
+    #[case(Scalar::from(Some(-1i64)))]
+    #[case(Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)))]
+    #[case(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)))]
+    //
+    #[case(Scalar::from("hello"))]
+    #[case(Scalar::from(Some(BufferString::from("hello"))))]
+    #[case(Scalar::null(DType::Utf8(Nullability::Nullable)))]
+    #[case(Scalar::from(ByteBuffer::from(vec![0u8, 1, 2])))]
+    #[case(Scalar::from(Some(ByteBuffer::from(vec![0u8, 1, 2]))))]
+    #[case(Scalar::null(DType::Binary(Nullability::Nullable)))]
+    //
+    #[case(Scalar::new(DType::Struct(StructDType::new(Arc::from(["a".into()]),
+                                                      vec![DType::Bool(Nullability::Nullable)]),
+                                     Nullability::Nullable),
+                       ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(InnerScalarValue::Bool(true))])))))]
+    //
+    #[case(Scalar::new(DType::List(Arc::from(DType::Bool(Nullability::Nullable)), Nullability::Nullable),
+                       ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(InnerScalarValue::Bool(true))])))))]
+    fn no_op_cast(#[case] scalar: Scalar) {
+        scalar.cast(&scalar.dtype()).unwrap();
+    }
+
+    #[test]
+    fn list_casts() {
+        let list = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(
+                InnerScalarValue::Primitive(PValue::U16(6)),
+            )]))),
+        );
+
+        let target_u32 = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(list.cast(&target_u32).unwrap().dtype(), &target_u32);
+
+        let target_u32_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(
+            list.cast(&target_u32_nonnull).unwrap().dtype(),
+            &target_u32_nonnull
+        );
+
+        let target_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        );
+        assert_eq!(list.cast(&target_nonnull).unwrap().dtype(), &target_nonnull);
+
+        let target_u8 = DType::List(
+            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(list.cast(&target_u8).unwrap().dtype(), &target_u8);
+
+        let list_with_null = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
+                ScalarValue(InnerScalarValue::Null),
+            ]))),
+        );
+        let target_u8 = DType::List(
+            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(list_with_null.cast(&target_u8).unwrap().dtype(), &target_u8);
+
+        let target_u32_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        assert!(list_with_null.cast(&target_u32_nonnull).is_err());
+    }
 
     #[test]
     fn cast_from_extension_types() {
