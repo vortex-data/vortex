@@ -101,12 +101,12 @@ impl Scalar {
     }
 
     pub fn cast(&self, dtype: &DType) -> VortexResult<Self> {
-        if self.is_null() && !dtype.is_nullable() {
-            vortex_bail!("Can't cast null scalar to non-nullable type")
-        }
-
-        if self.is_null() && dtype.is_nullable() {
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+        if self.is_null() {
+            if dtype.is_nullable() {
+                return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+            } else {
+                vortex_bail!("Can't cast null scalar to non-nullable type")
+            }
         }
 
         if self.dtype().eq_ignore_nullability(dtype) {
