@@ -14,6 +14,7 @@ pub struct RangeScanner {
     row_range: Range<u64>,
     mask: FilterMask,
     state: State,
+    remaining_filter_conjuncts: Vec<ExprRef>,
 }
 
 enum State {
@@ -58,7 +59,9 @@ pub enum NextOp {
 // `evaluate(row_mask, expr)` API.
 impl RangeScanner {
     pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
-        let state = scan
+        let first_filter = scan.filter.first().cloned();
+        let remaining_filter_conjuncts = scan.filter().iter().skip(1).cloned().collect();
+        let state = first_filter
             .filter()
             .map(|filter| {
                 // If we have a filter expression, then for now we evaluate it against all rows
@@ -78,6 +81,7 @@ impl RangeScanner {
             row_range: row_offset..row_offset + mask.len() as u64,
             mask,
             state,
+            remaining_filter_conjuncts,
         }
     }
 
@@ -110,8 +114,15 @@ impl RangeScanner {
                     // If the mask is empty, then we're done.
                     self.state =
                         State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
-                } else {
+                } else if self.remaining_filter_conjuncts.is_empty() {
                     self.state = State::Project((mask, self.scan.projection().clone()))
+                } else {
+                    self.mask = mask;
+                    // If there are many conjuncts apply each one in turn, over the whole array and stop if any make the mask empty.
+                    self.state = State::FilterEval((
+                        FilterMask::new_true(self.mask.len()),
+                        self.remaining_filter_conjuncts.remove(0),
+                    ))
                 }
             }
             State::Project(_) => {
