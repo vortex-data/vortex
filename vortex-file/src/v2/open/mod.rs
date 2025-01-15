@@ -30,10 +30,10 @@ pub struct VortexOpenOptions {
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
     layout_ctx: LayoutContextRef,
-    /// An optional, externally provided, file layout.
-    file_layout: Option<FileLayout>,
     /// An optional, externally provided, file size.
     file_size: Option<u64>,
+    /// An optional, externally provided, file layout.
+    file_layout: Option<FileLayout>,
     // TODO(ngates): also support a messages_middleware that can wrap a message cache to provide
     //  additional caching, metrics, or other intercepts, etc. It should support synchronous
     //  read + write of Map<MessageId, ByteBuffer> or similar.
@@ -50,12 +50,13 @@ impl VortexOpenOptions {
         Self {
             ctx,
             layout_ctx: LayoutContextRef::default(),
-            file_layout: None,
             file_size: None,
+            file_layout: None,
             initial_read_size: INITIAL_READ_SIZE,
             split_by: SplitBy::Layout,
             segment_cache: None,
             execution_mode: None,
+            // TODO(ngates): pick some numbers...
             io_concurrency: 16,
         }
     }
@@ -105,6 +106,12 @@ impl VortexOpenOptions {
     pub fn without_segment_cache(self) -> Self {
         self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
+
+    /// Configure the execution mode
+    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
+        self.execution_mode = Some(execution_mode);
+        self
+    }
 }
 
 impl VortexOpenOptions {
@@ -131,6 +138,7 @@ impl VortexOpenOptions {
             read,
             file_layout: file_layout.clone(),
             concurrency: self.io_concurrency,
+            segment_cache,
         };
 
         // Set up the execution driver.

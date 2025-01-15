@@ -4981,6 +4981,7 @@ dependencies = [
  "vortex-expr",
  "vortex-file",
  "vortex-io",
+ "vortex-scan",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use arrow_array::types::Int64Type;
 use arrow_array::{
@@ -24,17 +24,15 @@ use stream::StreamExt;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
-use vortex::buffer::Buffer;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
-use vortex::io::{IoDispatcher, ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
+use vortex::file::v2::{VortexOpenOptions, VortexWriteOptions};
+use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::scan::Scan;
+use vortex::stream::ArrayStreamExt;
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
-
-static DISPATCHER: LazyLock<Arc<IoDispatcher>> =
-    LazyLock::new(|| Arc::new(IoDispatcher::default()));
 
 pub const BATCH_SIZE: usize = 65_536;
 
@@ -48,19 +46,12 @@ pub struct VortexFooter {
 pub async fn open_vortex(path: &Path) -> VortexResult<ArrayData> {
     let file = TokioFile::open(path).unwrap();
 
-    VortexReadBuilder::new(
-        file,
-        LayoutDeserializer::new(
-            ALL_ENCODINGS_CONTEXT.clone(),
-            LayoutContext::default().into(),
-        ),
-    )
-    .with_io_dispatcher(DISPATCHER.clone())
-    .build()
-    .await?
-    .into_stream()
-    .read_all()
-    .await
+    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+        .open(file)
+        .await?
+        .scan(Scan::all())?
+        .into_array_data()
+        .await
 }
 
 pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
@@ -69,11 +60,10 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
 ) -> VortexResult<()> {
     let chunked = compress_parquet_to_vortex(parquet_path.as_path())?;
 
-    VortexFileWriter::new(write)
-        .write_array_columns(chunked)
-        .await?
-        .finalize()
+    VortexWriteOptions::default()
+        .write(write, chunked.into_array_stream())
         .await?;
+
     Ok(())
 }
 
@@ -116,25 +106,19 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
 
 async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
-    indices: &[u64],
+    _indices: &[u64],
 ) -> VortexResult<ArrayData> {
-    VortexReadBuilder::new(
-        reader,
-        LayoutDeserializer::new(
-            ALL_ENCODINGS_CONTEXT.clone(),
-            LayoutContext::default().into(),
-        ),
-    )
-    .with_io_dispatcher(DISPATCHER.clone())
-    .with_indices(Buffer::copy_from(indices).into_array())
-    .build()
-    .await?
-    .into_stream()
-    .read_all()
-    .await
-    // For equivalence.... we decompress to make sure we're not cheating too much.
-    .and_then(IntoCanonical::into_canonical)
-    .map(ArrayData::from)
+    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+        .open(reader)
+        .await?
+        // FIXME(ngates): support row indices
+        // .scan_rows(Scan::all(), indices.iter().copied())?
+        .scan(Scan::all())?
+        .into_array_data()
+        .await?
+        // For equivalence.... we decompress to make sure we're not cheating too much.
+        .into_canonical()
+        .map(ArrayData::from)
 }
 
 pub async fn take_vortex_object_store(

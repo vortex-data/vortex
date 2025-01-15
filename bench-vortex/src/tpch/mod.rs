@@ -16,7 +16,7 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
+use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -31,6 +31,7 @@ mod execute;
 pub mod schema;
 
 pub use execute::*;
+use vortex::file::v2::VortexWriteOptions;
 
 pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
@@ -275,9 +276,9 @@ async fn register_vortex_file(
             .open(&vtx_file)
             .await?;
 
-        let mut writer = VortexFileWriter::new(f);
-        writer = writer.write_array_columns(data).await?;
-        writer.finalize().await?;
+        VortexWriteOptions::default()
+            .write(f, data.into_array_stream())
+            .await?;
 
         anyhow::Ok(())
     })

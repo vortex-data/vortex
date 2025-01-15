@@ -42,6 +42,7 @@ vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
 vortex-file = { workspace = true, features = ["object_store"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
+vortex-scan = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

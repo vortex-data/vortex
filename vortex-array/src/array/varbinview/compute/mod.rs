@@ -57,7 +57,6 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     fn take(&self, array: &VarBinViewArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
-
         let indices = indices.clone().into_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
