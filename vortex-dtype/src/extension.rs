@@ -146,3 +146,49 @@ impl ExtDType {
                 .eq_ignore_nullability(other.storage_dtype())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use super::{ExtDType, ExtID};
+    use crate::{DType, Nullability, PType};
+
+    #[test]
+    fn different_ids_are_not_equal() {
+        let storage_dtype = Arc::from(DType::Bool(Nullability::NonNullable));
+        let one = ExtDType::new(ExtID::new(Arc::from("one")), storage_dtype.clone(), None);
+        let two = ExtDType::new(ExtID::new(Arc::from("two")), storage_dtype, None);
+
+        assert_ne!(one, two);
+    }
+
+    #[test]
+    fn same_id_different_storage_types_are_not_equal() {
+        let one = ExtDType::new(
+            ExtID::new(Arc::from("one")),
+            Arc::from(DType::Bool(Nullability::NonNullable)),
+            None,
+        );
+        let two = ExtDType::new(
+            ExtID::new(Arc::from("one")),
+            Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            None,
+        );
+
+        assert_ne!(one, two);
+    }
+
+    #[test]
+    fn same_id_different_nullability_are_not_equal() {
+        let nullable_u8 = Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable));
+        let one = ExtDType::new(ExtID::new(Arc::from("one")), nullable_u8.clone(), None);
+        let two = ExtDType::new(
+            ExtID::new(Arc::from("one")),
+            Arc::from(nullable_u8.as_nullable()),
+            None,
+        );
+
+        assert_ne!(one, two);
+    }
+}
