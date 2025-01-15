@@ -16,13 +16,13 @@ use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
-use futures::{stream, FutureExt, StreamExt as _, TryStreamExt as _};
+use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::stats::Stat;
 use vortex_array::ContextRef;
 use vortex_dtype::FieldPath;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::v2::VortexOpenOptions;
 use vortex_file::VORTEX_FILE_EXTENSION;
 use vortex_io::ObjectStoreReadAt;
@@ -130,88 +130,80 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let store = store.clone();
         let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+        let vxf = VortexOpenOptions::new(self.context.clone())
+            .with_file_layout(
+                self.file_layout_cache
+                    .try_get(object, store.clone())
+                    .await?,
+            )
+            .open(read_at)
+            .await?;
 
-        async move {
-            let field_paths = table_schema
-                .fields()
+        // Evaluate the statistics for each column that we are able to return to DataFusion.
+        let field_paths = table_schema
+            .fields()
+            .iter()
+            .map(|f| FieldPath::from_name(f.name().to_owned()))
+            .collect();
+        let stats = vxf
+            .statistics(
+                field_paths,
+                [
+                    Stat::Min,
+                    Stat::Max,
+                    Stat::NullCount,
+                    Stat::UncompressedSizeInBytes,
+                ]
+                .into(),
+            )?
+            .await?;
+
+        // Sum up the total byte size across all the columns.
+        let total_byte_size = Precision::Inexact(
+            stats
                 .iter()
-                .map(|f| FieldPath::from_name(f.name().to_owned()))
-                .collect();
-
-            let file_layout = self
-                .file_layout_cache
-                .try_get(object, store.clone())
-                .await?;
-
-            let stats = {
-                let vxf = VortexOpenOptions::new(self.context.clone())
-                    .with_file_layout(file_layout)
-                    .open(read_at)
-                    .await?;
-
-                vxf.statistics(
-                    field_paths,
-                    [
-                        Stat::Min,
-                        Stat::Max,
-                        Stat::NullCount,
-                        Stat::UncompressedSizeInBytes,
-                    ]
-                    .into(),
-                )?
-                .await?
-            };
-
-            let total_byte_size = Precision::Inexact(
-                stats
-                    .iter()
-                    .map(|s| {
-                        s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                            .unwrap_or_default()
-                    })
-                    .sum(),
-            );
-
-            let column_statistics = stats
-                .into_iter()
                 .map(|s| {
-                    let null_count = s.get_as::<usize>(Stat::NullCount);
-                    let min = s
-                        .get(Stat::Min)
-                        .cloned()
-                        .and_then(|s| ScalarValue::try_from(s).ok());
-                    let max = s
-                        .get(Stat::Max)
-                        .cloned()
-                        .and_then(|s| ScalarValue::try_from(s).ok());
-                    ColumnStatistics {
-                        null_count: null_count
-                            .map(Precision::Exact)
-                            .unwrap_or(Precision::Absent),
-                        max_value: max.map(Precision::Exact).unwrap_or(Precision::Absent),
-                        min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
-                        distinct_count: Precision::Absent,
-                    }
+                    s.get_as::<usize>(Stat::UncompressedSizeInBytes)
+                        .unwrap_or_default()
                 })
-                .collect::<Vec<_>>();
+                .sum(),
+        );
 
-            println!("column_stats: {:?}", column_statistics);
-
-            Ok(Statistics {
-                // num_rows: Precision::Exact(
-                //     usize::try_from(row_count)
-                //         .map_err(|_| vortex_err!("Row count overflow"))
-                //         .vortex_expect("Row count overflow"),
-                // ),
-                num_rows: Precision::Absent,
-                total_byte_size,
-                column_statistics,
+        let column_statistics = stats
+            .into_iter()
+            .map(|s| {
+                let null_count = s.get_as::<usize>(Stat::NullCount);
+                let min = s
+                    .get(Stat::Min)
+                    .cloned()
+                    .and_then(|s| ScalarValue::try_from(s).ok());
+                let max = s
+                    .get(Stat::Max)
+                    .cloned()
+                    .and_then(|s| ScalarValue::try_from(s).ok());
+                ColumnStatistics {
+                    null_count: null_count
+                        .map(Precision::Exact)
+                        .unwrap_or(Precision::Absent),
+                    max_value: max.map(Precision::Exact).unwrap_or(Precision::Absent),
+                    min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
+                    distinct_count: Precision::Absent,
+                }
             })
-        }
-        .boxed()
-        .await
+            .collect::<Vec<_>>();
+
+        println!("column_stats: {:?}", column_statistics);
+
+        Ok(Statistics {
+            num_rows: Precision::Exact(
+                usize::try_from(vxf.row_count())
+                    .map_err(|_| vortex_err!("Row count overflow"))
+                    .vortex_expect("Row count overflow"),
+            ),
+            total_byte_size,
+            column_statistics,
+        })
     }
 
     async fn create_physical_plan(
