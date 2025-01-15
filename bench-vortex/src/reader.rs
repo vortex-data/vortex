@@ -24,6 +24,7 @@ use stream::StreamExt;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
+use vortex::buffer::Buffer;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
@@ -106,14 +107,12 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
 
 async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
-    _indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<ArrayData> {
     VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(reader)
         .await?
-        // FIXME(ngates): support row indices
-        // .scan_rows(Scan::all(), indices.iter().copied())?
-        .scan(Scan::all())?
+        .take(indices, Scan::all())?
         .into_array_data()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
@@ -124,33 +123,33 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
 pub async fn take_vortex_object_store(
     fs: Arc<dyn ObjectStore>,
     path: object_store::path::Path,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<ArrayData> {
     take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
 }
 
-pub async fn take_vortex_tokio(path: &Path, indices: &[u64]) -> VortexResult<ArrayData> {
+pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<ArrayData> {
     take_vortex(TokioFile::open(path)?, indices).await
 }
 
 pub async fn take_parquet_object_store(
     fs: Arc<dyn ObjectStore>,
     path: &object_store::path::Path,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<RecordBatch> {
     let meta = fs.head(path).await?;
     let reader = ParquetObjectReader::new(fs, meta);
     parquet_take_from_stream(reader, indices).await
 }
 
-pub async fn take_parquet(path: &Path, indices: &[u64]) -> VortexResult<RecordBatch> {
+pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<RecordBatch> {
     let file = tokio::fs::File::open(path).await?;
     parquet_take_from_stream(file, indices).await
 }
 
 async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
     async_reader: T,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<RecordBatch> {
     let builder = ParquetRecordBatchStreamBuilder::new_with_options(
         async_reader,
@@ -175,12 +174,12 @@ async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
 
     for idx in indices {
         let row_group_idx = row_group_offsets
-            .binary_search(&(*idx as i64))
+            .binary_search(&(idx as i64))
             .unwrap_or_else(|e| e - 1);
         row_groups
             .entry(row_group_idx)
             .or_insert_with(Vec::new)
-            .push((*idx as i64) - row_group_offsets[row_group_idx]);
+            .push((idx as i64) - row_group_offsets[row_group_idx]);
     }
     let row_group_indices = row_groups
         .keys()

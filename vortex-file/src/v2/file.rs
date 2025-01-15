@@ -6,12 +6,14 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
+use vortex_array::compute::FilterMask;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
+use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_layout::{ExprEvaluator, LayoutReader};
-use vortex_scan::Scan;
+use vortex_scan::{RowMask, Scan};
 
 use crate::v2::exec::ExecDriver;
 use crate::v2::io::IoDriver;
@@ -64,7 +66,8 @@ impl<I: IoDriver> VortexFile<I> {
         // Now we give one end of the channel to the layout reader...
         log::debug!("Starting scan with {} splits", self.splits.len());
         let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
-            .map(move |row_range| scan.clone().range_scan(row_range))
+            .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end))
+            .map(move |row_mask| scan.clone().range_scan(row_mask))
             .map(move |range_scan| match range_scan {
                 Ok(range_scan) => {
                     let reader = reader.clone();
@@ -79,6 +82,86 @@ impl<I: IoDriver> VortexFile<I> {
             })
             .boxed();
         let exec_stream = self.exec_driver.drive(exec_stream);
+
+        // ...and the other end to the segment driver.
+        let io_stream = self.io_driver.drive(segment_channel.into_stream());
+
+        Ok(ArrayStreamAdapter::new(
+            result_dtype,
+            UnifiedDriverStream {
+                exec_stream,
+                io_stream,
+            },
+        ))
+    }
+
+    /// Takes the given rows while also applying the filter and projection functions from a scan.
+    /// The row indices must be sorted.
+    pub fn take(
+        &self,
+        row_indices: Buffer<u64>,
+        scan: Arc<Scan>,
+    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
+        if !row_indices.windows(2).all(|w| w[0] <= w[1]) {
+            vortex_bail!("row indices must be sorted")
+        }
+
+        let result_dtype = scan.result_dtype(self.dtype())?;
+
+        // Set up a segment channel to collect segment requests from the execution stream.
+        let segment_channel = SegmentChannel::new();
+
+        // Create a single LayoutReader that is reused for the entire scan.
+        let reader: Arc<dyn LayoutReader> = self
+            .file_layout
+            .root_layout
+            .reader(segment_channel.reader(), self.ctx.clone())?;
+
+        // Now we give one end of the channel to the layout reader...
+        log::debug!("Starting take with {} splits", self.splits.len());
+        let exec_stream = ArcIter::new(self.splits.clone()).filter_map(move |row_range| {
+            // Quickly short-circuit if the row range is outside the bounds of the row indices.
+            if row_range.end <= row_indices[0] || row_range.start >= *row_indices.last().unwrap() {
+                return None;
+            }
+
+            // For the given row range, find the indices that are within the row_indices.
+            let start_idx = row_indices
+                .binary_search(&row_range.start)
+                .unwrap_or_else(|x| x);
+            let end_idx = row_indices
+                .binary_search(&row_range.end)
+                .unwrap_or_else(|x| x);
+
+            if start_idx == end_idx {
+                // No rows in range
+                return None;
+            }
+
+            // Construct a row mask for the range.
+            let filter_mask = FilterMask::from_indices(
+                usize::try_from(row_range.end - row_range.start)
+                    .vortex_expect("Split ranges are within usize"),
+                row_indices[start_idx..end_idx].iter().map(|&idx| {
+                    usize::try_from(idx - row_range.start).vortex_expect("index within range")
+                }),
+            );
+            let row_mask = RowMask::new(filter_mask, row_range.start);
+
+            Some(match scan.clone().range_scan(row_mask) {
+                Ok(range_scan) => {
+                    let reader = reader.clone();
+                    async move {
+                        range_scan
+                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
+                            .await
+                    }
+                    .boxed()
+                }
+                Err(e) => futures::future::ready(Err(e)).boxed(),
+            })
+        });
+        let exec_stream = self.exec_driver.drive(stream::iter(exec_stream).boxed());
 
         // ...and the other end to the segment driver.
         let io_stream = self.io_driver.drive(segment_channel.into_stream());
