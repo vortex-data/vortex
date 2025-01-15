@@ -422,6 +422,7 @@ mod tests {
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
+    use itertools::Itertools;
     use vortex_array::array::ChunkedArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
@@ -462,11 +463,11 @@ mod tests {
         }
         let flat_layouts = byte_offsets
             .iter()
-            .zip(byte_offsets.iter().skip(1))
+            .tuple_windows()
             .zip(
                 row_offsets
                     .iter()
-                    .zip(row_offsets.iter().skip(1))
+                    .tuple_windows()
                     .map(|(begin, end)| end - begin),
             )
             .map(|((begin, end), len)| write::LayoutSpec::flat(ByteRange::new(*begin, *end), len))

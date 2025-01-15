@@ -15,9 +15,8 @@ use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{and, get_item, ident, lit, pack, ExprRef, Identity};
-use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
+use vortex_file::v2::{ExecutionMode, Scan, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
-use vortex_scan::Scan;
 
 use super::cache::FileLayoutCache;
 
@@ -87,8 +86,6 @@ impl FileOpener for VortexFileOpener {
         // Construct the projection expression based on the DataFusion projection mask.
         // Each index in the mask corresponds to the field position of the root DType.
 
-        let scan = Scan::new(self.projection.clone(), self.filter.clone()).into_arc();
-
         let read_at =
             ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
 
@@ -104,7 +101,7 @@ impl FileOpener for VortexFileOpener {
                 .await?;
 
             Ok(vxf
-                .scan(scan)?
+                .scan(Scan::new(this.projection.clone(), this.filter.clone()))?
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())

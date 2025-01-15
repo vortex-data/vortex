@@ -311,7 +311,7 @@ mod test {
 
         let filtered = filter(
             &list,
-            FilterMask::from(BooleanBuffer::from(vec![false, true, true])),
+            &FilterMask::from(BooleanBuffer::from(vec![false, true, true])),
         );
 
         assert!(filtered.is_ok())

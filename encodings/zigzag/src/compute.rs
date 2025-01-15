@@ -30,7 +30,7 @@ impl ComputeVTable for ZigZagEncoding {
 }
 
 impl FilterFn<ZigZagArray> for ZigZagEncoding {
-    fn filter(&self, array: &ZigZagArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ZigZagArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let encoded = filter(&array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
@@ -145,7 +145,7 @@ mod tests {
     fn filter_zigzag() {
         let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
         let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
-        let actual = filter(&zigzag.into_array(), filter_mask)
+        let actual = filter(&zigzag.into_array(), &filter_mask)
             .unwrap()
             .into_primitive()
             .unwrap();

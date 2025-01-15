@@ -9,14 +9,12 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
-    fn filter(&self, array: &PrimitiveArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(&mask)?;
+    fn filter(&self, array: &PrimitiveArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(mask)?;
         match_each_native_ptype!(array.ptype(), |$T| {
-            let values = match mask.iter()? {
+            let values = match mask.iter() {
                 FilterIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
-                FilterIter::IndicesIter(iter) => filter_primitive_indices(array.as_slice::<$T>(), iter),
                 FilterIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
-                FilterIter::SlicesIter(iter) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), iter),
             };
             Ok(PrimitiveArray::new(values, validity).into_array())
         })
@@ -57,7 +55,7 @@ mod test {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
-        let filtered = filter(&arr.to_array(), FilterMask::from_iter(mask))
+        let filtered = filter(&arr.to_array(), &FilterMask::from_iter(mask))
             .unwrap()
             .into_primitive()
             .unwrap();

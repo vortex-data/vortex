@@ -194,12 +194,13 @@ impl Patches {
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
-    pub fn filter(&self, mask: FilterMask) -> VortexResult<Option<Self>> {
+    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Option<Self>> {
         if mask.is_empty() {
             return Ok(None);
         }
 
-        let buffer = mask.to_boolean_buffer()?;
+        // TODO(ngates): add functions to operate with FilterMask directly
+        let buffer = mask.boolean_buffer();
         let mut coordinate_indices = BufferMut::<u64>::empty();
         let mut value_indices = BufferMut::<u64>::empty();
         let mut last_inserted_index: usize = 0;
@@ -402,7 +403,7 @@ mod test {
         );
 
         let filtered = patches
-            .filter(FilterMask::from_indices(100, [10u32, 20, 30]))
+            .filter(&FilterMask::from_indices(100, vec![10, 20, 30]))
             .unwrap()
             .unwrap();
 
