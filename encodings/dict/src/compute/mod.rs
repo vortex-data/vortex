@@ -60,7 +60,7 @@ impl TakeFn<DictArray> for DictEncoding {
 }
 
 impl FilterFn<DictArray> for DictEncoding {
-    fn filter(&self, array: &DictArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &DictArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let codes = filter(&array.codes(), mask)?;
         DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }

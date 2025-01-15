@@ -13,6 +13,8 @@ use itertools::Itertools;
 use tar::Archive;
 use xshell::Shell;
 
+use crate::IdempotentPath;
+
 pub struct DBGen {
     options: DBGenOptions,
 }
@@ -37,7 +39,7 @@ impl Default for DBGenOptions {
     fn default() -> Self {
         Self {
             scale_factor: 1,
-            base_dir: std::env::current_dir().unwrap().join("data").join("tpch"),
+            base_dir: "tpch".to_data_path(),
             cache_dir: homedir::my_home()
                 .unwrap()
                 .unwrap()

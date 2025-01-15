@@ -1,4 +1,3 @@
-use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
@@ -11,7 +10,7 @@ use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<ChunkedArray> for ChunkedEncoding {
-    fn filter(&self, array: &ChunkedArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ChunkedArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let selected = mask.true_count();
 
         // Based on filter selectivity, we take the values between a range of slices, or
@@ -38,31 +37,8 @@ enum ChunkFilter {
     Slices(Vec<(usize, usize)>),
 }
 
-/// Given a sequence of slices that indicate ranges of set values, returns a boolean array
-/// representing the same thing.
-fn slices_to_mask(slices: &[(usize, usize)], len: usize) -> FilterMask {
-    let mut buffer = BooleanBufferBuilder::new(len);
-
-    let mut pos = 0;
-    for (slice_start, slice_end) in slices.iter().copied() {
-        // write however many trailing `false` between the end of the previous slice and the
-        // start of this one.
-        let n_leading_false = slice_start - pos;
-        buffer.append_n(n_leading_false, false);
-        buffer.append_n(slice_end - slice_start, true);
-        pos = slice_end;
-    }
-
-    // Pad the end of the buffer with false, if necessary.
-    let n_trailing_false = len - pos;
-    buffer.append_n(n_trailing_false, false);
-
-    FilterMask::from(buffer.finish())
-}
-
 /// Filter the chunks using slice ranges.
-#[allow(deprecated)]
-fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<ArrayData>> {
+fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
     // Pre-materialize the chunk ends for performance.
@@ -72,8 +48,8 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
-    for (slice_start, slice_end) in mask.iter_slices()? {
-        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
+    for (slice_start, slice_end) in mask.slices() {
+        let (start_chunk, start_idx) = find_chunk_idx(*slice_start, chunk_ends);
         // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
         // want to index into the unused chunk.
         let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_ends);
@@ -120,7 +96,7 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
     }
 
     // Now, apply the chunk filter to every slice.
-    for (chunk, chunk_filter) in array.chunks().zip(chunk_filters.iter()) {
+    for (chunk, chunk_filter) in array.chunks().zip(chunk_filters.into_iter()) {
         match chunk_filter {
             // All => preserve the entire chunk unfiltered.
             ChunkFilter::All => result.push(chunk),
@@ -128,7 +104,10 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
             ChunkFilter::None => {}
             // Slices => turn the slices into a boolean buffer.
             ChunkFilter::Slices(slices) => {
-                result.push(filter(&chunk, slices_to_mask(slices, chunk.len()))?);
+                result.push(filter(
+                    &chunk,
+                    &FilterMask::from_slices(chunk.len(), slices),
+                )?);
             }
         }
     }
@@ -138,7 +117,7 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
 
 /// Filter the chunks using indices.
 #[allow(deprecated)]
-fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<ArrayData>> {
+fn filter_indices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
     let mut current_chunk_id = 0;
     let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
@@ -148,8 +127,8 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
     let chunk_ends = chunk_ends.as_slice::<u64>();
 
-    for set_index in mask.iter_indices()? {
-        let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);
+    for set_index in mask.indices() {
+        let (chunk_id, index) = find_chunk_idx(*set_index, chunk_ends);
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
@@ -201,27 +180,12 @@ fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::array::chunked::compute::filter::slices_to_mask;
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::{filter, FilterMask};
     use crate::IntoArrayData;
-
-    #[test]
-    fn test_slices_to_predicate() {
-        let slices = [(2, 4), (6, 8), (9, 10)];
-        let predicate = slices_to_mask(&slices, 11);
-
-        let bools = predicate.to_boolean_buffer().unwrap().iter().collect_vec();
-
-        assert_eq!(
-            bools,
-            vec![false, false, true, true, false, false, true, true, false, true, false],
-        )
-    }
 
     #[test]
     fn filter_chunked_floats() {
@@ -252,7 +216,7 @@ mod test {
         let mask = FilterMask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);
-        let filtered = filter(&chunked, mask).unwrap();
+        let filtered = filter(&chunked, &mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }
 }
