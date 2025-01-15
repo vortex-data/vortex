@@ -14,7 +14,7 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::DType;
 use vortex::error::vortex_err;
 use vortex::file::v2::VortexWriteOptions;
-use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
+use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
