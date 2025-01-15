@@ -22,7 +22,7 @@ fn main() {
     (100_000, 0.95),
     (10_000_000, 0.95),
 ])]
-fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) -> () {
+fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
     let (n, fraction_valid) = args;
     let mut rng = StdRng::seed_from_u64(0);
     let values = buffer![T::from(1.234).unwrap(); n];
