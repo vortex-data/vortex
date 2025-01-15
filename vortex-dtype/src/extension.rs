@@ -136,4 +136,13 @@ impl ExtDType {
     pub fn metadata(&self) -> Option<&ExtMetadata> {
         self.metadata.as_ref()
     }
+
+    /// Check if `self` and `other` are equal, ignoring the storage nullability
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        self.id() == other.id()
+            && self.metadata() == other.metadata()
+            && self
+                .storage_dtype()
+                .eq_ignore_nullability(other.storage_dtype())
+    }
 }

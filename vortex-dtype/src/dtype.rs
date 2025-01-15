@@ -111,11 +111,7 @@ impl DType {
             }
             (Struct(..), _) => false,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
-                lhs_extdtype.id() == rhs_extdtype.id()
-                    && lhs_extdtype.metadata() == rhs_extdtype.metadata()
-                    && lhs_extdtype
-                        .storage_dtype()
-                        .eq_ignore_nullability(rhs_extdtype.storage_dtype())
+                lhs_extdtype.as_ref().eq_ignore_nullability(&rhs_extdtype)
             }
             (Extension(_), _) => false,
         }
