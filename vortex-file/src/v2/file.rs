@@ -52,47 +52,11 @@ impl<I: IoDriver> VortexFile<I> {
 
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        let result_dtype = scan.result_dtype(self.dtype())?;
-
-        // Set up a segment channel to collect segment requests from the execution stream.
-        let segment_channel = SegmentChannel::new();
-
-        // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self
-            .file_layout
-            .root_layout
-            .reader(segment_channel.reader(), self.ctx.clone())?;
-
-        // Now we give one end of the channel to the layout reader...
-        log::debug!("Starting scan with {} splits", self.splits.len());
-        let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
-            .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end))
-            .map(move |row_mask| scan.clone().range_scan(row_mask))
-            .map(move |range_scan| match range_scan {
-                Ok(range_scan) => {
-                    let reader = reader.clone();
-                    async move {
-                        range_scan
-                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
-                            .await
-                    }
-                    .boxed()
-                }
-                Err(e) => futures::future::ready(Err(e)).boxed(),
-            })
-            .boxed();
-        let exec_stream = self.exec_driver.drive(exec_stream);
-
-        // ...and the other end to the segment driver.
-        let io_stream = self.io_driver.drive(segment_channel.into_stream());
-
-        Ok(ArrayStreamAdapter::new(
-            result_dtype,
-            UnifiedDriverStream {
-                exec_stream,
-                io_stream,
-            },
-        ))
+        self.scan_with_masks(
+            ArcIter::new(self.splits.clone())
+                .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end)),
+            scan,
+        )
     }
 
     /// Takes the given rows while also applying the filter and projection functions from a scan.
@@ -106,20 +70,7 @@ impl<I: IoDriver> VortexFile<I> {
             vortex_bail!("row indices must be sorted")
         }
 
-        let result_dtype = scan.result_dtype(self.dtype())?;
-
-        // Set up a segment channel to collect segment requests from the execution stream.
-        let segment_channel = SegmentChannel::new();
-
-        // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self
-            .file_layout
-            .root_layout
-            .reader(segment_channel.reader(), self.ctx.clone())?;
-
-        // Now we give one end of the channel to the layout reader...
-        log::debug!("Starting take with {} splits", self.splits.len());
-        let exec_stream = ArcIter::new(self.splits.clone()).filter_map(move |row_range| {
+        let row_masks = ArcIter::new(self.splits.clone()).filter_map(move |row_range| {
             // Quickly short-circuit if the row range is outside the bounds of the row indices.
             if row_range.end <= row_indices[0] || row_range.start >= *row_indices.last().unwrap() {
                 return None;
@@ -146,9 +97,34 @@ impl<I: IoDriver> VortexFile<I> {
                     usize::try_from(idx - row_range.start).vortex_expect("index within range")
                 }),
             );
-            let row_mask = RowMask::new(filter_mask, row_range.start);
+            Some(RowMask::new(filter_mask, row_range.start))
+        });
 
-            Some(match scan.clone().range_scan(row_mask) {
+        self.scan_with_masks(row_masks, scan)
+    }
+
+    fn scan_with_masks<R>(
+        &self,
+        row_masks: R,
+        scan: Arc<Scan>,
+    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I, R>>
+    where
+        R: Iterator<Item = RowMask> + Send + 'static,
+    {
+        let result_dtype = scan.result_dtype(self.dtype())?;
+
+        // Set up a segment channel to collect segment requests from the execution stream.
+        let segment_channel = SegmentChannel::new();
+
+        // Create a single LayoutReader that is reused for the entire scan.
+        let reader: Arc<dyn LayoutReader> = self
+            .file_layout
+            .root_layout
+            .reader(segment_channel.reader(), self.ctx.clone())?;
+
+        // Now we give one end of the channel to the layout reader...
+        let exec_stream = stream::iter(row_masks)
+            .map(move |row_mask| match scan.clone().range_scan(row_mask) {
                 Ok(range_scan) => {
                     let reader = reader.clone();
                     async move {
@@ -160,8 +136,8 @@ impl<I: IoDriver> VortexFile<I> {
                 }
                 Err(e) => futures::future::ready(Err(e)).boxed(),
             })
-        });
-        let exec_stream = self.exec_driver.drive(stream::iter(exec_stream).boxed());
+            .boxed();
+        let exec_stream = self.exec_driver.drive(exec_stream);
 
         // ...and the other end to the segment driver.
         let io_stream = self.io_driver.drive(segment_channel.into_stream());
