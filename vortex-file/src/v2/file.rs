@@ -97,9 +97,12 @@ impl<I: IoDriver> VortexFile<I> {
             let filter_mask = FilterMask::from_indices(
                 usize::try_from(row_range.end - row_range.start)
                     .vortex_expect("Split ranges are within usize"),
-                row_indices[start_idx..end_idx].iter().map(|&idx| {
-                    usize::try_from(idx - row_range.start).vortex_expect("index within range")
-                }),
+                row_indices[start_idx..end_idx]
+                    .iter()
+                    .map(|&idx| {
+                        usize::try_from(idx - row_range.start).vortex_expect("index within range")
+                    })
+                    .collect(),
             );
             Some(RowMask::new(filter_mask, row_range.start))
         });
