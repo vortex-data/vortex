@@ -72,7 +72,11 @@ impl<I: IoDriver> VortexFile<I> {
 
         let row_masks = ArcIter::new(self.splits.clone()).filter_map(move |row_range| {
             // Quickly short-circuit if the row range is outside the bounds of the row indices.
-            if row_range.end <= row_indices[0] || row_range.start >= *row_indices.last().unwrap() {
+            if row_range.end <= row_indices[0]
+                || row_indices
+                    .last()
+                    .is_some_and(|&last| row_range.start >= last)
+            {
                 return None;
             }
 
