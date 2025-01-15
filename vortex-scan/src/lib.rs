@@ -8,7 +8,7 @@ pub use row_mask::*;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::ExprRef;
 
 /// Represents a scan operation to read data from a set of rows, with an optional filter expression,
 /// and a projection expression.

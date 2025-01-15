@@ -5,7 +5,6 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scan::Scan;
 
 use crate::v2::io::IoDriver;
 use crate::v2::*;
