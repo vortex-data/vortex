@@ -5,6 +5,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer;
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_scan::ScanBuilder;
 
 use crate::v2::io::IoDriver;
 use crate::v2::*;
@@ -32,7 +33,7 @@ fn chunked_file() -> VortexFile<impl IoDriver> {
 #[test]
 fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file();
-    let result = block_on(vxf.scan_all()?.into_array_data())?.into_primitive()?;
+    let result = block_on(vxf.scan(ScanBuilder::all())?.into_array_data())?.into_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -42,8 +43,11 @@ fn basic_file_roundtrip() -> VortexResult<()> {
 #[test]
 fn file_take() -> VortexResult<()> {
     let vxf = chunked_file();
-    let result =
-        block_on(vxf.take_all(buffer![0, 1, 8])?.into_array_data())?.into_primitive()?;
+    let result = block_on(
+        vxf.take(buffer![0, 1, 8], ScanBuilder::all())?
+            .into_array_data(),
+    )?
+    .into_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
 

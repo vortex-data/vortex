@@ -11,10 +11,9 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_expr::{ident, ExprRef};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_layout::{ExprEvaluator, LayoutReader};
-use vortex_scan::{RowMask, Scan};
+use vortex_scan::{RowMask, ScanBuilder};
 
 use crate::v2::exec::ExecDriver;
 use crate::v2::io::IoDriver;
@@ -51,22 +50,16 @@ impl<I: IoDriver> VortexFile<I> {
         &self.file_layout
     }
 
-    /// Performs a scan operation over the file, loading all rows.
-    pub fn scan_all(&self) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        self.scan(ident(), None)
-    }
-
     /// Performs a scan operation over the file.
     pub fn scan(
         &self,
-        projection: ExprRef,
-        filter: Option<ExprRef>
-       ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
+        scan_builder: ScanBuilder,
+    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         self.scan_with_masks(
             ArcIter::new(self.splits.clone())
                 .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end)),
-            projection: ExprRef,
-            filter: Option<ExprRef>        )
+            scan_builder,
+        )
     }
 
     /// Takes the given rows while also applying the filter and projection functions from a scan.
@@ -74,7 +67,7 @@ impl<I: IoDriver> VortexFile<I> {
     pub fn take(
         &self,
         row_indices: Buffer<u64>,
-        scan: Arc<Scan>,
+        scan_builder: ScanBuilder,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         if !row_indices.windows(2).all(|w| w[0] <= w[1]) {
             vortex_bail!("row indices must be sorted")
@@ -117,19 +110,18 @@ impl<I: IoDriver> VortexFile<I> {
             Some(RowMask::new(filter_mask, row_range.start))
         });
 
-        self.scan_with_masks(row_masks, scan)
+        self.scan_with_masks(row_masks, scan_builder)
     }
 
     fn scan_with_masks<R>(
         &self,
         row_masks: R,
-        projection: ExprRef,
-        filter: Option<ExprRef>
+        scan_builder: ScanBuilder,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I, R>>
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scan = Scan::new(self.dtype().clone(), projection, filter).into_arc();
+        let scan = scan_builder.build(self.dtype().clone());
 
         let result_dtype = scan.result_dtype()?;
 

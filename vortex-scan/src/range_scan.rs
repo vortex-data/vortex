@@ -111,8 +111,7 @@ impl RangeScan {
                     self.state =
                         State::Ready(Canonical::empty(&self.scan.result_dtype()?)?.into_array());
                 } else {
-                    self.state =
-                        State::Project((mask, self.scan.projection().clone()))
+                    self.state = State::Project((mask, self.scan.projection().clone()))
                 }
             }
             State::Project(_) => {

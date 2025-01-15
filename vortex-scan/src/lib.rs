@@ -44,21 +44,6 @@ impl Scan {
         }
     }
 
-    /// Convert this scan into an Arc.
-    pub fn into_arc(self) -> Arc<Self> {
-        Arc::new(self)
-    }
-
-    /// Scan all rows with the identity projection.
-    pub fn all(dtype: DType) -> Arc<Self> {
-        Self {
-            dtype,
-            projection: Identity::new_expr(),
-            filter: None,
-        }
-        .into_arc()
-    }
-
     /// Returns the filter expression, if any.
     pub fn filter(&self) -> Option<&ExprRef> {
         self.filter.as_ref()
@@ -86,5 +71,38 @@ impl Scan {
             row_mask.begin(),
             row_mask.into_filter_mask()?,
         ))
+    }
+}
+
+pub struct ScanBuilder {
+    projection: ExprRef,
+    filter: Option<ExprRef>,
+}
+
+impl ScanBuilder {
+    pub fn all() -> Self {
+        Self {
+            projection: Identity::new_expr(),
+            filter: None,
+        }
+    }
+
+    pub fn new_projection(projection: ExprRef) -> Self {
+        Self {
+            projection,
+            filter: None,
+        }
+    }
+
+    pub fn with_filter(self, filter: Option<ExprRef>) -> Self {
+        Self { filter, ..self }
+    }
+
+    pub fn build(self, dtype: DType) -> Arc<Scan> {
+        Arc::new(Scan {
+            dtype,
+            projection: self.projection,
+            filter: self.filter,
+        })
     }
 }
