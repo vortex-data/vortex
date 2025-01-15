@@ -63,7 +63,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, Nullability, StructDType};
-    use vortex_expr::{get_item, gt, ident, select};
+    use vortex_expr::{get_item, gt, ident, pack};
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -156,7 +156,10 @@ mod tests {
         let (segments, layout) = struct_layout();
 
         let reader = layout.reader(segments, Default::default()).unwrap();
-        let expr = select(vec!["a".into(), "b".into()], ident());
+        let expr = pack(
+            ["a".into(), "b".into()],
+            vec![get_item("a", ident()), get_item("b", ident())],
+        );
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that
             RowMask::new(FilterMask::from_iter([true, true, false]), 0),

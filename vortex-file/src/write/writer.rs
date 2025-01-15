@@ -255,12 +255,12 @@ impl ColumnWriter {
             .flat_map(|(byte_offsets, row_offsets)| {
                 byte_offsets
                     .into_iter()
-                    .tuple_windows::<(_, _)>()
+                    .tuple_windows()
                     .map(|(begin, end)| ByteRange::new(begin, end))
                     .zip(
                         row_offsets
                             .into_iter()
-                            .tuple_windows::<(_, _)>()
+                            .tuple_windows()
                             .map(|(begin, end)| end - begin),
                     )
                     .map(|(range, len)| LayoutSpec::flat(range, len))

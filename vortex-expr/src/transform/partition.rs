@@ -127,11 +127,9 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
             .collect_vec();
 
         accesses.into_iter().for_each(|c| {
+            let accesses = self.sub_expressions.entry(node).or_default();
             if let Some(fields) = c {
-                self.sub_expressions
-                    .entry(node)
-                    .or_default()
-                    .extend(fields.iter().cloned());
+                accesses.extend(fields.iter().cloned());
             }
         });
 
@@ -159,6 +157,11 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         let mut expr_top_level_ref = ImmediateIdentityAccessesAnalysis::new(scope_dtype);
         expr.accept_with_context(&mut expr_top_level_ref, ())?;
 
+        let expression_accesses = expr_top_level_ref
+            .sub_expressions
+            .get(&expr)
+            .map(|ac| ac.len());
+
         let mut splitter =
             StructFieldExpressionSplitter::new(expr_top_level_ref.sub_expressions, scope_dtype);
 
@@ -177,6 +180,12 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 ),
             })
             .collect();
+
+        // Ensure that there are not more accesses than partitions, we missed something
+        assert!(expression_accesses.unwrap_or(0) <= partitions.len());
+        // Ensure that there are as many partitions as there are accesses/fields in the scope,
+        // this will affect performance, not correctness.
+        debug_assert_eq!(expression_accesses.unwrap_or(0), partitions.len());
 
         Ok(PartitionedExpr {
             root: split.result(),
