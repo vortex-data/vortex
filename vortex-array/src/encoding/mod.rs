@@ -79,6 +79,7 @@ pub trait EncodingVTable:
     + MetadataVTable
     + ComputeVTable
     + StatisticsVTable<ArrayData>
+    + ValidateVTable<ArrayData>
     + ValidityVTable<ArrayData>
     + VariantsVTable<ArrayData>
     + VisitorVTable<ArrayData>
