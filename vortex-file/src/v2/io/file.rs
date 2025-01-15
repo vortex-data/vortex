@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -72,112 +73,148 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
         &self,
         stream: impl Stream<Item = SegmentRequest> + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
+        // We map the segment requests to their respective locations within the file.
         let segment_map = self.file_layout.segments.clone();
-        let read = self.read.clone();
-        let segment_cache1 = self.segment_cache.clone();
-        let segment_cache2 = self.segment_cache.clone();
+        let stream = stream.filter_map(move |request| {
+            let segment_map = segment_map.clone();
+            async move {
+                let Some(location) = segment_map.get(*request.id as usize) else {
+                    request
+                        .callback
+                        .send(Err(vortex_err!("segment not found")))
+                        .map_err(|_| vortex_err!("send failed"))
+                        .vortex_expect("send failed");
+                    return None;
+                };
+                Some(FileSegmentRequest {
+                    id: request.id,
+                    location: location.clone(),
+                    callback: request.callback,
+                })
+            }
+        });
 
-        stream
-            // We map the segment requests to their respective locations within the file.
-            .filter_map(move |request| {
-                let segment_map = segment_map.clone();
-                async move {
-                    let Some(location) = segment_map.get(*request.id as usize) else {
-                        request
-                            .callback
-                            .send(Err(vortex_err!("segment not found")))
-                            .map_err(|_| vortex_err!("send failed"))
-                            .vortex_expect("send failed");
-                        return None;
-                    };
-                    Some(FileSegmentRequest {
-                        id: request.id,
-                        location: location.clone(),
-                        callback: request.callback,
-                    })
-                }
-            })
-            // We support zero-length segments (so layouts don't have to store this information)
-            // If we encounter a zero-length segment, we can just resolve it now.
-            .filter_map(move |request| async move {
-                if request.location.length == 0 {
-                    let alignment = request.location.alignment;
-                    request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
-                    None
-                } else {
-                    Some(request)
-                }
-            })
-            // Check if the segment exists in the cache
-            .filter_map(move |request| {
-                let segment_cache = segment_cache1.clone();
-                async move {
-                    match segment_cache
-                        .get(request.id, request.location.alignment)
-                        .await
-                    {
-                        Ok(None) => Some(request),
-                        Ok(Some(buffer)) => {
-                            request.resolve(Ok(buffer));
-                            None
-                        }
-                        Err(e) => {
-                            request.resolve(Err(e));
-                            None
-                        }
+        // We support zero-length segments (so layouts don't have to store this information)
+        // If we encounter a zero-length segment, we can just resolve it now.
+        let stream = stream.filter_map(|request| async move {
+            if request.location.length == 0 {
+                let alignment = request.location.alignment;
+                request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
+                None
+            } else {
+                Some(request)
+            }
+        });
+
+        // Check if the segment exists in the cache
+        let segment_cache = self.segment_cache.clone();
+        let stream = stream.filter_map(move |request| {
+            let segment_cache = segment_cache.clone();
+            async move {
+                match segment_cache
+                    .get(request.id, request.location.alignment)
+                    .await
+                {
+                    Ok(None) => Some(request),
+                    Ok(Some(buffer)) => {
+                        request.resolve(Ok(buffer));
+                        None
+                    }
+                    Err(e) => {
+                        request.resolve(Err(e));
+                        None
                     }
                 }
-            })
-            // Grab all available segment requests from the I/O queue so we get maximal visibility into
-            // the requests for coalescing.
-            // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
-            // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
-            // file and therefore be reasonably bounded.
+            }
+        });
+
+        // Grab all available segment requests from the I/O queue so we get maximal visibility into
+        // the requests for coalescing.
+        // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
+        // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
+        // file and therefore be reasonably bounded.
+        let stream = stream
             .ready_chunks(1024)
-            // Coalesce the segment requests to minimize the number of I/O operations.
-            .map(coalesce)
-            .flat_map(stream::iter)
-            // Submit the coalesced requests to the I/O.
-            .map(move |request| evaluate(read.clone(), request, segment_cache2.clone()))
-            // Buffer some number of concurrent I/O operations.
-            .buffer_unordered(self.concurrency)
+            .inspect(|requests| log::debug!("Processing {} segment requests", requests.len()));
+
+        // Coalesce the segment requests to minimize the number of I/O operations.
+        let stream = stream.map(coalesce).flat_map(stream::iter);
+
+        // Submit the coalesced requests to the I/O.
+        let read = self.read.clone();
+        let segment_map = self.file_layout.segments.clone();
+        let segment_cache = self.segment_cache.clone();
+        let stream = stream.map(move |request| {
+            let read = read.clone();
+            let segment_map = segment_map.clone();
+            let segment_cache = segment_cache.clone();
+            async move {
+                evaluate(
+                    read.clone(),
+                    request,
+                    segment_map.clone(),
+                    segment_cache.clone(),
+                )
+                .await
+            }
+        });
+
+        // Buffer some number of concurrent I/O operations.
+        stream.buffer_unordered(self.concurrency)
     }
 }
 
 async fn evaluate<R: VortexReadAt>(
     read: R,
     request: CoalescedSegmentRequest,
+    segment_map: Arc<[Segment]>,
     segment_cache: Arc<dyn SegmentCache>,
 ) -> VortexResult<()> {
     log::debug!(
         "Reading byte range: {:?} {}",
         request.byte_range,
-        request.byte_range.end - request.byte_range.start
+        request.byte_range.end - request.byte_range.start,
     );
     let buffer: ByteBuffer = read
         .read_byte_range(
             request.byte_range.start,
             request.byte_range.end - request.byte_range.start,
         )
-        .await
-        .map_err(|e| vortex_err!("Failed to read coalesced segment: {:?} {:?}", request, e))?
+        .await?
         .into();
 
-    // TODO(ngates): traverse the segment map to find un-requested segments that happen to
-    //  fall within the range of the request. Then we can populate those in the cache.
-    let mut cache_futures = Vec::with_capacity(request.requests.len());
+    // Figure out the segments covered by the read.
+    let start = segment_map.partition_point(|s| s.offset < request.byte_range.start);
+    let end = segment_map.partition_point(|s| s.offset < request.byte_range.end);
+
+    let mut requests = iter::repeat_with(|| None)
+        .take(end - start)
+        .collect::<Vec<_>>();
     for req in request.requests {
-        let offset = usize::try_from(req.location.offset - request.byte_range.start)?;
+        let id = *req.id as usize;
+        requests[id - start] = Some(req);
+    }
+
+    let mut cache_futures = Vec::with_capacity(requests.len());
+    for (i, (segment, maybe_req)) in segment_map[start..end]
+        .iter()
+        .zip(requests.into_iter())
+        .enumerate()
+    {
+        let offset = usize::try_from(segment.offset - request.byte_range.start)?;
         let buf = buffer
-            .slice(offset..offset + req.location.length as usize)
-            .aligned(req.location.alignment);
+            .slice(offset..offset + segment.length as usize)
+            .aligned(segment.alignment);
 
         // Send the callback
-        req.callback
-            .send(Ok(buf.clone()))
-            .map_err(|_| vortex_err!("send failed"))?;
+        if let Some(req) = maybe_req {
+            req.callback
+                .send(Ok(buf.clone()))
+                .map_err(|_| vortex_err!("send failed"))?;
+        }
 
-        cache_futures.push(segment_cache.put(req.id, buf));
+        let id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
+        cache_futures.push(segment_cache.put(id, buf));
     }
 
     // Populate the cache
