@@ -20,8 +20,15 @@ impl<'a> BinaryScalar<'a> {
         self.value.as_ref().cloned()
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        Ok(match (&self.value, dtype) {
+            (Some(b), DType::Binary(_)) => Scalar::new(
+                dtype.clone(),
+                ScalarValue(InnerScalarValue::Buffer(b.clone())),
+            ),
+            (None, DType::Binary(Nullability::Nullable)) => Scalar::null(dtype.clone()),
+            (value, dtype) => vortex_bail!("Can't cast {:?} to {}", value, dtype),
+        })
     }
 }
 

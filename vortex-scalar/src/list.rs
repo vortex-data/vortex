@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
@@ -65,8 +66,20 @@ impl<'a> ListScalar<'a> {
             })
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        Ok(match (&self.elements, dtype) {
+            (Some(elements), DType::List(element_dtype, _)) => Scalar::new(
+                dtype.clone(),
+                ScalarValue(InnerScalarValue::List(
+                    elements
+                        .iter()
+                        .map(|element| element.cast(element_dtype))
+                        .process_results(|iter| iter.collect())?,
+                )),
+            ),
+            (None, DType::List(_, Nullability::Nullable)) => Scalar::null(dtype.clone()),
+            (value, dtype) => vortex_bail!("Can't cast {:?} to {}", value, dtype),
+        })
     }
 }
 

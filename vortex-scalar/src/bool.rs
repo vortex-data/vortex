@@ -21,13 +21,11 @@ impl<'a> BoolScalar<'a> {
     }
 
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        match dtype {
-            DType::Bool(_) => Ok(Scalar::bool(
-                self.value().ok_or_else(|| vortex_err!("not a bool"))?,
-                dtype.nullability(),
-            )),
-            _ => vortex_bail!("Can't cast {} to bool", dtype),
-        }
+        Ok(match (self.value, dtype) {
+            (Some(b), DType::Bool(_)) => Scalar::new(dtype.clone(), ScalarValue::from(b)),
+            (None, DType::Bool(Nullability::Nullable)) => Scalar::null(dtype.clone()),
+            (value, dtype) => vortex_bail!("Can't cast {:?} to {}", value, dtype),
+        })
     }
 
     pub fn invert(self) -> BoolScalar<'a> {

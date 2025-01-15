@@ -35,8 +35,17 @@ impl<'a> ExtScalar<'a> {
         Scalar::new(storage_dtype, self.value.clone())
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        if self.dtype().eq_ignore_nullability(dtype) {
+            if self.dtype.is_nullable() && dtype.is_nullable() && self.value.is_null() {
+                vortex_bail!("cannot cast null value to {}", dtype);
+            }
+            // ScalarValue::cast must reject casting _to_ an extension type because it does not know
+            // its own type.
+            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+        }
+
+        Ok(Scalar::new(dtype.clone(), self.value.cast(dtype)?))
     }
 }
 

@@ -21,8 +21,15 @@ impl<'a> Utf8Scalar<'a> {
         self.value.as_ref().cloned()
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        Ok(match (&self.value, dtype) {
+            (Some(bufstr), DType::Utf8(_)) => Scalar::new(
+                dtype.clone(),
+                ScalarValue(InnerScalarValue::BufferString(bufstr.clone())),
+            ),
+            (None, DType::Utf8(Nullability::Nullable)) => Scalar::null(dtype.clone()),
+            (value, dtype) => vortex_bail!("Can't cast {:?} to {}", value, dtype),
+        })
     }
 }
 

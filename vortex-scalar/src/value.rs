@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::pvalue::PValue;
 
@@ -114,6 +114,52 @@ impl ScalarValue {
 
     pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
+    }
+
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<ScalarValue> {
+        Ok(match (&self.0, dtype) {
+            (InnerScalarValue::Bool(..), DType::Bool(..)) => self.clone(),
+            (InnerScalarValue::Primitive(pvalue), DType::Primitive(ptype, ..)) => {
+                let pvalue = match_each_native_ptype!(ptype, |$Q| {
+                    PValue::from(pvalue.as_primitive::<$Q>()?)
+                });
+                ScalarValue(InnerScalarValue::Primitive(pvalue))
+            }
+            (InnerScalarValue::Buffer(..), DType::Binary(..)) => self.clone(),
+            (InnerScalarValue::BufferString(..), DType::Utf8(..)) => self.clone(),
+            (InnerScalarValue::List(fields), DType::Struct(sdtype, _)) => {
+                if fields.len() != sdtype.names().len() {
+                    vortex_bail!(
+                        "cannot cast from {} fields to {} fields",
+                        fields.len(),
+                        sdtype.names().len()
+                    );
+                }
+                ScalarValue(InnerScalarValue::List(
+                    fields
+                        .iter()
+                        .zip_eq(sdtype.dtypes())
+                        .map(|(value, dtype)| value.cast(&dtype))
+                        .process_results(|iter| iter.collect())?,
+                ))
+            }
+            (InnerScalarValue::List(values), DType::List(dtype, _)) => {
+                ScalarValue(InnerScalarValue::List(
+                    values
+                        .iter()
+                        .map(|value| value.cast(&dtype))
+                        .process_results(|iter| iter.collect())?,
+                ))
+            }
+            (InnerScalarValue::Null, dtype) => {
+                if !dtype.is_nullable() {
+                    vortex_bail!("cannot cast null to non-nullable dtype: {}", dtype)
+                }
+                self.clone()
+            }
+            // (_, Extension(..)) we are never allowed to cast _to_ an extension type
+            _ => vortex_bail!("cannot cast {} to {}", self, dtype),
+        })
     }
 }
 

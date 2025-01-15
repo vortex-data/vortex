@@ -101,39 +101,16 @@ impl Scalar {
     }
 
     pub fn cast(&self, dtype: &DType) -> VortexResult<Self> {
-        if self.is_null() && !dtype.is_nullable() {
-            vortex_bail!("Can't cast null scalar to non-nullable type")
-        }
-
         if self.dtype().eq_ignore_nullability(dtype) {
-            return Ok(Scalar {
-                dtype: dtype.clone(),
-                value: self.value.clone(),
-            });
+            if self.dtype.is_nullable() && dtype.is_nullable() && self.value.is_null() {
+                vortex_bail!("cannot cast null value to {}", dtype);
+            }
+            // ScalarValue::cast must reject casting _to_ an extension type because it does not know
+            // its own type.
+            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
         }
 
-        match dtype {
-            DType::Null => vortex_bail!("Can't cast non-null to null"),
-            DType::Bool(_) => BoolScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Primitive(..) => PrimitiveScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Utf8(_) => Utf8Scalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Binary(_) => BinaryScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Struct(..) => StructScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::List(..) => ListScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Extension(ext_dtype) => {
-                if !self.value().is_instance_of(ext_dtype.storage_dtype()) {
-                    vortex_bail!(
-                        "Failed to cast scalar to extension dtype with storage type {:?}, found {:?}",
-                        ext_dtype.storage_dtype(),
-                        self.dtype()
-                    );
-                }
-                Ok(Scalar::extension(
-                    ext_dtype.clone(),
-                    self.cast(ext_dtype.storage_dtype())?,
-                ))
-            }
-        }
+        Ok(Scalar::new(dtype.clone(), self.value.cast(dtype)?))
     }
 
     pub fn into_nullable(self) -> Self {
@@ -296,3 +273,37 @@ from_vec_for_scalar!(f64);
 from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
 from_vec_for_scalar!(ByteBuffer);
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, ExtDType, ExtID, Nullability};
+
+    use crate::{InnerScalarValue, Scalar, ScalarValue};
+
+    #[test]
+    fn cast_from_extension_types() {
+        let apples = ExtDType::new(
+            ExtID::new(Arc::from("apples")),
+            Arc::from(DType::Bool(Nullability::NonNullable)),
+            None,
+        );
+        let scalar = Scalar::new(
+            DType::Extension(Arc::from(apples.clone())),
+            ScalarValue(InnerScalarValue::Bool(true)),
+        );
+
+        let inner = scalar.cast(scalar.dtype()).unwrap();
+        assert_eq!(inner.dtype(), scalar.dtype());
+
+        let inner = scalar.cast(&scalar.dtype().as_nullable()).unwrap();
+        assert_eq!(inner.dtype(), &scalar.dtype().as_nullable());
+
+        let inner = scalar.cast(apples.storage_dtype()).unwrap();
+        assert_eq!(inner.dtype(), apples.storage_dtype());
+
+        let inner = scalar.cast(&apples.storage_dtype().as_nullable()).unwrap();
+        assert_eq!(inner.dtype(), &apples.storage_dtype().as_nullable());
+    }
+}
