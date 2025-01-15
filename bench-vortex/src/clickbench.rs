@@ -18,7 +18,7 @@ use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_datafusion::persistent::VortexFormat;
 
 use crate::{idempotent_async, CTX};
 

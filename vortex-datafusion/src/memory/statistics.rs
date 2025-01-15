@@ -8,7 +8,7 @@ use vortex_array::ArrayLen;
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-pub fn chunked_array_df_stats(
+pub(crate) fn chunked_array_df_stats(
     array: &ChunkedArray,
     projection: FieldNames,
 ) -> DFResult<Statistics> {
