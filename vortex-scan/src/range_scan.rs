@@ -2,9 +2,8 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::FilterMask;
-use vortex_array::{ArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
@@ -109,10 +108,8 @@ impl RangeScan {
                 // Then move onto the projection
                 if mask.is_empty() {
                     // If the mask is empty, then we're done.
-                    let len = mask.len();
-                    let mut builder = builder_with_capacity(&self.scan.dtype, len);
-                    builder.append_nulls(len);
-                    self.state = State::Ready(builder.finish()?);
+                    self.state =
+                        State::Ready(Canonical::empty(&self.scan.result_dtype()?)?.into_array());
                 } else {
                     self.state =
                         State::Project((FilterMask::from(mask), self.scan.projection().clone()))
