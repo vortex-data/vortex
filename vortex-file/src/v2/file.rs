@@ -50,10 +50,6 @@ impl Scan {
     pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
         Self { projection, filter }
     }
-
-    pub fn build(self, dtype: DType) -> VortexResult<Arc<Scanner>> {
-        Ok(Arc::new(Scanner::new(dtype, self.projection, self.filter)?))
-    }
 }
 
 /// Async implementation of Vortex File.
@@ -141,7 +137,7 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scanner = scan.build(self.dtype().clone())?;
+        let scanner = Scanner::new(self.dtype().clone(), scan.projection, scan.filter)?;
 
         let result_dtype = scanner.result_dtype().clone();
 
