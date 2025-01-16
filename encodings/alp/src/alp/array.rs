@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::scalar_at;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatisticsVTable;
@@ -52,11 +53,13 @@ impl ALPArray {
                 vortex_bail!(MismatchedTypes: dtype, patches.dtype());
             }
 
-            if !matches!(
-                patches.values().logical_validity(),
-                LogicalValidity::AllValid(_)
-            ) {
-                vortex_bail!("ALPArray: patches must not contain invalid entries");
+            if patches.values().logical_validity().null_count()? != 0 {
+                vortex_bail!(
+                    "ALPArray: patches must not contain invalid entries {:?}",
+                    (0..patches.values().len())
+                        .map(|index| format!("{}", scalar_at(patches.values(), index).unwrap()))
+                        .collect::<Vec<_>>()
+                );
             }
 
             children.push(patches.indices().clone());
@@ -104,7 +107,7 @@ impl ALPArray {
                     .child(1, &p.indices_dtype(), p.len())
                     .vortex_expect("ALPArray: patch indices"),
                 self.as_ref()
-                    .child(2, &self.dtype(), p.len())
+                    .child(2, self.dtype(), p.len())
                     .vortex_expect("ALPArray: patch values"),
             )
         })

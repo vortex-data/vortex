@@ -15,7 +15,7 @@ use vortex_array::{
     IntoArrayVariant, IntoCanonical,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -235,6 +235,49 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     .unwrap_or(false)
                     && array.logical_validity().all_valid(),
             )),
+            Stat::TrueCount => match array.dtype() {
+                DType::Bool(_) => {
+                    let ends = array.ends().into_primitive()?;
+                    let bools = array.values().into_bool()?.boolean_buffer();
+                    let true_count: u64 = match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                        let mut begin: $P = 0;
+                        ends
+                            .as_slice::<$P>()
+                            .iter()
+                            .enumerate()
+                            .map(|(index, end)| {
+                                let len = *end - begin;
+                                begin = *end;
+                                (len as u64) * (bools.value(index as usize) as u64)
+                            })
+                            .sum()
+                    });
+                    Some(Scalar::from(true_count))
+                }
+                DType::Primitive(..) => None,
+                dtype => vortex_bail!("invalid dtype: {}", dtype),
+            },
+            Stat::NullCount => {
+                let ends = array.ends().into_primitive()?;
+                let null_count: u64 = match array.values().logical_validity() {
+                    LogicalValidity::AllValid(_) => 0_u64,
+                    LogicalValidity::AllInvalid(len) => len as u64,
+                    LogicalValidity::Array(is_valid) => {
+                        let is_valid = is_valid.into_bool()?.boolean_buffer();
+                        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                            ends
+                                .as_slice::<$P>()
+                                .iter()
+                                .enumerate()
+                                .map(|(index, end)| {
+                                    (*end as u64) * ((!is_valid.value(index as usize)) as u64)
+                                })
+                                .sum()
+                        })
+                    }
+                };
+                Some(Scalar::from(null_count))
+            }
             _ => None,
         };
 

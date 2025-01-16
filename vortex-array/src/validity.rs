@@ -516,7 +516,7 @@ impl LogicalValidity {
             Self::AllInvalid(len) => Ok(*len),
             Self::Array(a) => {
                 let true_count = a.statistics().compute_true_count().ok_or_else(|| {
-                    vortex_err!("Failed to compute true count from validity array")
+                    vortex_err!("Failed to compute true count from validity array {:?}", a)
                 })?;
                 Ok(a.len() - true_count)
             }
