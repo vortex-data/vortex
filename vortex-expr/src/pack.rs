@@ -97,14 +97,11 @@ impl PartialEq<dyn Any> for Pack {
 impl Display for Pack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("{")?;
-        f.write_str(
-            self.names
-                .iter()
-                .zip(&self.values)
-                .map(|(name, expr)| format!("{name}: {expr}"))
-                .join(", ")
-                .as_str(),
-        )?;
+        self.names
+            .iter()
+            .zip(&self.values)
+            .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}")))
+            .fmt(f)?;
         f.write_str("}")
     }
 }
