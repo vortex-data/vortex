@@ -54,12 +54,7 @@ impl ALPArray {
             }
 
             if patches.values().logical_validity().null_count()? != 0 {
-                vortex_bail!(
-                    "ALPArray: patches must not contain invalid entries {:?}",
-                    (0..patches.values().len())
-                        .map(|index| format!("{}", scalar_at(patches.values(), index).unwrap()))
-                        .collect::<Vec<_>>()
-                );
+                vortex_bail!("ALPArray: patches must not contain invalid entries");
             }
 
             children.push(patches.indices().clone());
