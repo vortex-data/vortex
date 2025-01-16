@@ -21,7 +21,7 @@ impl_encoding!("vortex.dict", ids::DICT, Dict);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictMetadata {
     codes_ptype: PType,
-    values_len: usize,
+    values_len: usize, // TODO(ngates): make this a u32
 }
 
 impl Display for DictMetadata {

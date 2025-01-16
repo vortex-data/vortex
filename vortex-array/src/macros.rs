@@ -35,10 +35,8 @@ macro_rules! impl_encoding {
 
             impl [<$Name Array>] {
                 #[allow(dead_code)]
-                fn metadata(&self) -> &[<$Name Metadata>] {
-                    use vortex_error::VortexExpect;
-                    self.0.metadata::<[<$Name Metadata>]>()
-                        .vortex_expect("Metadata should be tied to the encoding")
+                fn metadata_bytes(&self) -> &[u8] {
+                    self.0.metadata()
                 }
 
                 #[allow(dead_code)]
@@ -109,7 +107,6 @@ macro_rules! impl_encoding {
             impl $crate::encoding::Encoding for [<$Name Encoding>] {
                 const ID: $crate::encoding::EncodingId = $crate::encoding::EncodingId::new($id, $code);
                 type Array = [<$Name Array>];
-                type Metadata = [<$Name Metadata>];
             }
 
             impl $crate::encoding::EncodingVTable for [<$Name Encoding>] {
@@ -119,19 +116,6 @@ macro_rules! impl_encoding {
                 }
 
                 fn as_any(&self) -> &dyn std::any::Any {
-                    self
-                }
-            }
-
-            /// Implement ArrayMetadata
-            impl $crate::ArrayMetadata for [<$Name Metadata>] {
-                #[inline]
-                fn as_any(&self) -> &dyn std::any::Any {
-                    self
-                }
-
-                #[inline]
-                fn as_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn std::any::Any + std::marker::Send + std::marker::Sync> {
                     self
                 }
             }

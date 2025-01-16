@@ -23,10 +23,11 @@ mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::BooleanBuffer;
+use rkyv::Archive;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Archive)]
 pub struct BoolMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) first_byte_bit_offset: u8,
@@ -39,6 +40,15 @@ impl Display for BoolMetadata {
 }
 
 impl BoolArray {
+    /// Access the array's metadata
+    pub fn metadata(&self) -> &BoolMetadata {
+        self.as_ref()
+            .metadata()
+            .vortex_expect("Missing metadata in BoolArray")
+            .downcast_ref::<BoolMetadata>()
+            .vortex_expect("Invalid metadata in BoolArray")
+    }
+
     /// Access internal array buffer
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()

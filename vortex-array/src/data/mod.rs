@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -22,8 +21,8 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ChildrenCollector, ContextRef,
-    NamedChildrenCollector, TryDeserializeArrayMetadata,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ChildrenCollector, ContextRef,
+    NamedChildrenCollector,
 };
 
 mod owned;
@@ -61,7 +60,7 @@ impl ArrayData {
         encoding: EncodingRef,
         dtype: DType,
         len: usize,
-        metadata: Arc<dyn ArrayMetadata>,
+        metadata: ByteBuffer,
         buffers: Box<[ByteBuffer]>,
         children: Box<[ArrayData]>,
         statistics: StatsSet,
@@ -277,53 +276,14 @@ impl ArrayData {
         offsets
     }
 
-    pub fn array_metadata(&self) -> &dyn ArrayMetadata {
+    pub fn metadata(&self) -> &[u8] {
         match self.0.as_ref() {
-            InnerArrayData::Owned(d) => &*d.metadata,
-            InnerArrayData::Viewed(v) => &*v.metadata,
-        }
-    }
-
-    pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
-        &self,
-    ) -> VortexResult<&M> {
-        match self.0.as_ref() {
-            InnerArrayData::Owned(d) => &d.metadata,
-            InnerArrayData::Viewed(v) => &v.metadata,
-        }
-        .as_any()
-        .downcast_ref::<M>()
-        .ok_or_else(|| {
-            vortex_err!(
-                "Failed to downcast metadata to {}",
-                std::any::type_name::<M>()
-            )
-        })
-    }
-
-    /// Get back the (possibly owned) metadata for the array.
-    ///
-    /// View arrays will return a reference to their bytes, while heap-backed arrays
-    /// must first serialize their metadata, returning an owned byte array to the caller.
-    pub fn metadata_bytes(&self) -> VortexResult<Cow<[u8]>> {
-        match self.0.as_ref() {
-            InnerArrayData::Owned(array_data) => {
-                // Heap-backed arrays must first try and serialize the metadata.
-                let owned_meta: Vec<u8> = array_data
-                    .metadata()
-                    .try_serialize_metadata()?
-                    .as_ref()
-                    .to_owned();
-
-                Ok(Cow::Owned(owned_meta))
-            }
-            InnerArrayData::Viewed(array_view) => {
-                // View arrays have direct access to metadata bytes.
-                array_view
-                    .metadata_bytes()
-                    .ok_or_else(|| vortex_err!("things"))
-                    .map(Cow::Borrowed)
-            }
+            InnerArrayData::Owned(d) => d.metadata.as_slice(),
+            InnerArrayData::Viewed(v) => v
+                .flatbuffer()
+                .metadata()
+                .vortex_expect("metadata not found in flatbuffer")
+                .bytes(),
         }
     }
 

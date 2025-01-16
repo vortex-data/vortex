@@ -4,6 +4,7 @@ use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
+use rkyv::Archive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
@@ -25,7 +26,7 @@ mod stats;
 
 impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Archive)]
 pub struct PrimitiveMetadata {
     pub(crate) validity: ValidityMetadata,
 }

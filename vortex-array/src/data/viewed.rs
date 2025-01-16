@@ -9,14 +9,13 @@ use vortex_flatbuffers::FlatBuffer;
 
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
-use crate::{flatbuffers as fb, ArrayMetadata, ContextRef};
+use crate::{flatbuffers as fb, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 pub(super) struct ViewedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: FlatBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[ByteBuffer]>,
