@@ -459,17 +459,13 @@ impl FilterMask {
             return Self::new_false(self.len());
         }
 
-        // TODO(joe): support other fast paths, not converting mask into a buffer
-        // TODO(joe): benchmark a branchless implementation
-        let mut res = Vec::with_capacity(mask.true_count());
-        let set_values = self.0.indices();
-        for (idx, bool) in mask.boolean_buffer().iter().enumerate() {
-            if bool {
-                res.push(set_values[idx])
-            }
-        }
-
-        Self::from_indices(self.len(), res)
+        // TODO(joe): support other fast paths, not converting self & mask into indices,
+        // however indices are better for sparse masks, so this is the common case for now.
+        let indices = self.0.indices();
+        Self::from_indices(
+            self.len(),
+            mask.indices().iter().map(|idx| indices[*idx]).collect(),
+        )
     }
 }
 
