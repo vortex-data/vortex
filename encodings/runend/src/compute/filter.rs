@@ -93,9 +93,10 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::{filter, slice, FilterMask};
+    use vortex_array::compute::{slice, FilterMask};
     use vortex_array::{IntoArrayVariant, ToArrayData};
 
+    use super::filter_run_end;
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
@@ -106,16 +107,16 @@ mod tests {
     }
 
     #[test]
-    fn filter_run_end() {
+    fn run_end_filter() {
         let arr = ree_array();
-        let filtered = filter(
-            arr.as_ref(),
+        let filtered = filter_run_end(
+            &arr,
             &FilterMask::from_iter([
                 true, true, false, false, false, false, false, false, false, false, true, true,
             ]),
         )
         .unwrap();
-        let filtered_run_end = RunEndArray::try_from(filtered).unwrap();
+        let filtered_run_end = RunEndArray::maybe_from(filtered).unwrap();
 
         assert_eq!(
             filtered_run_end
@@ -138,8 +139,8 @@ mod tests {
     #[test]
     fn filter_sliced_run_end() {
         let arr = slice(ree_array(), 2, 7).unwrap();
-        let filtered = filter(
-            &arr,
+        let filtered = filter_run_end(
+            &RunEndArray::maybe_from(arr).unwrap(),
             &FilterMask::from_iter([true, false, false, true, true]),
         )
         .unwrap();

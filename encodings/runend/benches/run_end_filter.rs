@@ -3,6 +3,7 @@
 use std::iter::Iterator;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use num_traits::ToPrimitive;
 use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayLen, IntoArrayData};
 use vortex_buffer::Buffer;
@@ -39,7 +40,12 @@ fn evenly_spaced(c: &mut Criterion) {
                     // In this case, the benchmarks don't seem to change whether we evenly spread
                     // the mask values or like here we pack them into the beginning of the mask.
                     (0..array.len())
-                        .take((filter_density * array.len() as f64).round() as usize)
+                        .take(
+                            (filter_density * array.len() as f64)
+                                .round()
+                                .to_usize()
+                                .unwrap(),
+                        )
                         .collect(),
                 );
 
