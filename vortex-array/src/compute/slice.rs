@@ -33,6 +33,10 @@ where
 /// returns an error.
 pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexResult<ArrayData> {
     let array = array.as_ref();
+
+    if start == 0 && stop == array.len() {
+        return Ok(array.clone());
+    }
     check_slice_bounds(array, start, stop)?;
 
     let sliced = array
