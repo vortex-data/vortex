@@ -17,7 +17,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn slice(&self, array: &ArrayData, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SliceFn::slice(encoding, array_ref, start, stop)
     }
 }
