@@ -13,7 +13,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::{RowMask, Scanner};
@@ -39,6 +39,7 @@ pub struct VortexFile<I> {
 pub struct Scan {
     projection: ExprRef,
     filter: Option<ExprRef>,
+    row_indices: Option<Buffer<u64>>,
 }
 
 impl Scan {
@@ -46,11 +47,44 @@ impl Scan {
         Self {
             projection: Identity::new_expr(),
             filter: None,
+            row_indices: None,
         }
     }
 
-    pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
-        Self { projection, filter }
+    pub fn new(projection: ExprRef) -> Self {
+        Self {
+            projection,
+            filter: None,
+            row_indices: None,
+        }
+    }
+
+    pub fn filtered(filter: ExprRef) -> Self {
+        Self {
+            projection: Identity::new_expr(),
+            filter: Some(filter),
+            row_indices: None,
+        }
+    }
+
+    pub fn with_filter(mut self, filter: ExprRef) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    pub fn with_some_filter(mut self, filter: Option<ExprRef>) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    pub fn with_projection(mut self, projection: ExprRef) -> Self {
+        self.projection = projection;
+        self
+    }
+
+    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
+        self.row_indices = Some(row_indices);
+        self
     }
 }
 
@@ -73,26 +107,13 @@ impl<I: IoDriver> VortexFile<I> {
 
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        self.scan_with_masks(
-            ArcIter::new(self.splits.clone())
-                .map(|row_range| RowMask::new_valid_between(row_range.start, row_range.end)),
-            scan,
-        )
-    }
-
-    /// Takes the given rows while also applying the filter and projection functions from a scan.
-    /// The row indices must be sorted.
-    pub fn take(
-        &self,
-        row_indices: Buffer<u64>,
-        scan: Scan,
-    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        if !row_indices.windows(2).all(|w| w[0] <= w[1]) {
-            vortex_bail!("row indices must be sorted")
-        }
-
         let row_masks = ArcIter::new(self.splits.clone()).filter_map(move |row_range| {
-            // Quickly short-circuit if the row range is outside the bounds of the row indices.
+            let Some(row_indices) = &scan.row_indices else {
+                // If there is no row indices filter, then take the whole range
+                return Some(RowMask::new_valid_between(row_range.start, row_range.end));
+            };
+
+            // Otherwise, find the indices that are within the row range.
             if row_range.end <= row_indices[0]
                 || row_indices
                     .last()
@@ -128,22 +149,19 @@ impl<I: IoDriver> VortexFile<I> {
             Some(RowMask::new(filter_mask, row_range.start))
         });
 
-        self.scan_with_masks(row_masks, scan)
+        self.scan_with_masks(row_masks, scan.projection, scan.filter)
     }
 
     fn scan_with_masks<R>(
         &self,
         row_masks: R,
-        scan: Scan,
+        projection: ExprRef,
+        filter: Option<ExprRef>,
     ) -> VortexResult<impl ArrayStream + 'static + use<'_, I, R>>
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scanner = Arc::new(Scanner::new(
-            self.dtype().clone(),
-            scan.projection,
-            scan.filter,
-        )?);
+        let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
 
         let result_dtype = scanner.result_dtype().clone();
 

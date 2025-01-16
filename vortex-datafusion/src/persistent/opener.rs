@@ -101,7 +101,7 @@ impl FileOpener for VortexFileOpener {
                 .await?;
 
             Ok(vxf
-                .scan(Scan::new(this.projection.clone(), this.filter.clone()))?
+                .scan(Scan::new(this.projection.clone()).with_some_filter(this.filter.clone()))?
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())
