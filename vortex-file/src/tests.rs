@@ -351,14 +351,16 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::new(Arc::new(Context::default()))
         .open(buf.freeze())
         .await
         .unwrap()
         .scan(Scan::all())
-        .unwrap());
+        .unwrap()
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap();
 
-    let result = stream.try_collect::<Vec<_>>().await.unwrap();
     assert_eq!(result.len(), 1);
     let names = result[0]
         .as_struct_array()
@@ -406,15 +408,15 @@ async fn filter_or() {
         .await
         .unwrap();
 
-    let result = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::new(Arc::new(Context::default()))
         .open(buf.freeze())
         .await
         .unwrap()
         .scan(Scan::all())
-        .unwrap())
-    .try_collect::<Vec<_>>()
-    .await
-    .unwrap();
+        .unwrap()
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap();
 
     assert_eq!(result.len(), 1);
     let names = result[0]
