@@ -1,15 +1,14 @@
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use futures::StreamExt;
 use vortex_array::arrow::infer_schema;
+use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayData;
 use vortex_error::{VortexError, VortexResult};
-use vortex_io::VortexReadAt;
-
-use super::VortexReadArrayStream;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))
@@ -31,21 +30,20 @@ impl AsyncRuntime for tokio::runtime::Runtime {
     }
 }
 
-pub struct VortexRecordBatchReader<'a, R, AR> {
-    stream: VortexReadArrayStream<R>,
+pub struct VortexRecordBatchReader<'a, AR> {
+    stream: Pin<Box<dyn ArrayStream + Send>>,
     arrow_schema: SchemaRef,
     runtime: &'a AR,
 }
 
-impl<'a, R, AR> VortexRecordBatchReader<'a, R, AR>
+impl<'a, AR> VortexRecordBatchReader<'a, AR>
 where
-    R: VortexReadAt + Unpin + 'static,
     AR: AsyncRuntime,
 {
     pub fn try_new(
-        stream: VortexReadArrayStream<R>,
+        stream: Pin<Box<dyn ArrayStream + Send>>,
         runtime: &'a AR,
-    ) -> VortexResult<VortexRecordBatchReader<'a, R, AR>> {
+    ) -> VortexResult<Self> {
         let arrow_schema = Arc::new(infer_schema(stream.dtype())?);
         Ok(VortexRecordBatchReader {
             stream,
@@ -55,9 +53,8 @@ where
     }
 }
 
-impl<R, AR> Iterator for VortexRecordBatchReader<'_, R, AR>
+impl<AR> Iterator for VortexRecordBatchReader<'_, AR>
 where
-    R: VortexReadAt + Unpin + 'static,
     AR: AsyncRuntime,
 {
     type Item = Result<RecordBatch, ArrowError>;
@@ -68,16 +65,11 @@ where
     }
 }
 
-impl<R, AR> RecordBatchReader for VortexRecordBatchReader<'_, R, AR>
+impl<AR> RecordBatchReader for VortexRecordBatchReader<'_, AR>
 where
-    R: VortexReadAt + Unpin + 'static,
     AR: AsyncRuntime,
 {
     fn schema(&self) -> SchemaRef {
         self.arrow_schema.clone()
-    }
-
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>, ArrowError> {
-        self.next().transpose()
     }
 }
