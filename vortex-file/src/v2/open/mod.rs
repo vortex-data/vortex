@@ -290,7 +290,7 @@ impl VortexOpenOptions {
                     fb_root_layout.encoding()
                 )
             })?;
-        let _fb_encoding_id = fb_root_layout.encoding();
+
         let root_layout = LayoutData::try_new_viewed(
             root_encoding,
             dtype,

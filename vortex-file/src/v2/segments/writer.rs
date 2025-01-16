@@ -31,7 +31,7 @@ impl BufferedSegmentWriter {
         for buffer in self.segments.drain(..) {
             let offset = write.position();
             let alignment = buffer.alignment();
-            write.write_all(buffer.into_inner()).await?;
+            write.write_all(buffer).await?;
             segments.push(Segment {
                 offset,
                 length: u32::try_from(write.position() - offset)

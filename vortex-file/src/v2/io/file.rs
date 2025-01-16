@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::future::Future;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -7,7 +6,7 @@ use futures::channel::oneshot;
 use futures::Stream;
 use futures_util::future::try_join_all;
 use futures_util::{stream, StreamExt};
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
@@ -15,16 +14,6 @@ use vortex_layout::segments::SegmentId;
 use crate::v2::footer::{FileLayout, Segment};
 use crate::v2::io::IoDriver;
 use crate::v2::segments::{SegmentCache, SegmentRequest};
-
-// TODO(ngates): use this sort of trait for I/O?
-#[allow(dead_code)]
-pub trait RangeReader {
-    fn read_range(
-        &self,
-        range: Range<u64>,
-        buffer: &mut ByteBufferMut,
-    ) -> impl Future<Output = VortexResult<()>> + 'static;
-}
 
 /// An I/O driver for reading segments from a file.
 ///

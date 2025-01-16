@@ -33,7 +33,7 @@ impl StatsEvaluator for StructReader {
                 let child_path = path.clone().step_into()?;
                 futures.push(
                     self.child(&field)?
-                        .evaluate_stats(vec![child_path].into(), stats.clone()),
+                        .evaluate_stats([child_path].into(), stats.clone()),
                 );
             }
         }
