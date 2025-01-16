@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
-use vortex::file::VortexFileWriter;
+use vortex::file::v2::VortexWriteOptions;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::ArrayData;
 
@@ -210,10 +210,10 @@ pub fn write_path(
 ) -> PyResult<()> {
     async fn run(array: &ArrayData, fname: &str) -> PyResult<()> {
         let file = File::create(Path::new(fname)).await?;
-        let mut writer = VortexFileWriter::new(file);
+        let _file = VortexWriteOptions::default()
+            .write(file, array.clone().into_array_stream())
+            .await?;
 
-        writer = writer.write_array_columns(array.clone()).await?;
-        writer.finalize().await?;
         Ok(())
     }
 

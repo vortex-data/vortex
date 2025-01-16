@@ -7,7 +7,7 @@ pub use exec::*;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use split_by::*;
-use vortex_array::ContextRef;
+use vortex_array::{Context, ContextRef};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -45,11 +45,11 @@ pub struct VortexOpenOptions {
     io_concurrency: usize,
 }
 
-impl VortexOpenOptions {
-    pub fn new(ctx: ContextRef) -> Self {
+impl Default for VortexOpenOptions {
+    fn default() -> Self {
         Self {
-            ctx,
-            layout_ctx: LayoutContextRef::default(),
+            ctx: Arc::new(Context::default()),
+            layout_ctx: Default::default(),
             file_size: None,
             file_layout: None,
             initial_read_size: INITIAL_READ_SIZE,
@@ -58,6 +58,15 @@ impl VortexOpenOptions {
             execution_mode: None,
             // TODO(ngates): pick some numbers...
             io_concurrency: 16,
+        }
+    }
+}
+
+impl VortexOpenOptions {
+    pub fn new(ctx: ContextRef) -> Self {
+        Self {
+            ctx,
+            ..Default::default()
         }
     }
 

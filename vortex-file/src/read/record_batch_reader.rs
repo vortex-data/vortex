@@ -30,21 +30,20 @@ impl AsyncRuntime for tokio::runtime::Runtime {
     }
 }
 
-pub struct VortexRecordBatchReader<'a, AR> {
-    stream: Pin<Box<dyn ArrayStream + Send>>,
+pub struct VortexRecordBatchReader<'a, S, AR> {
+    stream: Pin<Box<S>>,
     arrow_schema: SchemaRef,
     runtime: &'a AR,
 }
 
-impl<'a, AR> VortexRecordBatchReader<'a, AR>
+impl<'a, S, AR> VortexRecordBatchReader<'a, S, AR>
 where
+    S: ArrayStream,
     AR: AsyncRuntime,
 {
-    pub fn try_new(
-        stream: Pin<Box<dyn ArrayStream + Send>>,
-        runtime: &'a AR,
-    ) -> VortexResult<Self> {
+    pub fn try_new(stream: S, runtime: &'a AR) -> VortexResult<Self> {
         let arrow_schema = Arc::new(infer_schema(stream.dtype())?);
+        let stream = Box::pin(stream);
         Ok(VortexRecordBatchReader {
             stream,
             arrow_schema,
@@ -53,8 +52,9 @@ where
     }
 }
 
-impl<AR> Iterator for VortexRecordBatchReader<'_, AR>
+impl<S, AR> Iterator for VortexRecordBatchReader<'_, S, AR>
 where
+    S: ArrayStream,
     AR: AsyncRuntime,
 {
     type Item = Result<RecordBatch, ArrowError>;
@@ -65,8 +65,9 @@ where
     }
 }
 
-impl<AR> RecordBatchReader for VortexRecordBatchReader<'_, AR>
+impl<S, AR> RecordBatchReader for VortexRecordBatchReader<'_, S, AR>
 where
+    S: ArrayStream,
     AR: AsyncRuntime,
 {
     fn schema(&self) -> SchemaRef {
