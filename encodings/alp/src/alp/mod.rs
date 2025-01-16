@@ -11,11 +11,7 @@ mod compute;
 
 pub use array::*;
 pub use compress::*;
-use vortex_array::array::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_array::IntoArrayData as _;
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_error::VortexResult;
 
 const SAMPLE_SIZE: usize = 32;
 
@@ -59,47 +55,25 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     /// Convert from the integer type back to the float type using `as`.
     fn from_int(n: Self::ALPInt) -> Self;
 
-    fn sampled_find_best_exponents(
-        values: &[Self],
-        validity: &Validity,
-    ) -> VortexResult<Exponents> {
-        if values.len() <= SAMPLE_SIZE {
-            Self::find_best_exponents(values, validity)
-        } else {
-            let validity = validity.take(
-                &PrimitiveArray::from_iter(
-                    (0..values.len())
-                        .step_by(values.len() / SAMPLE_SIZE)
-                        .map(|x| x as u64)
-                        .take(SAMPLE_SIZE),
-                )
-                .into_array(),
-            )?;
-            let values = values
+    fn find_best_exponents(values: &[Self]) -> Exponents {
+        let mut best_exp = Exponents { e: 0, f: 0 };
+        let mut best_nbytes: usize = usize::MAX;
+
+        let sample = (values.len() > SAMPLE_SIZE).then(|| {
+            values
                 .iter()
                 .step_by(values.len() / SAMPLE_SIZE)
                 .take(SAMPLE_SIZE)
                 .cloned()
-                .collect_vec();
-            Self::find_best_exponents(&values, &validity)
-        }
-    }
-
-    fn find_best_exponents(values: &[Self], validity: &Validity) -> VortexResult<Exponents> {
-        let mut best_exp = Exponents { e: 0, f: 0 };
-        let mut best_nbytes: usize = usize::MAX;
-
-        assert!(
-            values.len() <= SAMPLE_SIZE,
-            "{} <= {}",
-            values.len(),
-            SAMPLE_SIZE
-        );
+                .collect_vec()
+        });
 
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
-                let (_, encoded, _, exc_patches) =
-                    Self::encode(values, validity, Some(Exponents { e, f }))?;
+                let (_, encoded, _, exc_patches) = Self::encode(
+                    sample.as_deref().unwrap_or(values),
+                    Some(Exponents { e, f }),
+                );
 
                 let size = Self::estimate_encoded_size(&encoded, &exc_patches);
                 if size < best_nbytes {
@@ -111,7 +85,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             }
         }
 
-        Ok(best_exp)
+        best_exp
     }
 
     #[inline]
@@ -139,16 +113,11 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         encoded_bytes + patch_bytes
     }
 
-    #[allow(clippy::type_complexity)]
     fn encode(
         values: &[Self],
-        validity: &Validity,
         exponents: Option<Exponents>,
-    ) -> VortexResult<(Exponents, Buffer<Self::ALPInt>, Buffer<u64>, Buffer<Self>)> {
-        let exponents = match exponents {
-            Some(exponents) => exponents,
-            None => Self::sampled_find_best_exponents(values, validity)?,
-        };
+    ) -> (Exponents, Buffer<Self::ALPInt>, Buffer<u64>, Buffer<Self>) {
+        let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
 
         let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
         let mut patch_indices = BufferMut::<u64>::with_capacity(values.len());
@@ -161,21 +130,20 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         for chunk in values.chunks(encode_chunk_size) {
             encode_chunk_unchecked(
                 chunk,
-                exponents,
+                exp,
                 &mut encoded_output,
                 &mut patch_indices,
                 &mut patch_values,
                 &mut fill_value,
-                validity,
             );
         }
 
-        Ok((
-            exponents,
+        (
+            exp,
             encoded_output.freeze(),
             patch_indices.freeze(),
             patch_values.freeze(),
-        ))
+        )
     }
 
     #[inline]
@@ -224,7 +192,6 @@ fn encode_chunk_unchecked<T: ALPFloat>(
     patch_indices: &mut BufferMut<u64>,
     patch_values: &mut BufferMut<T>,
     fill_value: &mut Option<T::ALPInt>,
-    validity: &Validity,
 ) {
     let num_prev_encoded = encoded_output.len();
     let num_prev_patches = patch_indices.len();
@@ -258,13 +225,12 @@ fn encode_chunk_unchecked<T: ALPFloat>(
             // write() is only safe to call more than once because the values are primitive (i.e., Drop is a no-op)
             patch_indices_mut[chunk_patch_index].write(i as u64);
             patch_values_mut[chunk_patch_index].write(chunk[i - num_prev_encoded]);
-            let is_valid_and_an_exception =
-                (decoded != chunk[i - num_prev_encoded]) && validity.is_valid(i);
-            chunk_patch_index += is_valid_and_an_exception as usize;
+            chunk_patch_index += (decoded != chunk[i - num_prev_encoded]) as usize;
         }
+        assert_eq!(chunk_patch_index, chunk_patch_count);
         unsafe {
-            patch_indices.set_len(num_prev_patches + chunk_patch_index);
-            patch_values.set_len(num_prev_patches + chunk_patch_index);
+            patch_indices.set_len(num_prev_patches + chunk_patch_count);
+            patch_values.set_len(num_prev_patches + chunk_patch_count);
         }
     }
 

@@ -15,13 +15,9 @@ impl PrimitiveArray {
         let patch_indices = patch_indices.into_primitive()?;
         let patch_values = patch_values.into_primitive()?;
 
-        let patched_validity = match patch_values.validity() {
-            Validity::NonNullable => self.validity(),
-            patch_validity => {
-                self.validity()
-                    .patch(self.len(), patch_indices.as_ref(), patch_validity)?
-            }
-        };
+        let patched_validity =
+            self.validity()
+                .patch(self.len(), patch_indices.as_ref(), patch_values.validity())?;
 
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {

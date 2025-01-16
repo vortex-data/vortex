@@ -1,8 +1,10 @@
+use itertools::Itertools as _;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::validity::Validity;
+use vortex_array::validity::{ArrayValidity as _, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ScalarType;
@@ -25,6 +27,7 @@ macro_rules! match_each_alp_float_ptype {
     })
 }
 
+#[allow(clippy::cast_possible_truncation)]
 pub fn alp_encode_components<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
@@ -34,23 +37,33 @@ where
     T::ALPInt: NativePType,
     T: ScalarType,
 {
-    let (exponents, encoded, exc_pos, exc) =
-        T::encode(values.as_slice::<T>(), &values.validity(), exponents)?;
+    let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
     let len = encoded.len();
     let patches_validity = if values.dtype().is_nullable() {
         Validity::AllValid
     } else {
         Validity::NonNullable
     };
+
+    let mut exc_pos_valid_only =
+        BufferMut::<u64>::with_capacity_aligned(exc_pos.len(), exc_pos.alignment());
+    let mut exc_valid_only = BufferMut::<T>::with_capacity_aligned(exc.len(), exc.alignment());
+    for (position, value) in exc_pos.into_iter().zip_eq(exc.into_iter()) {
+        if values.is_valid(position as usize) {
+            exc_pos_valid_only.push(position);
+            exc_valid_only.push(value);
+        }
+    }
+
     Ok((
         exponents,
         PrimitiveArray::new(encoded, values.validity()).into_array(),
-        (!exc.is_empty()).then(|| {
-            let position_arr = exc_pos.into_array();
+        (!exc_valid_only.is_empty()).then(|| {
+            let position_arr = exc_pos_valid_only.freeze().into_array();
             Patches::new(
                 len,
                 position_arr,
-                PrimitiveArray::new(exc, patches_validity).into_array(),
+                PrimitiveArray::new(exc_valid_only.freeze(), patches_validity).into_array(),
             )
         }),
     ))
@@ -167,7 +180,7 @@ mod tests {
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i64>(),
-            vec![1234i64, 2718, 3142, 4000] // fill forward
+            vec![1234i64, 2718, 1234, 4000] // fill forward
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
