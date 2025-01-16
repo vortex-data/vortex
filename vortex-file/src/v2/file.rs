@@ -114,7 +114,9 @@ impl<I: IoDriver> VortexFile<I> {
             };
 
             // Otherwise, find the indices that are within the row range.
-            if row_range.end <= row_indices[0]
+            if row_indices
+                .first()
+                .is_some_and(|&first| first >= row_range.end)
                 || row_indices
                     .last()
                     .is_some_and(|&last| row_range.start >= last)
