@@ -188,7 +188,7 @@ mod tests {
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
+    use vortex_dtype::PType::U64;
     use vortex_dtype::{DType, StructDType};
     use vortex_expr::{and, get_item, gt, ident, lit};
 
@@ -198,7 +198,7 @@ mod tests {
         DType::Struct(
             StructDType::new(
                 vec!["a".into(), "b".into(), "c".into()].into(),
-                vec![I32.into(), I32.into(), I32.into()],
+                vec![U64.into(), U64.into(), U64.into()],
             ),
             NonNullable,
         )
@@ -222,16 +222,16 @@ mod tests {
 
         let res = range
             .evaluate(|mask, expr| {
-                let arr = if &expr == &expr_a {
+                let arr = if expr == expr_a.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 30))).into_array()
-                } else if &expr == &expr_b {
+                } else if expr == expr_b.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 130)))
                         .into_array()
-                } else if &expr == &expr_c {
+                } else if expr == expr_c.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 510 && i < 530)))
                         .into_array()
-                } else if &expr == &ident() {
-                    let arr = PrimitiveArray::from_iter(0i32..mask.len() as i32).into_array();
+                } else if expr == ident() {
+                    let arr = PrimitiveArray::from_iter(0..mask.len() as u64).into_array();
                     StructArray::from_fields(
                         [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
                     )
@@ -249,9 +249,11 @@ mod tests {
         let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
 
         assert_eq!(
-            field.unwrap().into_primitive().unwrap().as_slice::<i32>(),
-            (0i32..len as i32)
-                .filter(|&i| !(i > 10 && i < 30) && !(i > 100 && i < 130) && !(i > 510 && i < 530))
+            field.unwrap().into_primitive().unwrap().as_slice::<u64>(),
+            (0..len as u64)
+                .filter(|&i| {
+                    (i <= 10 || i >= 30) && (i <= 100 || i >= 130) && (i <= 510 || i >= 530)
+                })
                 .collect::<Vec<_>>()
                 .as_slice()
         );
@@ -275,18 +277,18 @@ mod tests {
 
         let res = range
             .evaluate(|mask, expr| {
-                let arr = if &expr == &expr_a {
+                let arr = if expr == expr_a.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 900))).into_array()
-                } else if &expr == &expr_b {
+                } else if expr == expr_b.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 950)))
                         .into_array()
-                } else if &expr == &expr_c {
+                } else if expr == expr_c.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 210 && i < 990)))
                         .into_array()
                 } else if expr == ident() {
-                    let arr = PrimitiveArray::from_iter(0i32..mask.len() as i32).into_array();
+                    let arr = PrimitiveArray::from_iter(0..mask.len() as u64).into_array();
                     StructArray::from_fields(
-                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr.clone())].as_slice(),
+                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
                     )
                     .unwrap()
                     .into_array()
@@ -302,11 +304,9 @@ mod tests {
 
         let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
 
-        println!("res {:?}", field);
-
         assert_eq!(
-            field.unwrap().into_primitive().unwrap().as_slice::<i32>(),
-            (0i32..len as i32)
+            field.unwrap().into_primitive().unwrap().as_slice::<u64>(),
+            (0..len as u64)
                 .filter(|&i| !(i > 10 && i < 990))
                 .collect::<Vec<_>>()
                 .as_slice()

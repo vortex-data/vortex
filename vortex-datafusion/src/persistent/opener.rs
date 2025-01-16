@@ -50,7 +50,7 @@ impl VortexFileOpener {
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
                     .reduce(and)
-                    .unwrap_or(lit(true));
+                    .unwrap_or_else(|| lit(true));
 
                 simplify_typed(expr, dtype)
             })
