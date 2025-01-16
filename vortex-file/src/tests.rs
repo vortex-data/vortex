@@ -20,7 +20,7 @@ use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
-use vortex_expr::{col, gt, ident, lit, lt, lt_eq, or, select};
+use vortex_expr::{col, eq, gt, ident, lit, lt, lt_eq, or, select};
 
 use crate::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
 use crate::{V1_FOOTER_FBS_SIZE, VERSION};
@@ -808,7 +808,7 @@ async fn filter_string_chunked() {
         .unwrap();
 
     let actual_array = file
-        .scan(Scan::all().with_filter(gt(col("name"), lit("Joseph"))))
+        .scan(Scan::all().with_filter(eq(col("name"), lit("Joseph"))))
         .unwrap()
         .into_array_data()
         .await
