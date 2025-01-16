@@ -7,7 +7,7 @@ use futures::TryStreamExt;
 use futures_util::io::Cursor;
 use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
-use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat};
+use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat, STATS_TO_WRITE};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayData, ArrayLen};
 use vortex_dtype::DType;
@@ -20,18 +20,6 @@ use crate::byte_range::ByteRange;
 use crate::write::postscript::Postscript;
 use crate::write::stats_accumulator::{StatArray, StatsAccumulator};
 use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
-
-const STATS_TO_WRITE: &[Stat] = &[
-    Stat::Min,
-    Stat::Max,
-    Stat::TrueCount,
-    Stat::NullCount,
-    Stat::RunCount,
-    Stat::IsConstant,
-    Stat::IsSorted,
-    Stat::IsStrictSorted,
-    Stat::UncompressedSizeInBytes,
-];
 
 pub struct VortexFileWriter<W> {
     write: Cursor<W>,

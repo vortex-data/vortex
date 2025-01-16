@@ -1,4 +1,5 @@
 use vortex_array::parts::ArrayPartsFlatBuffer;
+use vortex_array::stats::{ArrayStatistics, Stat, STATS_TO_WRITE};
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
@@ -9,18 +10,40 @@ use crate::segments::SegmentWriter;
 use crate::strategies::LayoutWriter;
 use crate::LayoutData;
 
+pub struct FlatLayoutOptions {
+    /// Stats to preserve when writing arrays
+    pub array_stats: Vec<Stat>,
+}
+
+impl Default for FlatLayoutOptions {
+    fn default() -> Self {
+        Self {
+            array_stats: STATS_TO_WRITE.to_vec(),
+        }
+    }
+}
+
 /// Writer for the flat layout.
 pub struct FlatLayoutWriter {
+    options: FlatLayoutOptions,
     dtype: DType,
     layout: Option<LayoutData>,
 }
 
 impl FlatLayoutWriter {
-    pub fn new(dtype: DType) -> Self {
+    pub fn new(dtype: DType, options: FlatLayoutOptions) -> Self {
         Self {
+            options,
             dtype,
             layout: None,
         }
+    }
+}
+
+fn retain_only_stats(array: &ArrayData, stats: &[Stat]) {
+    array.statistics().retain_only(stats);
+    for child in array.children() {
+        retain_only_stats(&child, stats)
     }
 }
 
@@ -34,6 +57,7 @@ impl LayoutWriter for FlatLayoutWriter {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }
         let row_count = chunk.len() as u64;
+        retain_only_stats(&chunk, &self.options.array_stats);
 
         // We store each Array buffer in its own segment.
         let mut segment_ids = vec![];
