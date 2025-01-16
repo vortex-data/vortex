@@ -22,8 +22,8 @@ impl<'a> Utf8Scalar<'a> {
     }
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Bool(..)) {
-            vortex_bail!("Can't cast bool to {}", dtype)
+        if !matches!(dtype, DType::Utf8(..)) {
+            vortex_bail!("Can't cast utf8 to {}", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),
