@@ -7,7 +7,7 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::v2::exec::ExecDriver;
 
-/// An execution driver that spawns the futures onto a Tokio runtime.
+/// An [`ExecDriver`] implementation that spawns the futures onto a Tokio runtime.
 pub struct TokioDriver(pub Handle);
 
 impl ExecDriver for TokioDriver {

@@ -42,8 +42,11 @@ fn basic_file_roundtrip() -> VortexResult<()> {
 #[test]
 fn file_take() -> VortexResult<()> {
     let vxf = chunked_file();
-    let result =
-        block_on(vxf.take(buffer![0, 1, 8], Scan::all())?.into_array_data())?.into_primitive()?;
+    let result = block_on(
+        vxf.scan(Scan::all().with_row_indices(buffer![0, 1, 8]))?
+            .into_array_data(),
+    )?
+    .into_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
 

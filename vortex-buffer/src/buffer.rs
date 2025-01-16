@@ -34,6 +34,16 @@ impl<T> Buffer<T> {
         BufferMut::copy_from_aligned(values, alignment).freeze()
     }
 
+    /// Create a new zeroed `Buffer` with the given value.
+    pub fn zeroed(len: usize) -> Self {
+        Self::zeroed_aligned(len, Alignment::of::<T>())
+    }
+
+    /// Create a new zeroed `Buffer` with the given value.
+    pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
+        BufferMut::zeroed_aligned(len, alignment).freeze()
+    }
+
     /// Create a new empty `ByteBuffer` with the provided alignment.
     pub fn empty() -> Self {
         BufferMut::empty().freeze()
