@@ -47,11 +47,11 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     let stream = vortex_file.scan(scan)?;
     let dtype = stream.dtype().clone();
 
-    let data = stream.try_collect::<Vec<_>>().await?;
+    let all_arrays = stream.try_collect::<Vec<_>>().await?;
 
-    match data.len() {
-        1 => Ok(data[0].clone()),
-        _ => Ok(ChunkedArray::try_new(data, dtype.clone())?.into_array()),
+    match all_arrays.len() {
+        1 => Ok(all_arrays[0].clone()),
+        _ => Ok(ChunkedArray::try_new(all_arrays, dtype.clone())?.into_array()),
     }
 }
 
@@ -115,8 +115,6 @@ impl TokioFileDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
     ) -> PyResult<PyArray> {
-        println!("{:?}", columns);
-
         let inner = read_array_from_reader(
             self.file.clone(),
             projection_from_python(columns)?,

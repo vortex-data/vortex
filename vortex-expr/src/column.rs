@@ -62,7 +62,7 @@ impl VortexExpr for Column {
                 )
             })?
             .maybe_null_field_by_name(&self.field)
-            .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
+            .ok_or_else(|| vortex_err!("Array doesn't contain child array '{}'", self.field))
     }
 
     fn children(&self) -> Vec<&ExprRef> {
