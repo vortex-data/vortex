@@ -8,6 +8,9 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_error::{vortex_err, VortexResult};
+
+use crate::FieldNames;
 
 /// A selector for a field in a struct
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -46,8 +49,58 @@ impl Display for Field {
     }
 }
 
+impl Field {
+    /// Returns true if the field is defined by Name
+    pub fn is_named(&self) -> bool {
+        matches!(self, Field::Name(_))
+    }
+
+    /// Returns true if the field is defined by Index
+    pub fn is_indexed(&self) -> bool {
+        matches!(self, Field::Index(_))
+    }
+
+    /// Convert a field to a named field
+    pub fn into_named_field(self, field_names: &FieldNames) -> VortexResult<Self> {
+        match self {
+            Field::Index(idx) => field_names
+                .get(idx)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Field index {} out of bounds, it has names {:?}",
+                        idx,
+                        field_names
+                    )
+                })
+                .cloned()
+                .map(Field::Name),
+            Field::Name(_) => Ok(self),
+        }
+    }
+
+    /// Convert a field to an indexed field
+    pub fn into_index_field(self, field_names: &FieldNames) -> VortexResult<Self> {
+        match self {
+            Field::Name(name) => field_names
+                .iter()
+                .position(|n| *n == name)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Field name {} not found, it has names {:?}",
+                        name,
+                        field_names
+                    )
+                })
+                .map(Field::Index),
+            Field::Index(_) => Ok(self),
+        }
+    }
+}
+
 /// A path through a (possibly nested) struct, composed of a sequence of field selectors
 // TODO(ngates): wrap `Vec<Field>` in Option for cheaper "root" path.
+// TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
+//  with a positional index to allow cheap step_into.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldPath(Vec<Field>);
@@ -76,6 +129,15 @@ impl FieldPath {
     /// Pushes a new field selector to the end of this path
     pub fn push<F: Into<Field>>(&mut self, field: F) {
         self.0.push(field.into());
+    }
+
+    /// Steps into the next field in the path
+    pub fn step_into(mut self) -> VortexResult<Self> {
+        if self.0.is_empty() {
+            return Err(vortex_err!("Cannot step into root path"));
+        }
+        self.0 = self.0.iter().skip(1).cloned().collect();
+        Ok(self)
     }
 }
 

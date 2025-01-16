@@ -5,17 +5,13 @@ use vortex_array::array::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
-
-use crate::compute::decode_to_temporal;
 
 impl_encoding!("vortex.datetimeparts", ids::DATE_TIME_PARTS, DateTimeParts);
 
@@ -109,7 +105,7 @@ impl DateTimePartsArray {
     }
 }
 
-impl ArrayTrait for DateTimePartsArray {}
+impl ValidateVTable<DateTimePartsArray> for DateTimePartsEncoding {}
 
 impl VariantsVTable<DateTimePartsArray> for DateTimePartsEncoding {
     fn as_extension_array<'a>(
@@ -133,12 +129,6 @@ impl ExtensionArrayTrait for DateTimePartsArray {
         )
         .vortex_expect("Failed to create struct array")
         .into_array()
-    }
-}
-
-impl IntoCanonical for DateTimePartsArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(&self)?.into()))
     }
 }
 

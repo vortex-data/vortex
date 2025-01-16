@@ -5,16 +5,16 @@ use vortex_error::VortexResult;
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl FilterFn<ALPRDArray> for ALPRDEncoding {
-    fn filter(&self, array: &ALPRDArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ALPRDArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let left_parts_exceptions = array
             .left_parts_patches()
-            .map(|patches| patches.filter(mask.clone()))
+            .map(|patches| patches.filter(mask))
             .transpose()?
             .flatten();
 
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
-            filter(&array.left_parts(), mask.clone())?,
+            filter(&array.left_parts(), mask)?,
             array.left_parts_dict(),
             filter(&array.right_parts(), mask)?,
             array.right_bit_width(),
@@ -46,10 +46,13 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(encoded.as_ref(), FilterMask::from_iter([true, false, true]))
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let filtered = filter(
+            encoded.as_ref(),
+            &FilterMask::from_iter([true, false, true]),
+        )
+        .unwrap()
+        .into_primitive()
+        .unwrap();
         assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
     }
 }

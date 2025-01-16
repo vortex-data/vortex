@@ -1,4 +1,4 @@
-use enum_iterator::all;
+use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError};
@@ -6,9 +6,17 @@ use vortex_scalar::Scalar;
 
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatsSet {
     values: Vec<(Stat, Scalar)>,
+}
+
+impl Default for StatsSet {
+    fn default() -> Self {
+        Self {
+            values: Vec::with_capacity(Stat::CARDINALITY),
+        }
+    }
 }
 
 impl StatsSet {
@@ -19,6 +27,13 @@ impl StatsSet {
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
     pub fn new_unchecked(values: Vec<(Stat, Scalar)>) -> Self {
         Self { values }
+    }
+
+    /// Create a new, empty StatsSet.
+    ///
+    /// If you are planning to add stats to the set, consider using [StatsSet::default] instead.
+    pub fn empty() -> Self {
+        Self { values: vec![] }
     }
 
     /// Specialized constructor for the case where the StatsSet represents
@@ -188,12 +203,25 @@ impl IntoIterator for StatsSet {
     }
 }
 
+impl FromIterator<(Stat, Scalar)> for StatsSet {
+    fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
+        let iter = iter.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+        let mut this = Self {
+            values: Vec::with_capacity(lower_bound),
+        };
+        this.extend(iter);
+        this
+    }
+}
+
 impl Extend<(Stat, Scalar)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        iter.into_iter().for_each(|(stat, scalar)| {
-            self.set(stat, scalar);
-        });
+        let iter = iter.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+        self.values.reserve(lower_bound);
+        iter.for_each(|(stat, value)| self.set(stat, value));
     }
 }
 

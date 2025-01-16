@@ -6,13 +6,13 @@ pub mod writer;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use reader::StructScan;
+use reader::StructReader;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
-use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
 use crate::COLUMNAR_LAYOUT_ID;
 
@@ -28,9 +28,9 @@ impl LayoutEncoding for StructLayout {
         &self,
         layout: LayoutData,
         ctx: ContextRef,
-        _segments: Arc<dyn AsyncSegmentReader>,
+        segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(StructScan::try_new(layout, ctx)?.into_arc())
+        Ok(StructReader::try_new(layout, segments, ctx)?.into_arc())
     }
 
     fn register_splits(

@@ -8,7 +8,7 @@ use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, Nullability, StructDType};
+use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ident, Select};
@@ -93,10 +93,7 @@ impl ChunkedLayoutBuilder<'_> {
             Some(self.layout_builder.read_layout(
                 metadata_path,
                 metadata_fb,
-                Scan::new(Select::include_expr(
-                    s.names().iter().map(|s| Field::Name(s.clone())).collect(),
-                    ident(),
-                )),
+                Scan::new(Select::include_expr(s.names().clone(), ident())),
                 Arc::new(stats_dtype.clone()),
             )?)
         } else {
@@ -425,6 +422,7 @@ mod tests {
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
+    use itertools::Itertools;
     use vortex_array::array::ChunkedArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
@@ -465,11 +463,11 @@ mod tests {
         }
         let flat_layouts = byte_offsets
             .iter()
-            .zip(byte_offsets.iter().skip(1))
+            .tuple_windows()
             .zip(
                 row_offsets
                     .iter()
-                    .zip(row_offsets.iter().skip(1))
+                    .tuple_windows()
                     .map(|(begin, end)| end - begin),
             )
             .map(|((begin, end), len)| write::LayoutSpec::flat(ByteRange::new(*begin, *end), len))

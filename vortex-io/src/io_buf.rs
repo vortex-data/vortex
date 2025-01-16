@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use bytes::Bytes;
-use vortex_buffer::ConstByteBuffer;
+use vortex_buffer::{Buffer, ConstByteBuffer};
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
 ///
@@ -21,11 +21,11 @@ pub unsafe trait IoBuf: Unpin + 'static {
 
     /// Access the buffer as a byte slice with begin and end indices
     #[inline]
-    fn slice_owned(self, range: Range<usize>) -> Slice<Self>
+    fn slice_owned(self, range: Range<usize>) -> OwnedSlice<Self>
     where
         Self: Sized,
     {
-        Slice {
+        OwnedSlice {
             buf: self,
             begin: range.start,
             end: range.end,
@@ -34,13 +34,13 @@ pub unsafe trait IoBuf: Unpin + 'static {
 }
 
 /// An owned view into a contiguous sequence of bytes.
-pub struct Slice<T> {
+pub struct OwnedSlice<T> {
     buf: T,
     begin: usize,
     end: usize,
 }
 
-impl<T> Slice<T> {
+impl<T> OwnedSlice<T> {
     /// Unwrap the slice into its underlying type.
     pub fn into_inner(self) -> T {
         self.buf
@@ -98,7 +98,7 @@ unsafe impl IoBuf for Vec<u8> {
     }
 }
 
-unsafe impl<T: IoBuf> IoBuf for Slice<T> {
+unsafe impl<T: IoBuf> IoBuf for OwnedSlice<T> {
     #[inline]
     fn read_ptr(&self) -> *const u8 {
         unsafe { self.buf.read_ptr().add(self.begin) }
@@ -140,5 +140,19 @@ unsafe impl<const A: usize> IoBuf for ConstByteBuffer<A> {
 
     fn as_slice(&self) -> &[u8] {
         self.as_ref()
+    }
+}
+
+unsafe impl<T: Unpin + 'static> IoBuf for Buffer<T> {
+    fn read_ptr(&self) -> *const u8 {
+        self.as_ptr().cast()
+    }
+
+    fn bytes_init(&self) -> usize {
+        self.len() * size_of::<T>()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.read_ptr(), self.bytes_init()) }
     }
 }

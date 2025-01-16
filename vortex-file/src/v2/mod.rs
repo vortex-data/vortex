@@ -1,12 +1,15 @@
+mod exec;
 mod file;
 mod footer;
+mod io;
 mod open;
-mod segments;
+pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
 mod writer;
 
 pub use file::*;
+pub use footer::FileLayout;
 pub use open::*;
 pub use writer::*;

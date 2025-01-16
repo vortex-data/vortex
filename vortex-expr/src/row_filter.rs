@@ -7,7 +7,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{and_kleene, fill_null};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::Field;
+use vortex_dtype::FieldName;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{expr_project, split_conjunction, ExprRef, VortexExpr};
@@ -38,7 +38,7 @@ impl RowFilter {
         Arc::new(Self::from_conjunction(conjunction))
     }
 
-    pub fn only_fields(&self, fields: &[Field]) -> Option<ExprRef> {
+    pub fn only_fields(&self, fields: &[FieldName]) -> Option<ExprRef> {
         let conj = self
             .conjunction
             .iter()

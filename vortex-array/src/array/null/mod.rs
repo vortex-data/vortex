@@ -7,10 +7,11 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::variants::{NullArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
 
 mod compute;
 
@@ -70,7 +71,7 @@ impl VisitorVTable<NullArray> for NullEncoding {
     }
 }
 
-impl ArrayTrait for NullArray {}
+impl ValidateVTable<NullArray> for NullEncoding {}
 
 impl VariantsVTable<NullArray> for NullEncoding {
     fn as_null_array<'a>(&self, array: &'a NullArray) -> Option<&'a dyn NullArrayTrait> {

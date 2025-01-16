@@ -67,7 +67,7 @@ impl ColumnarLayoutBuilder<'_> {
     fn build(&self) -> VortexResult<ColumnarLayoutReader> {
         let fields = self
             .scan_fields()
-            .unwrap_or_else(|| (0..self.dtype.names().len()).map(Field::Index).collect());
+            .unwrap_or_else(|| self.dtype.names().clone());
         let fb_children = self.layout.children().unwrap_or_default();
 
         let mut unhandled_names = Vec::new();
@@ -75,19 +75,19 @@ impl ColumnarLayoutBuilder<'_> {
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for field in fields.into_iter() {
+        for field in fields.iter() {
             let FieldInfo {
                 index,
                 name,
                 dtype: child_dtype,
-            } = self.dtype.field_info(&field)?;
+            } = self.dtype.field_info(&Field::Name(field.clone()))?;
 
             let child_layout = fb_children.get(index);
             let projected_expr = self
                 .scan
                 .expr
                 .as_ref()
-                .and_then(|e| expr_project(e, &[field]));
+                .and_then(|e| expr_project(e, &[field.clone()]));
 
             let handled =
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
@@ -116,15 +116,7 @@ impl ColumnarLayoutBuilder<'_> {
                 .scan
                 .expr
                 .as_ref()
-                .and_then(|e| {
-                    expr_project(
-                        e,
-                        &unhandled_names
-                            .iter()
-                            .map(|n| Field::from(n.as_ref()))
-                            .collect::<Vec<_>>(),
-                    )
-                })
+                .and_then(|e| expr_project(e, &unhandled_names))
                 .ok_or_else(|| {
                     vortex_err!(
                         "Must be able to project {:?} filter into unhandled space {}",
@@ -150,10 +142,7 @@ impl ColumnarLayoutBuilder<'_> {
             .unwrap_or(false)
             .then(|| {
                 RowFilter::from_conjunction_expr(
-                    handled_names
-                        .iter()
-                        .map(|f| col(Field::from(&**f)))
-                        .collect(),
+                    handled_names.iter().map(|f| col(f.clone())).collect(),
                 )
             });
         let shortcircuit_siblings = top_level_expr.is_some();
@@ -166,7 +155,7 @@ impl ColumnarLayoutBuilder<'_> {
     }
 
     /// Get fields referenced by scan expression preserving order if we're using select to project
-    fn scan_fields(&self) -> Option<Vec<Field>> {
+    fn scan_fields(&self) -> Option<FieldNames> {
         self.scan.expr.as_ref().map(|e| {
             if let Some(se) = e.as_any().downcast_ref::<Select>() {
                 // We currently only support selecting fields on the root/identity expression
@@ -176,7 +165,7 @@ impl ColumnarLayoutBuilder<'_> {
                     SelectField::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),
                 }
             } else {
-                e.references().into_iter().cloned().collect::<Vec<_>>()
+                e.references().into_iter().collect()
             }
         })
     }
@@ -422,7 +411,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
-    use vortex_dtype::{DType, Field, Nullability};
+    use vortex_dtype::{DType, Nullability};
     use vortex_expr::{col, lit, BinaryExpr, Operator, RowFilter};
 
     use crate::read::builder::initial_read::read_initial_bytes;
@@ -500,13 +489,10 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
         let msgs = LayoutMessageCache::default();
-        let (filter_layout, project_layout, buf, length) =
-            layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
-                col(Field::from("ints")),
-                Operator::Gt,
-                lit(10),
-            ))))
-            .await;
+        let (filter_layout, project_layout, buf, length) = layout_and_bytes(Scan::new(
+            RowFilter::new_expr(BinaryExpr::new_expr(col("ints"), Operator::Gt, lit(10))),
+        ))
+        .await;
         let arr = filter_read_layout(
             filter_layout.as_ref(),
             project_layout.as_ref(),
@@ -591,9 +577,9 @@ mod tests {
         let msgs = LayoutMessageCache::default();
         let (filter_layout, project_layout, buf, length) =
             layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
-                BinaryExpr::new_expr(col(Field::from("strs")), Operator::Eq, lit("it")),
+                BinaryExpr::new_expr(col("strs"), Operator::Eq, lit("it")),
                 Operator::And,
-                BinaryExpr::new_expr(col(Field::from("ints")), Operator::Lt, lit(150)),
+                BinaryExpr::new_expr(col("ints"), Operator::Lt, lit(150)),
             ))))
             .await;
         let arr = filter_read_layout(

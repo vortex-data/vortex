@@ -63,12 +63,16 @@ impl LayoutWriter for StructLayoutWriter {
         self.row_count += struct_array.len() as u64;
 
         for i in 0..struct_array.nfields() {
+            // TODO(joe): handle struct validity
             let column = chunk
                 .as_struct_array()
                 .vortex_expect("batch is a struct array")
                 .maybe_null_field_by_idx(i)
                 .vortex_expect("bounds already checked");
-            self.column_strategies[i].push_chunk(segments, column)?;
+
+            for column_chunk in column.into_array_iterator() {
+                self.column_strategies[i].push_chunk(segments, column_chunk?)?;
+            }
         }
 
         Ok(())

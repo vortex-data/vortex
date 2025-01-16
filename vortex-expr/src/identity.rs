@@ -1,18 +1,20 @@
 use std::any::Any;
 use std::fmt::Display;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
+static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Identity));
+
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Identity;
 
 impl Identity {
     pub fn new_expr() -> ExprRef {
-        Arc::new(Identity)
+        IDENTITY.clone()
     }
 }
 

@@ -5,11 +5,10 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -254,7 +253,7 @@ impl VisitorVTable<ALPRDArray> for ALPRDEncoding {
 
 impl StatisticsVTable<ALPRDArray> for ALPRDEncoding {}
 
-impl ArrayTrait for ALPRDArray {}
+impl ValidateVTable<ALPRDArray> for ALPRDEncoding {}
 
 #[cfg(test)]
 mod test {

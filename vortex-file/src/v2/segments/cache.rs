@@ -1,93 +1,64 @@
-//! The segment reader provides an async interface to layouts for resolving individual segments.
-
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use async_trait::async_trait;
-use futures::channel::oneshot;
-use futures_util::future::try_join_all;
-use futures_util::TryFutureExt;
-use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, VortexResult};
-use vortex_io::VortexReadAt;
-use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_layout::segments::SegmentId;
 
-use crate::v2::footer::Segment;
-
-pub(crate) struct SegmentCache<R> {
-    read: R,
-    segments: Arc<[Segment]>,
-    inflight: RwLock<HashMap<SegmentId, Vec<oneshot::Sender<ByteBuffer>>>>,
+/// A cache for storing and retrieving individual segment data.
+#[async_trait]
+pub trait SegmentCache: Send + Sync {
+    async fn get(&self, id: SegmentId, alignment: Alignment) -> VortexResult<Option<ByteBuffer>>;
+    async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()>;
+    async fn remove(&self, id: SegmentId) -> VortexResult<()>;
 }
 
-impl<R> SegmentCache<R> {
-    pub fn new(read: R, segments: Arc<[Segment]>) -> Self {
-        Self {
-            read,
-            segments,
-            inflight: RwLock::new(HashMap::new()),
-        }
-    }
-
-    pub fn set(&mut self, _segment_id: SegmentId, _bytes: ByteBuffer) -> VortexResult<()> {
-        // Do nothing for now
-        Ok(())
-    }
-}
-
-impl<R: VortexReadAt> SegmentCache<R> {
-    /// Drives the segment cache.
-    pub(crate) async fn drive(&self) -> VortexResult<()>
-    where
-        Self: Unpin,
-    {
-        // Grab a read lock and collect a set of segments to read.
-        let segment_ids = self
-            .inflight
-            .read()
-            .map_err(|_| vortex_err!("poisoned"))?
-            .iter()
-            .filter_map(|(id, channels)| (!channels.is_empty()).then_some(*id))
-            .collect::<Vec<_>>();
-
-        // Read all the segments.
-        let buffers = try_join_all(segment_ids.iter().map(|id| {
-            let segment = &self.segments[**id as usize];
-            self.read
-                .read_byte_range(segment.offset, segment.length as u64)
-                .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
-        }))
-        .await?;
-
-        // Send the buffers to the waiting channels.
-        let mut inflight = self.inflight.write().map_err(|_| vortex_err!("poisoned"))?;
-        for (id, buffer) in segment_ids.into_iter().zip_eq(buffers.into_iter()) {
-            let channels = inflight
-                .remove(&id)
-                .ok_or_else(|| vortex_err!("missing inflight segment"))?;
-            for sender in channels {
-                sender
-                    .send(buffer.clone())
-                    .map_err(|_| vortex_err!("receiver dropped"))?;
-            }
-        }
-
-        Ok(())
-    }
-}
+pub(crate) struct NoOpSegmentCache;
 
 #[async_trait]
-impl<R: VortexReadAt> AsyncSegmentReader for SegmentCache<R> {
-    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        let (send, recv) = oneshot::channel();
-        self.inflight
+impl SegmentCache for NoOpSegmentCache {
+    async fn get(&self, _id: SegmentId, _alignment: Alignment) -> VortexResult<Option<ByteBuffer>> {
+        Ok(None)
+    }
+
+    async fn put(&self, _id: SegmentId, _buffer: ByteBuffer) -> VortexResult<()> {
+        Ok(())
+    }
+
+    async fn remove(&self, _id: SegmentId) -> VortexResult<()> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct InMemorySegmentCache(RwLock<HashMap<SegmentId, ByteBuffer>>);
+
+#[async_trait]
+impl SegmentCache for InMemorySegmentCache {
+    async fn get(&self, id: SegmentId, alignment: Alignment) -> VortexResult<Option<ByteBuffer>> {
+        Ok(self
+            .0
+            .read()
+            .map_err(|_| vortex_err!("poisoned"))?
+            .get(&id)
+            .cloned()
+            .map(|b| b.aligned(alignment)))
+    }
+
+    async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
+        self.0
             .write()
             .map_err(|_| vortex_err!("poisoned"))?
-            .entry(id)
-            .or_default()
-            .push(send);
-        recv.await
-            .map_err(|cancelled| vortex_err!("segment read cancelled: {:?}", cancelled))
+            .insert(id, buffer);
+        Ok(())
+    }
+
+    async fn remove(&self, id: SegmentId) -> VortexResult<()> {
+        self.0
+            .write()
+            .map_err(|_| vortex_err!("poisoned"))?
+            .remove(&id);
+        Ok(())
     }
 }

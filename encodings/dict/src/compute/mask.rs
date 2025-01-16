@@ -18,26 +18,14 @@ impl MaskFn<DictArray> for DictEncoding {
 }
 
 fn typed_mask<T: NativePType>(codes: &mut BufferMut<T>, mask: FilterMask) -> VortexResult<()> {
-    match mask.iter()? {
+    match mask.iter() {
         FilterIter::Indices(indices) => {
             for index in indices {
                 codes[*index] = T::zero();
             }
         }
-        FilterIter::IndicesIter(bit_index_iterator) => {
-            for index in bit_index_iterator {
-                codes[index] = T::zero();
-            }
-        }
         FilterIter::Slices(slices) => {
             for slice in slices {
-                for index in slice.0..slice.1 {
-                    codes[index] = T::zero();
-                }
-            }
-        }
-        FilterIter::SlicesIter(bit_slice_iterator) => {
-            for slice in bit_slice_iterator {
                 for index in slice.0..slice.1 {
                     codes[index] = T::zero();
                 }

@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, Field, StructDType};
+use vortex_dtype::{DType, Field, FieldName, StructDType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
@@ -119,21 +119,26 @@ impl<'a> StructScalar<'a> {
         }
     }
 
-    pub fn project(&self, projection: &[Field]) -> VortexResult<Scalar> {
+    pub fn project(&self, projection: &[FieldName]) -> VortexResult<Scalar> {
         let struct_dtype = self
             .dtype
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
-        let projected_dtype = struct_dtype.project(projection)?;
+        let projected_dtype = struct_dtype.project(
+            projection
+                .iter()
+                .map(|f| Field::Name(f.clone()))
+                .collect_vec()
+                .as_slice(),
+        )?;
         let new_fields = if let Some(fs) = self.field_values() {
             ScalarValue(InnerScalarValue::List(
                 projection
                     .iter()
-                    .map(|p| match p {
-                        Field::Name(n) => struct_dtype
-                            .find_name(n)
-                            .vortex_expect("DType has been successfully projected already"),
-                        Field::Index(i) => *i,
+                    .map(|name| {
+                        struct_dtype
+                            .find_name(name)
+                            .vortex_expect("DType has been successfully projected already")
                     })
                     .map(|i| fs[i].clone())
                     .collect(),

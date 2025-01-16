@@ -232,7 +232,7 @@ impl Validity {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask.clone())?)),
+            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
         }
     }
 
@@ -242,12 +242,12 @@ impl Validity {
     pub fn mask(self, mask: &FilterMask) -> VortexResult<Self> {
         Ok(match self {
             Validity::NonNullable | Validity::AllValid => {
-                Validity::Array(BoolArray::from(mask.boolean_buffer()?.not()).into_array())
+                Validity::Array(BoolArray::from(mask.boolean_buffer().not()).into_array())
             }
             Validity::AllInvalid => Validity::AllInvalid,
             Validity::Array(is_valid) => {
                 let bools = BoolArray::try_from(is_valid)?.boolean_buffer();
-                let is_valid_in_mask = mask.boolean_buffer()?.not();
+                let is_valid_in_mask = mask.boolean_buffer().not();
                 Validity::from(bools.bitand(&is_valid_in_mask))
             }
         })

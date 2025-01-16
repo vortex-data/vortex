@@ -1,3 +1,4 @@
+use std::any::type_name;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, RangeBounds};
@@ -5,6 +6,7 @@ use std::ops::{Deref, RangeBounds};
 use bytes::{Buf, Bytes};
 use vortex_error::{vortex_panic, VortexExpect};
 
+use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
@@ -30,6 +32,16 @@ impl<T> Buffer<T> {
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
     pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
         BufferMut::copy_from_aligned(values, alignment).freeze()
+    }
+
+    /// Create a new zeroed `Buffer` with the given value.
+    pub fn zeroed(len: usize) -> Self {
+        Self::zeroed_aligned(len, Alignment::of::<T>())
+    }
+
+    /// Create a new zeroed `Buffer` with the given value.
+    pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
+        BufferMut::zeroed_aligned(len, alignment).freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
@@ -281,21 +293,13 @@ impl<T> Buffer<T> {
     }
 }
 
-impl<T> Debug for Buffer<T> {
+impl<T: Debug> Debug for Buffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        const TRUNC_SIZE: usize = 512;
-        let mut binding = f.debug_struct("Buffer");
-        let mut fields = binding
+        f.debug_struct(&format!("Buffer<{}>", type_name::<T>()))
             .field("length", &self.length)
-            .field("alignment", &self.alignment);
-
-        let mut bytes = self.bytes.clone();
-        if bytes.len() > TRUNC_SIZE {
-            fields = fields.field("truncated", &true);
-        }
-
-        bytes.truncate(TRUNC_SIZE);
-        fields.field("bytes", &bytes).finish()
+            .field("alignment", &self.alignment)
+            .field("as_slice", &TruncatedDebug(self.as_slice()))
+            .finish()
     }
 }
 

@@ -1,4 +1,5 @@
 use core::mem::MaybeUninit;
+use std::any::type_name;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 
@@ -6,6 +7,7 @@ use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
+use crate::debug::TruncatedDebug;
 use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
@@ -44,17 +46,34 @@ impl<T> BufferMut<T> {
         }
     }
 
-    /// Create a new empty `ByteBuffer` with the provided alignment.
+    /// Create a new zeroed `BufferMut`.
+    pub fn zeroed(len: usize) -> Self {
+        Self::zeroed_aligned(len, Alignment::of::<T>())
+    }
+
+    /// Create a new zeroed `BufferMut`.
+    pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
+        bytes.advance(bytes.as_ptr().align_offset(*alignment));
+        Self {
+            bytes,
+            length: len,
+            alignment,
+            _marker: Default::default(),
+        }
+    }
+
+    /// Create a new empty `BufferMut` with the provided alignment.
     pub fn empty() -> Self {
         Self::empty_aligned(Alignment::of::<T>())
     }
 
-    /// Create a new empty `ByteBuffer` with the provided alignment.
+    /// Create a new empty `BufferMut` with the provided alignment.
     pub fn empty_aligned(alignment: Alignment) -> Self {
         BufferMut::with_capacity_aligned(0, alignment)
     }
 
-    /// Create a new full `ByteBuffer` with the given value.
+    /// Create a new full `BufferMut` with the given value.
     pub fn full(item: T, len: usize) -> Self
     where
         T: Copy,
@@ -256,7 +275,19 @@ impl<T> BufferMut<T> {
         T: Copy,
     {
         self.reserve(n);
+        unsafe { self.push_n_unchecked(item, n) }
+    }
 
+    /// Appends n scalars to the buffer.
+    ///
+    /// ## Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the array.
+    #[inline]
+    pub unsafe fn push_n_unchecked(&mut self, item: T, n: usize)
+    where
+        T: Copy,
+    {
         let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
@@ -338,21 +369,13 @@ impl<T> Clone for BufferMut<T> {
     }
 }
 
-impl<T> Debug for BufferMut<T> {
+impl<T: Debug> Debug for BufferMut<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        const TRUNC_SIZE: usize = 512;
-        let mut binding = f.debug_struct("Buffer");
-        let mut fields = binding
+        f.debug_struct(&format!("BufferMut<{}>", type_name::<T>()))
             .field("length", &self.length)
-            .field("alignment", &self.alignment);
-
-        let mut bytes = self.bytes.clone();
-        if bytes.len() > TRUNC_SIZE {
-            fields = fields.field("truncated", &true);
-        }
-
-        bytes.truncate(TRUNC_SIZE);
-        fields.field("bytes", &bytes).finish()
+            .field("alignment", &self.alignment)
+            .field("as_slice", &TruncatedDebug(self.as_slice()))
+            .finish()
     }
 }
 

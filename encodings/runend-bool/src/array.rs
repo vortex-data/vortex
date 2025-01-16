@@ -5,12 +5,13 @@ use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
+    IntoCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -180,7 +181,7 @@ impl VariantsVTable<RunEndBoolArray> for RunEndBoolEncoding {
     }
 }
 
-impl ArrayTrait for RunEndBoolArray {}
+impl ValidateVTable<RunEndBoolArray> for RunEndBoolEncoding {}
 
 impl ValidityVTable<RunEndBoolArray> for RunEndBoolEncoding {
     fn is_valid(&self, array: &RunEndBoolArray, index: usize) -> bool {

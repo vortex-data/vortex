@@ -2,7 +2,7 @@ use std::fs::File;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use arrow_array::types::Int64Type;
 use arrow_array::{
@@ -28,13 +28,11 @@ use vortex::buffer::Buffer;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
-use vortex::io::{IoDispatcher, ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
+use vortex::file::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::stream::ArrayStreamExt;
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
-
-static DISPATCHER: LazyLock<Arc<IoDispatcher>> =
-    LazyLock::new(|| Arc::new(IoDispatcher::default()));
 
 pub const BATCH_SIZE: usize = 65_536;
 
@@ -48,19 +46,12 @@ pub struct VortexFooter {
 pub async fn open_vortex(path: &Path) -> VortexResult<ArrayData> {
     let file = TokioFile::open(path).unwrap();
 
-    VortexReadBuilder::new(
-        file,
-        LayoutDeserializer::new(
-            ALL_ENCODINGS_CONTEXT.clone(),
-            LayoutContext::default().into(),
-        ),
-    )
-    .with_io_dispatcher(DISPATCHER.clone())
-    .build()
-    .await?
-    .into_stream()
-    .read_all()
-    .await
+    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+        .open(file)
+        .await?
+        .scan(Scan::all())?
+        .into_array_data()
+        .await
 }
 
 pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
@@ -69,11 +60,10 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
 ) -> VortexResult<()> {
     let chunked = compress_parquet_to_vortex(parquet_path.as_path())?;
 
-    VortexFileWriter::new(write)
-        .write_array_columns(chunked)
-        .await?
-        .finalize()
+    VortexWriteOptions::default()
+        .write(write, chunked.into_array_stream())
         .await?;
+
     Ok(())
 }
 
@@ -116,57 +106,49 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
 
 async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<ArrayData> {
-    VortexReadBuilder::new(
-        reader,
-        LayoutDeserializer::new(
-            ALL_ENCODINGS_CONTEXT.clone(),
-            LayoutContext::default().into(),
-        ),
-    )
-    .with_io_dispatcher(DISPATCHER.clone())
-    .with_indices(Buffer::copy_from(indices).into_array())
-    .build()
-    .await?
-    .into_stream()
-    .read_all()
-    .await
-    // For equivalence.... we decompress to make sure we're not cheating too much.
-    .and_then(IntoCanonical::into_canonical)
-    .map(ArrayData::from)
+    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+        .open(reader)
+        .await?
+        .scan(Scan::all().with_row_indices(indices))?
+        .into_array_data()
+        .await?
+        // For equivalence.... we decompress to make sure we're not cheating too much.
+        .into_canonical()
+        .map(ArrayData::from)
 }
 
 pub async fn take_vortex_object_store(
     fs: Arc<dyn ObjectStore>,
     path: object_store::path::Path,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<ArrayData> {
     take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
 }
 
-pub async fn take_vortex_tokio(path: &Path, indices: &[u64]) -> VortexResult<ArrayData> {
+pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<ArrayData> {
     take_vortex(TokioFile::open(path)?, indices).await
 }
 
 pub async fn take_parquet_object_store(
     fs: Arc<dyn ObjectStore>,
     path: &object_store::path::Path,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<RecordBatch> {
     let meta = fs.head(path).await?;
     let reader = ParquetObjectReader::new(fs, meta);
     parquet_take_from_stream(reader, indices).await
 }
 
-pub async fn take_parquet(path: &Path, indices: &[u64]) -> VortexResult<RecordBatch> {
+pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<RecordBatch> {
     let file = tokio::fs::File::open(path).await?;
     parquet_take_from_stream(file, indices).await
 }
 
 async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
     async_reader: T,
-    indices: &[u64],
+    indices: Buffer<u64>,
 ) -> VortexResult<RecordBatch> {
     let builder = ParquetRecordBatchStreamBuilder::new_with_options(
         async_reader,
@@ -191,12 +173,12 @@ async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
 
     for idx in indices {
         let row_group_idx = row_group_offsets
-            .binary_search(&(*idx as i64))
+            .binary_search(&(idx as i64))
             .unwrap_or_else(|e| e - 1);
         row_groups
             .entry(row_group_idx)
             .or_insert_with(Vec::new)
-            .push((*idx as i64) - row_group_offsets[row_group_idx]);
+            .push((idx as i64) - row_group_offsets[row_group_idx]);
     }
     let row_group_indices = row_groups
         .keys()

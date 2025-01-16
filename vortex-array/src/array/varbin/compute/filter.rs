@@ -12,12 +12,12 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
-    fn filter(&self, array: &VarBinArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &VarBinArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }
 
-fn filter_select_var_bin(arr: &VarBinArray, mask: FilterMask) -> VortexResult<VarBinArray> {
+fn filter_select_var_bin(arr: &VarBinArray, mask: &FilterMask) -> VortexResult<VarBinArray> {
     let selection_count = mask.true_count();
     if selection_count * 2 > mask.len() {
         filter_select_var_bin_by_slice(arr, mask, selection_count)
@@ -28,7 +28,7 @@ fn filter_select_var_bin(arr: &VarBinArray, mask: FilterMask) -> VortexResult<Va
 
 fn filter_select_var_bin_by_slice(
     values: &VarBinArray,
-    mask: FilterMask,
+    mask: &FilterMask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().into_primitive()?;
@@ -36,7 +36,7 @@ fn filter_select_var_bin_by_slice(
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
-            values.bytes().into_primitive()?.as_slice::<u8>(),
+            values.bytes().as_slice(),
             mask,
             values.validity(),
             selection_count
@@ -49,7 +49,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
-    mask: FilterMask,
+    mask: &FilterMask,
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
@@ -61,7 +61,7 @@ where
     if let Some(val) = logical_validity.to_null_buffer()? {
         let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
-        for (start, end) in mask.iter_slices()? {
+        for (start, end) in mask.slices().iter().copied() {
             let null_sl = val.slice(start, end - start);
             if null_sl.null_count() == 0 {
                 update_non_nullable_slice(data, offsets, &mut builder, start, end)
@@ -93,8 +93,8 @@ where
 
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
-    mask.iter_slices()?.for_each(|(start, end)| {
-        update_non_nullable_slice(data, offsets, &mut builder, start, end)
+    mask.slices().iter().for_each(|(start, end)| {
+        update_non_nullable_slice(data, offsets, &mut builder, *start, *end)
     });
 
     Ok(builder.finish(dtype))
@@ -128,7 +128,7 @@ fn update_non_nullable_slice<O>(
 
 fn filter_select_var_bin_by_index(
     values: &VarBinArray,
-    mask: FilterMask,
+    mask: &FilterMask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().into_primitive()?;
@@ -136,7 +136,7 @@ fn filter_select_var_bin_by_index(
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
-            values.bytes().into_primitive()?.as_slice::<u8>(),
+            values.bytes().as_slice(),
             mask,
             values.validity(),
             selection_count
@@ -149,12 +149,12 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
-    mask: FilterMask,
+    mask: &FilterMask,
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
-    for idx in mask.iter_indices()? {
+    for idx in mask.indices().iter().copied() {
         if validity.is_valid(idx) {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {
@@ -187,7 +187,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::{scalar_at, FilterMask};
     use crate::validity::Validity;
-    use crate::{IntoArrayData, ToArrayData};
+    use crate::ToArrayData;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
         Scalar::utf8(s.to_owned(), Nullable)
@@ -205,7 +205,7 @@ mod test {
         );
         let filter = FilterMask::from_iter([true, false, true]);
 
-        let buf = filter_select_var_bin_by_index(&arr, filter, 2)
+        let buf = filter_select_var_bin_by_index(&arr, &filter, 2)
             .unwrap()
             .to_array();
 
@@ -228,7 +228,7 @@ mod test {
         );
         let filter = FilterMask::from_iter([true, false, true, false, true]);
 
-        let buf = filter_select_var_bin_by_slice(&arr, filter, 3)
+        let buf = filter_select_var_bin_by_slice(&arr, &filter, 3)
             .unwrap()
             .to_array();
 
@@ -240,7 +240,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_null_test() {
-        let x = [
+        let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
             b"three".as_slice(),
@@ -252,14 +252,13 @@ mod test {
         .flat_map(|x| x.iter().cloned())
         .collect::<ByteBuffer>();
 
-        let bytes = x.into_array();
         let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).to_array();
         let validity =
             Validity::Array(BoolArray::from_iter([true, false, true, true, true, true]).to_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
         let filter = FilterMask::from_iter([true, true, true, false, true, true]);
 
-        let buf = filter_select_var_bin_by_slice(&arr, filter, 5)
+        let buf = filter_select_var_bin_by_slice(&arr, &filter, 5)
             .unwrap()
             .to_array();
 

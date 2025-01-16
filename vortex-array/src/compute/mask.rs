@@ -111,7 +111,7 @@ fn mask_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     log::debug!("No mask implementation found for {}", array.encoding().id(),);
 
     let array_ref = array.clone().into_arrow()?;
-    let mask = BooleanArray::new(mask.to_boolean_buffer()?, None);
+    let mask = BooleanArray::new(mask.boolean_buffer().clone(), None);
 
     let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 

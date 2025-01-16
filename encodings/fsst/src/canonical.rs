@@ -1,9 +1,7 @@
 use arrow_array::builder::make_view;
-use vortex_array::array::{VarBinArray, VarBinViewArray};
+use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
-};
+use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -23,12 +21,10 @@ impl IntoCanonical for FSSTArray {
             // call. We then turn our uncompressed_lengths into an offsets buffer
             // necessary for a VarBinViewArray and construct the canonical array.
 
-            let compressed_bytes = VarBinArray::try_from(self.codes())?
-                .sliced_bytes()?
-                .into_primitive()?;
+            let bytes = VarBinArray::try_from(self.codes())?.sliced_bytes();
 
             // Bulk-decompress the entire array.
-            let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice::<u8>());
+            let uncompressed_bytes = decompressor.decompress(bytes.as_slice());
 
             let uncompressed_lens_array = self
                 .uncompressed_lengths()
@@ -36,7 +32,7 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Directly create the binary views.
-            let mut views = BufferMut::<u128>::with_capacity(uncompressed_lens_array.len());
+            let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
 
             match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
                 let mut offset = 0;
@@ -48,16 +44,16 @@ impl IntoCanonical for FSSTArray {
                         offset as u32,
                     );
                     // SAFETY: we reserved the right capacity beforehand
-                    unsafe { views.push_unchecked(view) };
+                    unsafe { views.push_unchecked(view.into()) };
                     offset += len;
                 }
             });
 
-            let views_array: ArrayData = views.freeze().into_byte_buffer().into_array();
-            let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes).into_array();
+            let views = views.freeze();
+            let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes);
 
             VarBinViewArray::try_new(
-                views_array,
+                views,
                 vec![uncompressed_bytes_array],
                 self.dtype().clone(),
                 self.validity(),

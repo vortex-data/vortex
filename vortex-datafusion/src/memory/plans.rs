@@ -16,12 +16,13 @@ use datafusion_physical_expr::{EquivalenceProperties, Partitioning};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::{ready, Stream};
+use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::compute::take;
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
-use vortex_dtype::Field;
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};
 
@@ -117,7 +118,7 @@ impl ExecutionPlan for RowSelectorExec {
             .into());
         }
 
-        let filter_projection = self.filter_expr.references().into_iter().cloned().collect();
+        let filter_projection = self.filter_expr.references().into_iter().collect();
         Ok(Box::pin(RowIndicesStream {
             chunked_array: self.chunked_array.clone(),
             chunk_idx: 0,
@@ -132,7 +133,7 @@ pub(crate) struct RowIndicesStream {
     chunked_array: ChunkedArray,
     chunk_idx: usize,
     conjunction_expr: ExprRef,
-    filter_projection: Vec<Field>,
+    filter_projection: FieldNames,
 }
 
 impl Stream for RowIndicesStream {
@@ -188,7 +189,7 @@ pub(crate) struct TakeRowsExec {
     plan_properties: PlanProperties,
 
     // Array storing the indices used to take the plan nodes.
-    projection: Vec<Field>,
+    projection: FieldNames,
 
     // Input plan, a stream of indices on which we perform a take against the original dataset.
     input: Arc<dyn ExecutionPlan>,
@@ -216,9 +217,25 @@ impl TakeRowsExec {
             Boundedness::Bounded,
         );
 
+        let names = projection
+            .iter()
+            .map(|idx| {
+                FieldName::from(
+                    schema_ref
+                        .fields
+                        .get(*idx)
+                        .unwrap_or_else(|| {
+                            vortex_panic!("Project index {idx} not in schema {schema_ref}",)
+                        })
+                        .name()
+                        .clone(),
+                )
+            })
+            .collect_vec();
+
         Self {
             plan_properties,
-            projection: projection.iter().copied().map(Field::from).collect(),
+            projection: names.into(),
             input: row_indices,
             output_schema,
             table: table.clone(),
@@ -296,7 +313,7 @@ pub(crate) struct TakeRowsStream<F> {
     chunk_idx: usize,
 
     // Projection based on the schema here
-    output_projection: Vec<Field>,
+    output_projection: FieldNames,
     output_schema: SchemaRef,
 
     // The original Vortex array we're taking from
@@ -382,7 +399,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_buffer::buffer;
-    use vortex_dtype::{Field, FieldName};
+    use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;
 
     use crate::memory::plans::{RowIndicesStream, ROW_SELECTOR_SCHEMA_REF};
@@ -419,7 +436,7 @@ mod test {
             chunked_array,
             chunk_idx: 0,
             conjunction_expr: convert_expr_to_vortex(df_expr).unwrap(),
-            filter_projection: vec![Field::from(0), Field::from(1)],
+            filter_projection: [FieldName::from("a"), FieldName::from("b")].into(),
         };
 
         let rows: Vec<RecordBatch> = futures::executor::block_on_stream(filtering_stream)

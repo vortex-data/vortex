@@ -112,6 +112,14 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same type");
     }
 
+    if left.dtype().is_struct() {
+        vortex_bail!(
+            "Compare does not support arrays with Strcut DType, got: {} and {}",
+            left.dtype(),
+            right.dtype()
+        )
+    }
+
     let result_dtype =
         DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into());
 

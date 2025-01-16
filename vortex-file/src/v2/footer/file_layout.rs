@@ -1,15 +1,56 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
+use vortex_dtype::DType;
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
 
 use crate::v2::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
-#[derive(Clone)]
-pub(crate) struct FileLayout {
-    pub(crate) root_layout: LayoutData,
-    pub(crate) segments: Arc<[Segment]>,
+#[derive(Debug, Clone)]
+pub struct FileLayout {
+    root_layout: LayoutData,
+    segments: Arc<[Segment]>,
+}
+
+impl FileLayout {
+    /// Create a new `FileLayout` from the root layout and segments.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the segments are not ordered by byte offset.
+    pub fn new(root_layout: LayoutData, segments: Arc<[Segment]>) -> Self {
+        // Note this assertion is `<=` since we allow zero-length segments
+        assert!(segments
+            .iter()
+            .tuple_windows()
+            .all(|(a, b)| a.offset <= b.offset));
+        Self {
+            root_layout,
+            segments,
+        }
+    }
+
+    /// Returns the root [`LayoutData`] of the file.
+    pub fn root_layout(&self) -> &LayoutData {
+        &self.root_layout
+    }
+
+    /// Returns the segment map of the file.
+    pub fn segment_map(&self) -> &Arc<[Segment]> {
+        &self.segments
+    }
+
+    /// Returns the [`DType`] of the file.
+    pub fn dtype(&self) -> &DType {
+        self.root_layout.dtype()
+    }
+
+    /// Returns the number of rows in the file.
+    pub fn row_count(&self) -> u64 {
+        self.root_layout.row_count()
+    }
 }
 
 impl FlatBufferRoot for FileLayout {}

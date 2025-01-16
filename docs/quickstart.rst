@@ -35,7 +35,7 @@ Vortex array:
    >>> parquet = pq.read_table("_static/example.parquet")
    >>> vtx = vortex.array(parquet)
    >>> vtx.nbytes
-   141070
+   141069
 
 Compress
 ^^^^^^^^
@@ -46,9 +46,9 @@ Use :func:`~vortex.encoding.compress` to compress the Vortex array and check the
 
    >>> cvtx = vortex.compress(vtx)
    >>> cvtx.nbytes
-   16606
+   16604
    >>> cvtx.nbytes / vtx.nbytes
-   0.117...
+   0.11...
 
 Vortex uses nearly ten times fewer bytes than Arrow. Fewer bytes means more of your data fits in
 cache and RAM.

@@ -53,7 +53,7 @@ impl TakeFn<FoRArray> for FoREncoding {
 }
 
 impl FilterFn<FoRArray> for FoREncoding {
-    fn filter(&self, array: &FoRArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &FoRArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         FoRArray::try_new(
             filter(&array.encoded(), mask)?,
             array.reference_scalar(),

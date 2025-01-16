@@ -7,8 +7,10 @@ use datafusion_physical_expr::{expressions, PhysicalExpr};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{lit, BinaryExpr, Column, ExprRef, Like, Operator};
+use crate::{get_item, ident, lit, BinaryExpr, ExprRef, Like, Operator};
 
+// TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
+// for that node, up to any `and` or `or` node.
 pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexResult<ExprRef> {
     if let Some(binary_expr) = physical_expr
         .as_any()
@@ -22,9 +24,7 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
     }
 
     if let Some(col_expr) = physical_expr.as_any().downcast_ref::<expressions::Column>() {
-        let expr = Column::from(col_expr.name().to_owned());
-
-        return Ok(Arc::new(expr) as _);
+        return Ok(get_item(col_expr.name().to_owned(), ident()));
     }
 
     if let Some(like) = physical_expr

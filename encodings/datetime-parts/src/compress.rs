@@ -4,7 +4,9 @@ use vortex_array::{ArrayDType as _, ArrayData, ArrayLen, IntoArrayData, IntoArra
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
+
+use crate::DateTimePartsArray;
 
 pub struct TemporalParts {
     pub days: ArrayData,
@@ -51,4 +53,63 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
         seconds: seconds.into_array(),
         subseconds: subsecond.into_array(),
     })
+}
+
+impl TryFrom<TemporalArray> for DateTimePartsArray {
+    type Error = VortexError;
+
+    fn try_from(array: TemporalArray) -> Result<Self, Self::Error> {
+        let ext_dtype = array.ext_dtype();
+        let TemporalParts {
+            days,
+            seconds,
+            subseconds,
+        } = split_temporal(array)?;
+        DateTimePartsArray::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::array::{PrimitiveArray, TemporalArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::{IntoArrayData as _, IntoArrayVariant as _};
+    use vortex_buffer::buffer;
+    use vortex_datetime_dtype::TimeUnit;
+
+    use crate::{split_temporal, TemporalParts};
+
+    #[rstest]
+    #[case(Validity::NonNullable)]
+    #[case(Validity::AllValid)]
+    #[case(Validity::AllInvalid)]
+    #[case(Validity::from_iter([true, false, true]))]
+    fn test_split_temporal(#[case] validity: Validity) {
+        let milliseconds = PrimitiveArray::new(
+            buffer![
+                86_400i64,            // element with only day component
+                86_400i64 + 1000,     // element with day + second components
+                86_400i64 + 1000 + 1, // element with day + second + sub-second components
+            ],
+            validity.clone(),
+        )
+        .into_array();
+        let temporal_array =
+            TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
+        let TemporalParts {
+            days,
+            seconds,
+            subseconds,
+        } = split_temporal(temporal_array).unwrap();
+        assert_eq!(days.into_primitive().unwrap().validity(), validity);
+        assert_eq!(
+            seconds.into_primitive().unwrap().validity(),
+            Validity::NonNullable
+        );
+        assert_eq!(
+            subseconds.into_primitive().unwrap().validity(),
+            Validity::NonNullable
+        );
+    }
 }
