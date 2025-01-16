@@ -4,8 +4,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
 
-use crate::value::{InnerScalarValue, ScalarValue};
-use crate::Scalar;
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 #[derive(Debug, Hash)]
 pub struct BinaryScalar<'a> {

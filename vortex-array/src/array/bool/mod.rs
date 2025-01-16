@@ -4,7 +4,7 @@ use arrow_array::BooleanArray;
 use arrow_buffer::MutableBuffer;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
@@ -13,8 +13,8 @@ use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTabl
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
+    impl_encoding, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData, IntoCanonical,
+    RkyvMetadata,
 };
 
 pub mod compute;

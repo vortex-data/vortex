@@ -154,7 +154,7 @@ mod tests {
         let canonical = const_array.into_canonical().unwrap();
         let canonical_stats = canonical.statistics().to_set();
 
-        assert_eq!(canonical_stats, StatsSet::constant(&scalar, 4));
+        assert_eq!(canonical_stats, StatsSet::constant(scalar, 4));
         assert_eq!(canonical_stats, stats);
     }
 

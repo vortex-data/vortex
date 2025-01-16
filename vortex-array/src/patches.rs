@@ -86,7 +86,7 @@ impl Patches {
             "Patch indices must be shorter than the array length"
         );
         assert!(!indices.is_empty(), "Patch indices must not be empty");
-        if let Some(max) = indices.statistics().get_as_cast::<u64>(Stat::Max) {
+        if let Some(max) = indices.statistics().get_as::<u64>(Stat::Max) {
             assert!(
                 max < array_len as u64,
                 "Patch indices {} are longer than the array length {}",

@@ -1,14 +1,14 @@
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexError, VortexExpect};
-use vortex_scalar::Scalar;
+use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::Stat;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct StatsSet {
-    values: Option<Vec<(Stat, Scalar)>>,
+    values: Option<Vec<(Stat, ScalarValue)>>,
 }
 
 impl StatsSet {
@@ -17,15 +17,10 @@ impl StatsSet {
     /// # Safety
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
-    pub fn new_unchecked(values: Vec<(Stat, Scalar)>) -> Self {
+    pub fn new_unchecked(values: Vec<(Stat, ScalarValue)>) -> Self {
         Self {
             values: Some(values),
         }
-    }
-
-    /// Create a new, empty StatsSet.
-    pub fn empty() -> Self {
-        Self { values: None }
     }
 
     /// Specialized constructor for the case where the StatsSet represents
@@ -61,7 +56,8 @@ impl StatsSet {
         stats
     }
 
-    pub fn constant(scalar: &Scalar, length: usize) -> Self {
+    pub fn constant(scalar: Scalar, length: usize) -> Self {
+        let (dtype, sv) = scalar.into_parts();
         let mut stats = Self::default();
         if length > 0 {
             stats.set(Stat::IsConstant, true);
@@ -72,20 +68,20 @@ impl StatsSet {
         let run_count = if length == 0 { 0u64 } else { 1 };
         stats.set(Stat::RunCount, run_count);
 
-        let null_count = if scalar.is_null() { length as u64 } else { 0 };
+        let null_count = if sv.is_null() { length as u64 } else { 0 };
         stats.set(Stat::NullCount, null_count);
 
-        if let Some(bool_scalar) = scalar.as_bool_opt() {
-            let true_count = bool_scalar
-                .value()
+        if !sv.is_null() {
+            stats.set(Stat::Min, sv.clone());
+            stats.set(Stat::Max, sv.clone());
+        }
+
+        if matches!(dtype, DType::Bool(_)) {
+            let bool_val: Option<bool> = sv.try_into().vortex_expect("Checked dtype");
+            let true_count = bool_val
                 .map(|b| if b { length as u64 } else { 0 })
                 .unwrap_or(0);
             stats.set(Stat::TrueCount, true_count);
-        }
-
-        if !scalar.is_null() {
-            stats.set(Stat::Min, scalar.clone());
-            stats.set(Stat::Max, scalar.clone());
         }
 
         stats
@@ -108,7 +104,7 @@ impl StatsSet {
         ])
     }
 
-    pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
+    pub fn of<S: Into<ScalarValue>>(stat: Stat, value: S) -> Self {
         Self::new_unchecked(vec![(stat, value.into())])
     }
 }
@@ -125,13 +121,13 @@ impl StatsSet {
         self.values.as_ref().is_none_or(|v| v.is_empty())
     }
 
-    pub fn get(&self, stat: Stat) -> Option<&Scalar> {
+    pub fn get(&self, stat: Stat) -> Option<&ScalarValue> {
         self.values
             .as_ref()
             .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v))
     }
 
-    pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+    pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<T> {
@@ -148,7 +144,7 @@ impl StatsSet {
     }
 
     /// Set the stat `stat` to `value`.
-    pub fn set<S: Into<Scalar>>(&mut self, stat: Stat, value: S) {
+    pub fn set<S: Into<ScalarValue>>(&mut self, stat: Stat, value: S) {
         if self.values.is_none() {
             self.values = Some(Vec::with_capacity(Stat::CARDINALITY));
         }
@@ -176,7 +172,7 @@ impl StatsSet {
     /// Iterate over the statistic names and values in-place.
     ///
     /// See [Iterator].
-    pub fn iter(&self) -> impl Iterator<Item = &(Stat, Scalar)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(Stat, ScalarValue)> {
         self.values.iter().flat_map(|v| v.iter())
     }
 }
@@ -186,10 +182,10 @@ impl StatsSet {
 /// Owned iterator over the stats.
 ///
 /// See [IntoIterator].
-pub struct StatsSetIntoIter(Option<std::vec::IntoIter<(Stat, Scalar)>>);
+pub struct StatsSetIntoIter(Option<std::vec::IntoIter<(Stat, ScalarValue)>>);
 
 impl Iterator for StatsSetIntoIter {
-    type Item = (Stat, Scalar);
+    type Item = (Stat, ScalarValue);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.as_mut().and_then(|i| i.next())
@@ -197,7 +193,7 @@ impl Iterator for StatsSetIntoIter {
 }
 
 impl IntoIterator for StatsSet {
-    type Item = (Stat, Scalar);
+    type Item = (Stat, ScalarValue);
     type IntoIter = StatsSetIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -205,8 +201,8 @@ impl IntoIterator for StatsSet {
     }
 }
 
-impl FromIterator<(Stat, Scalar)> for StatsSet {
-    fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
+impl FromIterator<(Stat, ScalarValue)> for StatsSet {
+    fn from_iter<T: IntoIterator<Item = (Stat, ScalarValue)>>(iter: T) -> Self {
         let iter = iter.into_iter();
         let (lower_bound, _) = iter.size_hint();
         let mut this = Self {
@@ -217,9 +213,9 @@ impl FromIterator<(Stat, Scalar)> for StatsSet {
     }
 }
 
-impl Extend<(Stat, Scalar)> for StatsSet {
+impl Extend<(Stat, ScalarValue)> for StatsSet {
     #[inline]
-    fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
+    fn extend<T: IntoIterator<Item = (Stat, ScalarValue)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         let (lower_bound, _) = iter.size_hint();
         if let Some(v) = &mut self.values {
@@ -319,7 +315,7 @@ impl StatsSet {
         self.merge_sortedness_stat(other, Stat::IsStrictSorted, |own, other| own < other)
     }
 
-    fn merge_sortedness_stat<F: Fn(Option<&Scalar>, Option<&Scalar>) -> bool>(
+    fn merge_sortedness_stat<F: Fn(Option<&ScalarValue>, Option<&ScalarValue>) -> bool>(
         &mut self,
         other: &Self,
         stat: Stat,
@@ -411,6 +407,7 @@ impl StatsSet {
 mod test {
     use enum_iterator::all;
     use itertools::Itertools;
+    use vortex_scalar::ScalarValue;
 
     use crate::array::PrimitiveArray;
     use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
@@ -597,17 +594,8 @@ mod test {
         assert_eq!(merged.get(Stat::Min), stats.get(Stat::Min));
         assert_eq!(merged.get(Stat::Max), stats.get(Stat::Max));
         assert_eq!(
-            merged
-                .get(Stat::NullCount)
-                .unwrap()
-                .as_primitive()
-                .typed_value::<u64>()
-                .unwrap(),
-            2 * stats
-                .get(Stat::NullCount)
-                .unwrap()
-                .as_primitive()
-                .typed_value::<u64>()
+            <&ScalarValue as TryInto<i64>>::try_into(merged.get(Stat::NullCount).unwrap()).unwrap(),
+            2 * <&ScalarValue as TryInto<i64>>::try_into(stats.get(Stat::NullCount).unwrap())
                 .unwrap()
         );
     }

@@ -44,7 +44,7 @@ impl<R: ArrayStream> TakeRows<R> {
             if indices.dtype().is_signed_int()
                 && indices
                     .statistics()
-                    .compute_as_cast::<i64>(Stat::Min)
+                    .compute_as::<i64>(Stat::Min)
                     .map(|min| min < 0)
                     .unwrap_or(true)
             {

@@ -1,0 +1,36 @@
+use vortex_error::{vortex_err, VortexError, VortexResult};
+
+use crate::ScalarValue;
+
+impl TryFrom<&ScalarValue> for bool {
+    type Error = VortexError;
+
+    fn try_from(value: &ScalarValue) -> VortexResult<Self> {
+        <Option<bool>>::try_from(value)?
+            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    }
+}
+
+impl TryFrom<&ScalarValue> for Option<bool> {
+    type Error = VortexError;
+
+    fn try_from(value: &ScalarValue) -> VortexResult<Self> {
+        value.as_bool()
+    }
+}
+
+impl TryFrom<ScalarValue> for bool {
+    type Error = VortexError;
+
+    fn try_from(value: ScalarValue) -> VortexResult<Self> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<ScalarValue> for Option<bool> {
+    type Error = VortexError;
+
+    fn try_from(value: ScalarValue) -> VortexResult<Self> {
+        Self::try_from(&value)
+    }
+}

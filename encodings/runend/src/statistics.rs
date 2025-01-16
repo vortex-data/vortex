@@ -8,7 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType as _, ArrayLen as _, IntoArrayVariant as _};
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::{RunEndArray, RunEndEncoding};
 
@@ -16,7 +16,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
             Stat::Min | Stat::Max => array.values().statistics().compute(stat),
-            Stat::IsSorted => Some(Scalar::from(
+            Stat::IsSorted => Some(ScalarValue::from(
                 array
                     .values()
                     .statistics()
@@ -25,10 +25,10 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     && array.logical_validity().all_valid(),
             )),
             Stat::TrueCount => match array.dtype() {
-                DType::Bool(_) => Some(Scalar::from(array.true_count()?)),
+                DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
                 _ => None,
             },
-            Stat::NullCount => Some(Scalar::from(array.null_count()?)),
+            Stat::NullCount => Some(ScalarValue::from(array.null_count()?)),
             _ => None,
         };
 

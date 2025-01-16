@@ -21,10 +21,11 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
         .compute(Stat::Min)
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
-    let nullability = array.dtype().nullability();
+    let dtype = array.dtype().clone();
+    let nullability = dtype.nullability();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
-            assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()));
+            assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()).into_value());
             encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
@@ -34,7 +35,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
                 .into_array()
         }
     });
-    FoRArray::try_new(encoded, min, shift)
+    FoRArray::try_new(encoded, Scalar::new(dtype, min), shift)
 }
 
 fn encoded_zero<T: NativePType>(

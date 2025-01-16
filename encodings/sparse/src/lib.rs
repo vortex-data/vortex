@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+<<<<<<< HEAD:encodings/sparse/src/lib.rs
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::encoding::ids;
@@ -9,6 +10,9 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, RkyvMetadata};
+=======
+use rkyv::Deserialize;
+>>>>>>> dc8a42588 ( This is a combination of 5 commits.):vortex-array/src/array/sparse/mod.rs
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -143,13 +147,13 @@ impl SparseArray {
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        let fill_value = ScalarValue::from_flexbytes(
+        let sv = ScalarValue::from_flexbytes(
             self.as_ref()
                 .byte_buffer(0)
                 .vortex_expect("Missing fill value buffer"),
         )
         .vortex_expect("Failed to deserialize fill value");
-        Scalar::new(self.dtype().clone(), fill_value)
+        Scalar::new(self.dtype().clone(), sv)
     }
 }
 
@@ -173,7 +177,7 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
         let fill_stats = if array.fill_scalar().is_null() {
             StatsSet::nulls(fill_len, array.dtype())
         } else {
-            StatsSet::constant(&array.fill_scalar(), fill_len)
+            StatsSet::constant(array.fill_scalar(), fill_len)
         };
 
         if values.is_empty() {

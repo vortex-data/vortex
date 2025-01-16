@@ -22,7 +22,7 @@ mod tests {
     use vortex_fastlanes::BitPackedEncoding;
     use vortex_fsst::FSSTEncoding;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
-    use vortex_scalar::Scalar;
+    use vortex_scalar::ScalarValue;
 
     use super::*;
 
@@ -126,7 +126,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), BitPackedEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from((chunk.len() * 8) as u64 + 1))
+                Some(ScalarValue::from((chunk.len() * 8) as u64 + 1))
             );
         }
 
@@ -139,7 +139,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), BoolEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(chunk.len().div_ceil(8) as u64 + 2))
+                Some(ScalarValue::from(chunk.len().div_ceil(8) as u64 + 2))
             );
         }
 
@@ -155,7 +155,7 @@ mod tests {
             );
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(1392641_u64))
+                Some(ScalarValue::from(1392641_u64))
             );
         }
 
@@ -168,7 +168,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(134357007_u64))
+                Some(ScalarValue::from(134357007_u64))
             );
         }
 

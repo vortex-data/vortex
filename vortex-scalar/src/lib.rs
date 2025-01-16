@@ -19,11 +19,11 @@ mod null;
 mod primitive;
 mod pvalue;
 mod scalar_type;
+mod scalarvalue;
 #[cfg(feature = "serde")]
 mod serde;
 mod struct_;
 mod utf8;
-mod value;
 
 pub use binary::*;
 pub use bool::*;
@@ -31,9 +31,9 @@ pub use extension::*;
 pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
+pub use scalarvalue::*;
 pub use struct_::*;
 pub use utf8::*;
-pub use value::*;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].

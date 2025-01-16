@@ -43,6 +43,8 @@ impl PartialEq for PValue {
     }
 }
 
+impl Eq for PValue {}
+
 impl PartialOrd for PValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {

@@ -4,8 +4,7 @@ use std::sync::Arc;
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::value::ScalarValue;
-use crate::Scalar;
+use crate::{Scalar, ScalarValue};
 
 pub struct ExtScalar<'a> {
     ext_dtype: &'a ExtDType,
