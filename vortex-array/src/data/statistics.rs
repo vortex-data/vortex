@@ -12,7 +12,7 @@ use crate::{ArrayDType, ArrayData};
 
 impl Statistics for ArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(o) => o
                 .stats_set
                 .read()
@@ -66,7 +66,7 @@ impl Statistics for ArrayData {
     }
 
     fn to_set(&self) -> StatsSet {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(o) => o
                 .stats_set
                 .read()
@@ -79,7 +79,7 @@ impl Statistics for ArrayData {
     }
 
     fn set(&self, stat: Stat, value: Scalar) {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(o) => o
                 .stats_set
                 .write()
@@ -98,7 +98,7 @@ impl Statistics for ArrayData {
     }
 
     fn clear(&self, stat: Stat) {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(o) => {
                 o.stats_set
                     .write()
@@ -130,7 +130,7 @@ impl Statistics for ArrayData {
     }
 
     fn retain_only(&self, stats: &[Stat]) {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(o) => {
                 o.stats_set
                     .write()
