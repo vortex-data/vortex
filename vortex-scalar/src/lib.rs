@@ -124,10 +124,7 @@ impl Scalar {
         }
 
         match &self.dtype {
-            DType::Null => {
-                assert!(target.is_nullable());
-                Ok(Scalar::new(target.clone(), self.value.clone()))
-            }
+            DType::Null => unreachable!(), // handled by if is_null case
             DType::Bool(_) => self.as_bool().cast(target),
             DType::Primitive(..) => self.as_primitive().cast(target),
             DType::Utf8(_) => self.as_utf8().cast(target),
