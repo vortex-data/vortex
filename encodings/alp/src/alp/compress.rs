@@ -1,5 +1,6 @@
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
@@ -36,12 +37,21 @@ where
     let (exponents, encoded, exc_pos, exc) =
         T::encode(values.as_slice::<T>(), &values.validity(), exponents)?;
     let len = encoded.len();
+    let patches_validity = if values.dtype().is_nullable() {
+        Validity::AllValid
+    } else {
+        Validity::NonNullable
+    };
     Ok((
         exponents,
         PrimitiveArray::new(encoded, values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
             let position_arr = exc_pos.into_array();
-            Patches::new(len, position_arr, exc.into_array())
+            Patches::new(
+                len,
+                position_arr,
+                PrimitiveArray::new(exc, patches_validity).into_array(),
+            )
         }),
     ))
 }
