@@ -2,7 +2,7 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use vortex_array::compute::FilterMask;
+use vortex_array::compute::{fill_null, FilterMask};
 use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
@@ -102,20 +102,23 @@ impl RangeScanner {
 
     /// Post the result of the last expression evaluation back to the range scan.
     fn transition(mut self, result: ArrayData) -> VortexResult<Self> {
+        const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.2;
         match self.state {
             State::FilterEval((eval_mask, mut conjuncts_rev)) => {
                 // conjuncts are non-empty here
-                conjuncts_rev.remove(conjuncts_rev.len() - 1);
+                conjuncts_rev.pop();
+
+                let result = fill_null(result, false.into())?;
 
                 // Intersect the result of the filter expression with our initial row mask.
-                let mask = FilterMask::from_buffer(result.into_bool()?.boolean_buffer());
+                let mask = FilterMask::try_from(result)?;
 
                 // We passed a full mask to the eval function so we must bit intersect instead
                 // of set-bit intersection if we massed a non-full mask to the evaluator.
                 let mask = if self.mask.len() == eval_mask.true_count() {
                     self.mask.bitand(&mask)
                 } else {
-                    self.mask.intersect_set_values(&mask)
+                    self.mask.intersect_by_rank(&mask)
                 };
 
                 // Then move onto the projection
@@ -125,7 +128,7 @@ impl RangeScanner {
                         State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
                 } else if !conjuncts_rev.is_empty() {
                     self.mask = mask;
-                    let mask = if self.mask.selectivity() < 0.2 {
+                    let mask = if self.mask.selectivity() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
                         self.mask.clone()
                     } else {
                         FilterMask::new_true(self.mask.len())

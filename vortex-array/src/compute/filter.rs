@@ -448,7 +448,7 @@ impl FilterMask {
     ///
     /// We are more interested in low selectivity `self` (as indices) with a boolean buffer mask,
     /// so we don't optimize for other cases, yet.
-    pub fn intersect_set_values(&self, mask: &FilterMask) -> FilterMask {
+    pub fn intersect_by_rank(&self, mask: &FilterMask) -> FilterMask {
         assert_eq!(self.true_count(), mask.len());
 
         if mask.true_count() == mask.len() {
@@ -692,7 +692,7 @@ mod test {
             false, true, false, true, true,
         ]));
         assert_eq!(
-            this.intersect_set_values(&mask),
+            this.intersect_by_rank(&mask),
             FilterMask::from_indices(5, vec![1, 3, 4])
         );
     }
@@ -704,7 +704,7 @@ mod test {
         ]));
         let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true]));
         assert_eq!(
-            this.intersect_set_values(&mask),
+            this.intersect_by_rank(&mask),
             FilterMask::from_indices(5, vec![2, 3, 4])
         );
     }
@@ -716,7 +716,7 @@ mod test {
         ]));
         let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, false, true]));
         assert_eq!(
-            this.intersect_set_values(&mask),
+            this.intersect_by_rank(&mask),
             FilterMask::from_indices(5, vec![0, 4])
         );
     }
@@ -728,7 +728,7 @@ mod test {
         ]));
         let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![false, false, false]));
         assert_eq!(
-            this.intersect_set_values(&mask),
+            this.intersect_by_rank(&mask),
             FilterMask::from_indices(5, vec![])
         );
     }
