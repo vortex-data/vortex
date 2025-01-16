@@ -58,7 +58,7 @@ where
 /// )
 /// .unwrap();
 ///
-/// let filtered = filter(&array, mask).unwrap();
+/// let filtered = filter(&array, &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
 /// assert_eq!(scalar_at(&filtered, 0).unwrap(), Scalar::from(Some(0_i32)));
 /// assert_eq!(scalar_at(&filtered, 1).unwrap(), Scalar::from(Some(2_i32)));

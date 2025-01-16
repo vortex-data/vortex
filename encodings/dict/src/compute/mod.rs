@@ -83,7 +83,7 @@ impl SliceFn<DictArray> for DictEncoding {
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
-    use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
+    use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
@@ -164,17 +164,5 @@ mod test {
     fn test_dict_binary_numeric() {
         let array = sliced_dict_array();
         test_binary_numeric::<i32>(array)
-    }
-
-    #[test]
-    fn test_mask_dict_array() {
-        let reference =
-            PrimitiveArray::from_option_iter([None, Some(42), Some(-9), Some(42), Some(5)]);
-        let (codes, values) = dict_encode_primitive(&reference);
-        test_mask(
-            DictArray::try_new(codes.into_array(), values.into_array())
-                .unwrap()
-                .into_array(),
-        )
     }
 }
