@@ -49,7 +49,8 @@ impl VortexFileOpener {
                 let expr = split_conjunction(expr)
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .fold(lit(true), and);
+                    .reduce(and)
+                    .unwrap_or_else(|| lit(true));
 
                 simplify_typed(expr, dtype)
             })

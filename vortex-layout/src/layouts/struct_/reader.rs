@@ -99,7 +99,7 @@ impl StructReader {
             {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => entry
-                    .insert(Arc::new(partition(expr, self.struct_dtype())?))
+                    .insert(Arc::new(partition(expr, self.dtype())?))
                     .clone(),
             },
         )

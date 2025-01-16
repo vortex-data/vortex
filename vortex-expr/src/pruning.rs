@@ -264,7 +264,7 @@ fn convert_access_reference(expr: &ExprRef, invert: bool) -> PruningPredicateSta
 }
 
 struct PruningPredicateRewriter<'a> {
-    column: FieldOrIdentity,
+    access: FieldOrIdentity,
     operator: Operator,
     other_exp: &'a ExprRef,
     stats_to_fetch: Relation<FieldOrIdentity, Stat>,
@@ -274,21 +274,20 @@ type PruningPredicateStats = (ExprRef, Relation<FieldOrIdentity, Stat>);
 
 impl<'a> PruningPredicateRewriter<'a> {
     pub fn try_new(
-        column: FieldOrIdentity,
+        access: FieldOrIdentity,
         operator: Operator,
         other_exp: &'a ExprRef,
     ) -> Option<Self> {
-        println!("new {:?}", column);
         // TODO(robert): Simplify expression to guarantee that each column is not compared to itself
         //  For majority of cases self column references are likely not prunable
-        if let FieldOrIdentity::Field(field) = &column {
+        if let FieldOrIdentity::Field(field) = &access {
             if other_exp.references().contains(field) {
                 return None;
             }
         };
 
         Some(Self {
-            column,
+            access,
             operator,
             other_exp,
             stats_to_fetch: Relation::new(),
@@ -296,18 +295,18 @@ impl<'a> PruningPredicateRewriter<'a> {
     }
 
     pub fn rewrite_binary_op(
-        column: FieldOrIdentity,
+        access: FieldOrIdentity,
         operator: Operator,
         other_exp: &'a ExprRef,
     ) -> PruningPredicateStats {
-        Self::try_new(column, operator, other_exp)
+        Self::try_new(access, operator, other_exp)
             .and_then(Self::rewrite)
             .unwrap_or_else(not_prunable)
     }
 
     fn add_stat_reference(&mut self, stat: Stat) -> FieldName {
-        let new_field = self.column.stat_field_name(stat);
-        self.stats_to_fetch.insert(self.column.clone(), stat);
+        let new_field = self.access.stat_field_name(stat);
+        self.stats_to_fetch.insert(self.access.clone(), stat);
         new_field
     }
 
@@ -317,7 +316,6 @@ impl<'a> PruningPredicateRewriter<'a> {
     }
 
     fn rewrite(mut self) -> Option<PruningPredicateStats> {
-        println!("rewrite {:?}", self.operator);
         let expr: Option<ExprRef> = match self.operator {
             Operator::Eq => {
                 let min_col = get_item(self.add_stat_reference(Stat::Min), ident());
@@ -694,8 +692,8 @@ mod tests {
 
     #[test]
     fn or_required_stats_from_both_arms() {
-        let column = get_item_scope(FieldName::from("a"));
-        let expr = or(lt(column.clone(), lit(10)), gt(column, lit(50)));
+        let item = get_item_scope(FieldName::from("a"));
+        let expr = or(lt(item.clone(), lit(10)), gt(item, lit(50)));
 
         let expected = HashMap::from([(
             FieldOrIdentity::from("a"),
@@ -726,8 +724,8 @@ mod tests {
 
     #[test]
     fn pruning_identity() {
-        let column = ident();
-        let expr = or(lt(column.clone(), lit(10)), gt(column.clone(), lit(50)));
+        let expr = ident();
+        let expr = or(lt(expr.clone(), lit(10)), gt(expr.clone(), lit(50)));
 
         let expected = HashMap::from([(
             FieldOrIdentity::Identity,
