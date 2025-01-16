@@ -118,9 +118,8 @@ impl ExtDType {
 
     /// Returns the `ExtMetadata` for this extension type, if it exists
     #[inline]
-    pub fn storage_dtype(&self) -> &DType {
-        // TODO(aduffy): remove as_ref
-        self.storage_dtype.as_ref()
+    pub fn storage_dtype(&self) -> &Arc<DType> {
+        &self.storage_dtype
     }
 
     /// Returns a new `ExtDType` with the given nullability

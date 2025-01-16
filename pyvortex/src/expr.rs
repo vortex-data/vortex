@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
+use vortex::dtype::dtypes::*;
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::expr::{col, lit, BinaryExpr, ExprRef, GetItem, Operator};
@@ -144,15 +147,39 @@ fn coerce_expr<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
     if let Ok(value) = value.downcast::<PyExpr>() {
         Ok(value.clone())
     } else if let Ok(value) = value.downcast::<PyNone>() {
-        scalar(DType::Null, value)
+        scalar(DTYPE_NULL.clone(), value)
     } else if let Ok(value) = value.downcast::<PyLong>() {
-        scalar(DType::Primitive(PType::I64, nonnull), value)
+        scalar(
+            match nonnull {
+                Nullability::NonNullable => DTYPE_I64_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_I64_NULL.clone(),
+            },
+            value,
+        )
     } else if let Ok(value) = value.downcast::<PyFloat>() {
-        scalar(DType::Primitive(PType::F64, nonnull), value)
+        scalar(
+            match nonnull {
+                Nullability::NonNullable => DTYPE_F64_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_F64_NULL.clone(),
+            },
+            value,
+        )
     } else if let Ok(value) = value.downcast::<PyString>() {
-        scalar(DType::Utf8(nonnull), value)
+        scalar(
+            match nonnull {
+                Nullability::NonNullable => DTYPE_STRING_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_STRING_NULL.clone(),
+            },
+            value,
+        )
     } else if let Ok(value) = value.downcast::<PyBytes>() {
-        scalar(DType::Binary(nonnull), value)
+        scalar(
+            match nonnull {
+                Nullability::NonNullable => DTYPE_BINARY_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_BINARY_NULL.clone(),
+            },
+            value,
+        )
     } else {
         Err(PyValueError::new_err(format!(
             "expected None, int, float, str, or bytes but found: {}",
@@ -255,10 +282,10 @@ pub fn literal<'py>(
     dtype: &Bound<'py, PyDType>,
     value: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
-    scalar(dtype.borrow().unwrap().clone(), value)
+    scalar(Arc::clone(dtype.borrow().unwrap()), value)
 }
 
-pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
+pub fn scalar<'py>(dtype: Arc<DType>, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
     let py = value.py();
     Bound::new(
         py,
@@ -268,8 +295,8 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     )
 }
 
-pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar> {
-    match dtype {
+pub fn scalar_helper(dtype: Arc<DType>, value: &Bound<'_, PyAny>) -> PyResult<Scalar> {
+    match dtype.as_ref() {
         DType::Null => {
             value.downcast::<PyNone>()?;
             Ok(Scalar::null(dtype))
@@ -301,9 +328,13 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
             let list = value.downcast::<PyList>();
             let values = list
                 .iter()
-                .map(|element| scalar_helper(element_type.as_ref().clone(), element))
+                .map(|element| scalar_helper(Arc::clone(element_type), element))
                 .collect::<PyResult<Vec<_>>>()?;
-            Ok(Scalar::list(element_type, values, Nullability::Nullable))
+            Ok(Scalar::list(
+                Arc::clone(element_type),
+                values,
+                Nullability::Nullable,
+            ))
         }
         DType::Extension(..) => todo!(),
     }

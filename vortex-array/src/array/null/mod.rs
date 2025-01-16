@@ -1,8 +1,7 @@
 use std::fmt::Display;
-use std::sync::{Arc, LazyLock};
 
 use serde::{Deserialize, Serialize};
-use vortex_dtype::DType;
+use vortex_dtype::dtypes::DTYPE_NULL;
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
@@ -26,8 +25,6 @@ impl Display for NullMetadata {
     }
 }
 
-static DTYPE_NULL: LazyLock<Arc<DType>> = LazyLock::new(|| Arc::new(DType::Null));
-
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self::try_from_parts(
@@ -35,7 +32,7 @@ impl NullArray {
             len,
             NullMetadata,
             [].into(),
-            StatsSet::nulls(len, &DType::Null),
+            StatsSet::nulls(len, &DTYPE_NULL),
         )
         .vortex_expect("NullArray::new should never fail!")
     }
@@ -63,7 +60,7 @@ impl StatisticsVTable<NullArray> for NullEncoding {
             return Ok(StatsSet::of(stat, array.nbytes()));
         }
 
-        Ok(StatsSet::nulls(array.len(), &DType::Null))
+        Ok(StatsSet::nulls(array.len(), &DTYPE_NULL))
     }
 }
 

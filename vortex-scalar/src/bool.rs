@@ -1,18 +1,24 @@
-use vortex_dtype::Nullability::NonNullable;
+use std::sync::{Arc, LazyLock};
+
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::value::ScalarValue;
 use crate::{InnerScalarValue, Scalar};
 
+pub static DTYPE_BOOL_NONNULL: LazyLock<Arc<DType>> =
+    LazyLock::new(|| Arc::new(DType::Bool(Nullability::NonNullable)));
+pub static DTYPE_BOOL_NULL: LazyLock<Arc<DType>> =
+    LazyLock::new(|| Arc::new(DType::Bool(Nullability::Nullable)));
+
 pub struct BoolScalar<'a> {
-    dtype: &'a DType,
+    dtype: &'a Arc<DType>,
     value: Option<bool>,
 }
 
 impl<'a> BoolScalar<'a> {
     #[inline]
-    pub fn dtype(&self) -> &'a DType {
+    pub fn dtype(&self) -> &'a Arc<DType> {
         self.dtype
     }
 
@@ -20,8 +26,8 @@ impl<'a> BoolScalar<'a> {
         self.value
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        match dtype {
+    pub fn cast(&self, dtype: &Arc<DType>) -> VortexResult<Scalar> {
+        match dtype.as_ref() {
             DType::Bool(_) => Ok(Scalar::bool(
                 self.value().ok_or_else(|| vortex_err!("not a bool"))?,
                 dtype.nullability(),
@@ -51,7 +57,10 @@ impl<'a> BoolScalar<'a> {
 impl Scalar {
     pub fn bool(value: bool, nullability: Nullability) -> Self {
         Self {
-            dtype: DType::Bool(nullability),
+            dtype: match nullability {
+                Nullability::NonNullable => DTYPE_BOOL_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_BOOL_NULL.clone(),
+            },
             value: ScalarValue(InnerScalarValue::Bool(value)),
         }
     }
@@ -61,7 +70,7 @@ impl<'a> TryFrom<&'a Scalar> for BoolScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Bool(_)) {
+        if !matches!(value.dtype().as_ref(), DType::Bool(_)) {
             vortex_bail!("Expected bool scalar, found {}", value.dtype())
         }
         Ok(Self {
@@ -107,7 +116,7 @@ impl TryFrom<Scalar> for Option<bool> {
 impl From<bool> for Scalar {
     fn from(value: bool) -> Self {
         Self {
-            dtype: DType::Bool(NonNullable),
+            dtype: DTYPE_BOOL_NONNULL.clone(),
             value: value.into(),
         }
     }

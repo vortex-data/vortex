@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::dtypes::{DTYPE_BINARY_NONNULL, DTYPE_BINARY_NULL};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
@@ -6,7 +9,7 @@ use crate::value::{InnerScalarValue, ScalarValue};
 use crate::Scalar;
 
 pub struct BinaryScalar<'a> {
-    dtype: &'a DType,
+    dtype: &'a Arc<DType>,
     value: Option<ByteBuffer>,
 }
 
@@ -28,7 +31,10 @@ impl<'a> BinaryScalar<'a> {
 impl Scalar {
     pub fn binary(buffer: ByteBuffer, nullability: Nullability) -> Self {
         Self {
-            dtype: DType::Binary(nullability),
+            dtype: match nullability {
+                Nullability::NonNullable => DTYPE_BINARY_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_BINARY_NULL.clone(),
+            },
             value: ScalarValue(InnerScalarValue::Buffer(buffer)),
         }
     }
@@ -38,7 +44,7 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Binary(_)) {
+        if !matches!(value.dtype().as_ref(), DType::Binary(_)) {
             vortex_bail!("Expected binary scalar, found {}", value.dtype())
         }
         Ok(Self {
@@ -98,7 +104,7 @@ impl From<&[u8]> for Scalar {
 impl From<ByteBuffer> for Scalar {
     fn from(value: ByteBuffer) -> Self {
         Self {
-            dtype: DType::Binary(Nullability::NonNullable),
+            dtype: DTYPE_BINARY_NONNULL.clone(),
             value: ScalarValue(InnerScalarValue::Buffer(value)),
         }
     }

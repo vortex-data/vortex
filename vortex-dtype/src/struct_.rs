@@ -23,8 +23,8 @@ impl From<ViewedDType> for FieldDType {
     }
 }
 
-impl From<DType> for FieldDType {
-    fn from(value: DType) -> Self {
+impl From<Arc<DType>> for FieldDType {
+    fn from(value: Arc<DType>) -> Self {
         Self {
             inner: FieldDTypeInner::Owned(value),
         }
@@ -34,7 +34,7 @@ impl From<DType> for FieldDType {
 #[derive(Debug, Clone, Eq)]
 enum FieldDTypeInner {
     /// Owned DType instance
-    Owned(DType),
+    Owned(Arc<DType>),
     /// A view over a flatbuffer, parsed only when accessed.
     View(ViewedDType),
 }
@@ -54,7 +54,7 @@ impl PartialEq for FieldDTypeInner {
             (Self::View(view), Self::Owned(owned)) | (Self::Owned(owned), Self::View(view)) => {
                 let view = DType::try_from(view.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
-                owned == &view
+                owned.as_ref() == &view
             }
         }
     }
@@ -76,7 +76,7 @@ impl PartialOrd for FieldDTypeInner {
                 let rhs = DType::try_from(viewed_dtype.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
 
-                dtype.partial_cmp(&rhs)
+                dtype.as_ref().partial_cmp(&rhs)
             }
             (FieldDTypeInner::View(viewed_dtype), FieldDTypeInner::Owned(dtype)) => {
                 let lhs = DType::try_from(viewed_dtype.clone())
@@ -105,16 +105,17 @@ impl Hash for FieldDTypeInner {
 
 impl FieldDType {
     /// Returns the concrete DType, parsing it from the underlying buffer if necessary.
-    pub fn value(&self) -> VortexResult<DType> {
+    pub fn value(&self) -> VortexResult<Arc<DType>> {
         self.inner.value()
     }
 }
 
 impl FieldDTypeInner {
-    fn value(&self) -> VortexResult<DType> {
+    fn value(&self) -> VortexResult<Arc<DType>> {
         match &self {
             FieldDTypeInner::Owned(owned) => Ok(owned.clone()),
-            FieldDTypeInner::View(view) => DType::try_from(view.clone()),
+            // TODO(aduffy): doing allocation here for views sucks. Can we not cache this? Or perhaps Cow it ?
+            FieldDTypeInner::View(view) => Ok(Arc::new(DType::try_from(view.clone())?)),
         }
     }
 }
@@ -169,7 +170,8 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
         match variant {
             FieldDTypeVariant::Owned => {
                 let inner = variant_data.newtype_variant::<DType>()?;
-                Ok(FieldDTypeInner::Owned(inner))
+                // TODO(aduffy): have serde directly return one of the pre-built Arc<DType> variants
+                Ok(FieldDTypeInner::Owned(Arc::new(inner)))
             }
             other => Err(A::Error::custom(format!("unsupported variant {other:?}"))),
         }
@@ -197,7 +199,7 @@ pub struct FieldInfo {
 
 impl StructDType {
     /// Create a new [`StructDType`] from a list of names and dtypes
-    pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
+    pub fn new(names: FieldNames, dtypes: Vec<Arc<DType>>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
                 "length mismatch between names ({}) and dtypes ({})",
@@ -264,12 +266,12 @@ impl StructDType {
     }
 
     /// Get the type of specific field by index
-    pub fn field_dtype(&self, index: usize) -> VortexResult<DType> {
+    pub fn field_dtype(&self, index: usize) -> VortexResult<Arc<DType>> {
         self.dtypes[index].value()
     }
 
     /// Returns an ordered iterator over the members of Self.
-    pub fn dtypes(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
+    pub fn dtypes(&self) -> impl ExactSizeIterator<Item = Arc<DType>> + '_ {
         self.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
     }
 
@@ -292,6 +294,8 @@ impl StructDType {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use crate::dtype::DType;
     use crate::field::Field;
     use crate::{Nullability, PType, StructDType};
@@ -318,7 +322,7 @@ mod test {
         let dtype = DType::Struct(
             StructDType::new(
                 vec!["A".into(), "B".into()].into(),
-                vec![a_type.clone(), b_type.clone()],
+                vec![Arc::new(a_type.clone()), Arc::new(b_type.clone())],
             ),
             Nullability::Nullable,
         );
@@ -331,26 +335,26 @@ mod test {
         assert_eq!(sdt.dtypes().len(), 2);
         assert_eq!(sdt.names()[0], "A".into());
         assert_eq!(sdt.names()[1], "B".into());
-        assert_eq!(sdt.field_dtype(0).unwrap(), a_type);
-        assert_eq!(sdt.field_dtype(1).unwrap(), b_type);
+        assert_eq!(sdt.field_dtype(0).unwrap().as_ref(), &a_type);
+        assert_eq!(sdt.field_dtype(1).unwrap().as_ref(), &b_type);
 
         let proj = sdt
             .project(&[Field::Index(1), Field::Name("A".into())])
             .unwrap();
         assert_eq!(proj.names()[0], "B".into());
-        assert_eq!(proj.field_dtype(0).unwrap(), b_type);
+        assert_eq!(proj.field_dtype(0).unwrap().as_ref(), &b_type);
         assert_eq!(proj.names()[1], "A".into());
-        assert_eq!(proj.field_dtype(1).unwrap(), a_type);
+        assert_eq!(proj.field_dtype(1).unwrap().as_ref(), &a_type);
 
         let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
         assert_eq!(field_info.index, 1);
         assert_eq!(field_info.name, "B".into());
-        assert_eq!(field_info.dtype.value().unwrap(), b_type);
+        assert_eq!(field_info.dtype.value().unwrap().as_ref(), &b_type);
 
         let field_info = sdt.field_info(&Field::Index(0)).unwrap();
         assert_eq!(field_info.index, 0);
         assert_eq!(field_info.name, "A".into());
-        assert_eq!(field_info.dtype.value().unwrap(), a_type);
+        assert_eq!(field_info.dtype.value().unwrap().as_ref(), &a_type);
 
         assert!(sdt.field_info(&Field::Index(2)).is_err());
 

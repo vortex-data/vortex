@@ -5,6 +5,7 @@ use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use serde::{Deserialize, Serialize};
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::Nullability;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
@@ -12,7 +13,6 @@ use vortex_error::{
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take, FilterMask};
-use crate::dtypes::DTYPE_BOOL_NONNULL;
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;

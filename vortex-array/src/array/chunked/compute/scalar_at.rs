@@ -14,11 +14,11 @@ impl ScalarAtFn<ChunkedArray> for ChunkedEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::{primitive_dtype, Nullability, PType};
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::scalar_at;
-    use crate::{primitive_dtype, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn empty_children_both_sides() {

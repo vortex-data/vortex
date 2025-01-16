@@ -3,9 +3,9 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, DTYPE_BOOL_NULL};
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -20,7 +20,7 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
             (Some(constant), _) if constant.is_null() => {
                 // All comparisons to null must return null
                 Ok(Some(
-                    ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
+                    ConstantArray::new(Scalar::null(DTYPE_BOOL_NULL.clone()), lhs.len())
                         .into_array(),
                 ))
             }
@@ -88,6 +88,7 @@ mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
     use vortex_array::compute::{compare, scalar_at, Operator};
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_dtype::dtypes::DTYPE_STRING_NULL;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -135,8 +136,7 @@ mod tests {
         assert_eq!(not_equals, vec![true, true, false, true, true]);
 
         // Ensure null constants are handled correctly.
-        let null_rhs =
-            ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
+        let null_rhs = ConstantArray::new(Scalar::null(DTYPE_STRING_NULL.clone()), lhs.len());
         let equals_null = compare(&lhs, null_rhs.as_ref(), Operator::Eq).unwrap();
         for idx in 0..lhs.len() {
             assert!(scalar_at(&equals_null, idx).unwrap().is_null());

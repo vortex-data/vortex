@@ -9,9 +9,9 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
+use vortex_dtype::{primitive_dtype_ref, DType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -38,11 +38,12 @@ impl FoRArray {
             vortex_bail!("Reference value cannot be null");
         }
 
-        let reference = reference.cast(
-            &reference
-                .dtype()
-                .with_nullability(child.dtype().nullability()),
-        )?;
+        let dtype_ref: &Arc<DType> = primitive_dtype_ref!(
+            reference.as_primitive().ptype(),
+            child.dtype().nullability()
+        );
+
+        let reference = reference.cast(dtype_ref)?;
 
         let dtype = reference.dtype().clone();
 
@@ -53,8 +54,7 @@ impl FoRArray {
             .vortex_expect("Reference value is non-null");
 
         Self::try_from_parts(
-            // TODO(aduffy): fix cloning
-            Arc::new(dtype),
+            dtype,
             child.len(),
             FoRMetadata { reference, shift },
             [child].into(),

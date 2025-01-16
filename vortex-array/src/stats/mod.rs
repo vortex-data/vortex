@@ -11,7 +11,7 @@ use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{primitive_dtype_ref, DType, NativePType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -234,7 +234,7 @@ impl dyn Statistics + '_ {
     ) -> Option<U> {
         self.get(stat)
             .filter(|s| s.is_valid())
-            .map(|s| s.cast(&DType::Primitive(U::PTYPE, NonNullable)))
+            .map(|s| s.cast(primitive_dtype_ref!(U::PTYPE, NonNullable)))
             .transpose()
             .and_then(|maybe| maybe.as_ref().map(U::try_from).transpose())
             .unwrap_or_else(|err| {
@@ -268,7 +268,7 @@ impl dyn Statistics + '_ {
     ) -> Option<U> {
         self.compute(stat)
             .filter(|s| s.is_valid())
-            .map(|s| s.cast(&DType::Primitive(U::PTYPE, NonNullable)))
+            .map(|s| s.cast(primitive_dtype_ref!(U::PTYPE, NonNullable)))
             .transpose()
             .and_then(|maybe| maybe.as_ref().map(U::try_from).transpose())
             .unwrap_or_else(|err| {

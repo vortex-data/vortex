@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
@@ -191,7 +193,7 @@ impl PyArray {
     #[getter]
     fn dtype(self_: PyRef<Self>) -> PyResult<Py<PyDType>> {
         // TODO(aduffy): fix extra clone
-        PyDType::wrap(self_.py(), self_.inner.dtype().as_ref().clone())
+        PyDType::wrap(self_.py(), Arc::clone(self_.inner.dtype()))
     }
 
     // Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326

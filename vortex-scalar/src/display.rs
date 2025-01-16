@@ -13,7 +13,7 @@ use crate::{ListScalar, Scalar};
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.dtype() {
+        match self.dtype().as_ref() {
             DType::Null | DType::Bool(_) | DType::Primitive(..) => Display::fmt(&self.value, f),
             DType::Utf8(_) => {
                 match Utf8Scalar::try_from(self)
@@ -74,7 +74,7 @@ impl Display for Scalar {
                     TemporalMetadata::try_from(dtype.as_ref()).map_err(|_| std::fmt::Error)?;
                 let storage_scalar = self.as_extension().storage();
 
-                match storage_scalar.dtype() {
+                match storage_scalar.dtype().as_ref() {
                     DType::Null => {
                         write!(f, "null")
                     }
@@ -114,6 +114,7 @@ mod tests {
 
     use vortex_buffer::ByteBuffer;
     use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
+    use vortex_dtype::dtypes::*;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
 
@@ -127,7 +128,7 @@ mod tests {
     fn display_bool() {
         assert_eq!(format!("{}", Scalar::from(false)), "false");
         assert_eq!(format!("{}", Scalar::from(true)), "true");
-        assert_eq!(format!("{}", Scalar::null(DType::Bool(Nullable))), "null");
+        assert_eq!(format!("{}", Scalar::null(DTYPE_BOOL_NULL.clone())), "null");
     }
 
     #[test]
@@ -147,16 +148,16 @@ mod tests {
             "18446744073709551615_u64"
         );
 
-        assert_eq!(
-            format!("{}", Scalar::null(DType::Primitive(PType::U8, Nullable))),
-            "null"
-        );
+        assert_eq!(format!("{}", Scalar::null(DTYPE_U8_NULL.clone())), "null");
     }
 
     #[test]
     fn display_utf8() {
         assert_eq!(format!("{}", Scalar::from("Hello World!")), "Hello World!");
-        assert_eq!(format!("{}", Scalar::null(DType::Utf8(Nullable))), "null");
+        assert_eq!(
+            format!("{}", Scalar::null(DTYPE_STRING_NULL.clone())),
+            "null"
+        );
     }
 
     #[test]
@@ -171,13 +172,16 @@ mod tests {
             ),
             "48,65,6c,6c,6f,20,57,6f,72,6c,64,21"
         );
-        assert_eq!(format!("{}", Scalar::null(DType::Binary(Nullable))), "null");
+        assert_eq!(
+            format!("{}", Scalar::null(DTYPE_BINARY_NULL.clone())),
+            "null"
+        );
     }
 
     #[test]
     fn display_empty_struct() {
-        fn dtype() -> DType {
-            DType::Struct(StructDType::new([].into(), vec![]), Nullable)
+        fn dtype() -> Arc<DType> {
+            Arc::new(DType::Struct(StructDType::new([].into(), vec![]), Nullable))
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -187,14 +191,11 @@ mod tests {
 
     #[test]
     fn display_one_field_struct() {
-        fn dtype() -> DType {
-            DType::Struct(
-                StructDType::new(
-                    [Arc::from("foo")].into(),
-                    vec![DType::Primitive(PType::U32, Nullable)],
-                ),
+        fn dtype() -> Arc<DType> {
+            Arc::new(DType::Struct(
+                StructDType::new([Arc::from("foo")].into(), vec![DTYPE_U32_NULL.clone()]),
                 Nullable,
-            )
+            ))
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -216,15 +217,15 @@ mod tests {
     #[test]
     fn display_two_field_struct() {
         // fn dtype() -> (DType, DType, DType) {
-        let f1 = DType::Bool(Nullable);
-        let f2 = DType::Primitive(PType::U32, Nullable);
-        let dtype = DType::Struct(
+        let f1: Arc<DType> = DTYPE_BOOL_NULL.clone();
+        let f2: Arc<DType> = DTYPE_U32_NULL.clone();
+        let dtype = Arc::new(DType::Struct(
             StructDType::new(
                 [Arc::from("foo"), Arc::from("bar")].into(),
                 vec![f1.clone(), f2.clone()],
             ),
             Nullable,
-        );
+        ));
         // }
 
         assert_eq!(format!("{}", Scalar::null(dtype.clone())), "null");
@@ -259,12 +260,12 @@ mod tests {
 
     #[test]
     fn display_time() {
-        fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+        fn dtype() -> Arc<DType> {
+            Arc::new(DType::Extension(Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::S))),
-            )))
+            ))))
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -283,12 +284,12 @@ mod tests {
 
     #[test]
     fn display_date() {
-        fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+        fn dtype() -> Arc<DType> {
+            Arc::new(DType::Extension(Arc::new(ExtDType::new(
                 DATE_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::D))),
-            )))
+            ))))
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -329,15 +330,15 @@ mod tests {
 
     #[test]
     fn display_local_timestamp() {
-        fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+        fn dtype() -> Arc<DType> {
+            Arc::new(DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
                     TimeUnit::S,
                     None,
                 ))),
-            )))
+            ))))
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -359,15 +360,15 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn display_zoned_timestamp() {
-        fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
+        fn dtype() -> Arc<DType> {
+            Arc::new(DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
                     TimeUnit::S,
                     Some(String::from("Pacific/Guam")),
                 ))),
-            )))
+            ))))
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");

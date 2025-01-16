@@ -82,7 +82,7 @@ mod test {
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
-    use vortex_scalar::Scalar;
+    use vortex_scalar::{Scalar, DTYPE_BOOL_NULL};
 
     use crate::{
         dict_encode_primitive, dict_encode_typed_primitive, dict_encode_varbinview, DictArray,
@@ -147,7 +147,7 @@ mod test {
         );
         assert_eq!(
             scalar_at(&compared, 1).unwrap(),
-            Scalar::null(DType::Bool(Nullability::Nullable))
+            Scalar::null(DTYPE_BOOL_NULL.clone())
         );
         assert_eq!(
             scalar_at(compared, 2).unwrap(),

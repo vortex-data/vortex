@@ -1,9 +1,12 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use arrow_array::builder::{ArrayBuilder as _, BooleanBuilder as ArrowBooleanBuilder};
 use arrow_array::Array;
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_scalar::DTYPE_BOOL_NULL;
 
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
@@ -12,7 +15,7 @@ use crate::ArrayData;
 pub struct BoolBuilder {
     inner: ArrowBooleanBuilder,
     nullability: Nullability,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl BoolBuilder {
@@ -24,7 +27,10 @@ impl BoolBuilder {
         Self {
             inner: ArrowBooleanBuilder::with_capacity(capacity),
             nullability,
-            dtype: DType::Bool(nullability),
+            dtype: match nullability {
+                Nullability::NonNullable => DTYPE_BOOL_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_BOOL_NULL.clone(),
+            },
         }
     }
 
@@ -53,7 +59,7 @@ impl ArrayBuilder for BoolBuilder {
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 

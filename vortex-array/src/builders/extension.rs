@@ -11,7 +11,7 @@ use crate::{ArrayData, IntoArrayData};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl ExtensionBuilder {
@@ -22,7 +22,7 @@ impl ExtensionBuilder {
     pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
         Self {
             storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
-            dtype: DType::Extension(ext_dtype),
+            dtype: Arc::new(DType::Extension(ext_dtype)),
         }
     }
 
@@ -41,7 +41,7 @@ impl ExtensionBuilder {
     }
 
     fn ext_dtype(&self) -> Arc<ExtDType> {
-        if let DType::Extension(ext_dtype) = &self.dtype {
+        if let DType::Extension(ext_dtype) = self.dtype.as_ref() {
             ext_dtype.clone()
         } else {
             unreachable!()
@@ -58,7 +58,7 @@ impl ArrayBuilder for ExtensionBuilder {
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 

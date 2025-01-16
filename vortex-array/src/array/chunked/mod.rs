@@ -8,12 +8,12 @@ use std::sync::Arc;
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
+use vortex_dtype::dtypes::DTYPE_U64_NONNULL;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use crate::dtypes::DTYPE_U64_NONNULL;
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
@@ -241,13 +241,13 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{primitive_dtype, DType, Nullability, PType};
     use vortex_error::VortexResult;
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, primitive_dtype, ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

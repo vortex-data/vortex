@@ -138,7 +138,8 @@ dyn_hash::hash_trait_object!(VortexExpr);
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_dtype::dtypes::*;
+    use vortex_dtype::{DType, Nullability, StructDType};
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
@@ -152,11 +153,11 @@ pub mod test_harness {
                 ]
                 .into(),
                 vec![
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                    DType::Primitive(PType::U16, Nullability::Nullable),
-                    DType::Primitive(PType::U16, Nullability::Nullable),
-                    DType::Bool(Nullability::NonNullable),
-                    DType::Bool(Nullability::NonNullable),
+                    DTYPE_I32_NONNULL.clone(),
+                    DTYPE_U16_NULL.clone(),
+                    DTYPE_U16_NULL.clone(),
+                    DTYPE_BOOL_NONNULL.clone(),
+                    DTYPE_BOOL_NONNULL.clone(),
                 ],
             ),
             Nullability::NonNullable,
@@ -270,22 +271,22 @@ mod tests {
         );
         assert_eq!(lit(Scalar::from(true)).to_string(), "true");
         assert_eq!(
-            lit(Scalar::null(DType::Bool(Nullability::Nullable))).to_string(),
+            lit(Scalar::null(Arc::new(DType::Bool(Nullability::Nullable)))).to_string(),
             "null"
         );
 
         assert_eq!(
             lit(Scalar::struct_(
-                DType::Struct(
+                Arc::new(DType::Struct(
                     StructDType::new(
                         Arc::from([Arc::from("dog"), Arc::from("cat")]),
                         vec![
-                            DType::Primitive(PType::U32, Nullability::NonNullable),
-                            DType::Utf8(Nullability::NonNullable)
+                            Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable)),
+                            Arc::new(DType::Utf8(Nullability::NonNullable))
                         ],
                     ),
                     Nullability::NonNullable
-                ),
+                )),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
             .to_string(),

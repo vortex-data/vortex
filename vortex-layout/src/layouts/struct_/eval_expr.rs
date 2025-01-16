@@ -80,7 +80,11 @@ mod tests {
             DType::Struct(
                 StructDType::new(
                     vec!["a".into(), "b".into(), "c".into()].into(),
-                    vec![I32.into(), I32.into(), I32.into()],
+                    vec![
+                        Arc::new(I32.into()),
+                        Arc::new(I32.into()),
+                        Arc::new(I32.into()),
+                    ],
                 ),
                 Nullability::NonNullable,
             ),

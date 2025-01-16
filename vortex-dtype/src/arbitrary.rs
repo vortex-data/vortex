@@ -72,7 +72,7 @@ fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructDTyp
         .map(|_| FieldName::arbitrary(u))
         .collect::<Result<Arc<_>>>()?;
     let dtypes = (0..names.len())
-        .map(|_| random_dtype(u, depth))
-        .collect::<Result<Vec<_>>>()?;
+        .map(|_| Arc::new(random_dtype(u, depth).unwrap()))
+        .collect::<Vec<_>>();
     Ok(StructDType::new(names, dtypes))
 }

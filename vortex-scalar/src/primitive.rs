@@ -1,9 +1,12 @@
 use std::any::type_name;
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, NumCast};
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{
+    match_each_native_ptype, primitive_dtype, DType, NativePType, Nullability, PType,
+};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap,
 };
@@ -14,13 +17,13 @@ use crate::{InnerScalarValue, Scalar};
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrimitiveScalar<'a> {
-    dtype: &'a DType,
+    dtype: &'a Arc<DType>,
     ptype: PType,
     pvalue: Option<PValue>,
 }
 
 impl<'a> PrimitiveScalar<'a> {
-    pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: &'a Arc<DType>, value: &ScalarValue) -> VortexResult<Self> {
         let ptype = PType::try_from(dtype)?;
 
         // Read the serialized value into the correct PValue.
@@ -41,8 +44,8 @@ impl<'a> PrimitiveScalar<'a> {
     }
 
     #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
+    pub fn dtype(&self) -> &'a Arc<DType> {
+        &self.dtype
     }
 
     #[inline]
@@ -67,7 +70,7 @@ impl<'a> PrimitiveScalar<'a> {
         self.pvalue.map(|pv| pv.as_primitive::<T>().vortex_unwrap())
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    pub fn cast(&self, dtype: &Arc<DType>) -> VortexResult<Scalar> {
         let ptype = PType::try_from(dtype)?;
         match_each_native_ptype!(ptype, |$Q| {
             match_each_native_ptype!(self.ptype(), |$T| {
@@ -186,7 +189,7 @@ impl Scalar {
     /// for a primitive type.
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
         Self {
-            dtype: DType::Primitive(ptype, nullability),
+            dtype: primitive_dtype!(ptype, nullability),
             value: ScalarValue(InnerScalarValue::Primitive(value)),
         }
     }
@@ -206,7 +209,7 @@ impl Scalar {
         );
 
         Scalar::new(
-            DType::Primitive(ptype, self.dtype.nullability()),
+            primitive_dtype!(ptype, self.dtype.nullability()),
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))
@@ -217,7 +220,7 @@ impl Scalar {
 
     pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
         Self {
-            dtype: DType::Primitive(T::PTYPE, nullability),
+            dtype: primitive_dtype!(T::PTYPE, nullability),
             value: ScalarValue(InnerScalarValue::Primitive(T::zero().into())),
         }
     }
@@ -261,7 +264,7 @@ macro_rules! primitive_scalar {
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
                 Scalar {
-                    dtype: DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
+                    dtype: primitive_dtype!(<$T>::PTYPE, Nullability::NonNullable),
                     value: ScalarValue(InnerScalarValue::Primitive(value.into())),
                 }
             }
@@ -397,7 +400,7 @@ impl<'a> PrimitiveScalar<'a> {
     >(
         self,
         other: PrimitiveScalar<'a>,
-        result_dtype: &'a DType,
+        result_dtype: &'a Arc<DType>,
         ptype: PType,
         op: BinaryNumericOperator,
     ) -> Option<PrimitiveScalar<'a>>
@@ -428,7 +431,7 @@ impl<'a> PrimitiveScalar<'a> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::dtypes::{DTYPE_F32_NONNULL, DTYPE_I32_NONNULL};
     use vortex_error::VortexError;
 
     use crate::value::InnerScalarValue;
@@ -436,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_integer_subtract() {
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DTYPE_I32_NONNULL.clone();
         let p_scalar1 = PrimitiveScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(5))),
@@ -464,7 +467,7 @@ mod tests {
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn test_integer_subtract_overflow() {
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DTYPE_I32_NONNULL.clone();
         let p_scalar1 = PrimitiveScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32::MIN))),
@@ -487,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_float_subtract() {
-        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let dtype = DTYPE_F32_NONNULL.clone();
         let p_scalar1 = PrimitiveScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Primitive(PValue::F32(1.99f32))),

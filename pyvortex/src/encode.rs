@@ -38,18 +38,18 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
                     .map(|a| ArrayData::from_arrow(a, false))
             })
             .collect::<PyResult<Vec<_>>>()?;
-        let dtype: DType = obj
+        let dtype: Arc<DType> = obj
             .getattr("type")
             .and_then(|v| DataType::from_pyarrow_bound(&v))
-            .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
+            .map(|dt| <Arc<DType>>::from_arrow(&Field::new("_", dt, false)))?;
         Bound::new(
             obj.py(),
             // TODO(aduffy): fix extra clone
-            PyArray::new(ChunkedArray::try_new(encoded_chunks, Arc::new(dtype))?.into_array()),
+            PyArray::new(ChunkedArray::try_new(encoded_chunks, dtype)?.into_array()),
         )
     } else if obj.is_instance(&table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow_bound(obj)?;
-        let dtype = DType::from_arrow(array_stream.schema());
+        let dtype = <Arc<DType>>::from_arrow(array_stream.schema());
         let chunks = array_stream
             .into_iter()
             .map(|b| b.map_err(VortexError::ArrowError))
@@ -58,7 +58,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
         Bound::new(
             obj.py(),
             // TODO(aduffy): fix extra clone
-            PyArray::new(ChunkedArray::try_new(chunks, Arc::new(dtype))?.into_array()),
+            PyArray::new(ChunkedArray::try_new(chunks, dtype)?.into_array()),
         )
     } else {
         Err(PyValueError::new_err(

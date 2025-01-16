@@ -2,9 +2,9 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, DTYPE_BOOL_NULL};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
@@ -214,7 +214,7 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
     if lhs.is_null() | rhs.is_null() {
-        Scalar::null(DType::Bool(Nullability::Nullable))
+        Scalar::null(DTYPE_BOOL_NULL.clone())
     } else {
         let b = match operator {
             Operator::Eq => lhs == rhs,

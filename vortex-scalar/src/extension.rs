@@ -51,7 +51,7 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 impl Scalar {
     pub fn extension(ext_dtype: Arc<ExtDType>, value: Scalar) -> Self {
         Self {
-            dtype: DType::Extension(ext_dtype),
+            dtype: Arc::new(DType::Extension(ext_dtype)),
             value: value.value().clone(),
         }
     }

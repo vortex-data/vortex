@@ -4,6 +4,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
+use vortex_dtype::dtypes::primitive_dtype_ref;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -15,7 +16,6 @@ use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
     take, FilterMask, SearchResult, SearchSortedSide,
 };
-use crate::dtypes::primitive_dtype_ref;
 use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};

@@ -44,12 +44,12 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{NativePType, Nullability, PType};
+    use vortex_dtype::dtypes::DTYPE_U32_NONNULL;
+    use vortex_dtype::{primitive_dtype, NativePType, Nullability, PType};
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::dtypes::DTYPE_U32_NONNULL;
-    use crate::{primitive_dtype, ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

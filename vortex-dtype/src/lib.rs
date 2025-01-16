@@ -17,6 +17,7 @@ pub use struct_::*;
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
 mod dtype;
+pub mod dtypes;
 mod extension;
 mod field;
 mod nullability;

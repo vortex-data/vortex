@@ -3,18 +3,19 @@ use std::fmt::{Debug, Display};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    bool_dtype, impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait,
-    Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoArrayVariant, IntoCanonical,
 };
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, Nullability, PType,
+    bool_dtype, match_each_integer_ptype, match_each_unsigned_integer_ptype, primitive_dtype_ref,
+    Nullability, PType,
 };
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;

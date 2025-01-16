@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, Nullability};
@@ -36,11 +35,11 @@ impl<'a> ListScalar<'a> {
         self.elements.is_none()
     }
 
-    pub fn element_dtype(&self) -> DType {
+    pub fn element_dtype(&self) -> &Arc<DType> {
         let DType::List(element_type, _) = self.dtype() else {
             unreachable!();
         };
-        (*element_type).deref().clone()
+        element_type
     }
 
     pub fn element(&self, idx: usize) -> Option<Scalar> {
@@ -48,7 +47,7 @@ impl<'a> ListScalar<'a> {
             .as_ref()
             .and_then(|l| l.get(idx))
             .map(|value| Scalar {
-                dtype: self.element_dtype(),
+                dtype: Arc::clone(self.element_dtype()),
                 value: value.clone(),
             })
     }
@@ -60,7 +59,7 @@ impl<'a> ListScalar<'a> {
             .unwrap_or_else(|| &[] as &[ScalarValue])
             .iter()
             .map(|e| Scalar {
-                dtype: self.element_dtype(),
+                dtype: Arc::clone(self.element_dtype()),
                 value: e.clone(),
             })
     }
@@ -77,7 +76,7 @@ impl Scalar {
         nullability: Nullability,
     ) -> Self {
         for child in &children {
-            if child.dtype() != &*element_dtype {
+            if child.dtype() != &element_dtype {
                 vortex_panic!(
                     "tried to create list of {} with values of type {}",
                     element_dtype,
@@ -86,7 +85,8 @@ impl Scalar {
             }
         }
         Self {
-            dtype: DType::List(element_dtype, nullability),
+            // TODO(aduffy): figure out how to intern list DTypes so we don't need to create them like this.
+            dtype: Arc::new(DType::List(element_dtype, nullability)),
             value: ScalarValue(InnerScalarValue::List(
                 children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
             )),
@@ -95,7 +95,8 @@ impl Scalar {
 
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self {
-            dtype: DType::List(element_dtype, nullability),
+            // TODO(aduffy): figure out how to intern list DTypes so we don't need to create them like this.
+            dtype: Arc::new(DType::List(element_dtype, nullability)),
             value: ScalarValue(InnerScalarValue::Null),
         }
     }
@@ -105,7 +106,7 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::List(..)) {
+        if !matches!(value.dtype().as_ref(), DType::List(..)) {
             vortex_bail!("Expected list scalar, found {}", value.dtype())
         }
 

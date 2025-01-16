@@ -1,8 +1,9 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use arrow_buffer::NullBufferBuilder;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{primitive_dtype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{BoolArray, PrimitiveArray};
@@ -13,7 +14,7 @@ use crate::{ArrayData, IntoArrayData};
 pub struct PrimitiveBuilder<T: NativePType> {
     values: BufferMut<T>,
     validity: NullBufferBuilder,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
@@ -25,7 +26,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         Self {
             values: BufferMut::with_capacity(capacity),
             validity: NullBufferBuilder::new(capacity),
-            dtype: DType::Primitive(T::PTYPE, nullability),
+            dtype: primitive_dtype!(T::PTYPE, nullability),
         }
     }
 
@@ -54,7 +55,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 

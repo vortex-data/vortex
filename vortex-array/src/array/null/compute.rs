@@ -1,4 +1,5 @@
-use vortex_dtype::{match_each_integer_ptype, DType};
+use vortex_dtype::dtypes::DTYPE_NULL;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -30,7 +31,7 @@ impl SliceFn<NullArray> for NullEncoding {
 
 impl ScalarAtFn<NullArray> for NullEncoding {
     fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
+        Ok(Scalar::null(DTYPE_NULL.clone()))
     }
 }
 
@@ -102,6 +103,6 @@ mod test {
 
         let scalar = scalar_at(&nulls, 0).unwrap();
         assert!(scalar.is_null());
-        assert_eq!(scalar.dtype().clone(), DType::Null);
+        assert_eq!(scalar.dtype().as_ref(), &DType::Null);
     }
 }

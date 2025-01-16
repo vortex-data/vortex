@@ -44,11 +44,11 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
-        let DType::Struct(st, nullability) = self.dtype() else {
+        let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
 
-        let field_dtype = st.field_dtype(idx).ok()?.with_nullability(*nullability);
+        let field_dtype = st.field_dtype(idx).ok()?;
 
         Some(
             self.fields
@@ -57,7 +57,7 @@ impl<'a> StructScalar<'a> {
                     dtype: field_dtype.clone(),
                     value: value.clone(),
                 })
-                .unwrap_or_else(|| Scalar::null(field_dtype)),
+                .unwrap_or_else(|| Scalar::null(field_dtype.clone())),
         )
     }
 
@@ -81,8 +81,8 @@ impl<'a> StructScalar<'a> {
         self.fields.map(Arc::deref)
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let DType::Struct(st, _) = dtype else {
+    pub fn cast(&self, dtype: &Arc<DType>) -> VortexResult<Scalar> {
+        let DType::Struct(st, _) = dtype.as_ref() else {
             vortex_bail!("Can only cast struct to another struct")
         };
         let DType::Struct(own_st, _) = self.dtype() else {
@@ -147,14 +147,15 @@ impl<'a> StructScalar<'a> {
             ScalarValue(InnerScalarValue::Null)
         };
         Ok(Scalar::new(
-            DType::Struct(projected_dtype, self.dtype().nullability()),
+            // TODO(aduffy): figure out how to intern struct DTypes so we don't need to create them like this.
+            Arc::new(DType::Struct(projected_dtype, self.dtype().nullability())),
             new_fields,
         ))
     }
 }
 
 impl Scalar {
-    pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
+    pub fn struct_(dtype: Arc<DType>, children: Vec<Scalar>) -> Self {
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::List(
@@ -178,21 +179,23 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::PType::I32;
+    use vortex_dtype::dtypes::{
+        DTYPE_I32_NONNULL, DTYPE_I32_NULL, DTYPE_STRING_NONNULL, DTYPE_STRING_NULL,
+    };
     use vortex_dtype::{DType, Nullability, StructDType};
 
     use super::*;
 
-    fn setup_types() -> (DType, DType, DType) {
-        let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
-        let f1_dt = DType::Utf8(Nullability::NonNullable);
-        let f0_dt_null = f0_dt.with_nullability(Nullability::Nullable);
-        let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
+    fn setup_types() -> (Arc<DType>, Arc<DType>, Arc<DType>) {
+        let f0_dt = DTYPE_I32_NONNULL.clone();
+        let f1_dt = DTYPE_STRING_NONNULL.clone();
+        let f0_dt_null = DTYPE_I32_NULL.clone();
+        let f1_dt_null = DTYPE_STRING_NULL.clone();
 
-        let dtype = DType::Struct(
+        let dtype = Arc::new(DType::Struct(
             StructDType::new(vec!["a".into(), "b".into()].into(), vec![f0_dt, f1_dt]),
             Nullability::Nullable,
-        );
+        ));
 
         (f0_dt_null, f1_dt_null, dtype)
     }

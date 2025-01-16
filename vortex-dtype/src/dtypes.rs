@@ -6,9 +6,14 @@
 //! While a `DType` is at the time of writing this, 40 bytes, an Arc<DType> is only 8 bytes,
 //! and can be shared/copied without any extra allocations.
 
+// This module contains global helpers for implementers, not necessarily for users.
+#![doc(hidden)]
+
 use std::sync::{Arc, LazyLock};
 
-use vortex_dtype::{DType, Nullability, PType};
+use crate::{DType, Nullability, PType};
+
+pub static DTYPE_NULL: LazyLock<Arc<DType>> = LazyLock::new(|| Arc::new(DType::Null));
 
 pub static DTYPE_BOOL_NONNULL: LazyLock<Arc<DType>> =
     LazyLock::new(|| Arc::new(DType::Bool(Nullability::NonNullable)));
@@ -74,6 +79,11 @@ pub static DTYPE_STRING_NONNULL: LazyLock<Arc<DType>> =
     LazyLock::new(|| Arc::new(DType::Utf8(Nullability::NonNullable)));
 pub static DTYPE_STRING_NULL: LazyLock<Arc<DType>> =
     LazyLock::new(|| Arc::new(DType::Utf8(Nullability::Nullable)));
+
+pub static DTYPE_BINARY_NONNULL: LazyLock<Arc<DType>> =
+    LazyLock::new(|| Arc::new(DType::Binary(Nullability::NonNullable)));
+pub static DTYPE_BINARY_NULL: LazyLock<Arc<DType>> =
+    LazyLock::new(|| Arc::new(DType::Binary(Nullability::Nullable)));
 
 #[macro_export]
 macro_rules! primitive_dtype {

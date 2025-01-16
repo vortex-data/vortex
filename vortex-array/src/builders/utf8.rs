@@ -1,7 +1,9 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use arrow_array::builder::{ArrayBuilder as _, StringViewBuilder};
 use arrow_array::Array;
+use vortex_dtype::dtypes::{DTYPE_STRING_NONNULL, DTYPE_STRING_NULL};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -12,7 +14,7 @@ use crate::ArrayData;
 pub struct Utf8Builder {
     inner: StringViewBuilder,
     nullability: Nullability,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl Utf8Builder {
@@ -20,7 +22,10 @@ impl Utf8Builder {
         Self {
             inner: StringViewBuilder::with_capacity(capacity),
             nullability,
-            dtype: DType::Utf8(nullability),
+            dtype: match nullability {
+                Nullability::NonNullable => DTYPE_STRING_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_STRING_NULL.clone(),
+            },
         }
     }
 
@@ -42,7 +47,7 @@ impl ArrayBuilder for Utf8Builder {
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 

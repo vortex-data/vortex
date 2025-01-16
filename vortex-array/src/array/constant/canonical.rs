@@ -105,7 +105,8 @@ fn canonical_byte_view(
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::dtypes::DTYPE_NULL;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::array::ConstantArray;
@@ -115,10 +116,13 @@ mod tests {
 
     #[test]
     fn test_canonicalize_null() {
-        let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
+        let const_null = ConstantArray::new(Scalar::null(DTYPE_NULL.clone()), 42);
         let actual = const_null.into_canonical().unwrap().into_null().unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(scalar_at(actual, 33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(
+            scalar_at(actual, 33).unwrap(),
+            Scalar::null(DTYPE_NULL.clone())
+        );
     }
 
     #[test]

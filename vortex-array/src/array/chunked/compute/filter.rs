@@ -181,11 +181,11 @@ fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
 #[cfg(test)]
 mod test {
     use vortex_dtype::half::f16;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::{primitive_dtype, Nullability, PType};
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::{filter, FilterMask};
-    use crate::{primitive_dtype, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn filter_chunked_floats() {

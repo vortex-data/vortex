@@ -83,7 +83,8 @@ impl StructReader {
         self.field_readers[idx].get_or_try_init(|| {
             let child_layout = self
                 .layout
-                .child(idx, self.struct_dtype().field_dtype(idx)?)?;
+                // TODO(aduffy): remove clone
+                .child(idx, self.struct_dtype().field_dtype(idx)?.as_ref().clone())?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }

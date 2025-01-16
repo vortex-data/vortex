@@ -43,7 +43,7 @@ impl StatsTable {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         let dtypes = present_stats
             .iter()
-            .map(|s| s.dtype(column_dtype).as_nullable())
+            .map(|s| Arc::new(s.dtype(column_dtype).as_nullable()))
             .collect();
         DType::Struct(
             StructDType::new(

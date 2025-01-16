@@ -238,7 +238,8 @@ async fn register_vortex_file(
                 let val = arrays_map.entry(field_name.clone()).or_default();
                 val.push(st.maybe_null_field_by_name(field_name).unwrap());
 
-                types_map.insert(field_name.clone(), field_type.clone());
+                // TODO(aduffy): remove need for clone.
+                types_map.insert(field_name.clone(), field_type.as_ref().clone());
             }
         }
 

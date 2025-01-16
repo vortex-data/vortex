@@ -124,22 +124,34 @@ impl DType {
 
     /// Check if `self` is an unsigned integer
     pub fn is_unsigned_int(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_unsigned_int)
+        match self {
+            Self::Primitive(ptype, _) => ptype.is_unsigned_int(),
+            _ => false,
+        }
     }
 
     /// Check if `self` is a signed integer
     pub fn is_signed_int(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_signed_int)
+        match self {
+            Self::Primitive(ptype, _) => ptype.is_signed_int(),
+            _ => false,
+        }
     }
 
     /// Check if `self` is an integer (signed or unsigned)
     pub fn is_int(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_int)
+        match self {
+            Self::Primitive(ptype, _) => ptype.is_int(),
+            _ => false,
+        }
     }
 
     /// Check if `self` is a floating point number
     pub fn is_float(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_float)
+        match self {
+            Self::Primitive(ptype, _) => ptype.is_float(),
+            _ => false,
+        }
     }
 
     /// Check if `self` is a boolean

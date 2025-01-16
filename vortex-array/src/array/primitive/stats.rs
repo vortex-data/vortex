@@ -6,7 +6,7 @@ use arrow_buffer::buffer::BooleanBuffer;
 use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
+use vortex_dtype::{match_each_native_ptype, primitive_dtype_ref, NativePType, Nullability};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -111,7 +111,7 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
             // all nulls!
             return Ok(StatsSet::nulls(
                 values.len(),
-                &DType::Primitive(T::PTYPE, Nullability::Nullable),
+                primitive_dtype_ref!(T::PTYPE, Nullability::Nullable),
             ));
         }
 
@@ -334,7 +334,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::dtypes::DTYPE_I32_NULL;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
@@ -402,7 +402,7 @@ mod test {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
         let min: Option<Scalar> = arr.statistics().compute(Stat::Min);
         let max: Option<Scalar> = arr.statistics().compute(Stat::Max);
-        let null_i32 = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+        let null_i32 = Scalar::null(DTYPE_I32_NULL.clone());
         assert_eq!(min, Some(null_i32.clone()));
         assert_eq!(max, Some(null_i32));
     }

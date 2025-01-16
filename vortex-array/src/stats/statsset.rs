@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
@@ -31,10 +33,10 @@ impl StatsSet {
 
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
-    pub fn nulls(len: usize, dtype: &DType) -> Self {
+    pub fn nulls(len: usize, dtype: &Arc<DType>) -> Self {
         let mut stats = Self::new_unchecked(vec![
-            (Stat::Min, Scalar::null(dtype.clone())),
-            (Stat::Max, Scalar::null(dtype.clone())),
+            (Stat::Min, Scalar::null(Arc::clone(dtype))),
+            (Stat::Max, Scalar::null(Arc::clone(dtype))),
             (Stat::RunCount, 1.into()),
             (Stat::NullCount, len.into()),
         ]);
@@ -46,7 +48,7 @@ impl StatsSet {
         }
 
         // Add any DType-specific stats.
-        match dtype {
+        match dtype.as_ref() {
             DType::Bool(_) => {
                 stats.set(Stat::TrueCount, 0);
             }

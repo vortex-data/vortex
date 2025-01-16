@@ -18,7 +18,7 @@ pub struct ListBuilder<O: PrimInt + NativePType> {
     index_builder: PrimitiveBuilder<O>,
     validity: BoolBuilder,
     nullability: Nullability,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl<O> ListBuilder<O>
@@ -44,7 +44,7 @@ where
             index_builder,
             validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
             nullability,
-            dtype: DType::List(value_dtype, nullability),
+            dtype: Arc::new(DType::List(value_dtype, nullability)),
         }
     }
 
@@ -85,7 +85,7 @@ where
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 

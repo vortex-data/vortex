@@ -22,7 +22,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             let lhs = unsafe { Datum::try_new(lhs.clone().into_array())? };
 
             // TODO(robert): Handle LargeString/Binary arrays
-            let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
+            let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype().as_ref() {
                 DType::Utf8(_) => &rhs_const
                     .as_utf8()
                     .value()

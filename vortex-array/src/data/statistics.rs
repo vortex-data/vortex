@@ -28,14 +28,12 @@ impl Statistics for ArrayData {
                 Stat::Max => {
                     let max = v.flatbuffer().stats()?.max();
                     max.and_then(|v| ScalarValue::try_from(v).ok())
-                        // TODO(aduffy): fix cloning
-                        .map(|v| Scalar::new(self.dtype().as_ref().clone(), v))
+                        .map(|v| Scalar::new(Arc::clone(self.dtype()), v))
                 }
                 Stat::Min => {
                     let min = v.flatbuffer().stats()?.min();
                     min.and_then(|v| ScalarValue::try_from(v).ok())
-                        // TODO(aduffy): fix cloning
-                        .map(|v| Scalar::new(self.dtype().as_ref().clone(), v))
+                        .map(|v| Scalar::new(Arc::clone(self.dtype()), v))
                 }
                 Stat::IsConstant => v.flatbuffer().stats()?.is_constant().map(bool::into),
                 Stat::IsSorted => v.flatbuffer().stats()?.is_sorted().map(bool::into),

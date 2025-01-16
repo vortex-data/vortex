@@ -1,10 +1,13 @@
+use std::sync::Arc;
+
 use arrow::datatypes::{DataType, Field};
 use arrow::pyarrow::FromPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyType;
 use pyo3::{pyclass, pyfunction, pymethods, Bound, Py, PyAny, PyResult, Python};
 use vortex::arrow::FromArrowType;
-use vortex::dtype::{DType, PType};
+use vortex::dtype::dtypes::*;
+use vortex::dtype::DType;
 
 use crate::python_repr::PythonRepr;
 
@@ -12,15 +15,15 @@ use crate::python_repr::PythonRepr;
 /// A data type describes the set of operations available on a given column. These operations are
 /// implemented by the column *encoding*. Each data type is implemented by one or more encodings.
 pub struct PyDType {
-    inner: DType,
+    inner: Arc<DType>,
 }
 
 impl PyDType {
-    pub fn wrap(py: Python<'_>, inner: DType) -> PyResult<Py<Self>> {
+    pub fn wrap(py: Python<'_>, inner: Arc<DType>) -> PyResult<Py<Self>> {
         Py::new(py, Self { inner })
     }
 
-    pub fn unwrap(&self) -> &DType {
+    pub fn unwrap(&self) -> &Arc<DType> {
         &self.inner
     }
 }
@@ -43,12 +46,12 @@ impl PyDType {
     ) -> PyResult<Py<Self>> {
         Self::wrap(
             cls.py(),
-            DType::from_arrow(&Field::new("_", arrow_dtype, nullable)),
+            <Arc<DType>>::from_arrow(&Field::new("_", arrow_dtype, nullable)),
         )
     }
 
     fn maybe_columns(&self) -> Option<Vec<String>> {
-        match &self.inner {
+        match self.inner.as_ref() {
             DType::Null => None,
             DType::Bool(_) => None,
             DType::Primitive(..) => None,
@@ -81,7 +84,7 @@ fn import_arrow_dtype(obj: &Bound<PyAny>) -> PyResult<DataType> {
 ///     >>> vortex.dtype.null()
 ///     null()
 pub fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Null)
+    PyDType::wrap(py, DTYPE_NULL.clone())
 }
 
 #[pyfunction(name = "bool")]
@@ -110,7 +113,13 @@ pub fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
 ///     >>> vortex.dtype.bool(False)
 ///     bool(False)
 pub fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Bool(nullable.into()))
+    PyDType::wrap(
+        py,
+        match nullable {
+            true => DTYPE_BOOL_NULL.clone(),
+            false => DTYPE_BOOL_NONNULL.clone(),
+        },
+    )
 }
 
 #[pyfunction(name = "int")]
@@ -143,15 +152,19 @@ pub fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
 ///     int(32, False)
 pub fn dtype_int(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult<Py<PyDType>> {
     let dtype = if let Some(width) = width {
-        match width {
-            8 => DType::Primitive(PType::I8, nullable.into()),
-            16 => DType::Primitive(PType::I16, nullable.into()),
-            32 => DType::Primitive(PType::I32, nullable.into()),
-            64 => DType::Primitive(PType::I64, nullable.into()),
+        match (width, nullable) {
+            (8, false) => DTYPE_I8_NONNULL.clone(),
+            (8, true) => DTYPE_I8_NULL.clone(),
+            (16, false) => DTYPE_I16_NONNULL.clone(),
+            (16, true) => DTYPE_I16_NULL.clone(),
+            (32, false) => DTYPE_I32_NONNULL.clone(),
+            (32, true) => DTYPE_I32_NULL.clone(),
+            (64, false) => DTYPE_I64_NONNULL.clone(),
+            (64, true) => DTYPE_I64_NULL.clone(),
             _ => return Err(PyValueError::new_err("Invalid int width")),
         }
     } else {
-        DType::Primitive(PType::I64, nullable.into())
+        DTYPE_I64_NONNULL.clone()
     };
     PyDType::wrap(py, dtype)
 }
@@ -186,15 +199,19 @@ pub fn dtype_int(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult
 ///     uint(32, False)
 pub fn dtype_uint(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult<Py<PyDType>> {
     let dtype = if let Some(width) = width {
-        match width {
-            8 => DType::Primitive(PType::U8, nullable.into()),
-            16 => DType::Primitive(PType::U16, nullable.into()),
-            32 => DType::Primitive(PType::U32, nullable.into()),
-            64 => DType::Primitive(PType::U64, nullable.into()),
+        match (width, nullable) {
+            (8, false) => DTYPE_U8_NONNULL.clone(),
+            (8, true) => DTYPE_U8_NULL.clone(),
+            (16, false) => DTYPE_U16_NONNULL.clone(),
+            (16, true) => DTYPE_U16_NULL.clone(),
+            (32, false) => DTYPE_U32_NONNULL.clone(),
+            (32, true) => DTYPE_U32_NULL.clone(),
+            (64, false) => DTYPE_U64_NONNULL.clone(),
+            (64, true) => DTYPE_U64_NULL.clone(),
             _ => return Err(PyValueError::new_err("Invalid uint width")),
         }
     } else {
-        DType::Primitive(PType::U64, nullable.into())
+        DTYPE_U64_NONNULL.clone()
     };
     PyDType::wrap(py, dtype)
 }
@@ -227,14 +244,17 @@ pub fn dtype_uint(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResul
 ///     float(16, False)
 pub fn dtype_float(py: Python<'_>, width: Option<i8>, nullable: bool) -> PyResult<Py<PyDType>> {
     let dtype = if let Some(width) = width {
-        match width {
-            16 => DType::Primitive(PType::F16, nullable.into()),
-            32 => DType::Primitive(PType::F32, nullable.into()),
-            64 => DType::Primitive(PType::F64, nullable.into()),
+        match (width, nullable) {
+            (16, false) => DTYPE_F16_NONNULL.clone(),
+            (16, true) => DTYPE_F16_NULL.clone(),
+            (32, false) => DTYPE_F32_NONNULL.clone(),
+            (32, true) => DTYPE_F32_NULL.clone(),
+            (64, false) => DTYPE_F64_NONNULL.clone(),
+            (64, true) => DTYPE_F64_NULL.clone(),
             _ => return Err(PyValueError::new_err("Invalid float width")),
         }
     } else {
-        DType::Primitive(PType::F64, nullable.into())
+        DTYPE_F64_NONNULL.clone()
     };
     PyDType::wrap(py, dtype)
 }
@@ -261,7 +281,13 @@ pub fn dtype_float(py: Python<'_>, width: Option<i8>, nullable: bool) -> PyResul
 ///     >>> vortex.dtype.utf8(False)
 ///     utf8(False)
 pub fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Utf8(nullable.into()))
+    PyDType::wrap(
+        py,
+        match nullable {
+            true => DTYPE_STRING_NULL.clone(),
+            false => DTYPE_STRING_NONNULL.clone(),
+        },
+    )
 }
 
 #[pyfunction(name = "binary")]
@@ -285,5 +311,11 @@ pub fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
 ///     >>> vortex.dtype.binary(False)
 ///     binary(False)
 pub fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Binary(nullable.into()))
+    PyDType::wrap(
+        py,
+        match nullable {
+            true => DTYPE_BINARY_NULL.clone(),
+            false => DTYPE_BINARY_NONNULL.clone(),
+        },
+    )
 }

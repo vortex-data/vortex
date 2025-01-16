@@ -5,10 +5,10 @@ use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_dtype::dtypes::{bool_dtype, DTYPE_BOOL_NONNULL};
 use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::dtypes::{bool_dtype, DTYPE_BOOL_NONNULL};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};

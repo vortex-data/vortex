@@ -45,6 +45,7 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
         .as_any()
         .downcast_ref::<expressions::Literal>()
     {
+        // We can attempt to infer a value from this
         let value = Scalar::from(literal.value().clone());
         return Ok(lit(value));
     }

@@ -84,7 +84,7 @@ pub(crate) fn try_canonicalize_chunks(
             let storage_dtype = ext_dtype.storage_dtype().clone();
             // TODO(aduffy): fix cloning.
             let chunked_storage =
-                ChunkedArray::try_new(storage_chunks, Arc::new(storage_dtype))?.into_array();
+                ChunkedArray::try_new(storage_chunks, storage_dtype)?.into_array();
 
             Ok(Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
@@ -191,7 +191,7 @@ fn swizzle_struct_chunks(
                 .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype()))
         ).collect::<VortexResult<Vec<_>>>()?;
         // TODO(aduffy): fix cloning.
-        let field_array = ChunkedArray::try_new(field_chunks, Arc::new(field_dtype.clone()))?;
+        let field_array = ChunkedArray::try_new(field_chunks, field_dtype)?;
         field_arrays.push(field_array.into_array());
     }
 

@@ -24,7 +24,8 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayData;
     use vortex_buffer::{buffer, Alignment, Buffer, ByteBuffer};
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::dtypes::DTYPE_U32_NULL;
+    use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
     use crate::BitPackedArray;
@@ -50,7 +51,7 @@ mod test {
         .into_array();
         assert_eq!(
             scalar_at(&packed_array, 1).unwrap(),
-            Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
+            Scalar::null(DTYPE_U32_NULL.clone())
         );
     }
 

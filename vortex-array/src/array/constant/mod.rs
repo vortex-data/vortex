@@ -41,8 +41,7 @@ impl ConstantArray {
         let stats = StatsSet::constant(&scalar, length);
         let (dtype, scalar_value) = scalar.into_parts();
         Self::try_from_parts(
-            // TODO(aduffy): fix cloning.
-            Arc::new(dtype),
+            dtype,
             length,
             ConstantMetadata { scalar_value },
             [].into(),
@@ -53,10 +52,8 @@ impl ConstantArray {
 
     /// Returns the [`Scalar`] value of this constant array.
     pub fn scalar(&self) -> Scalar {
-        // NOTE(ngates): these clones are pretty cheap.
-        // TODO(aduffy): no they're not. fix cloning.
         Scalar::new(
-            self.dtype().as_ref().clone(),
+            Arc::clone(self.dtype()),
             self.metadata().scalar_value.clone(),
         )
     }

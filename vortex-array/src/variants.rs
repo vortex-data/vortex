@@ -198,7 +198,7 @@ pub trait StructArrayTrait: ArrayTrait {
         st.field_info(field)
     }
 
-    fn dtypes(&self) -> Vec<DType> {
+    fn dtypes(&self) -> Vec<Arc<DType>> {
         let DType::Struct(st, _) = self.dtype().as_ref() else {
             unreachable!()
         };

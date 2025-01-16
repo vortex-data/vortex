@@ -11,7 +11,8 @@ use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
-use vortex_dtype::Nullability::{NonNullable, Nullable};
+use vortex_dtype::dtypes::{DTYPE_I64_NONNULL, DTYPE_I64_NULL};
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
@@ -69,7 +70,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
         };
 
         if !array.is_valid(index) {
-            return Ok(Scalar::null(DType::Extension(Arc::clone(&ext))));
+            return Ok(Scalar::null(Arc::new(DType::Extension(Arc::clone(ext)))));
         }
 
         let divisor = match time_unit {
@@ -81,13 +82,13 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
         };
 
         let days: i64 = scalar_at(array.days(), index)?
-            .cast(&DType::Primitive(PType::I64, Nullable))?
+            .cast(&DTYPE_I64_NULL)?
             .try_into()?;
         let seconds: i64 = scalar_at(array.seconds(), index)?
-            .cast(&DType::Primitive(PType::I64, NonNullable))?
+            .cast(&DTYPE_I64_NONNULL)?
             .try_into()?;
         let subseconds: i64 = scalar_at(array.subsecond(), index)?
-            .cast(&DType::Primitive(PType::I64, NonNullable))?
+            .cast(&DTYPE_I64_NONNULL)?
             .try_into()?;
 
         let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
@@ -131,10 +132,9 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         .map_each(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
-        let seconds =
-            PrimitiveScalar::try_from(&seconds.cast(&DType::Primitive(PType::I64, NonNullable))?)?
-                .typed_value::<i64>()
-                .vortex_expect("non-nullable");
+        let seconds = PrimitiveScalar::try_from(&seconds.cast(&DTYPE_I64_NONNULL)?)?
+            .typed_value::<i64>()
+            .vortex_expect("non-nullable");
         let seconds = seconds * divisor;
         for v in values.iter_mut() {
             *v += seconds;
@@ -148,20 +148,14 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     }
 
     if let Some(subseconds) = array.subsecond().as_constant() {
-        let subseconds = PrimitiveScalar::try_from(
-            &subseconds.cast(&DType::Primitive(PType::I64, NonNullable))?,
-        )?
-        .typed_value::<i64>()
-        .vortex_expect("non-nullable");
+        let subseconds = PrimitiveScalar::try_from(&subseconds.cast(&DTYPE_I64_NONNULL)?)?
+            .typed_value::<i64>()
+            .vortex_expect("non-nullable");
         for v in values.iter_mut() {
             *v += subseconds;
         }
     } else {
-        let subsecond_buf = try_cast(
-            array.subsecond(),
-            &DType::Primitive(PType::I64, NonNullable),
-        )?
-        .into_primitive()?;
+        let subsecond_buf = try_cast(array.subsecond(), &DTYPE_I64_NONNULL)?.into_primitive()?;
         for (v, subsecond) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subsecond;
         }

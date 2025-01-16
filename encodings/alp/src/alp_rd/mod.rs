@@ -15,9 +15,9 @@ use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::{primitive_dtype, ArrayDType, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_dtype::{match_each_integer_ptype, primitive_dtype, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
 

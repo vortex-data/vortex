@@ -5,6 +5,7 @@ use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::dtypes::{primitive_dtype_ref, DTYPE_BOOL_NONNULL};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
@@ -14,7 +15,6 @@ use vortex_scalar::Scalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
-use crate::dtypes::{primitive_dtype_ref, DTYPE_BOOL_NONNULL};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
@@ -282,11 +282,11 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
 mod test {
     use rstest::{fixture, rstest};
     use vortex_buffer::Buffer;
+    use vortex_dtype::dtypes::DTYPE_STRING_NONNULL;
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
-    use crate::dtypes::DTYPE_STRING_NONNULL;
     use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData};
 

@@ -72,12 +72,12 @@ pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<C
     let builder = ParquetRecordBatchReaderBuilder::try_new(taxi_pq)?;
     // FIXME(ngates): #157 the compressor should handle batch size.
     let reader = builder.with_batch_size(BATCH_SIZE).build()?;
-    let dtype = DType::from_arrow(reader.schema());
+    let dtype = <Arc<DType>>::from_arrow(reader.schema());
     let chunks = reader
         .map(|batch_result| batch_result.unwrap())
         .map(ArrayData::try_from)
         .collect::<VortexResult<Vec<_>>>()?;
-    ChunkedArray::try_new(chunks, Arc::new(dtype))
+    ChunkedArray::try_new(chunks, dtype)
 }
 
 pub fn compress_parquet_to_vortex(parquet_path: &Path) -> VortexResult<ArrayData> {

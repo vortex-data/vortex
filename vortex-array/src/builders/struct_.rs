@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructDType};
@@ -15,7 +16,7 @@ pub struct StructBuilder {
     validity: BoolBuilder,
     struct_dtype: StructDType,
     nullability: Nullability,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl StructBuilder {
@@ -34,7 +35,7 @@ impl StructBuilder {
             validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
             struct_dtype: struct_dtype.clone(),
             nullability,
-            dtype: DType::Struct(struct_dtype, nullability),
+            dtype: Arc::new(DType::Struct(struct_dtype, nullability)),
         }
     }
 
@@ -69,7 +70,7 @@ impl ArrayBuilder for StructBuilder {
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 
@@ -117,21 +118,20 @@ impl ArrayBuilder for StructBuilder {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::PType::I32;
+    use vortex_dtype::dtypes::DTYPE_I32_NONNULL;
     use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_scalar::Scalar;
 
     use crate::builders::struct_::StructBuilder;
     use crate::builders::ArrayBuilder;
     use crate::ArrayDType;
-
     #[test]
     fn test_struct_builder() {
         let sdt = StructDType::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
-            vec![I32.into(), I32.into()],
+            vec![DTYPE_I32_NONNULL.clone(), DTYPE_I32_NONNULL.clone()],
         );
-        let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
+        let dtype = Arc::new(DType::Struct(sdt.clone(), Nullability::NonNullable));
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
 
         builder
@@ -140,6 +140,6 @@ mod tests {
 
         let struct_ = builder.finish().unwrap();
         assert_eq!(struct_.len(), 1);
-        assert_eq!(struct_.dtype().as_ref(), &dtype);
+        assert_eq!(struct_.dtype(), &dtype);
     }
 }

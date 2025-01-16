@@ -1,4 +1,5 @@
 use vortex_buffer::BufferString;
+use vortex_dtype::dtypes::{DTYPE_STRING_NONNULL, DTYPE_STRING_NULL};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
@@ -42,7 +43,10 @@ impl Scalar {
         B: TryInto<BufferString>,
     {
         Ok(Self {
-            dtype: DType::Utf8(nullability),
+            dtype: match nullability {
+                NonNullable => DTYPE_STRING_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_STRING_NULL.clone(),
+            },
             value: ScalarValue(InnerScalarValue::BufferString(str.try_into()?)),
         })
     }
@@ -52,7 +56,7 @@ impl<'a> TryFrom<&'a Scalar> for Utf8Scalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Utf8(_)) {
+        if !matches!(value.dtype().as_ref(), DType::Utf8(_)) {
             vortex_bail!("Expected utf8 scalar, found {}", value.dtype())
         }
         Ok(Self {
@@ -73,7 +77,7 @@ impl<'a> TryFrom<&'a Scalar> for String {
 impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
         Self {
-            dtype: DType::Utf8(NonNullable),
+            dtype: DTYPE_STRING_NONNULL.clone(),
             value: ScalarValue(InnerScalarValue::BufferString(value.to_string().into())),
         }
     }
@@ -82,7 +86,7 @@ impl From<&str> for Scalar {
 impl From<String> for Scalar {
     fn from(value: String) -> Self {
         Self {
-            dtype: DType::Utf8(NonNullable),
+            dtype: DTYPE_STRING_NONNULL.clone(),
             value: ScalarValue(InnerScalarValue::BufferString(value.into())),
         }
     }
@@ -91,7 +95,7 @@ impl From<String> for Scalar {
 impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
         Self {
-            dtype: DType::Utf8(NonNullable),
+            dtype: DTYPE_STRING_NONNULL.clone(),
             value: ScalarValue(InnerScalarValue::BufferString(value)),
         }
     }

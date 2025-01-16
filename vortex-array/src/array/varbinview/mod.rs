@@ -10,13 +10,13 @@ use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::DType;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
 };
 
 use crate::arrow::FromArrowArray;
-use crate::dtypes::DTYPE_BOOL_NONNULL;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};

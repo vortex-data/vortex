@@ -20,7 +20,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
     type Error = VortexError;
 
     fn try_from(value: &Scalar) -> Result<Arc<dyn Datum>, Self::Error> {
-        match value.dtype() {
+        match value.dtype().as_ref() {
             DType::Null => Ok(Arc::new(NullArray::new(1))),
             DType::Bool(_) => value_to_arrow_scalar!(value.as_bool().value(), BooleanArray),
             DType::Primitive(ptype, ..) => {

@@ -12,7 +12,7 @@ use vortex::dtype::{DType, PType};
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
-    Ok(match x.dtype() {
+    Ok(match x.dtype().as_ref() {
         DType::Null => py.None(),
         DType::Bool(_) => x.as_bool().value().into_py(py),
         DType::Primitive(ptype, ..) => {

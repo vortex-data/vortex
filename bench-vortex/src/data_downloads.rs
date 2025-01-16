@@ -44,13 +44,13 @@ pub fn data_vortex_uncompressed(fname_out: &str, downloaded_data: PathBuf) -> Pa
         let reader = builder.with_batch_size(BATCH_SIZE).build().unwrap();
 
         // TODO(ngates): create an ArrayStream from an ArrayIterator.
-        let dtype = DType::from_arrow(reader.schema());
+        let dtype = <Arc<DType>>::from_arrow(reader.schema());
         let array = ChunkedArray::try_new(
             reader
                 .into_iter()
                 .map(|batch_result| ArrayData::try_from(batch_result.unwrap()).unwrap())
                 .collect(),
-            Arc::new(dtype),
+            dtype,
         )
         .unwrap()
         .into_array();

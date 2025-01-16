@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -30,8 +32,7 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
     }
 
     if !array.is_valid(index) {
-        // TODO(aduffy): fix cloning.
-        return Ok(Scalar::null(array.dtype().as_ref().clone()));
+        return Ok(Scalar::null(Arc::clone(&array.dtype())));
     }
 
     let scalar = array
@@ -42,7 +43,7 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
 
     debug_assert_eq!(
         scalar.dtype(),
-        array.dtype().as_ref(),
+        array.dtype(),
         "ScalarAt dtype mismatch {}",
         array.encoding().id()
     );

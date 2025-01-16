@@ -6,7 +6,8 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
+    match_each_integer_ptype, match_each_unsigned_integer_ptype, primitive_dtype, NativePType,
+    Nullability,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -53,7 +54,7 @@ fn encoded_zero<T: NativePType>(
     Ok(match logical_validity {
         LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
         LogicalValidity::AllInvalid(len) => ConstantArray::new(
-            Scalar::null(DType::Primitive(encoded_ptype, nullability)),
+            Scalar::null(primitive_dtype!(encoded_ptype, nullability)),
             len,
         )
         .into_array(),
@@ -71,7 +72,7 @@ fn encoded_zero<T: NativePType>(
                 valid_indices,
                 ConstantArray::new(zero, valid_len).into_array(),
                 len,
-                Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
+                Scalar::null(primitive_dtype!(encoded_ptype, Nullability::Nullable)),
             )?
             .into_array()
         }
@@ -140,6 +141,8 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use itertools::Itertools;
     use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
@@ -192,17 +195,15 @@ mod test {
         );
         assert_eq!(
             scalar_at(&compressed, 1).unwrap(),
-            // TODO(aduffy): fix cloning
-            Scalar::null(array.dtype().as_ref().clone())
+            Scalar::null(Arc::clone(array.dtype()))
         );
 
         let sparse = SparseArray::try_from(compressed.encoded()).unwrap();
         assert!(sparse.dtype().is_unsigned_int());
         assert!(sparse.statistics().to_set().into_iter().next().is_none());
-        // TODO(aduffy): fix cloning
         assert_eq!(
             sparse.fill_scalar(),
-            Scalar::null(sparse.dtype().as_ref().clone())
+            Scalar::null(Arc::clone(sparse.dtype()))
         );
         assert_eq!(
             scalar_at(&sparse, 0).unwrap(),
@@ -210,8 +211,7 @@ mod test {
         );
         assert_eq!(
             scalar_at(&sparse, 1).unwrap(),
-            // TODO(aduffy): fix cloning
-            Scalar::null(sparse.dtype().as_ref().clone())
+            Scalar::null(Arc::clone(sparse.dtype()))
         );
     }
 

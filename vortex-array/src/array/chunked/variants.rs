@@ -76,7 +76,7 @@ impl StructArrayTrait for ChunkedArray {
 
         let projected_dtype = self.dtype().as_struct().map(|s| s.field_dtype(idx))?.ok()?;
         // TODO(aduffy): fix cloning.
-        let chunked = ChunkedArray::try_new(chunks, Arc::new(projected_dtype.clone()))
+        let chunked = ChunkedArray::try_new(chunks, projected_dtype.clone())
             .unwrap_or_else(|err| {
                 vortex_panic!(
                     err,
@@ -112,7 +112,7 @@ impl StructArrayTrait for ChunkedArray {
             )?;
         ChunkedArray::try_new(
             chunks,
-            // TODO(aduffy): fix cloning.
+            // TODO(aduffy): maybe intern the struct DTypes?
             Arc::new(DType::Struct(projected_dtype, self.dtype().nullability())),
         )
         .map(|a| a.into_array())

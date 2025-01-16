@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -32,8 +34,7 @@ impl ComputeVTable for StructEncoding {
 impl ScalarAtFn<StructArray> for StructEncoding {
     fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::struct_(
-            // TODO(aduffy): fix clone
-            array.dtype().as_ref().clone(),
+            Arc::clone(array.dtype()),
             array
                 .children()
                 .map(|field| scalar_at(&field, index))

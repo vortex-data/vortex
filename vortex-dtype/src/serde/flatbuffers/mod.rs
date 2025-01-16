@@ -316,6 +316,7 @@ mod test {
     use flatbuffers::root;
     use vortex_flatbuffers::{FlatBuffer, WriteFlatBufferExt};
 
+    use crate::dtypes::{DTYPE_STRING_NONNULL, DTYPE_U16_NULL};
     use crate::nullability::Nullability;
     use crate::serde::flatbuffers::ViewedDType;
     use crate::{flatbuffers as fb, DType, PType, StructDType};
@@ -353,10 +354,7 @@ mod test {
         roundtrip_dtype(DType::Struct(
             StructDType::new(
                 ["strings".into(), "ints".into()].into(),
-                vec![
-                    DType::Utf8(Nullability::NonNullable),
-                    DType::Primitive(PType::U16, Nullability::Nullable),
-                ],
+                vec![DTYPE_STRING_NONNULL.clone(), DTYPE_U16_NULL.clone()],
             ),
             Nullability::NonNullable,
         ))

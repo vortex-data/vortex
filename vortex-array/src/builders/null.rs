@@ -1,5 +1,7 @@
 use std::any::Any;
+use std::sync::Arc;
 
+use vortex_dtype::dtypes::DTYPE_NULL;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -32,8 +34,8 @@ impl ArrayBuilder for NullBuilder {
         self
     }
 
-    fn dtype(&self) -> &DType {
-        &DType::Null
+    fn dtype(&self) -> &Arc<DType> {
+        &DTYPE_NULL
     }
 
     fn len(&self) -> usize {

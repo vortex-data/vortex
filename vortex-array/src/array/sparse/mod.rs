@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -77,7 +78,7 @@ impl SparseArray {
         indices_offset: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
-        if fill_value.dtype() != patches.values().dtype().as_ref() {
+        if fill_value.dtype() != patches.values().dtype() {
             vortex_bail!(
                 "fill value, {:?}, should be instance of values dtype, {}",
                 fill_value,
@@ -132,11 +133,7 @@ impl SparseArray {
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        // TODO(aduffy): fix clone
-        Scalar::new(
-            self.dtype().as_ref().clone(),
-            self.metadata().fill_value.clone(),
-        )
+        Scalar::new(Arc::clone(self.dtype()), self.metadata().fill_value.clone())
     }
 }
 
@@ -215,8 +212,8 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
 mod test {
     use itertools::Itertools;
     use vortex_buffer::buffer;
+    use vortex_dtype::dtypes::{DTYPE_I32_NULL, DTYPE_U32_NULL};
     use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, PType};
     use vortex_error::VortexError;
     use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -227,7 +224,7 @@ mod test {
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn nullable_fill() -> Scalar {
-        Scalar::null(DType::Primitive(PType::I32, Nullable))
+        Scalar::null(DTYPE_I32_NULL.clone())
     }
 
     fn non_nullable_fill() -> Scalar {
@@ -267,7 +264,7 @@ mod test {
             ConstantArray::new(10u32, 1).into_array(),
             ConstantArray::new(Scalar::primitive(1234u32, Nullable), 1).into_array(),
             100,
-            Scalar::null(DType::Primitive(PType::U32, Nullable)),
+            Scalar::null(DTYPE_U32_NULL.clone()),
         )
         .unwrap();
 

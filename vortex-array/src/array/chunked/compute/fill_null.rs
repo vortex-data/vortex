@@ -24,11 +24,11 @@ impl FillNullFn<ChunkedArray> for ChunkedEncoding {
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
+    use vortex_dtype::dtypes::{DTYPE_BOOL_NONNULL, DTYPE_BOOL_NULL};
     use vortex_dtype::Nullability;
 
     use crate::array::{BoolArray, ChunkedArray};
     use crate::compute::fill_null;
-    use crate::dtypes::{DTYPE_BOOL_NONNULL, DTYPE_BOOL_NULL};
     use crate::validity::Validity;
     use crate::{ArrayDType, IntoArrayData};
 

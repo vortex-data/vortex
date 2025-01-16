@@ -2,44 +2,45 @@
 
 use std::sync::Arc;
 
-use datafusion_common::ScalarValue;
+use datafusion_common::ScalarValue as DFScalarValue;
 use vortex_buffer::ByteBuffer;
 use vortex_datetime_dtype::arrow::make_temporal_ext_dtype;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
+use vortex_dtype::dtypes::DTYPE_NULL;
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexError;
 
 use crate::{InnerScalarValue, PValue, Scalar};
 
-impl TryFrom<Scalar> for ScalarValue {
+impl TryFrom<Scalar> for DFScalarValue {
     type Error = VortexError;
 
     fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Ok(match scalar.dtype() {
-            DType::Null => ScalarValue::Null,
-            DType::Bool(_) => ScalarValue::Boolean(scalar.as_bool().value()),
+        Ok(match scalar.dtype().as_ref() {
+            DType::Null => DFScalarValue::Null,
+            DType::Bool(_) => DFScalarValue::Boolean(scalar.as_bool().value()),
             DType::Primitive(ptype, _) => {
                 let pscalar = scalar.as_primitive();
                 match ptype {
-                    PType::U8 => ScalarValue::UInt8(pscalar.typed_value::<u8>()),
-                    PType::U16 => ScalarValue::UInt16(pscalar.typed_value::<u16>()),
-                    PType::U32 => ScalarValue::UInt32(pscalar.typed_value::<u32>()),
-                    PType::U64 => ScalarValue::UInt64(pscalar.typed_value::<u64>()),
-                    PType::I8 => ScalarValue::Int8(pscalar.typed_value::<i8>()),
-                    PType::I16 => ScalarValue::Int16(pscalar.typed_value::<i16>()),
-                    PType::I32 => ScalarValue::Int32(pscalar.typed_value::<i32>()),
-                    PType::I64 => ScalarValue::Int64(pscalar.typed_value::<i64>()),
-                    PType::F16 => ScalarValue::Float16(pscalar.typed_value::<f16>()),
-                    PType::F32 => ScalarValue::Float32(pscalar.typed_value::<f32>()),
-                    PType::F64 => ScalarValue::Float64(pscalar.typed_value::<f64>()),
+                    PType::U8 => DFScalarValue::UInt8(pscalar.typed_value::<u8>()),
+                    PType::U16 => DFScalarValue::UInt16(pscalar.typed_value::<u16>()),
+                    PType::U32 => DFScalarValue::UInt32(pscalar.typed_value::<u32>()),
+                    PType::U64 => DFScalarValue::UInt64(pscalar.typed_value::<u64>()),
+                    PType::I8 => DFScalarValue::Int8(pscalar.typed_value::<i8>()),
+                    PType::I16 => DFScalarValue::Int16(pscalar.typed_value::<i16>()),
+                    PType::I32 => DFScalarValue::Int32(pscalar.typed_value::<i32>()),
+                    PType::I64 => DFScalarValue::Int64(pscalar.typed_value::<i64>()),
+                    PType::F16 => DFScalarValue::Float16(pscalar.typed_value::<f16>()),
+                    PType::F32 => DFScalarValue::Float32(pscalar.typed_value::<f32>()),
+                    PType::F64 => DFScalarValue::Float64(pscalar.typed_value::<f64>()),
                 }
             }
             DType::Utf8(_) => {
-                ScalarValue::Utf8(scalar.as_utf8().value().map(|s| s.as_str().to_string()))
+                DFScalarValue::Utf8(scalar.as_utf8().value().map(|s| s.as_str().to_string()))
             }
             DType::Binary(_) => {
-                ScalarValue::Binary(scalar.as_binary().value().map(|b| b.as_slice().to_vec()))
+                DFScalarValue::Binary(scalar.as_binary().value().map(|b| b.as_slice().to_vec()))
             }
             DType::Struct(..) => {
                 todo!("struct scalar conversion")
@@ -57,35 +58,36 @@ impl TryFrom<Scalar> for ScalarValue {
                     let pv = storage_scalar.as_primitive();
                     return Ok(match metadata {
                         TemporalMetadata::Time(u) => match u {
-                            TimeUnit::Ns => ScalarValue::Time64Nanosecond(pv.as_::<i64>()?),
-                            TimeUnit::Us => ScalarValue::Time64Microsecond(pv.as_::<i64>()?),
-                            TimeUnit::Ms => ScalarValue::Time32Millisecond(pv.as_::<i32>()?),
-                            TimeUnit::S => ScalarValue::Time32Second(pv.as_::<i32>()?),
+                            TimeUnit::Ns => DFScalarValue::Time64Nanosecond(pv.as_::<i64>()?),
+                            TimeUnit::Us => DFScalarValue::Time64Microsecond(pv.as_::<i64>()?),
+                            TimeUnit::Ms => DFScalarValue::Time32Millisecond(pv.as_::<i32>()?),
+                            TimeUnit::S => DFScalarValue::Time32Second(pv.as_::<i32>()?),
                             TimeUnit::D => {
                                 unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },
                         TemporalMetadata::Date(u) => match u {
-                            TimeUnit::Ms => ScalarValue::Date64(pv.as_::<i64>()?),
-                            TimeUnit::D => ScalarValue::Date32(pv.as_::<i32>()?),
+                            TimeUnit::Ms => DFScalarValue::Date64(pv.as_::<i64>()?),
+                            TimeUnit::D => DFScalarValue::Date32(pv.as_::<i32>()?),
                             _ => unreachable!("Unsupported TimeUnit {u} for {}", ext.id()),
                         },
                         TemporalMetadata::Timestamp(u, tz) => match u {
-                            TimeUnit::Ns => ScalarValue::TimestampNanosecond(
+                            TimeUnit::Ns => DFScalarValue::TimestampNanosecond(
                                 pv.as_::<i64>()?,
                                 tz.map(|t| t.into()),
                             ),
-                            TimeUnit::Us => ScalarValue::TimestampMicrosecond(
+                            TimeUnit::Us => DFScalarValue::TimestampMicrosecond(
                                 pv.as_::<i64>()?,
                                 tz.map(|t| t.into()),
                             ),
-                            TimeUnit::Ms => ScalarValue::TimestampMillisecond(
+                            TimeUnit::Ms => DFScalarValue::TimestampMillisecond(
                                 pv.as_::<i64>()?,
                                 tz.map(|t| t.into()),
                             ),
-                            TimeUnit::S => {
-                                ScalarValue::TimestampSecond(pv.as_::<i64>()?, tz.map(|t| t.into()))
-                            }
+                            TimeUnit::S => DFScalarValue::TimestampSecond(
+                                pv.as_::<i64>()?,
+                                tz.map(|t| t.into()),
+                            ),
                             TimeUnit::D => {
                                 unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
@@ -94,63 +96,65 @@ impl TryFrom<Scalar> for ScalarValue {
                 } else {
                     // Unknown extension type: perform scalar conversion using the canonical
                     // scalar DType.
-                    ScalarValue::try_from(storage_scalar)?
+                    DFScalarValue::try_from(storage_scalar)?
                 }
             }
         })
     }
 }
 
-impl From<ScalarValue> for Scalar {
-    fn from(value: ScalarValue) -> Scalar {
+impl From<DFScalarValue> for Scalar {
+    fn from(value: DFScalarValue) -> Scalar {
         match value {
-            ScalarValue::Null => Some(Scalar::null(DType::Null)),
-            ScalarValue::Boolean(b) => b.map(Scalar::from),
-            ScalarValue::Float16(f) => f.map(Scalar::from),
-            ScalarValue::Float32(f) => f.map(Scalar::from),
-            ScalarValue::Float64(f) => f.map(Scalar::from),
-            ScalarValue::Int8(i) => i.map(Scalar::from),
-            ScalarValue::Int16(i) => i.map(Scalar::from),
-            ScalarValue::Int32(i) => i.map(Scalar::from),
-            ScalarValue::Int64(i) => i.map(Scalar::from),
-            ScalarValue::UInt8(i) => i.map(Scalar::from),
-            ScalarValue::UInt16(i) => i.map(Scalar::from),
-            ScalarValue::UInt32(i) => i.map(Scalar::from),
-            ScalarValue::UInt64(i) => i.map(Scalar::from),
-            ScalarValue::Utf8(s) | ScalarValue::Utf8View(s) | ScalarValue::LargeUtf8(s) => {
+            DFScalarValue::Null => None,
+            DFScalarValue::Boolean(b) => b.map(Scalar::from),
+            DFScalarValue::Float16(f) => f.map(Scalar::from),
+            DFScalarValue::Float32(f) => f.map(Scalar::from),
+            DFScalarValue::Float64(f) => f.map(Scalar::from),
+            DFScalarValue::Int8(i) => i.map(Scalar::from),
+            DFScalarValue::Int16(i) => i.map(Scalar::from),
+            DFScalarValue::Int32(i) => i.map(Scalar::from),
+            DFScalarValue::Int64(i) => i.map(Scalar::from),
+            DFScalarValue::UInt8(i) => i.map(Scalar::from),
+            DFScalarValue::UInt16(i) => i.map(Scalar::from),
+            DFScalarValue::UInt32(i) => i.map(Scalar::from),
+            DFScalarValue::UInt64(i) => i.map(Scalar::from),
+            DFScalarValue::Utf8(s) | DFScalarValue::Utf8View(s) | DFScalarValue::LargeUtf8(s) => {
                 s.as_ref().map(|s| Scalar::from(s.as_str()))
             }
-            ScalarValue::Binary(b)
-            | ScalarValue::BinaryView(b)
-            | ScalarValue::LargeBinary(b)
-            | ScalarValue::FixedSizeBinary(_, b) => b
+            DFScalarValue::Binary(b)
+            | DFScalarValue::BinaryView(b)
+            | DFScalarValue::LargeBinary(b)
+            | DFScalarValue::FixedSizeBinary(_, b) => b
                 .as_ref()
                 .map(|b| Scalar::binary(ByteBuffer::from(b.clone()), Nullability::Nullable)),
-            ScalarValue::Date32(v)
-            | ScalarValue::Time32Second(v)
-            | ScalarValue::Time32Millisecond(v) => v.map(|i| {
+            DFScalarValue::Date32(v)
+            | DFScalarValue::Time32Second(v)
+            | DFScalarValue::Time32Millisecond(v) => v.map(|i| {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type())
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
-                    DType::Extension(Arc::new(ext_dtype)),
+                    Arc::new(DType::Extension(Arc::new(ext_dtype))),
                     crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i))),
                 )
             }),
-            ScalarValue::Date64(v)
-            | ScalarValue::Time64Microsecond(v)
-            | ScalarValue::Time64Nanosecond(v)
-            | ScalarValue::TimestampSecond(v, _)
-            | ScalarValue::TimestampMillisecond(v, _)
-            | ScalarValue::TimestampMicrosecond(v, _)
-            | ScalarValue::TimestampNanosecond(v, _) => v.map(|i| {
+            DFScalarValue::Date64(v)
+            | DFScalarValue::Time64Microsecond(v)
+            | DFScalarValue::Time64Nanosecond(v)
+            | DFScalarValue::TimestampSecond(v, _)
+            | DFScalarValue::TimestampMillisecond(v, _)
+            | DFScalarValue::TimestampMicrosecond(v, _)
+            | DFScalarValue::TimestampNanosecond(v, _) => v.map(|i| {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
-                    DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
+                    Arc::new(DType::Extension(Arc::new(
+                        ext_dtype.with_nullability(Nullability::Nullable),
+                    ))),
                     crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i))),
                 )
             }),
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
         }
-        .unwrap_or_else(|| Scalar::null(DType::Null))
+        .unwrap_or_else(|| Scalar::null(DTYPE_NULL.clone()))
     }
 }

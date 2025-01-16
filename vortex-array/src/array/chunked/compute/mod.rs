@@ -78,11 +78,11 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::{primitive_dtype, Nullability, PType};
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::try_cast;
-    use crate::{primitive_dtype, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {

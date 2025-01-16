@@ -5,7 +5,6 @@ use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
@@ -16,6 +15,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 

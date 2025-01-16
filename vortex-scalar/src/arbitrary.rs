@@ -1,4 +1,5 @@
 use std::iter;
+use std::sync::Arc;
 
 use arbitrary::{Result, Unstructured};
 use vortex_buffer::{BufferString, ByteBuffer};
@@ -7,8 +8,11 @@ use vortex_dtype::{DType, PType};
 
 use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
-pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
-    Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
+pub fn random_scalar(u: &mut Unstructured, dtype: &Arc<DType>) -> Result<Scalar> {
+    Ok(Scalar::new(
+        dtype.clone(),
+        random_scalar_value(u, &dtype.as_ref())?,
+    ))
 }
 
 fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValue> {

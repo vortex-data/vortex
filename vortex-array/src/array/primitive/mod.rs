@@ -6,10 +6,10 @@ mod accessor;
 use arrow_buffer::BooleanBufferBuilder;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
+use vortex_dtype::dtypes::{primitive_dtype, DTYPE_BOOL_NONNULL};
 use vortex_dtype::{match_each_native_ptype, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::dtypes::{primitive_dtype, DTYPE_BOOL_NONNULL};
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;

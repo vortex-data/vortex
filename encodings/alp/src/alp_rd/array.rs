@@ -9,10 +9,9 @@ use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{primitive_dtype_ref, DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::alp_rd::alp_rd_decode;

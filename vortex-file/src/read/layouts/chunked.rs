@@ -142,7 +142,11 @@ impl ChunkedLayoutBuilder<'_> {
 }
 
 fn stats_table_dtype(stats: &[Stat], dtype: &DType) -> DType {
-    let dtypes = stats.iter().map(|s| s.dtype(dtype).as_nullable()).collect();
+    // TODO(aduffy): remove the extra Arc::new wrapping.
+    let dtypes = stats
+        .iter()
+        .map(|s| Arc::new(s.dtype(dtype).as_nullable()))
+        .collect();
     let struct_dtype = StructDType::new(stats.iter().map(|s| s.name().into()).collect(), dtypes);
     DType::Struct(struct_dtype, Nullability::NonNullable)
 }

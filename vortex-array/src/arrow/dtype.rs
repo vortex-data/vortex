@@ -16,7 +16,8 @@ use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, Sch
 use itertools::Itertools;
 use vortex_datetime_dtype::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use vortex_datetime_dtype::is_temporal_ext_type;
-use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_dtype::dtypes::*;
+use vortex_dtype::{primitive_dtype, DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::arrow::{FromArrowType, TryFromArrowType};
@@ -43,9 +44,9 @@ impl TryFromArrowType<&DataType> for PType {
     }
 }
 
-impl FromArrowType<SchemaRef> for DType {
+impl FromArrowType<SchemaRef> for Arc<DType> {
     fn from_arrow(value: SchemaRef) -> Self {
-        Self::Struct(
+        Arc::new(DType::Struct(
             StructDType::new(
                 value
                     .fields()
@@ -59,42 +60,49 @@ impl FromArrowType<SchemaRef> for DType {
                     .collect_vec(),
             ),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
-        )
+        ))
     }
 }
 
-impl FromArrowType<&Field> for DType {
+impl FromArrowType<&Field> for Arc<DType> {
     fn from_arrow(field: &Field) -> Self {
         use vortex_dtype::DType::*;
 
         let nullability: Nullability = field.is_nullable().into();
 
         if let Ok(ptype) = PType::try_from_arrow(field.data_type()) {
-            return Primitive(ptype, nullability);
+            return primitive_dtype!(ptype, nullability);
         }
 
         match field.data_type() {
-            DataType::Null => Null,
-            DataType::Boolean => Bool(nullability),
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Utf8(nullability),
-            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => Binary(nullability),
+            DataType::Null => DTYPE_NULL.clone(),
+            DataType::Boolean => bool_dtype!(nullability),
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => match nullability {
+                Nullability::NonNullable => DTYPE_STRING_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_STRING_NULL.clone(),
+            },
+            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => match nullability {
+                Nullability::NonNullable => DTYPE_BINARY_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_BINARY_NULL.clone(),
+            },
+            // TODO(aduffy): pre-create the Arc<DType> for all of the temporal types.
             DataType::Date32
             | DataType::Date64
             | DataType::Time32(_)
             | DataType::Time64(_)
-            | DataType::Timestamp(..) => Extension(Arc::new(
+            | DataType::Timestamp(..) => Arc::new(Extension(Arc::new(
                 make_temporal_ext_dtype(field.data_type()).with_nullability(nullability),
-            )),
+            ))),
             DataType::List(e) | DataType::LargeList(e) => {
-                List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
+                Arc::new(List(Self::from_arrow(e.as_ref()), nullability))
             }
-            DataType::Struct(f) => Struct(
+            DataType::Struct(f) => Arc::new(Struct(
                 StructDType::new(
                     f.iter().map(|f| f.name().as_str().into()).collect(),
                     f.iter().map(|f| Self::from_arrow(f.as_ref())).collect_vec(),
                 ),
                 nullability,
-            ),
+            )),
             _ => unimplemented!("Arrow data type not yet supported: {:?}", field.data_type()),
         }
     }
@@ -209,7 +217,7 @@ mod test {
             infer_data_type(&DType::Struct(
                 StructDType::new(
                     FieldNames::from(vec![FieldName::from("field_a"), FieldName::from("field_b")]),
-                    vec![DType::Bool(false.into()), DType::Utf8(true.into())],
+                    vec![DTYPE_BOOL_NONNULL.clone(), DTYPE_STRING_NULL.clone()],
                 ),
                 Nullability::NonNullable,
             ))
@@ -263,9 +271,9 @@ mod test {
                 FieldName::from("field_c"),
             ]),
             vec![
-                DType::Bool(Nullability::NonNullable),
-                DType::Utf8(Nullability::NonNullable),
-                DType::Primitive(PType::I32, Nullability::Nullable),
+                DTYPE_BOOL_NONNULL.clone(),
+                DTYPE_STRING_NONNULL.clone(),
+                DTYPE_I32_NULL.clone(),
             ],
         )
     }

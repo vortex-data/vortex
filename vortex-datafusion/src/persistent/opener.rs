@@ -38,7 +38,7 @@ impl VortexFileOpener {
         arrow_schema: SchemaRef,
         file_layout_cache: FileLayoutCache,
     ) -> VortexResult<Self> {
-        let dtype = DType::from_arrow(arrow_schema);
+        let dtype = <Arc<DType>>::from_arrow(arrow_schema);
         let filter = predicate
             .as_ref()
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
@@ -51,7 +51,8 @@ impl VortexFileOpener {
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
                     .fold(lit(true), and);
 
-                simplify_typed(expr, dtype)
+                // TODO(aduffy): eliminate the clone
+                simplify_typed(expr, dtype.as_ref().clone())
             })
             .transpose()?;
 

@@ -2,8 +2,8 @@ use std::ops::BitAnd;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
+use vortex_scalar::DTYPE_BOOL_NULL;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::nbytes::ArrayNBytes;
@@ -73,10 +73,7 @@ impl StatisticsVTable<NullableBools<'_>> for BoolEncoding {
                 .for_each(|next| acc.nullable_next(next));
             Ok(acc.finish())
         } else {
-            Ok(StatsSet::nulls(
-                array.0.len(),
-                &DType::Bool(Nullability::Nullable),
-            ))
+            Ok(StatsSet::nulls(array.0.len(), &DTYPE_BOOL_NULL))
         }
     }
 }
@@ -169,9 +166,8 @@ impl BoolStatsAccumulator {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, Nullability};
-    use vortex_scalar::Scalar;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::{Scalar, DTYPE_BOOL_NULL};
 
     use crate::array::BoolArray;
     use crate::stats::{ArrayStatistics, Stat};
@@ -280,11 +276,11 @@ mod test {
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
         assert_eq!(
             bool_arr.statistics().compute(Stat::Min).unwrap(),
-            Scalar::null(DType::Bool(Nullable))
+            Scalar::null(DTYPE_BOOL_NULL.clone())
         );
         assert_eq!(
             bool_arr.statistics().compute(Stat::Max).unwrap(),
-            Scalar::null(DType::Bool(Nullable))
+            Scalar::null(DTYPE_BOOL_NULL.clone())
         );
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);

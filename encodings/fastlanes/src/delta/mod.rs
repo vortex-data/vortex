@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -14,6 +13,7 @@ use vortex_array::{
     IntoCanonical,
 };
 use vortex_buffer::Buffer;
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 

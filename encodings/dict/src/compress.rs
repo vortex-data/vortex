@@ -201,8 +201,8 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::scalar_at;
+    use vortex_dtype::dtypes::DTYPE_I32_NULL;
     use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, PType};
     use vortex_scalar::Scalar;
 
     use crate::compress::{dict_encode_typed_primitive, dict_encode_varbin};
@@ -231,7 +231,7 @@ mod test {
         assert_eq!(codes.as_slice::<u64>(), &[1, 1, 0, 2, 2, 0, 2, 0]);
         assert_eq!(
             scalar_at(&values, 0).unwrap(),
-            Scalar::null(DType::Primitive(PType::I32, Nullable))
+            Scalar::null(DTYPE_I32_NULL.clone())
         );
         assert_eq!(
             scalar_at(&values, 1).unwrap(),

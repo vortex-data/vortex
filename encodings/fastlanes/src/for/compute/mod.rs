@@ -1,6 +1,7 @@
 mod compare;
 
 use std::ops::AddAssign;
+use std::sync::Arc;
 
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::{
@@ -81,8 +82,7 @@ impl ScalarAtFn<FoRArray> for FoREncoding {
                              .typed_value::<$P>()
                              .vortex_expect("FoRArray Reference value cannot be null")))
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
-                // TODO(aduffy): fix cloning
-                .unwrap_or_else(|| Scalar::null(array.dtype().as_ref().clone()))
+                .unwrap_or_else(|| Scalar::null(Arc::clone(array.dtype())))
         }))
     }
 }

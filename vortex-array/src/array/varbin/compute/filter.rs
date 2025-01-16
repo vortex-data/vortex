@@ -177,6 +177,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
 #[cfg(test)]
 mod test {
     use vortex_buffer::ByteBuffer;
+    use vortex_dtype::dtypes::DTYPE_STRING_NULL;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
@@ -188,7 +189,6 @@ mod test {
     use crate::array::varbin::VarBinArray;
     use crate::array::BoolArray;
     use crate::compute::{scalar_at, FilterMask};
-    use crate::dtypes::DTYPE_STRING_NULL;
     use crate::validity::Validity;
     use crate::ToArrayData;
 
@@ -266,7 +266,7 @@ mod test {
             .unwrap()
             .to_array();
 
-        let null = Scalar::null(DType::Utf8(Nullable));
+        let null = Scalar::null(DTYPE_STRING_NULL.clone());
         assert_eq!(buf.len(), 5);
 
         assert_eq!(scalar_at(&buf, 0).unwrap(), nullable_scalar_str("one"));

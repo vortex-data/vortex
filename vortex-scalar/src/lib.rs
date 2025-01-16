@@ -47,17 +47,17 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
-    dtype: DType,
+    dtype: Arc<DType>,
     value: ScalarValue,
 }
 
 impl Scalar {
-    pub fn new(dtype: DType, value: ScalarValue) -> Self {
+    pub fn new(dtype: Arc<DType>, value: ScalarValue) -> Self {
         Self { dtype, value }
     }
 
     #[inline]
-    pub fn dtype(&self) -> &DType {
+    pub fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 
@@ -68,7 +68,7 @@ impl Scalar {
     }
 
     #[inline]
-    pub fn into_parts(self) -> (DType, ScalarValue) {
+    pub fn into_parts(self) -> (Arc<DType>, ScalarValue) {
         (self.dtype, self.value)
     }
 
@@ -85,7 +85,7 @@ impl Scalar {
         self.value.is_null()
     }
 
-    pub fn null(dtype: DType) -> Self {
+    pub fn null(dtype: Arc<DType>) -> Self {
         assert!(dtype.is_nullable());
         Self {
             dtype,
@@ -93,14 +93,16 @@ impl Scalar {
         }
     }
 
+    // If we don't need to build a new one, we can return the existing, one.
     pub fn null_typed<T: ScalarType>() -> Self {
         Self {
-            dtype: T::dtype().as_nullable(),
+            // TODO(aduffy): fix extra allocation
+            dtype: Arc::new(T::dtype().as_nullable()),
             value: ScalarValue(InnerScalarValue::Null),
         }
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Self> {
+    pub fn cast(&self, dtype: &Arc<DType>) -> VortexResult<Self> {
         if self.is_null() && !dtype.is_nullable() {
             vortex_bail!("Can't cast null scalar to non-nullable type")
         }
@@ -112,7 +114,7 @@ impl Scalar {
             });
         }
 
-        match dtype {
+        match dtype.as_ref() {
             DType::Null => vortex_bail!("Can't cast non-null to null"),
             DType::Bool(_) => BoolScalar::try_from(self).and_then(|s| s.cast(dtype)),
             DType::Primitive(..) => PrimitiveScalar::try_from(self).and_then(|s| s.cast(dtype)),
@@ -136,12 +138,12 @@ impl Scalar {
         }
     }
 
-    pub fn into_nullable(self) -> Self {
-        Self {
-            dtype: self.dtype.as_nullable(),
-            value: self.value,
-        }
-    }
+    // pub fn into_nullable(self) -> Self {
+    //     Self {
+    //         dtype: self.dtype.as_nullable(),
+    //         value: self.value,
+    //     }
+    // }
 }
 
 impl Scalar {
@@ -150,7 +152,7 @@ impl Scalar {
     }
 
     pub fn as_bool_opt(&self) -> Option<BoolScalar> {
-        matches!(self.dtype, DType::Bool(..)).then(|| self.as_bool())
+        matches!(self.dtype.as_ref(), DType::Bool(..)).then(|| self.as_bool())
     }
 
     pub fn as_primitive(&self) -> PrimitiveScalar {
@@ -158,7 +160,7 @@ impl Scalar {
     }
 
     pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar> {
-        matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
+        matches!(self.dtype.as_ref(), DType::Primitive(..)).then(|| self.as_primitive())
     }
 
     pub fn as_utf8(&self) -> Utf8Scalar {
@@ -166,7 +168,7 @@ impl Scalar {
     }
 
     pub fn as_utf8_opt(&self) -> Option<Utf8Scalar> {
-        matches!(self.dtype, DType::Utf8(..)).then(|| self.as_utf8())
+        matches!(self.dtype.as_ref(), DType::Utf8(..)).then(|| self.as_utf8())
     }
 
     pub fn as_binary(&self) -> BinaryScalar {
@@ -174,7 +176,7 @@ impl Scalar {
     }
 
     pub fn as_binary_opt(&self) -> Option<BinaryScalar> {
-        matches!(self.dtype, DType::Binary(..)).then(|| self.as_binary())
+        matches!(self.dtype.as_ref(), DType::Binary(..)).then(|| self.as_binary())
     }
 
     pub fn as_struct(&self) -> StructScalar {
@@ -182,7 +184,7 @@ impl Scalar {
     }
 
     pub fn as_struct_opt(&self) -> Option<StructScalar> {
-        matches!(self.dtype, DType::Struct(..)).then(|| self.as_struct())
+        matches!(self.dtype.as_ref(), DType::Struct(..)).then(|| self.as_struct())
     }
 
     pub fn as_list(&self) -> ListScalar {
@@ -190,7 +192,7 @@ impl Scalar {
     }
 
     pub fn as_list_opt(&self) -> Option<ListScalar> {
-        matches!(self.dtype, DType::List(..)).then(|| self.as_list())
+        matches!(self.dtype.as_ref(), DType::List(..)).then(|| self.as_list())
     }
 
     pub fn as_extension(&self) -> ExtScalar {
@@ -198,7 +200,7 @@ impl Scalar {
     }
 
     pub fn as_extension_opt(&self) -> Option<ExtScalar> {
-        matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
+        matches!(self.dtype.as_ref(), DType::Extension(..)).then(|| self.as_extension())
     }
 }
 
@@ -214,7 +216,7 @@ impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // We check for DType equality, ignoring nullability, and allowing us to compare all
         // primitive types to all other primitive types.
-        if discriminant(self.dtype()) == discriminant(other.dtype()) {
+        if discriminant(self.dtype().as_ref()) == discriminant(other.dtype().as_ref()) {
             self.value.0.partial_cmp(&other.value.0)
         } else {
             None
@@ -224,7 +226,7 @@ impl PartialOrd for Scalar {
 
 impl Hash for Scalar {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        discriminant(self.dtype()).hash(state);
+        discriminant(self.dtype().as_ref()).hash(state);
         self.value.0.hash(state);
     }
 }
@@ -243,11 +245,14 @@ where
     fn from(value: Option<T>) -> Self {
         value
             .map(Scalar::from)
-            .map(|x| x.into_nullable())
-            .unwrap_or_else(|| Scalar {
-                dtype: T::dtype().as_nullable(),
-                value: ScalarValue(InnerScalarValue::Null),
+            .map(|x| {
+                let (dtype, value) = x.into_parts();
+                let dtype = dtype.as_nullable();
+                // TODO(aduffy): fix extra allocation
+                Scalar::new(Arc::new(dtype), value)
             })
+            // TODO(aduffy): fix extra allocation
+            .unwrap_or_else(|| Scalar::null(Arc::new(T::dtype().as_nullable())))
     }
 }
 
@@ -267,7 +272,10 @@ macro_rules! from_vec_for_scalar {
         impl From<Vec<$T>> for Scalar {
             fn from(value: Vec<$T>) -> Self {
                 Scalar {
-                    dtype: DType::List(Arc::from(<$T>::dtype()), Nullability::NonNullable),
+                    dtype: std::sync::Arc::new(DType::List(
+                        Arc::from(<$T>::dtype()),
+                        Nullability::NonNullable,
+                    )),
                     value: ScalarValue(InnerScalarValue::List(
                         value
                             .into_iter()

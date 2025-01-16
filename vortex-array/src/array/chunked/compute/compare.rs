@@ -1,9 +1,9 @@
+use vortex_dtype::dtypes::bool_dtype;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{compare, slice, CompareFn, Operator};
-use crate::dtypes::bool_dtype;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl CompareFn<ChunkedArray> for ChunkedEncoding {
@@ -35,7 +35,6 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::array::PrimitiveArray;
 

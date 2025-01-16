@@ -99,7 +99,7 @@ impl ColumnarLayoutBuilder<'_> {
                 child_path,
                 child_layout,
                 Scan::from(projected_expr),
-                Arc::new(child_dtype.value()?),
+                child_dtype.value()?,
             )?;
 
             if handled {

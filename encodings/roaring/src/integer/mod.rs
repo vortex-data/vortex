@@ -12,12 +12,12 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, primitive_dtype, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical,
-    IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoCanonical,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::PType;
+use vortex_dtype::{primitive_dtype, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 mod compress;

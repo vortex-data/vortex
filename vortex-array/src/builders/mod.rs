@@ -8,6 +8,7 @@ mod struct_;
 mod utf8;
 
 use std::any::Any;
+use std::sync::Arc;
 
 pub use binary::*;
 pub use bool::*;
@@ -31,7 +32,7 @@ pub trait ArrayBuilder: Send {
 
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    fn dtype(&self) -> &DType;
+    fn dtype(&self) -> &Arc<DType>;
 
     fn len(&self) -> usize;
 
@@ -95,7 +96,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 scalar.dtype()
             )
         }
-        match scalar.dtype() {
+        match scalar.dtype().as_ref() {
             DType::Null => self
                 .as_any_mut()
                 .downcast_mut::<NullBuilder>()

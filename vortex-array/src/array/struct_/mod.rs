@@ -2,10 +2,10 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use vortex_dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::dtypes::DTYPE_BOOL_NONNULL;
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -69,8 +69,7 @@ impl StructArray {
             }
         }
 
-        // TODO(aduffy): fix clones.
-        let field_dtypes: Vec<DType> = fields.iter().map(|d| d.dtype().as_ref()).cloned().collect();
+        let field_dtypes: Vec<Arc<DType>> = fields.iter().map(|d| Arc::clone(d.dtype())).collect();
 
         let validity_metadata = validity.to_metadata(length)?;
 
@@ -159,13 +158,10 @@ impl StructArrayTrait for StructArray {
                     self.as_ref()
                         .child(
                             idx,
-                            // TODO(aduffy): fix clones.
-                            &Arc::new(
-                                field_info
-                                    .dtype
-                                    .value()
-                                    .vortex_expect("FieldInfo could not access dtype"),
-                            ),
+                            &field_info
+                                .dtype
+                                .value()
+                                .vortex_expect("FieldInfo could not access dtype"),
                             self.len(),
                         )
                         .unwrap_or_else(|e| {

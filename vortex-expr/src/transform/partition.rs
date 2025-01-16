@@ -299,6 +299,8 @@ impl FolderMut for ScopeStepIntoFieldExpr {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructDType};
@@ -312,15 +314,15 @@ mod tests {
         StructDType::new(
             vec!["a".into(), "b".into(), "c".into()].into(),
             vec![
-                DType::Struct(
+                Arc::new(DType::Struct(
                     StructDType::new(
                         vec!["a".into(), "b".into()].into(),
-                        vec![I32.into(), I32.into()],
+                        vec![Arc::new(I32.into()), Arc::new(I32.into())],
                     ),
                     NonNullable,
-                ),
-                I32.into(),
-                I32.into(),
+                )),
+                Arc::new(I32.into()),
+                Arc::new(I32.into()),
             ],
         )
     }

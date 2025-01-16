@@ -29,7 +29,7 @@ pub fn extract_field(
     fb_dtype: fb::DType<'_>,
     field: &Field,
     buffer: &FlatBuffer,
-) -> VortexResult<DType> {
+) -> VortexResult<Arc<DType>> {
     let fb_struct = fb_dtype
         .type__as_struct_()
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
@@ -49,7 +49,7 @@ pub fn project_and_deserialize(
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
     let nullability = fb_struct.nullable().into();
 
-    let (names, dtypes): (Vec<Arc<str>>, Vec<DType>) = projection
+    let (names, dtypes): (Vec<Arc<str>>, Vec<Arc<DType>>) = projection
         .iter()
         .map(|f| resolve_field(fb_struct, f))
         .map(|idx| idx.and_then(|i| read_field(fb_struct, i, buffer)))
@@ -67,7 +67,7 @@ fn read_field(
     fb_struct: fb::Struct_,
     idx: usize,
     buffer: &FlatBuffer,
-) -> VortexResult<(Arc<str>, DType)> {
+) -> VortexResult<(Arc<str>, Arc<DType>)> {
     let name = fb_struct
         .names()
         .ok_or_else(|| vortex_err!("Missing field names"))?
@@ -76,8 +76,7 @@ fn read_field(
         .dtypes()
         .ok_or_else(|| vortex_err!("Missing field dtypes"))?
         .get(idx);
-
-    let dtype = DType::try_from_view(fb_dtype, buffer.clone())?;
+    let dtype = Arc::new(DType::try_from_view(fb_dtype, buffer.clone())?);
 
     Ok((name.into(), dtype))
 }

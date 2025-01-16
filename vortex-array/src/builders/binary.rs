@@ -1,7 +1,9 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use arrow_array::builder::{ArrayBuilder as _, BinaryViewBuilder};
 use arrow_array::Array;
+use vortex_dtype::dtypes::{DTYPE_BINARY_NONNULL, DTYPE_BINARY_NULL};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -12,7 +14,7 @@ use crate::ArrayData;
 pub struct BinaryBuilder {
     inner: BinaryViewBuilder,
     nullability: Nullability,
-    dtype: DType,
+    dtype: Arc<DType>,
 }
 
 impl BinaryBuilder {
@@ -20,7 +22,10 @@ impl BinaryBuilder {
         Self {
             inner: BinaryViewBuilder::with_capacity(capacity),
             nullability,
-            dtype: DType::Binary(nullability),
+            dtype: match nullability {
+                Nullability::NonNullable => DTYPE_BINARY_NONNULL.clone(),
+                Nullability::Nullable => DTYPE_BINARY_NULL.clone(),
+            },
         }
     }
 
@@ -42,7 +47,7 @@ impl ArrayBuilder for BinaryBuilder {
         self
     }
 
-    fn dtype(&self) -> &DType {
+    fn dtype(&self) -> &Arc<DType> {
         &self.dtype
     }
 

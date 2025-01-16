@@ -13,8 +13,8 @@ use vortex::array::{
 };
 use vortex::buffer::buffer;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
+use vortex::dtype::dtypes::DTYPE_BOOL_NONNULL;
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
-use vortex::dtypes::DTYPE_BOOL_NONNULL;
 use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
 use vortex::encodings::bytebool::ByteBoolArray;
 use vortex::encodings::datetime_parts::DateTimePartsArray;

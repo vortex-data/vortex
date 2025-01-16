@@ -10,10 +10,10 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityV
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, primitive_dtype_ref, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
-    IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoCanonical,
 };
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{primitive_dtype_ref, DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
 use crate::compute::decode_to_temporal;

@@ -38,7 +38,6 @@ pub mod compress;
 pub mod compute;
 mod context;
 mod data;
-pub mod dtypes;
 pub mod encoding;
 pub mod iter;
 mod macros;

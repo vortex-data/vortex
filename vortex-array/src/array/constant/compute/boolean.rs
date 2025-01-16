@@ -1,4 +1,4 @@
-use vortex_dtype::DType;
+use vortex_dtype::bool_dtype;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -39,7 +39,7 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
 
         let scalar = result
             .map(|b| Scalar::bool(b, nullable.into()))
-            .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
+            .unwrap_or_else(|| Scalar::null(bool_dtype!(nullable.into())));
 
         Ok(Some(ConstantArray::new(scalar, length).into_array()))
     }

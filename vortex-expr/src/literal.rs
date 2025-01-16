@@ -107,7 +107,7 @@ mod tests {
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            lit(Scalar::null(DType::Bool(Nullability::Nullable)))
+            lit(Scalar::null(Arc::new(DType::Bool(Nullability::Nullable))))
                 .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
@@ -117,15 +117,15 @@ mod tests {
             StructDType::new(
                 Arc::from([Arc::from("dog"), Arc::from("cat")]),
                 vec![
-                    DType::Primitive(PType::U32, Nullability::NonNullable),
-                    DType::Utf8(Nullability::NonNullable),
+                    Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable)),
+                    Arc::new(DType::Utf8(Nullability::NonNullable)),
                 ],
             ),
             Nullability::NonNullable,
         );
         assert_eq!(
             lit(Scalar::struct_(
-                sdtype.clone(),
+                Arc::new(sdtype.clone()),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
             .return_dtype(&dtype)

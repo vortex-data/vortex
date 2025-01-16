@@ -87,14 +87,14 @@ mod test {
     use arrow_buffer::BooleanBufferBuilder;
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{primitive_dtype, DType, Nullability, PType};
     use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
 
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{primitive_dtype, ArrayDType, IntoArrayData, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
 
     #[rstest]
     #[case(Some(true))]

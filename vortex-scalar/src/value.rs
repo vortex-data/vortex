@@ -197,6 +197,8 @@ impl InnerScalarValue {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use vortex_dtype::{DType, Nullability, PType, StructDType};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};
@@ -253,7 +255,7 @@ mod test {
             DType::Struct(
                 StructDType::new(
                     vec!["left".into(), "right".into()].into(),
-                    vec![left.clone(), right.clone()],
+                    vec![Arc::new(left.clone()), Arc::new(right.clone())],
                 ),
                 Nullability::NonNullable,
             )

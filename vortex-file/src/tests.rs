@@ -203,10 +203,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype().as_ref(),
         &DType::Struct(
-            StructDType::new(
-                vec!["strings".into()].into(),
-                vec![strings_dtype.as_ref().clone()]
-            ),
+            StructDType::new(vec!["strings".into()].into(), vec![strings_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -238,10 +235,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype().as_ref(),
         &DType::Struct(
-            StructDType::new(
-                vec!["strings".into()].into(),
-                vec![strings_dtype.as_ref().clone()]
-            ),
+            StructDType::new(vec!["strings".into()].into(), vec![strings_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -273,10 +267,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype().as_ref(),
         &DType::Struct(
-            StructDType::new(
-                vec!["numbers".into()].into(),
-                vec![numbers_dtype.as_ref().clone()]
-            ),
+            StructDType::new(vec!["numbers".into()].into(), vec![numbers_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -304,10 +295,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype().as_ref(),
         &DType::Struct(
-            StructDType::new(
-                vec!["numbers".into()].into(),
-                vec![numbers_dtype.as_ref().clone()]
-            ),
+            StructDType::new(vec!["numbers".into()].into(), vec![numbers_dtype]),
             Nullability::NonNullable,
         )
     );

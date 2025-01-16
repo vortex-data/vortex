@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+use std::sync::Arc;
 
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex::arrow::FromArrowType;
@@ -26,7 +27,10 @@ pub fn sum_column_chunk_sizes(path: &Path) -> VortexResult<CompressionRunStats> 
     }
 
     let stats = CompressionRunStats {
-        schema: DType::from_arrow(builder.schema().clone()),
+        // TODO(aduffy): gross.
+        schema: <Arc<DType>>::from_arrow(builder.schema().clone())
+            .as_ref()
+            .clone(),
         file_type: FileType::Parquet,
         total_compressed_size: Some(total_compressed_size),
         compressed_sizes,

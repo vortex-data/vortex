@@ -13,11 +13,10 @@ use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    bool_dtype, impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::Nullability;
+use vortex_dtype::{bool_dtype, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 mod compress;

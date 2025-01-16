@@ -7,7 +7,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use parquet::data_type::AsBytes;
 use vortex::array::{VarBinArray, VarBinViewArray};
 use vortex::buffer::{buffer, ByteBuffer};
-use vortex::dtypes::DTYPE_STRING_NONNULL;
+use vortex::dtype::dtypes::DTYPE_STRING_NONNULL;
 use vortex::ipc::iterator::{ArrayIteratorIPC, SyncIPCReader};
 use vortex::iter::ArrayIteratorExt;
 use vortex::validity::Validity;

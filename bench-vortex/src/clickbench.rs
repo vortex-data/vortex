@@ -191,7 +191,8 @@ pub async fn register_vortex_files(
                             let val = arrays_map.entry(field_name.clone()).or_default();
                             val.push(st.maybe_null_field_by_name(field_name.as_ref()).unwrap());
 
-                            types_map.insert(field_name.clone(), field_type.clone());
+                            // TODO(aduffy): fix extra clone
+                            types_map.insert(field_name.clone(), field_type.as_ref().clone());
                         }
                     }
 
