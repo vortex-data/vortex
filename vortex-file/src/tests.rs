@@ -20,7 +20,7 @@ use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
-use vortex_expr::{and, col, eq, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
+use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
 use crate::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
 use crate::{V1_FOOTER_FBS_SIZE, VERSION};
@@ -355,7 +355,7 @@ async fn filter_string() {
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all().with_filter(eq(col("name"), lit("Joseph"))))
+        .scan(Scan::all().with_filter(eq(get_item("name", ident()), lit("Joseph"))))
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -413,8 +413,11 @@ async fn filter_or() {
         .await
         .unwrap()
         .scan(Scan::all().with_filter(or(
-            eq(col("name"), lit("Angela")),
-            and(gt_eq(col("age"), lit(20)), lt_eq(col("age"), lit(30))),
+            eq(get_item("name", ident()), lit("Angela")),
+            and(
+                gt_eq(get_item("age", ident()), lit(20)),
+                lt_eq(get_item("age", ident()), lit(30)),
+            ),
         )))
         .unwrap()
         .try_collect::<Vec<_>>()
@@ -478,7 +481,10 @@ async fn filter_and() {
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all().with_filter(and(gt(col("age"), lit(21)), lt_eq(col("age"), lit(33)))))
+        .scan(Scan::all().with_filter(and(
+            gt(get_item("age", ident()), lit(21)),
+            lt_eq(get_item("age", ident()), lit(33)),
+        )))
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -693,7 +699,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan(
             Scan::all()
-                .with_filter(gt(col("numbers"), lit(50_i16)))
+                .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
                 .with_row_indices(Buffer::empty()),
         )
         .unwrap()
@@ -713,7 +719,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan(
             Scan::all()
-                .with_filter(gt(col("numbers"), lit(50_i16)))
+                .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
                 .with_row_indices(Buffer::from_iter(kept_indices)),
         )
         .unwrap()
@@ -744,7 +750,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan(
             Scan::all()
-                .with_filter(gt(col("numbers"), lit(50_i16)))
+                .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
                 .with_row_indices((0..500).collect::<Buffer<_>>()),
         )
         .unwrap()
@@ -813,7 +819,7 @@ async fn filter_string_chunked() {
         .unwrap();
 
     let actual_array = file
-        .scan(Scan::all().with_filter(eq(col("name"), lit("Joseph"))))
+        .scan(Scan::all().with_filter(eq(get_item("name", ident()), lit("Joseph"))))
         .unwrap()
         .into_array_data()
         .await
@@ -898,8 +904,8 @@ async fn test_pruning_with_or() {
 
     let actual_array = file
         .scan(Scan::all().with_filter(or(
-            lt_eq(col("letter"), lit("J")),
-            lt(col("number"), lit(25)),
+            lt_eq(get_item("letter", ident()), lit("J")),
+            lt(get_item("number", ident()), lit(25)),
         )))
         .unwrap()
         .into_array_data()
