@@ -46,17 +46,34 @@ impl<T> BufferMut<T> {
         }
     }
 
-    /// Create a new empty `ByteBuffer` with the provided alignment.
+    /// Create a new zeroed `BufferMut`.
+    pub fn zeroed(len: usize) -> Self {
+        Self::zeroed_aligned(len, Alignment::of::<T>())
+    }
+
+    /// Create a new zeroed `BufferMut`.
+    pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
+        bytes.advance(bytes.as_ptr().align_offset(*alignment));
+        Self {
+            bytes,
+            length: len,
+            alignment,
+            _marker: Default::default(),
+        }
+    }
+
+    /// Create a new empty `BufferMut` with the provided alignment.
     pub fn empty() -> Self {
         Self::empty_aligned(Alignment::of::<T>())
     }
 
-    /// Create a new empty `ByteBuffer` with the provided alignment.
+    /// Create a new empty `BufferMut` with the provided alignment.
     pub fn empty_aligned(alignment: Alignment) -> Self {
         BufferMut::with_capacity_aligned(0, alignment)
     }
 
-    /// Create a new full `ByteBuffer` with the given value.
+    /// Create a new full `BufferMut` with the given value.
     pub fn full(item: T, len: usize) -> Self
     where
         T: Copy,
