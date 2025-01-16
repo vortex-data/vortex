@@ -3,7 +3,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use vortex_array::compute::{fill_null, FilterMask};
-use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, Canonical, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
