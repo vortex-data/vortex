@@ -473,10 +473,13 @@ mod test {
         let expected_dtype = &DType::Extension(Arc::from(apples_u8));
         let result = storage_scalar.cast(expected_dtype);
         assert!(
-            result.is_err_and(|err| {
+            result.as_ref().is_err_and(|err| {
                 err
                     .to_string()
-                    .contains("Can't cast u16 scalar 1000_u16 to u8 (cause: Cannot read primitive value U16(1000) as u8)")
-            }));
+                    .contains("Can't cast u16 scalar 1000_u16 to u8 (cause: Cannot read primitive value U16(1000) as u8")
+            }),
+            "{:?}",
+            result
+        );
     }
 }
