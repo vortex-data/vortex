@@ -141,8 +141,10 @@ impl ArrayData {
             array.dtype()
         );
 
-        // TODO(ngates): we should run something like encoding.validate(array) so the encoding
-        //  can check the number of children, number of buffers, and metadata values etc.
+        // Invoke the encoding's validate function to ensure that we pass basic checks.
+        // This is called for both Owned and Viewed array data since there are public functions
+        // for constructing an ArrayData, e.g. `try_new_owned`.
+        array.encoding().validate(&array)?;
 
         Ok(array)
     }

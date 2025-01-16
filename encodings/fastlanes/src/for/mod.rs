@@ -4,12 +4,11 @@ pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar};
@@ -111,7 +110,7 @@ impl VisitorVTable<FoRArray> for FoREncoding {
 
 impl StatisticsVTable<FoRArray> for FoREncoding {}
 
-impl ArrayTrait for FoRArray {}
+impl ValidateVTable<FoRArray> for FoREncoding {}
 
 impl VariantsVTable<FoRArray> for FoREncoding {
     fn as_primitive_array<'a>(&self, array: &'a FoRArray) -> Option<&'a dyn PrimitiveArrayTrait> {

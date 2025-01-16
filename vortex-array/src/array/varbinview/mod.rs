@@ -18,9 +18,10 @@ use vortex_error::{
 use crate::arrow::FromArrowArray;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 
 mod accessor;
 mod compute;
@@ -430,7 +431,7 @@ where
     builder.finish()
 }
 
-impl ArrayTrait for VarBinViewArray {}
+impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
 impl IntoCanonical for VarBinViewArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
