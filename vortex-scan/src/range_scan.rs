@@ -223,15 +223,17 @@ mod tests {
         let res = range
             .evaluate(|mask, expr| {
                 let arr = if &expr == &expr_a {
-                    BoolArray::from_iter((0..mask.len()).map(|i| i > 10 && i < 30)).into_array()
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 30))).into_array()
                 } else if &expr == &expr_b {
-                    BoolArray::from_iter((0..mask.len()).map(|i| i > 100 && i < 130)).into_array()
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 130)))
+                        .into_array()
                 } else if &expr == &expr_c {
-                    BoolArray::from_iter((0..mask.len()).map(|i| i > 510 && i < 530)).into_array()
-                } else if expr == ident() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 510 && i < 530)))
+                        .into_array()
+                } else if &expr == &ident() {
                     let arr = PrimitiveArray::from_iter(0i32..mask.len() as i32).into_array();
                     StructArray::from_fields(
-                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr.clone())].as_slice(),
+                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
                     )
                     .unwrap()
                     .into_array()
@@ -244,7 +246,6 @@ mod tests {
             .unwrap();
 
         assert!(res.as_struct_array().is_some());
-
         let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
 
         assert_eq!(
@@ -275,11 +276,13 @@ mod tests {
         let res = range
             .evaluate(|mask, expr| {
                 let arr = if &expr == &expr_a {
-                    BoolArray::from_iter((0..mask.len()).map(|i| i > 10 && i < 90)).into_array()
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 900))).into_array()
                 } else if &expr == &expr_b {
-                    BoolArray::from_iter((0..mask.len()).map(|i| i > 100 && i < 950)).into_array()
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 950)))
+                        .into_array()
                 } else if &expr == &expr_c {
-                    BoolArray::from_iter((0..mask.len()).map(|i| i > 210 && i < 530)).into_array()
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 210 && i < 990)))
+                        .into_array()
                 } else if expr == ident() {
                     let arr = PrimitiveArray::from_iter(0i32..mask.len() as i32).into_array();
                     StructArray::from_fields(
@@ -298,6 +301,8 @@ mod tests {
         assert!(res.as_struct_array().is_some());
 
         let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
+
+        println!("res {:?}", field);
 
         assert_eq!(
             field.unwrap().into_primitive().unwrap().as_slice::<i32>(),
