@@ -351,6 +351,8 @@ impl FilterMask {
     }
 
     #[inline]
+    // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len
     }
