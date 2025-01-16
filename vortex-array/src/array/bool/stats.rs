@@ -169,9 +169,7 @@ impl BoolStatsAccumulator {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, Nullability};
-    use vortex_scalar::Scalar;
+    use vortex_dtype::Nullability;
 
     use crate::array::BoolArray;
     use crate::stats::{ArrayStatistics, Stat};
@@ -278,14 +276,8 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert_eq!(
-            bool_arr.statistics().compute(Stat::Min).unwrap(),
-            Scalar::null(DType::Bool(Nullable))
-        );
-        assert_eq!(
-            bool_arr.statistics().compute(Stat::Max).unwrap(),
-            Scalar::null(DType::Bool(Nullable))
-        );
+        assert_eq!(bool_arr.statistics().compute(Stat::Min), None);
+        assert_eq!(bool_arr.statistics().compute(Stat::Max), None);
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);
