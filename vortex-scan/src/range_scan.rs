@@ -178,3 +178,133 @@ impl RangeScanner {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
+    use vortex_array::compute::{filter, FilterMask};
+    use vortex_array::variants::StructArrayTrait;
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{DType, StructDType};
+    use vortex_expr::{and, get_item, gt, ident, lit};
+
+    use crate::{RangeScanner, Scanner};
+
+    fn dtype() -> DType {
+        DType::Struct(
+            StructDType::new(
+                vec!["a".into(), "b".into(), "c".into()].into(),
+                vec![I32.into(), I32.into(), I32.into()],
+            ),
+            NonNullable,
+        )
+    }
+
+    #[test]
+    fn range_scan_few_conj_filter_low_selectivity() {
+        let expr_a = gt(get_item("a", ident()), lit(1));
+        let expr_b = gt(get_item("b", ident()), lit(2));
+        let expr_c = gt(get_item("c", ident()), lit(3));
+        let scan = Arc::new(
+            Scanner::new(
+                dtype(),
+                ident(),
+                Some(and(expr_a.clone(), and(expr_b.clone(), expr_c.clone()))),
+            )
+            .unwrap(),
+        );
+        let len = 1000;
+        let range = RangeScanner::new(scan, 0, FilterMask::new_true(len));
+
+        let res = range
+            .evaluate(|mask, expr| {
+                let arr = if &expr == &expr_a {
+                    BoolArray::from_iter((0..mask.len()).map(|i| i > 10 && i < 30)).into_array()
+                } else if &expr == &expr_b {
+                    BoolArray::from_iter((0..mask.len()).map(|i| i > 100 && i < 130)).into_array()
+                } else if &expr == &expr_c {
+                    BoolArray::from_iter((0..mask.len()).map(|i| i > 510 && i < 530)).into_array()
+                } else if expr == ident() {
+                    let arr = PrimitiveArray::from_iter(0i32..mask.len() as i32).into_array();
+                    StructArray::from_fields(
+                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr.clone())].as_slice(),
+                    )
+                    .unwrap()
+                    .into_array()
+                } else {
+                    unreachable!("unexpected expression {:?}", expr)
+                };
+
+                filter(&arr, mask.filter_mask())
+            })
+            .unwrap();
+
+        assert!(res.as_struct_array().is_some());
+
+        let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
+
+        assert_eq!(
+            field.unwrap().into_primitive().unwrap().as_slice::<i32>(),
+            (0i32..len as i32)
+                .filter(|&i| !(i > 10 && i < 30) && !(i > 100 && i < 130) && !(i > 510 && i < 530))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+    }
+
+    #[test]
+    fn range_scan_few_conj_filter_high_overlapping_selectivity() {
+        let expr_a = gt(get_item("a", ident()), lit(1));
+        let expr_b = gt(get_item("b", ident()), lit(2));
+        let expr_c = gt(get_item("c", ident()), lit(3));
+        let scan = Arc::new(
+            Scanner::new(
+                dtype(),
+                ident(),
+                Some(and(expr_a.clone(), and(expr_b.clone(), expr_c.clone()))),
+            )
+            .unwrap(),
+        );
+        let len = 1000;
+        let range = RangeScanner::new(scan, 0, FilterMask::new_true(len));
+
+        let res = range
+            .evaluate(|mask, expr| {
+                let arr = if &expr == &expr_a {
+                    BoolArray::from_iter((0..mask.len()).map(|i| i > 10 && i < 90)).into_array()
+                } else if &expr == &expr_b {
+                    BoolArray::from_iter((0..mask.len()).map(|i| i > 100 && i < 950)).into_array()
+                } else if &expr == &expr_c {
+                    BoolArray::from_iter((0..mask.len()).map(|i| i > 210 && i < 530)).into_array()
+                } else if expr == ident() {
+                    let arr = PrimitiveArray::from_iter(0i32..mask.len() as i32).into_array();
+                    StructArray::from_fields(
+                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr.clone())].as_slice(),
+                    )
+                    .unwrap()
+                    .into_array()
+                } else {
+                    unreachable!("unexpected expression {:?}", expr)
+                };
+
+                filter(&arr, mask.filter_mask())
+            })
+            .unwrap();
+
+        assert!(res.as_struct_array().is_some());
+
+        let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
+
+        assert_eq!(
+            field.unwrap().into_primitive().unwrap().as_slice::<i32>(),
+            (0i32..len as i32)
+                .filter(|&i| !(i > 10 && i < 990))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+    }
+}
