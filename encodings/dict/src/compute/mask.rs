@@ -26,9 +26,7 @@ fn typed_mask<T: NativePType>(codes: &mut BufferMut<T>, mask: FilterMask) -> Vor
         }
         FilterIter::Slices(slices) => {
             for slice in slices {
-                for index in slice.0..slice.1 {
-                    codes[index] = T::zero();
-                }
+                codes[slice.0..slice.1].fill(T::zero());
             }
         }
     }
