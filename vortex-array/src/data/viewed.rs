@@ -76,7 +76,7 @@ impl ViewedArrayData {
             buffers: self.buffers.clone(),
             ctx: self.ctx.clone(),
             #[cfg(feature = "canonical_counter")]
-            canonical_counter: std::sync::atomic::AtomicUsize::new(0),
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         })
     }
 
