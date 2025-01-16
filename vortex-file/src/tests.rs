@@ -20,7 +20,7 @@ use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
-use vortex_expr::{col, eq, gt, ident, lit, lt, lt_eq, or, select};
+use vortex_expr::{and, col, eq, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
 use crate::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
 use crate::{V1_FOOTER_FBS_SIZE, VERSION};
@@ -355,7 +355,7 @@ async fn filter_string() {
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all())
+        .scan(Scan::all().with_filter(eq(col("name"), lit("Joseph"))))
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -412,7 +412,10 @@ async fn filter_or() {
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all())
+        .scan(Scan::all().with_filter(or(
+            eq(col("name"), lit("Angela")),
+            and(gt_eq(col("age"), lit(20)), lt_eq(col("age"), lit(30))),
+        )))
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -475,7 +478,7 @@ async fn filter_and() {
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all())
+        .scan(Scan::all().with_filter(and(gt(col("age"), lit(21)), lt_eq(col("age"), lit(33)))))
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
