@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::scalar_at;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatisticsVTable;
