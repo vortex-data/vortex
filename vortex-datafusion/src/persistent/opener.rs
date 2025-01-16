@@ -14,7 +14,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{and, ident, lit, ExprRef, Identity, Select, SelectField};
+use vortex_expr::{and, ident, lit, ExprRef, Identity, Select};
 use vortex_file::v2::{ExecutionMode, Scan, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
@@ -58,7 +58,7 @@ impl VortexFileOpener {
 
         let projection = projection
             .as_ref()
-            .map(|fields| Select::new_expr(SelectField::Include(fields.clone()), ident()))
+            .map(|fields| Select::include_expr(fields.clone(), ident()))
             .unwrap_or_else(|| Identity::new_expr());
 
         Ok(Self {

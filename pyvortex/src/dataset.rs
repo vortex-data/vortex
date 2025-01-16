@@ -11,7 +11,7 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::expr::{ident, ExprRef, Select, SelectField};
+use vortex::expr::{ident, ExprRef, Select};
 use vortex::file::v2::io::file::FileIoDriver;
 use vortex::file::v2::{Scan, VortexFile, VortexOpenOptions};
 use vortex::file::VortexRecordBatchReader;
@@ -72,7 +72,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
                 .map(field_from_pyany)
                 .collect::<PyResult<Arc<[FieldName]>>>()?;
 
-            Select::new_expr(SelectField::Include(fields), ident())
+            Select::include_expr(fields, ident())
         }
     })
 }
