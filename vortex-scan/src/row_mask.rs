@@ -221,10 +221,6 @@ impl RowMask {
         self.mask.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.mask.is_empty()
-    }
-
     /// Returns the [`FilterMask`] whose true values are relative to the range of this `RowMask`.
     pub fn filter_mask(&self) -> &FilterMask {
         &self.mask

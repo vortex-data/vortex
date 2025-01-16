@@ -27,7 +27,7 @@ pub struct Scanner {
     #[allow(dead_code)]
     dtype: DType,
     projection: ExprRef,
-    filter: Box<[ExprRef]>,
+    rev_filter: Box<[ExprRef]>,
     projection_dtype: DType,
     // A sorted list of row indices to include in the scan. We store row indices since they may
     // produce a very sparse RowMask.
@@ -49,7 +49,9 @@ impl Scanner {
             let conjuncts = cnf(filter)?;
             conjuncts
                 .into_iter()
-                .map(|c| c.into_iter().fold(lit(false), or))
+                .map(|c| c.into_iter().reduce(or).unwrap_or(lit(false)))
+                // Reverse the conjuncts so we can pop over the final value each time without a shuffle
+                .rev()
                 .collect()
         } else {
             Box::new([])
@@ -58,7 +60,7 @@ impl Scanner {
         Ok(Self {
             dtype,
             projection,
-            filter: conjuncts,
+            rev_filter: conjuncts,
             projection_dtype: result_dtype,
         })
     }

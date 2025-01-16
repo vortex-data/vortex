@@ -3,8 +3,8 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use vortex_array::compute::FilterMask;
-use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
-use vortex_error::VortexResult;
+use vortex_array::{ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
 use crate::{RowMask, Scanner};
@@ -18,7 +18,7 @@ pub struct RangeScanner {
 
 enum State {
     // First we run the filter expression over the full row range.
-    FilterEval((FilterMask, ExprRef, Vec<ExprRef>)),
+    FilterEval((FilterMask, Vec<ExprRef>)),
     // Then we project the selected rows.
     Project((FilterMask, ExprRef)),
     // And then we're done.
@@ -58,17 +58,13 @@ pub enum NextOp {
 // `evaluate(row_mask, expr)` API.
 impl RangeScanner {
     pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
-        let state = if let Some(conjunct) = scan.filter.first() {
+        let state = if !scan.rev_filter.is_empty() {
             // If we have a filter expression, then for now we evaluate it against all rows
             // of the range.
             // TODO(ngates): we should decide based on mask.true_count() whether to include the
             //  current mask or not. But note that the resulting expression would need to be
             //  aligned and intersected with the given mask.
-            State::FilterEval((
-                FilterMask::new_true(mask.len()),
-                conjunct.clone(),
-                scan.filter.iter().skip(1).cloned().collect(),
-            ))
+            State::FilterEval((FilterMask::new_true(mask.len()), scan.rev_filter.to_vec()))
         } else {
             // If there is no filter expression, then we immediately perform a mask + project.
             State::Project((mask.clone(), scan.projection().clone()))
@@ -89,9 +85,14 @@ impl RangeScanner {
     //  forces the eager evaluation of the iterators.
     fn next(&self) -> NextOp {
         match &self.state {
-            State::FilterEval((mask, conjunct, _)) => {
-                NextOp::Eval((self.row_range.clone(), mask.clone(), conjunct.clone()))
-            }
+            State::FilterEval((mask, conjuncts)) => NextOp::Eval((
+                self.row_range.clone(),
+                mask.clone(),
+                conjuncts
+                    .last()
+                    .vortex_expect("conjuncts is always non-empty")
+                    .clone(),
+            )),
             State::Project((mask, expr)) => {
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
             }
@@ -100,30 +101,39 @@ impl RangeScanner {
     }
 
     /// Post the result of the last expression evaluation back to the range scan.
-    fn post(&mut self, result: ArrayData) -> VortexResult<()> {
-        match &self.state {
-            State::FilterEval((_, _, rest)) => {
+    fn transition(mut self, result: ArrayData) -> VortexResult<Self> {
+        match self.state {
+            State::FilterEval((eval_mask, mut conjuncts_rev)) => {
+                // conjuncts are non-empty here
+                conjuncts_rev.remove(conjuncts_rev.len() - 1);
+
+                let result = result.into_bool()?;
+
                 // Intersect the result of the filter expression with our initial row mask.
-                let mask = FilterMask::from_buffer(result.into_bool()?.boolean_buffer());
-                let mask = self.mask.bitand(&mask);
+                let mask = FilterMask::from_buffer(result.boolean_buffer());
+
+                // We passed a full mask to the eval function so we must bit intersect instead
+                // of set-bit intersection if we massed a non-full mask to the evaluator.
+                let mask = if self.mask.len() == eval_mask.true_count() {
+                    self.mask.bitand(&mask)
+                } else {
+                    self.mask.intersect_set_values(&mask)
+                };
+
                 // Then move onto the projection
-                if mask.is_empty() {
+                if mask.true_count() == 0 {
                     // If the mask is empty, then we're done.
                     self.state =
                         State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
-                } else if let Some(conj) = rest.first() {
+                } else if !conjuncts_rev.is_empty() {
                     self.mask = mask;
                     let mask = if self.mask.selectivity() < 0.4 {
                         self.mask.clone()
                     } else {
                         FilterMask::new_true(self.mask.len())
                     };
-                    // If there are many conjuncts apply each one in turn, over the whole array and stop if any make the mask empty.
-                    self.state = State::FilterEval((
-                        mask,
-                        conj.clone(),
-                        rest.iter().skip(1).cloned().collect(),
-                    ))
+                    // conjuncts_rev is again non-empty, so we can put it into FilterEval
+                    self.state = State::FilterEval((mask, conjuncts_rev))
                 } else {
                     self.state = State::Project((mask, self.scan.projection().clone()))
                 }
@@ -134,7 +144,7 @@ impl RangeScanner {
             }
             State::Ready(_) => {}
         }
-        Ok(())
+        Ok(self)
     }
 
     /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
@@ -146,7 +156,8 @@ impl RangeScanner {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
                 NextOp::Eval((row_range, mask, expr)) => {
-                    self.post(evaluator(RowMask::new(mask, row_range.start), expr)?)?;
+                    self =
+                        self.transition(evaluator(RowMask::new(mask, row_range.start), expr)?)?;
                 }
             }
         }
@@ -162,7 +173,8 @@ impl RangeScanner {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
                 NextOp::Eval((row_range, mask, expr)) => {
-                    self.post(evaluator(RowMask::new(mask, row_range.start), expr).await?)?;
+                    self = self
+                        .transition(evaluator(RowMask::new(mask, row_range.start), expr).await?)?;
                 }
             }
         }

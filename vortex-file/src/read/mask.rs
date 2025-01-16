@@ -205,10 +205,6 @@ impl RowMask {
         self.mask.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.mask.is_empty()
-    }
-
     /// Limit mask to [begin..end) range
     pub fn slice(&self, begin: usize, end: usize) -> VortexResult<Self> {
         let range_begin = max(self.begin, begin);

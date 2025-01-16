@@ -355,11 +355,6 @@ impl FilterMask {
         self.0.len
     }
 
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.0.true_count == 0
-    }
-
     /// Get the true count of the mask.
     #[inline]
     pub fn true_count(&self) -> usize {
@@ -445,6 +440,54 @@ impl FilterMask {
         }
 
         vortex_panic!("No mask representation found")
+    }
+
+    /// Returns the mask where the true values in `self` are bitwise intersected with the values in
+    /// `mask`.
+    ///
+    /// We are more interested in low selectivity `self` mask with a boolean buffer rank mask,
+    /// so we don't optimize for that case.
+    pub fn intersect_set_values(&self, mask: &FilterMask) -> FilterMask {
+        assert_eq!(self.true_count(), mask.len());
+
+        if mask.true_count() == mask.len() {
+            return self.clone();
+        }
+
+        if mask.true_count() == 0 {
+            return Self::new_false(self.len());
+        }
+
+        // TODO(joe): support other fast paths, not converting mask into a buffer
+        // let mask_buf = mask.0.buffer();
+        // let set_values = self.0.indices();
+        // let mut res = (0..mask.true_count()).collect_vec();
+        // let mut idx2 = 0;
+        // for (idx, bool) in mask_buf.iter().enumerate() {
+        //     if idx >= set_values.len() {
+        //         println!("set values: {:?}", set_values.len());
+        //         println!("mask_buf: {:?}", mask_buf.len());
+        //         break;
+        //     }
+        //     let val = set_values[idx];
+        //     if idx2 >= res.len() {
+        //         println!("res: {:?}, idx2 {}", res.len(), idx2);
+        //         break;
+        //     }
+        //     res[idx2] = val;
+        //     if bool {
+        //         idx2 += 1;
+        //     }
+        // }
+        let mut res = Vec::with_capacity(mask.true_count());
+        let set_values = self.0.indices();
+        for (idx, bool) in mask.boolean_buffer().iter().enumerate() {
+            if bool {
+                res.push(set_values[idx])
+            }
+        }
+
+        Self::from_indices(self.len(), res)
     }
 }
 
@@ -660,6 +703,55 @@ mod test {
         assert_eq!(
             FilterMask::from_indices(5, vec![0, 2, 3]),
             FilterMask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]))
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_all_as_bit_and() {
+        let this =
+            FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true, true, true]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            false, true, false, true, true,
+        ]));
+        assert_eq!(
+            this.intersect_set_values(&mask),
+            FilterMask::from_indices(5, vec![1, 3, 4])
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_all_true() {
+        let this = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            false, false, true, true, true,
+        ]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true]));
+        assert_eq!(
+            this.intersect_set_values(&mask),
+            FilterMask::from_indices(5, vec![2, 3, 4])
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_true() {
+        let this = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            true, false, false, true, true,
+        ]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, false, true]));
+        assert_eq!(
+            this.intersect_set_values(&mask),
+            FilterMask::from_indices(5, vec![0, 4])
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_false() {
+        let this = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            true, false, false, true, true,
+        ]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![false, false, false]));
+        assert_eq!(
+            this.intersect_set_values(&mask),
+            FilterMask::from_indices(5, vec![])
         );
     }
 }
