@@ -464,7 +464,14 @@ impl FilterMask {
         let indices = self.0.indices();
         Self::from_indices(
             self.len(),
-            mask.indices().iter().map(|idx| indices[*idx]).collect(),
+            mask.indices()
+                .iter()
+                .map(|idx|
+                    // This is verified as safe because we know that the indices are less than the
+                    // mask.len() and we known mask.len() <= self.len(),
+                    // implied by `self.true_count() == mask.len()`.
+                    unsafe{indices.get_unchecked(*idx)})
+                .collect(),
         )
     }
 }

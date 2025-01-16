@@ -1,5 +1,3 @@
-extern crate core;
-
 mod range_scan;
 mod row_mask;
 
