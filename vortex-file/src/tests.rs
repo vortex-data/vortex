@@ -53,10 +53,9 @@ async fn test_read_simple() {
         .write(ByteBufferMut::empty(), st.into_array().into_array_stream())
         .await
         .unwrap();
-    let written = buf.freeze();
 
     let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
-        .open(written)
+        .open(buf.freeze())
         .await
         .unwrap()
         .scan(Scan::all())
@@ -138,10 +137,9 @@ async fn test_splits() {
         .write(ByteBufferMut::empty(), st.into_array().into_array_stream())
         .await
         .unwrap();
-    let written = buf.freeze();
 
     let file = VortexOpenOptions::new(Arc::new(Context::default()))
-        .open(written)
+        .open(buf.freeze())
         .await
         .unwrap();
 
@@ -173,10 +171,9 @@ async fn test_read_projection() {
         .write(ByteBufferMut::empty(), st.into_array().into_array_stream())
         .await
         .unwrap();
-    let written = buf.freeze();
 
     let file = VortexOpenOptions::new(Arc::new(Context::default()))
-        .open(written)
+        .open(buf.freeze())
         .await
         .unwrap();
     let array = file
