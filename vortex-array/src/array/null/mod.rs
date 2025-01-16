@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -31,7 +32,8 @@ impl NullArray {
         Self::try_from_parts(
             DType::Null,
             len,
-            NullMetadata,
+            &(),
+            [].into(),
             [].into(),
             StatsSet::nulls(len, &DType::Null),
         )

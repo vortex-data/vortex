@@ -1,14 +1,13 @@
 use std::fmt::{Debug, Display};
 use std::ptr;
-use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use rkyv::Archive;
+use rkyv::to_bytes;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::iter::Accessor;
@@ -25,7 +24,19 @@ mod stats;
 
 impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
 
-#[derive(Clone, Debug, Serialize, Deserialize, Archive)]
+#[derive(
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::bytecheck::CheckBytes,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(C)]
 pub struct PrimitiveMetadata {
     pub(crate) validity: ValidityMetadata,
 }
@@ -44,9 +55,11 @@ impl PrimitiveArray {
             &PrimitiveEncoding,
             DType::from(T::PTYPE).with_nullability(validity.nullability()),
             len,
-            Arc::new(PrimitiveMetadata {
+            to_bytes::<VortexError>(&PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
-            }),
+            })
+            .vortex_expect("Failed to serialize metadata")
+            .into(),
             [buffer.into_byte_buffer()].into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
@@ -91,6 +104,11 @@ impl PrimitiveArray {
             }
         }
         Self::new(values.freeze(), Validity::from(validity.finish()))
+    }
+
+    fn metadata(&self) -> &PrimitiveMetadata {
+        rkyv::access::<_, VortexError>(self.as_ref().metadata())
+            .vortex_expect("Failed to access PrimitiveArray metadata")
     }
 
     pub fn validity(&self) -> Validity {

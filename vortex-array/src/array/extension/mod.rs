@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -38,7 +39,8 @@ impl ExtensionArray {
         Self::try_from_parts(
             DType::Extension(ext_dtype),
             storage.len(),
-            ExtensionMetadata,
+            &(),
+            [].into(),
             [storage].into(),
             Default::default(),
         )

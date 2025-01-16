@@ -6,11 +6,12 @@ use std::sync::Arc;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 #[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
@@ -28,7 +29,9 @@ use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanon
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ListMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) elements_len: usize,
@@ -84,14 +87,19 @@ impl ListArray {
         Self::try_from_parts(
             list_dtype,
             list_len,
-            ListMetadata {
+            &ListMetadata {
                 validity: validity_metadata,
                 elements_len: element_len,
                 offset_ptype,
             },
+            [].into(),
             children.into(),
             StatsSet::default(),
         )
+    }
+
+    fn metadata(&self) -> &ArchivedListMetadata {
+        access::<_, VortexError>(self.as_ref().metadata()).vortex_expect("ListArray: metadata")
     }
 
     pub fn validity(&self) -> Validity {
@@ -148,7 +156,7 @@ impl ListArray {
             .as_list_element()
             .vortex_expect("must be list dtype");
         self.as_ref()
-            .child(0, dtype, self.metadata().elements_len)
+            .child(0, dtype, self.metadata().elements_len.to_native() as usize)
             .vortex_expect("array contains elements")
     }
 }

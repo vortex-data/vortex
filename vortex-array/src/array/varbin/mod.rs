@@ -32,7 +32,9 @@ mod variants;
 
 impl_encoding!("vortex.varbin", ids::VAR_BIN, VarBin);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct VarBinMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) offsets_ptype: PType,
@@ -81,15 +83,14 @@ impl VarBinArray {
             }
         };
 
-        Self::try_from(ArrayData::try_new_owned(
-            &VarBinEncoding,
+        Self::try_from_parts(
             dtype,
             length,
-            Arc::new(metadata),
+            &metadata,
             [bytes].into(),
             children.into(),
             StatsSet::default(),
-        )?)
+        )
     }
 
     #[inline]

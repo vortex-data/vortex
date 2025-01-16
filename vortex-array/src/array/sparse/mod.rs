@@ -1,7 +1,10 @@
 use std::fmt::{Debug, Display};
 
-use ::serde::{Deserialize, Serialize};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use rkyv::rancor::{Error, Failure};
+use rkyv::{access, from_bytes, to_bytes, Deserialize};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
@@ -13,19 +16,26 @@ use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
-
 mod canonical;
 mod compute;
 mod variants;
 
 impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[repr(C)]
 pub struct SparseMetadata {
     // Offset value for patch indices as a result of slicing
-    pub(crate) indices_offset: usize,
-    pub(crate) patches: PatchesMetadata,
-    pub(crate) fill_value: ScalarValue,
+    indices_offset: usize,
+    patches: PatchesMetadata,
 }
 
 impl Display for SparseMetadata {
@@ -88,17 +98,28 @@ impl SparseArray {
 
         let patches_metadata = patches.to_metadata(len, patches.dtype())?;
 
-        Self::try_from_parts(
+        let fill_value_buffer = fill_value.into_value().to_flexbytes();
+
+        ArrayData::try_new_owned(
+            &SparseEncoding,
             patches.dtype().clone(),
             len,
-            SparseMetadata {
+            to_bytes::<VortexError>(&SparseMetadata {
                 indices_offset,
                 patches: patches_metadata,
-                fill_value: fill_value.into_value(),
-            },
+            })?
+            .into(),
+            [fill_value_buffer.into_inner()].into(),
             [patches.indices().clone(), patches.values().clone()].into(),
             StatsSet::default(),
-        )
+        )?
+        .try_into()
+    }
+
+    fn metadata(&self) -> SparseMetadata {
+        from_bytes::<SparseMetadata, Error>(self.as_ref().metadata())
+            .map_err(|e| vortex_err!("Invalid SparseArray metadata: {}", e))
+            .vortex_expect("Failed to deserialize SparseArray metadata")
     }
 
     #[inline]
@@ -108,13 +129,10 @@ impl SparseArray {
 
     #[inline]
     pub fn patches(&self) -> Patches {
+        let patches = self.metadata().patches;
         let indices = self
             .as_ref()
-            .child(
-                0,
-                &self.metadata().patches.indices_dtype(),
-                self.metadata().patches.len(),
-            )
+            .child(0, &patches.indices_dtype(), patches.len())
             .vortex_expect("Missing indices array in SparseArray");
         let values = self
             .as_ref()
@@ -133,7 +151,13 @@ impl SparseArray {
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.metadata().fill_value.clone())
+        let fill_value = ScalarValue::from_flexbytes(
+            self.as_ref()
+                .byte_buffer(0)
+                .vortex_expect("Missing fill value buffer"),
+        )
+        .vortex_expect("Failed to deserialize fill value");
+        Scalar::new(self.dtype().clone(), fill_value)
     }
 }
 

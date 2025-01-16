@@ -23,7 +23,17 @@ pub use arrow_buffer::BooleanBuffer;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
-#[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(C)]
 pub struct BoolMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) first_byte_bit_offset: u8,
@@ -162,7 +172,7 @@ impl ValidateVTable<BoolArray> for BoolEncoding {
         }
 
         // Now we validate the metadata
-        rkyv::access::<ValidityMetadata, VortexError>(array.as_ref().metadata())?;
+        rkyv::access::<BoolMetadata, VortexError>(array.as_ref().metadata())?;
 
         Ok(())
     }

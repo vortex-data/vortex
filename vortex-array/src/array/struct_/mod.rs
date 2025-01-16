@@ -1,8 +1,11 @@
 use std::fmt::{Debug, Display};
 
+use rkyv::from_bytes;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+};
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
@@ -18,7 +21,10 @@ mod compute;
 
 impl_encoding!("vortex.struct", ids::STRUCT, Struct);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
+#[repr(C)]
 pub struct StructMetadata {
     pub(crate) validity: ValidityMetadata,
 }
@@ -30,6 +36,11 @@ impl Display for StructMetadata {
 }
 
 impl StructArray {
+    fn metadata(&self) -> StructMetadata {
+        from_bytes::<StructMetadata, VortexError>(self.as_ref().metadata())
+            .vortex_expect("StructArray: metadata")
+    }
+
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
@@ -80,9 +91,10 @@ impl StructArray {
         Self::try_from_parts(
             DType::Struct(StructDType::new(names, field_dtypes), nullability),
             length,
-            StructMetadata {
+            &StructMetadata {
                 validity: validity_metadata,
             },
+            [].into(),
             children.into(),
             StatsSet::default(),
         )

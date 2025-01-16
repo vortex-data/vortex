@@ -2,9 +2,11 @@ use std::fmt::{Display, Write};
 use std::sync::Arc;
 
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 
 use crate::pvalue::PValue;
 
@@ -27,6 +29,22 @@ pub(crate) enum InnerScalarValue {
     // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
     // values such that Nulls are last (greatest)
     Null,
+}
+
+impl ScalarValue {
+    pub fn to_flexbytes(&self) -> FlatBuffer {
+        let mut ser = flexbuffers::FlexbufferSerializer::new();
+        self.0
+            .serialize(&mut ser)
+            .expect("Failed to serialize ScalarValue");
+        FlatBuffer::copy_from(ser.view())
+    }
+
+    pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
+        Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
+            buf.as_ref(),
+        )?)?)
+    }
 }
 
 fn to_hex(slice: &[u8]) -> Result<String, std::fmt::Error> {

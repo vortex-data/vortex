@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
-use flexbuffers::Reader;
 use serde::{Deserialize, Serialize};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_flatbuffers::{FlatBuffer, WriteFlatBuffer};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::ids;
@@ -32,25 +31,27 @@ impl ConstantArray {
         let (dtype, scalar_value) = scalar.into_parts();
 
         // Serialize the scalar_value into a FlatBuffer
-        let mut ser = flexbuffers::FlexbufferSerializer::new();
-        scalar_value
-            .serialize(&mut ser)
-            .map_err(VortexError::FlexBuffersSerError)
-            .vortex_expect("Failed to serialize ScalarValue");
-        let value_buffer = FlatBuffer::copy_from(ser.view());
+        let value_buffer = scalar_value.to_flexbytes();
 
-        Self::try_from_parts(dtype, length, value_buffer.into_inner(), [].into(), stats)
-            .vortex_expect("Failed to create Constant array")
+        Self::try_from_parts(
+            dtype,
+            length,
+            &(),
+            [value_buffer.into_inner()].into(),
+            [].into(),
+            stats,
+        )
+        .vortex_expect("Failed to create Constant array")
     }
 
     /// Returns the [`Scalar`] value of this constant array.
     pub fn scalar(&self) -> Scalar {
-        let value = ScalarValue::deserialize(
-            Reader::get_root(self.as_ref().metadata())
-                .vortex_expect("Failed to get root of metadata"),
+        let value = ScalarValue::from_flexbytes(
+            self.as_ref()
+                .byte_buffer(0)
+                .vortex_expect("Missing scalar value buffer"),
         )
-        .map_err(VortexError::FlexBuffersDeError)
-        .vortex_expect("Failed to deserialize ScalarValue");
+        .vortex_expect("Failed to deserialize scalar value");
         Scalar::new(self.dtype().clone(), value)
     }
 }
