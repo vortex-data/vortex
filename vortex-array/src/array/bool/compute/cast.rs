@@ -3,12 +3,12 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::CastFn;
-use crate::{ArrayData, IntoArrayData};
+use crate::{ArrayDType as _, ArrayData, IntoArrayData};
 
 impl CastFn<BoolArray> for BoolEncoding {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayData> {
         let DType::Bool(new_nullability) = dtype else {
-            vortex_bail!(MismatchedTypes: "bool type", dtype);
+            vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);
         };
 
         BoolArray::try_new(
