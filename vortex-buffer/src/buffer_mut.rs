@@ -450,6 +450,56 @@ impl<T> FromIterator<T> for BufferMut<T> {
     }
 }
 
+/// Owned iterator over a [`BufferMut`].
+///
+/// Examples
+/// --------
+///
+/// ```
+/// use vortex_buffer::buffer_mut;
+///
+/// let mut a = buffer_mut![1u16, 2, 3];
+/// let b = buffer_mut![4u16, 5, 6];
+/// a.extend(b);
+/// assert_eq!(a.len(), 6);
+/// assert_eq!(a[3..6], [4, 5, 6]);
+/// ```
+pub struct BufferMutIterator<T> {
+    buffer: BufferMut<T>,
+    index: usize,
+}
+
+impl<T: Copy> Iterator for BufferMutIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.buffer.len() {
+            None
+        } else {
+            let value = self.buffer[self.index];
+            self.index += 1;
+            Some(value)
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.buffer.len() - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<T: Copy> IntoIterator for BufferMut<T> {
+    type Item = T;
+    type IntoIter = BufferMutIterator<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BufferMutIterator {
+            buffer: self,
+            index: 0,
+        }
+    }
+}
+
 impl Buf for ByteBufferMut {
     fn remaining(&self) -> usize {
         self.len()
