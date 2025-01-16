@@ -14,7 +14,7 @@ use vortex::dtype::{DType, FieldName};
 use vortex::error::VortexResult;
 use vortex::expr::{get_item, ident, pack, ExprRef, Identity};
 use vortex::file::v2::{Scan, VortexOpenOptions};
-use vortex::file::{read_initial_bytes, VortexRecordBatchReader};
+use vortex::file::VortexRecordBatchReader;
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
@@ -56,8 +56,12 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> VortexResult<DType> {
-    let initial_read = read_initial_bytes(&reader, reader.size().await?).await?;
-    Ok(initial_read.dtype())
+    let dtype = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+        .open(reader)
+        .await?
+        .dtype()
+        .clone();
+    Ok(dtype)
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
