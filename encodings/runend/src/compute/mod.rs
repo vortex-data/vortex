@@ -1,11 +1,11 @@
 mod binary_numeric;
 mod compare;
 mod fill_null;
-mod filter;
+pub(crate) mod filter;
 mod invert;
 mod scalar_at;
 mod slice;
-mod take;
+pub(crate) mod take;
 
 use vortex_array::compute::{
     BinaryNumericFn, CompareFn, ComputeVTable, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn,

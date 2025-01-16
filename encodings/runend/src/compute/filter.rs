@@ -15,17 +15,21 @@ use vortex_error::{VortexResult, VortexUnwrap};
 use crate::compute::take::take_indices_unchecked;
 use crate::{RunEndArray, RunEndEncoding};
 
-const FILTER_TAKE_THRESHOLD: f64 = 0.001;
+const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterFn<RunEndArray> for RunEndEncoding {
     fn filter(&self, array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
-        // If we are taking less than 0.1% of values use take
-        if mask.selectivity() < FILTER_TAKE_THRESHOLD {
+        let runs_ratio = mask.true_count() as f64 / array.ends().len() as f64;
+
+        if runs_ratio < FILTER_TAKE_THRESHOLD || mask.true_count() < 25 {
+            // This strategy is directly proportional to the number of indices.
             take_indices_unchecked(array, mask.indices())
         } else {
+            // This strategy ends up being close to fixed cost based on the number of runs,
+            // rather than the number of indices.
             let primitive_run_ends = array.ends().into_primitive()?;
             let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-                filter_run_ends(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
+                filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
             });
             let values = filter(&array.values(), &values_mask)?;
 
@@ -34,8 +38,19 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
     }
 }
 
+// We expose this function to our benchmarks.
+pub fn filter_run_end(array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    let primitive_run_ends = array.ends().into_primitive()?;
+    let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
+        filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
+    });
+    let values = filter(&array.values(), &values_mask)?;
+
+    RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+}
+
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
-fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
