@@ -9,10 +9,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::array::ChunkedArray;
 use vortex::arrow::infer_schema;
-use vortex::buffer::Buffer;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::expr::{get_item, ident, pack, ExprRef, Identity};
+use vortex::expr::{ident, ExprRef, Select, SelectField};
 use vortex::file::v2::io::file::FileIoDriver;
 use vortex::file::v2::{Scan, VortexFile, VortexOpenOptions};
 use vortex::file::VortexRecordBatchReader;
@@ -66,20 +65,14 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
     }
 
     Ok(match columns {
-        None => Identity::new_expr(),
+        None => ident(),
         Some(columns) => {
             let fields = columns
                 .iter()
                 .map(field_from_pyany)
                 .collect::<PyResult<Arc<[FieldName]>>>()?;
 
-            pack(
-                fields.clone(),
-                fields
-                    .iter()
-                    .map(|f| get_item(f.clone(), ident()))
-                    .collect(),
-            )
+            Select::new_expr(SelectField::Include(fields), ident())
         }
     })
 }
