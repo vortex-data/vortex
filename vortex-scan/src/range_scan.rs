@@ -125,7 +125,7 @@ impl RangeScanner {
                         State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
                 } else if !conjuncts_rev.is_empty() {
                     self.mask = mask;
-                    let mask = if self.mask.selectivity() < 0.4 {
+                    let mask = if self.mask.selectivity() < 0.2 {
                         self.mask.clone()
                     } else {
                         FilterMask::new_true(self.mask.len())
