@@ -51,7 +51,12 @@ impl Scanner {
             let conjuncts = cnf(filter)?;
             conjuncts
                 .into_iter()
-                .map(|disjunction| disjunction.into_iter().reduce(or).unwrap_or_else(|| lit(false)))
+                .map(|disjunction| {
+                    disjunction
+                        .into_iter()
+                        .reduce(or)
+                        .unwrap_or_else(|| lit(false))
+                })
                 // Reverse the conjuncts so we can pop over the final value each time without a shuffle
                 .rev()
                 .collect()
