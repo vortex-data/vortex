@@ -38,7 +38,7 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     }
 
     if let Some(indices) = indices {
-        let indices = Buffer::from_iter(indices.into_primitive()?.as_slice::<u64>().to_vec());
+        let indices = indices.into_primitive()?.into_buffer();
         scan = scan.with_row_indices(indices);
     }
 
@@ -134,7 +134,7 @@ impl TokioFileDataset {
         }
 
         if let Some(indices) = indices.map(PyArray::unwrap).cloned() {
-            let indices = Buffer::from_iter(indices.into_primitive()?.as_slice::<u64>().to_vec());
+            let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 
@@ -223,7 +223,7 @@ impl ObjectStoreUrlDataset {
         }
 
         if let Some(indices) = indices.map(PyArray::unwrap).cloned() {
-            let indices = Buffer::from_iter(indices.into_primitive()?.as_slice::<u64>().to_vec());
+            let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 
