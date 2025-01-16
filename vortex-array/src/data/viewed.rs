@@ -19,7 +19,7 @@ pub(super) struct ViewedArrayData {
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: FlatBuffer,
     pub(super) flatbuffer_loc: usize,
-    pub(super) buffers: Box<[ByteBuffer]>,
+    pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: ContextRef,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: std::sync::atomic::AtomicUsize,

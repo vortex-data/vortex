@@ -3,11 +3,12 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
-use vortex_array::stats::{ArrayStatistics as _, Stat};
+use vortex_array::compute::try_cast;
+use vortex_array::stats::{ArrayStatistics as _, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_dtype::{DType, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
@@ -67,6 +68,57 @@ impl StatsTable {
     /// The statistics that are included in the table.
     pub fn present_stats(&self) -> &[Stat] {
         &self.stats
+    }
+
+    /// Return an aggregated stats set for the table.
+    pub fn to_stats_set(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
+        let mut stats_set = StatsSet::default();
+        for stat in stats {
+            let Some(array) = self.get_stat(*stat)? else {
+                continue;
+            };
+
+            // Different stats need different aggregations
+            match stat {
+                // For stats that are associative, we can just compute them over the stat column
+                Stat::Min | Stat::Max => {
+                    if let Some(s) = array.statistics().compute(*stat) {
+                        stats_set.set(*stat, s)
+                    }
+                }
+                // These stats sum up
+                Stat::TrueCount | Stat::NullCount | Stat::UncompressedSizeInBytes => {
+                    // TODO(ngates): use Stat::Sum when we add it.
+                    let parray =
+                        try_cast(array, &DType::Primitive(PType::U64, Nullability::Nullable))?
+                            .into_primitive()?;
+                    let sum: u64 = parray
+                        .as_slice::<u64>()
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, v)| parray.validity().is_valid(i).then_some(*v))
+                        .sum();
+                    stats_set.set(*stat, sum);
+                }
+                // We could implement these aggregations in the future, but for now they're unused
+                Stat::BitWidthFreq
+                | Stat::TrailingZeroFreq
+                | Stat::RunCount
+                | Stat::IsConstant
+                | Stat::IsSorted
+                | Stat::IsStrictSorted => {}
+            }
+        }
+        Ok(stats_set)
+    }
+
+    /// Return the array for a given stat.
+    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayData>> {
+        Ok(self
+            .array
+            .as_struct_array()
+            .vortex_expect("Stats table must be a struct array")
+            .maybe_null_field_by_name(stat.name()))
     }
 }
 

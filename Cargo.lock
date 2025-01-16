@@ -5255,6 +5255,7 @@ name = "vortex-runend"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
+ "criterion",
  "itertools 0.14.0",
  "num-traits",
  "serde",

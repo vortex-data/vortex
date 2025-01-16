@@ -21,7 +21,7 @@ use vortex_io::ObjectStoreReadAt;
 use super::cache::FileLayoutCache;
 
 #[derive(Clone)]
-pub struct VortexFileOpener {
+pub(crate) struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,

@@ -15,7 +15,7 @@ use vortex_error::VortexResult;
 ///
 /// Note that the futures encapsulate heavy CPU code such as filtering and decompression. To
 /// offload keep I/O work separate, please see the [`crate::v2::io::IoDriver`] trait.
-pub trait ExecDriver {
+pub trait ExecDriver: Send + Sync {
     fn drive(
         &self,
         stream: BoxStream<'static, BoxFuture<'static, VortexResult<ArrayData>>>,

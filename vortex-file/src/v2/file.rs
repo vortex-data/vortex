@@ -1,16 +1,18 @@
+use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::Stream;
-use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
+use futures_util::{stream, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::compute::FilterMask;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayData, ContextRef};
+use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 use vortex_layout::{ExprEvaluator, LayoutReader};
@@ -49,10 +51,6 @@ impl Scan {
 
     pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
         Self { projection, filter }
-    }
-
-    pub fn build(self, dtype: DType) -> VortexResult<Arc<Scanner>> {
-        Ok(Arc::new(Scanner::new(dtype, self.projection, self.filter)?))
     }
 }
 
@@ -141,7 +139,11 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scanner = scan.build(self.dtype().clone())?;
+        let scanner = Arc::new(Scanner::new(
+            self.dtype().clone(),
+            scan.projection,
+            scan.filter,
+        )?);
 
         let result_dtype = scanner.result_dtype().clone();
 
@@ -185,6 +187,31 @@ impl<I: IoDriver> VortexFile<I> {
                 io_stream,
             },
         ))
+    }
+
+    /// Resolves the requested statistics for the file.
+    pub fn statistics(
+        &self,
+        field_paths: Arc<[FieldPath]>,
+        stats: Arc<[Stat]>,
+    ) -> VortexResult<impl Future<Output = VortexResult<Vec<StatsSet>>> + 'static + use<'_, I>>
+    {
+        // Set up a segment channel to collect segment requests from the execution stream.
+        let segment_channel = SegmentChannel::new();
+
+        // Create a single LayoutReader that is reused for the entire scan.
+        let reader: Arc<dyn LayoutReader> = self
+            .file_layout
+            .root_layout()
+            .reader(segment_channel.reader(), self.ctx.clone())?;
+
+        let exec_future = async move { reader.evaluate_stats(field_paths, stats).await }.boxed();
+        let io_stream = self.io_driver.drive(segment_channel.into_stream());
+
+        Ok(UnifiedDriverFuture {
+            exec_future,
+            io_stream,
+        })
     }
 }
 
@@ -232,12 +259,12 @@ pin_project! {
     }
 }
 
-impl<R, S> Stream for UnifiedDriverStream<R, S>
+impl<T, R, S> Stream for UnifiedDriverStream<R, S>
 where
-    R: Stream<Item = VortexResult<ArrayData>>,
+    R: Stream<Item = VortexResult<T>>,
     S: Stream<Item = VortexResult<()>>,
 {
-    type Item = VortexResult<ArrayData>;
+    type Item = VortexResult<T>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -258,6 +285,49 @@ where
                 // Unexpected end of stream.
                 Poll::Ready(None) => {
                     return Poll::Ready(Some(Err(vortex_err!("unexpected end of I/O stream"))));
+                }
+                // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
+}
+
+pin_project! {
+    struct UnifiedDriverFuture<R, S> {
+        #[pin]
+        exec_future: R,
+        #[pin]
+        io_stream: S,
+    }
+}
+
+impl<T, R, S> Future for UnifiedDriverFuture<R, S>
+where
+    R: Future<Output = VortexResult<T>>,
+    S: Stream<Item = VortexResult<()>>,
+{
+    type Output = VortexResult<T>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
+        loop {
+            // If the exec stream is ready, then we can return the result.
+            // If it's pending, then we try polling the I/O stream.
+            if let Poll::Ready(r) = this.exec_future.try_poll_unpin(cx) {
+                return Poll::Ready(r);
+            }
+
+            match this.io_stream.as_mut().try_poll_next_unpin(cx) {
+                // If the I/O stream made progress, it returns Ok.
+                Poll::Ready(Some(Ok(()))) => {}
+                // If the I/O stream failed, then propagate the error.
+                Poll::Ready(Some(Err(result))) => {
+                    return Poll::Ready(Err(result));
+                }
+                // Unexpected end of stream.
+                Poll::Ready(None) => {
+                    return Poll::Ready(Err(vortex_err!("unexpected end of I/O stream")));
                 }
                 // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
                 Poll::Pending => return Poll::Pending,

@@ -4,4 +4,4 @@ mod provider;
 mod statistics;
 mod stream;
 
-pub use provider::*;
+pub use provider::{VortexMemTable, VortexMemTableOptions};
