@@ -196,7 +196,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 // If there is a single expr then we don't need to `pack` this, and we must update
                 // the root expr removing this access.
                 let expr = if exprs.len() == 1 {
-                    remove_accesses.push(Self::field_idx_name(&name, 0).into());
+                    remove_accesses.push(Self::field_idx_name(&name, 0));
                     exprs.first().vortex_expect("exprs is non-empty").clone()
                 } else {
                     pack(
@@ -207,7 +207,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                     )
                 };
                 VortexResult::Ok(Partition {
-                    name: name.clone(),
+                    name,
                     expr: simplify_typed(expr, field_dtype)?,
                 })
             })
@@ -273,7 +273,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 sub_exprs.push(replaced.result());
 
                 let access = get_item(
-                    Self::field_idx_name(&field_name, idx),
+                    Self::field_idx_name(field_name, idx),
                     get_item(field_name.clone(), ident()),
                 );
 
@@ -300,7 +300,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 pack_fields.push(field_name.clone());
                 // Partitions are packed into a struct of field name -> occurrence idx -> array
                 pack_exprs.push(get_item(
-                    Self::field_idx_name(&field_name, idx),
+                    Self::field_idx_name(field_name, idx),
                     get_item(field_name.clone(), ident()),
                 ));
             }
