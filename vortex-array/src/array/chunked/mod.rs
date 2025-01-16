@@ -5,10 +5,13 @@
 use std::fmt::{Debug, Display};
 
 use futures_util::stream;
+use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{
+    vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult, VortexUnwrap,
+};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
@@ -16,12 +19,11 @@ use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 mod canonical;
 mod compute;
@@ -30,7 +32,9 @@ mod variants;
 
 impl_encoding!("vortex.chunked", ids::CHUNKED, Chunked);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ChunkedMetadata {
     pub(crate) nchunks: usize,
 }
@@ -74,7 +78,7 @@ impl ChunkedArray {
         Self::try_from_parts(
             dtype,
             length.try_into().vortex_unwrap(),
-            ChunkedMetadata { nchunks },
+            to_bytes::<VortexError>(&ChunkedMetadata { nchunks })?.into(),
             children.into(),
             StatsSet::default(),
         )
@@ -95,8 +99,14 @@ impl ChunkedArray {
             .child(idx + 1, self.as_ref().dtype(), chunk_end - chunk_start)
     }
 
+    fn metadata(&self) -> &ArchivedChunkedMetadata {
+        // FIXME(ngates): verify in ValidateVTable and use unsafe here.
+        access::<_, VortexError>(self.as_ref().metadata())
+            .vortex_expect("Invalid metadata in ChunkedArray")
+    }
+
     pub fn nchunks(&self) -> usize {
-        self.metadata().nchunks
+        self.metadata().nchunks.to_native() as usize
     }
 
     #[inline]
@@ -190,7 +200,7 @@ impl ChunkedArray {
     }
 }
 
-impl ArrayTrait for ChunkedArray {}
+impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
 
 impl FromIterator<ArrayData> for ChunkedArray {
     fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {

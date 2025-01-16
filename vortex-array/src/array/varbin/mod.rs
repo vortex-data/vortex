@@ -16,9 +16,10 @@ use crate::array::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen};
 
 mod accessor;
 mod array;
@@ -217,7 +218,7 @@ impl VarBinArray {
     }
 }
 
-impl ArrayTrait for VarBinArray {}
+impl ValidateVTable<VarBinArray> for VarBinEncoding {}
 
 impl From<Vec<&[u8]>> for VarBinArray {
     fn from(value: Vec<&[u8]>) -> Self {

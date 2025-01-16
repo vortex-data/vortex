@@ -1,21 +1,18 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 pub mod compute;
 mod patch;
@@ -23,11 +20,10 @@ mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::BooleanBuffer;
-use rkyv::Archive;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
-#[derive(Clone, Debug, Serialize, Deserialize, Archive)]
+#[derive(Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct BoolMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) first_byte_bit_offset: u8,
@@ -41,12 +37,9 @@ impl Display for BoolMetadata {
 
 impl BoolArray {
     /// Access the array's metadata
-    pub fn metadata(&self) -> &BoolMetadata {
-        self.as_ref()
-            .metadata()
-            .vortex_expect("Missing metadata in BoolArray")
-            .downcast_ref::<BoolMetadata>()
-            .vortex_expect("Invalid metadata in BoolArray")
+    pub fn metadata(&self) -> &ArchivedBoolMetadata {
+        // SAFETY: BoolMetadata is validated in ValidateVTable::validate
+        unsafe { rkyv::access_unchecked::<ArchivedBoolMetadata>(self.as_ref().metadata()) }
     }
 
     /// Access internal array buffer
@@ -133,10 +126,11 @@ impl BoolArray {
             &BoolEncoding,
             DType::Bool(validity.nullability()),
             buffer_len,
-            Arc::new(BoolMetadata {
+            rkyv::to_bytes::<VortexError>(&BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
-            }),
+            })?
+            .into(),
             vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
@@ -158,7 +152,21 @@ impl BoolArray {
     }
 }
 
-impl ArrayTrait for BoolArray {}
+impl ValidateVTable<BoolArray> for BoolEncoding {
+    fn validate(&self, array: &BoolArray) -> VortexResult<()> {
+        if array.as_ref().nbuffers() != 1 {
+            vortex_bail!(
+                "BoolArray: expected 1 buffer, found {}",
+                array.as_ref().nbuffers()
+            );
+        }
+
+        // Now we validate the metadata
+        rkyv::access::<ValidityMetadata, VortexError>(array.as_ref().metadata())?;
+
+        Ok(())
+    }
+}
 
 impl VariantsVTable<BoolArray> for BoolEncoding {
     fn as_bool_array<'a>(&self, array: &'a BoolArray) -> Option<&'a dyn BoolArrayTrait> {

@@ -5,10 +5,11 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBinArray, VarBinEncoding};
 use vortex_array::encoding::{ids, Encoding};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -223,7 +224,7 @@ impl Utf8ArrayTrait for FSSTArray {}
 
 impl BinaryArrayTrait for FSSTArray {}
 
-impl ArrayTrait for FSSTArray {}
+impl ValidateVTable<FSSTArray> for FSSTEncoding {}
 
 #[cfg(test)]
 mod test {

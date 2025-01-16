@@ -10,6 +10,7 @@ pub mod python;
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::TryFromIntError;
 use std::ops::Deref;
@@ -64,6 +65,9 @@ impl From<Infallible> for VortexError {
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum VortexError {
+    /// A wrapped generic error
+    #[error("{0}\nBacktrace:\n{1}")]
+    Generic(Box<dyn Error + Send + Sync + 'static>, Backtrace),
     /// An index is out of bounds.
     #[error("index {0} out of bounds from {1} to {2}\nBacktrace:\n{3}")]
     OutOfBounds(usize, usize, usize, Backtrace),
@@ -401,6 +405,23 @@ pub mod __private {
     #[must_use]
     pub const fn must_use(error: crate::VortexError) -> crate::VortexError {
         error
+    }
+}
+
+#[cfg(feature = "rancor")]
+impl rancor::Source for VortexError {
+    fn new<T: Error + Send + Sync + 'static>(source: T) -> Self {
+        VortexError::Generic(Box::new(source), Backtrace::capture())
+    }
+}
+
+#[cfg(feature = "rancor")]
+impl rancor::Trace for VortexError {
+    fn trace<R>(self, trace: R) -> Self
+    where
+        R: Debug + Display + Send + Sync + 'static,
+    {
+        VortexError::Context(trace.to_string().into(), Box::new(self))
     }
 }
 

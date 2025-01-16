@@ -8,12 +8,12 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, ArrayDType as _, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
@@ -97,7 +97,7 @@ impl RoaringIntArray {
     }
 }
 
-impl ArrayTrait for RoaringIntArray {}
+impl ValidateVTable<RoaringIntArray> for RoaringIntEncoding {}
 
 impl VariantsVTable<RoaringIntArray> for RoaringIntEncoding {
     fn as_primitive_array<'a>(

@@ -4,7 +4,8 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
-use rkyv::Archive;
+use rkyv::bytecheck::CheckBytes;
+use rkyv::traits::NoUndef;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
@@ -50,8 +51,21 @@ pub trait ArrayValidity {
     fn logical_validity(&self) -> LogicalValidity;
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Archive)]
-#[repr(C)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[rkyv(as = ValidityMetadata)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(u8)]
 pub enum ValidityMetadata {
     NonNullable,
     AllValid,
