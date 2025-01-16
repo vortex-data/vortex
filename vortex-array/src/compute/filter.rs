@@ -444,11 +444,10 @@ impl FilterMask {
         vortex_panic!("No mask representation found")
     }
 
-    /// Returns the mask where the true values in `self` are bitwise intersected with the values in
-    /// `mask`.
+    /// take the intersection of the `mask` with the set of true values in `self`.
     ///
-    /// We are more interested in low selectivity `self` mask with a boolean buffer rank mask,
-    /// so we don't optimize for that case.
+    /// We are more interested in low selectivity `self` (as indices) with a boolean buffer mask,
+    /// so we don't optimize for other cases, yet.
     pub fn intersect_set_values(&self, mask: &FilterMask) -> FilterMask {
         assert_eq!(self.true_count(), mask.len());
 
