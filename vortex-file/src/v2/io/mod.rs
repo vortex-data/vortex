@@ -11,7 +11,7 @@ use crate::v2::segments::SegmentRequest;
 /// channel to post back the result.
 ///
 /// I/O drivers are able to coalesce, debounce, or otherwise group the requests, as well as control the concurrency
-/// of the I/O operations with [`futures::stream::buffered`].
+/// of the I/O operations with [`futures::stream::StreamExt::buffered`].
 pub trait IoDriver: 'static {
     // NOTE(ngates): this isn't an async_trait since it doesn't need to be object-safe or boxed.
     fn drive(
