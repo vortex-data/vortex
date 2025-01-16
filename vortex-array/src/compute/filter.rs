@@ -459,26 +459,7 @@ impl FilterMask {
         }
 
         // TODO(joe): support other fast paths, not converting mask into a buffer
-        // let mask_buf = mask.0.buffer();
-        // let set_values = self.0.indices();
-        // let mut res = (0..mask.true_count()).collect_vec();
-        // let mut idx2 = 0;
-        // for (idx, bool) in mask_buf.iter().enumerate() {
-        //     if idx >= set_values.len() {
-        //         println!("set values: {:?}", set_values.len());
-        //         println!("mask_buf: {:?}", mask_buf.len());
-        //         break;
-        //     }
-        //     let val = set_values[idx];
-        //     if idx2 >= res.len() {
-        //         println!("res: {:?}, idx2 {}", res.len(), idx2);
-        //         break;
-        //     }
-        //     res[idx2] = val;
-        //     if bool {
-        //         idx2 += 1;
-        //     }
-        // }
+        // TODO(joe): benchmark a branchless implementation
         let mut res = Vec::with_capacity(mask.true_count());
         let set_values = self.0.indices();
         for (idx, bool) in mask.boolean_buffer().iter().enumerate() {

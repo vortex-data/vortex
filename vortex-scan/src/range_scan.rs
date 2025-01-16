@@ -107,10 +107,8 @@ impl RangeScanner {
                 // conjuncts are non-empty here
                 conjuncts_rev.remove(conjuncts_rev.len() - 1);
 
-                let result = result.into_bool()?;
-
                 // Intersect the result of the filter expression with our initial row mask.
-                let mask = FilterMask::from_buffer(result.boolean_buffer());
+                let mask = FilterMask::from_buffer(result.into_bool()?.boolean_buffer());
 
                 // We passed a full mask to the eval function so we must bit intersect instead
                 // of set-bit intersection if we massed a non-full mask to the evaluator.
