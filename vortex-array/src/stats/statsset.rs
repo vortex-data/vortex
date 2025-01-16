@@ -29,6 +29,13 @@ impl StatsSet {
         Self { values }
     }
 
+    /// Create a new, empty StatsSet.
+    ///
+    /// If you are planning to add stats to the set, consider using [StatsSet::default] instead.
+    pub fn empty() -> Self {
+        Self { values: vec![] }
+    }
+
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {

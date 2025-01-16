@@ -21,7 +21,7 @@ use vortex_io::ObjectStoreReadAt;
 use super::cache::FileLayoutCache;
 
 #[derive(Clone)]
-pub struct VortexFileOpener {
+pub(crate) struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
@@ -49,7 +49,8 @@ impl VortexFileOpener {
                 let expr = split_conjunction(expr)
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .fold(lit(true), and);
+                    .reduce(and)
+                    .unwrap_or_else(|| lit(true));
 
                 simplify_typed(expr, dtype)
             })
@@ -101,7 +102,7 @@ impl FileOpener for VortexFileOpener {
                 .await?;
 
             Ok(vxf
-                .scan(Scan::new(this.projection.clone(), this.filter.clone()))?
+                .scan(Scan::new(this.projection.clone()).with_some_filter(this.filter.clone()))?
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())

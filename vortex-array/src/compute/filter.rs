@@ -351,13 +351,10 @@ impl FilterMask {
     }
 
     #[inline]
+    // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.0.len == 0
     }
 
     /// Get the true count of the mask.
@@ -445,6 +442,37 @@ impl FilterMask {
         }
 
         vortex_panic!("No mask representation found")
+    }
+
+    /// take the intersection of the `mask` with the set of true values in `self`.
+    ///
+    /// We are more interested in low selectivity `self` (as indices) with a boolean buffer mask,
+    /// so we don't optimize for other cases, yet.
+    pub fn intersect_by_rank(&self, mask: &FilterMask) -> FilterMask {
+        assert_eq!(self.true_count(), mask.len());
+
+        if mask.true_count() == mask.len() {
+            return self.clone();
+        }
+
+        if mask.true_count() == 0 {
+            return Self::new_false(self.len());
+        }
+
+        // TODO(joe): support other fast paths, not converting self & mask into indices,
+        // however indices are better for sparse masks, so this is the common case for now.
+        let indices = self.0.indices();
+        Self::from_indices(
+            self.len(),
+            mask.indices()
+                .iter()
+                .map(|idx|
+                    // This is verified as safe because we know that the indices are less than the
+                    // mask.len() and we known mask.len() <= self.len(),
+                    // implied by `self.true_count() == mask.len()`.
+                    unsafe{*indices.get_unchecked(*idx)})
+                .collect(),
+        )
     }
 }
 
@@ -660,6 +688,55 @@ mod test {
         assert_eq!(
             FilterMask::from_indices(5, vec![0, 2, 3]),
             FilterMask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]))
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_all_as_bit_and() {
+        let this =
+            FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true, true, true]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            false, true, false, true, true,
+        ]));
+        assert_eq!(
+            this.intersect_by_rank(&mask),
+            FilterMask::from_indices(5, vec![1, 3, 4])
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_all_true() {
+        let this = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            false, false, true, true, true,
+        ]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true]));
+        assert_eq!(
+            this.intersect_by_rank(&mask),
+            FilterMask::from_indices(5, vec![2, 3, 4])
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_true() {
+        let this = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            true, false, false, true, true,
+        ]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![true, false, true]));
+        assert_eq!(
+            this.intersect_by_rank(&mask),
+            FilterMask::from_indices(5, vec![0, 4])
+        );
+    }
+
+    #[test]
+    fn filter_mask_intersect_false() {
+        let this = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![
+            true, false, false, true, true,
+        ]));
+        let mask = FilterMask::from_buffer(BooleanBuffer::from_iter(vec![false, false, false]));
+        assert_eq!(
+            this.intersect_by_rank(&mask),
+            FilterMask::from_indices(5, vec![])
         );
     }
 }

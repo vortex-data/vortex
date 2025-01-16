@@ -205,24 +205,26 @@ impl RowMask {
         Ok(Self::new(output_mask, output_begin))
     }
 
+    #[inline]
     pub fn is_all_false(&self) -> bool {
         self.mask.true_count() == 0
     }
 
+    #[inline]
     pub fn begin(&self) -> u64 {
         self.begin
     }
 
+    #[inline]
     pub fn end(&self) -> u64 {
         self.end
     }
 
+    #[inline]
+    // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.mask.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mask.is_empty()
     }
 
     /// Returns the [`FilterMask`] whose true values are relative to the range of this `RowMask`.

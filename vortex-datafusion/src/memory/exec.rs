@@ -15,7 +15,7 @@ use crate::memory::stream::VortexRecordBatchStream;
 
 /// Physical plan node for scans against an in-memory, possibly chunked Vortex Array.
 #[derive(Clone)]
-pub struct VortexScanExec {
+pub(crate) struct VortexScanExec {
     array: ChunkedArray,
     scan_projection: FieldNames,
     plan_properties: PlanProperties,

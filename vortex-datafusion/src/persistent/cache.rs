@@ -10,12 +10,12 @@ use vortex_file::v2::{FileLayout, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 #[derive(Debug, Clone)]
-pub struct FileLayoutCache {
+pub(crate) struct FileLayoutCache {
     inner: Cache<Key, FileLayout>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
-pub struct Key {
+pub(crate) struct Key {
     location: Path,
     m_time: DateTime<Utc>,
 }

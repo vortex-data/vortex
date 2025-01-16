@@ -195,7 +195,7 @@ impl Patches {
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
     pub fn filter(&self, mask: &FilterMask) -> VortexResult<Option<Self>> {
-        if mask.is_empty() {
+        if mask.true_count() == 0 {
             return Ok(None);
         }
 

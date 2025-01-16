@@ -21,7 +21,7 @@ use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
-use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
 use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};

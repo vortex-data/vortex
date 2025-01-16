@@ -189,24 +189,26 @@ impl RowMask {
         Self::try_new(output_mask, output_begin, output_end)
     }
 
+    #[inline]
     pub fn is_all_false(&self) -> bool {
         self.mask.true_count() == 0
     }
 
+    #[inline]
     pub fn begin(&self) -> usize {
         self.begin
     }
 
+    #[inline]
     pub fn end(&self) -> usize {
         self.end
     }
 
+    #[inline]
+    #[allow(clippy::len_without_is_empty)]
+    // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
     pub fn len(&self) -> usize {
         self.mask.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mask.is_empty()
     }
 
     /// Limit mask to [begin..end) range

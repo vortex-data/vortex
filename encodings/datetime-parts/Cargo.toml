@@ -26,4 +26,5 @@ vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }

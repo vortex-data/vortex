@@ -2,9 +2,9 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use vortex_array::compute::FilterMask;
-use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
-use vortex_error::VortexResult;
+use vortex_array::compute::{fill_null, FilterMask};
+use vortex_array::{ArrayData, Canonical, IntoArrayData};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
 use crate::{RowMask, Scanner};
@@ -18,7 +18,7 @@ pub struct RangeScanner {
 
 enum State {
     // First we run the filter expression over the full row range.
-    FilterEval((FilterMask, ExprRef)),
+    FilterEval((FilterMask, Vec<ExprRef>)),
     // Then we project the selected rows.
     Project((FilterMask, ExprRef)),
     // And then we're done.
@@ -58,20 +58,17 @@ pub enum NextOp {
 // `evaluate(row_mask, expr)` API.
 impl RangeScanner {
     pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
-        let state = scan
-            .filter()
-            .map(|filter| {
-                // If we have a filter expression, then for now we evaluate it against all rows
-                // of the range.
-                // TODO(ngates): we should decide based on mask.true_count() whether to include the
-                //  current mask or not. But note that the resulting expression would need to be
-                //  aligned and intersected with the given mask.
-                State::FilterEval((FilterMask::new_true(mask.len()), filter.clone()))
-            })
-            .unwrap_or_else(|| {
-                // If there is no filter expression, then we immediately perform a mask + project.
-                State::Project((mask.clone(), scan.projection().clone()))
-            });
+        let state = if !scan.rev_filter.is_empty() {
+            // If we have a filter expression, then for now we evaluate it against all rows
+            // of the range.
+            // TODO(ngates): we should decide based on mask.true_count() whether to include the
+            //  current mask or not. But note that the resulting expression would need to be
+            //  aligned and intersected with the given mask.
+            State::FilterEval((FilterMask::new_true(mask.len()), scan.rev_filter.to_vec()))
+        } else {
+            // If there is no filter expression, then we immediately perform a mask + project.
+            State::Project((mask.clone(), scan.projection().clone()))
+        };
 
         Self {
             scan,
@@ -88,9 +85,14 @@ impl RangeScanner {
     //  forces the eager evaluation of the iterators.
     fn next(&self) -> NextOp {
         match &self.state {
-            State::FilterEval((mask, expr)) => {
-                NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
-            }
+            State::FilterEval((mask, conjuncts)) => NextOp::Eval((
+                self.row_range.clone(),
+                mask.clone(),
+                conjuncts
+                    .last()
+                    .vortex_expect("conjuncts is always non-empty")
+                    .clone(),
+            )),
             State::Project((mask, expr)) => {
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
             }
@@ -99,17 +101,40 @@ impl RangeScanner {
     }
 
     /// Post the result of the last expression evaluation back to the range scan.
-    fn post(&mut self, result: ArrayData) -> VortexResult<()> {
-        match &self.state {
-            State::FilterEval(_) => {
+    fn transition(mut self, result: ArrayData) -> VortexResult<Self> {
+        const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.2;
+        match self.state {
+            State::FilterEval((eval_mask, mut conjuncts_rev)) => {
+                // conjuncts are non-empty here
+                conjuncts_rev.pop();
+
+                let result = fill_null(result, false.into())?;
+
                 // Intersect the result of the filter expression with our initial row mask.
-                let mask = FilterMask::from_buffer(result.into_bool()?.boolean_buffer());
-                let mask = self.mask.bitand(&mask);
+                let mask = FilterMask::try_from(result)?;
+
+                // We passed a full mask to the eval function so we must bit intersect instead
+                // of set-bit intersection if we massed a non-full mask to the evaluator.
+                let mask = if self.mask.len() == eval_mask.true_count() {
+                    self.mask.bitand(&mask)
+                } else {
+                    self.mask.intersect_by_rank(&mask)
+                };
+
                 // Then move onto the projection
-                if mask.is_empty() {
+                if mask.true_count() == 0 {
                     // If the mask is empty, then we're done.
                     self.state =
                         State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
+                } else if !conjuncts_rev.is_empty() {
+                    self.mask = mask;
+                    let mask = if self.mask.selectivity() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
+                        self.mask.clone()
+                    } else {
+                        FilterMask::new_true(self.mask.len())
+                    };
+                    // conjuncts_rev is again non-empty, so we can put it into FilterEval
+                    self.state = State::FilterEval((mask, conjuncts_rev))
                 } else {
                     self.state = State::Project((mask, self.scan.projection().clone()))
                 }
@@ -120,7 +145,7 @@ impl RangeScanner {
             }
             State::Ready(_) => {}
         }
-        Ok(())
+        Ok(self)
     }
 
     /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
@@ -132,7 +157,8 @@ impl RangeScanner {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
                 NextOp::Eval((row_range, mask, expr)) => {
-                    self.post(evaluator(RowMask::new(mask, row_range.start), expr)?)?;
+                    self =
+                        self.transition(evaluator(RowMask::new(mask, row_range.start), expr)?)?;
                 }
             }
         }
@@ -148,9 +174,145 @@ impl RangeScanner {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
                 NextOp::Eval((row_range, mask, expr)) => {
-                    self.post(evaluator(RowMask::new(mask, row_range.start), expr).await?)?;
+                    self = self
+                        .transition(evaluator(RowMask::new(mask, row_range.start), expr).await?)?;
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
+    use vortex_array::compute::{filter, FilterMask};
+    use vortex_array::variants::StructArrayTrait;
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::U64;
+    use vortex_dtype::{DType, StructDType};
+    use vortex_expr::{and, get_item, gt, ident, lit};
+
+    use crate::{RangeScanner, Scanner};
+
+    fn dtype() -> DType {
+        DType::Struct(
+            StructDType::new(
+                vec!["a".into(), "b".into(), "c".into()].into(),
+                vec![U64.into(), U64.into(), U64.into()],
+            ),
+            NonNullable,
+        )
+    }
+
+    #[test]
+    fn range_scan_few_conj_filter_low_selectivity() {
+        let expr_a = gt(get_item("a", ident()), lit(1));
+        let expr_b = gt(get_item("b", ident()), lit(2));
+        let expr_c = gt(get_item("c", ident()), lit(3));
+        let scan = Arc::new(
+            Scanner::new(
+                dtype(),
+                ident(),
+                Some(and(expr_a.clone(), and(expr_b.clone(), expr_c.clone()))),
+            )
+            .unwrap(),
+        );
+        let len = 1000;
+        let range = RangeScanner::new(scan, 0, FilterMask::new_true(len));
+
+        let res = range
+            .evaluate(|mask, expr| {
+                let arr = if expr == expr_a.clone() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 30))).into_array()
+                } else if expr == expr_b.clone() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 130)))
+                        .into_array()
+                } else if expr == expr_c.clone() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 510 && i < 530)))
+                        .into_array()
+                } else if expr == ident() {
+                    let arr = PrimitiveArray::from_iter(0..mask.len() as u64).into_array();
+                    StructArray::from_fields(
+                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
+                    )
+                    .unwrap()
+                    .into_array()
+                } else {
+                    unreachable!("unexpected expression {:?}", expr)
+                };
+
+                filter(&arr, mask.filter_mask())
+            })
+            .unwrap();
+
+        assert!(res.as_struct_array().is_some());
+        let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
+
+        assert_eq!(
+            field.unwrap().into_primitive().unwrap().as_slice::<u64>(),
+            (0..len as u64)
+                .filter(|&i| {
+                    (i <= 10 || i >= 30) && (i <= 100 || i >= 130) && (i <= 510 || i >= 530)
+                })
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+    }
+
+    #[test]
+    fn range_scan_few_conj_filter_high_overlapping_selectivity() {
+        let expr_a = gt(get_item("a", ident()), lit(1));
+        let expr_b = gt(get_item("b", ident()), lit(2));
+        let expr_c = gt(get_item("c", ident()), lit(3));
+        let scan = Arc::new(
+            Scanner::new(
+                dtype(),
+                ident(),
+                Some(and(expr_a.clone(), and(expr_b.clone(), expr_c.clone()))),
+            )
+            .unwrap(),
+        );
+        let len = 1000;
+        let range = RangeScanner::new(scan, 0, FilterMask::new_true(len));
+
+        let res = range
+            .evaluate(|mask, expr| {
+                let arr = if expr == expr_a.clone() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 900))).into_array()
+                } else if expr == expr_b.clone() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 950)))
+                        .into_array()
+                } else if expr == expr_c.clone() {
+                    BoolArray::from_iter((0..mask.len()).map(|i| !(i > 210 && i < 990)))
+                        .into_array()
+                } else if expr == ident() {
+                    let arr = PrimitiveArray::from_iter(0..mask.len() as u64).into_array();
+                    StructArray::from_fields(
+                        [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
+                    )
+                    .unwrap()
+                    .into_array()
+                } else {
+                    unreachable!("unexpected expression {:?}", expr)
+                };
+
+                filter(&arr, mask.filter_mask())
+            })
+            .unwrap();
+
+        assert!(res.as_struct_array().is_some());
+
+        let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
+
+        assert_eq!(
+            field.unwrap().into_primitive().unwrap().as_slice::<u64>(),
+            (0..len as u64)
+                .filter(|&i| !(i > 10 && i < 990))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
     }
 }

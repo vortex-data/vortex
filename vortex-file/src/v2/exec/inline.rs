@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::v2::exec::ExecDriver;
 
-/// An execution driver that awaits the futures inline using the caller's runtime.
+/// An [`ExecDriver`] implementation that awaits the futures inline using the caller's runtime.
 pub struct InlineDriver;
 
 impl ExecDriver for InlineDriver {

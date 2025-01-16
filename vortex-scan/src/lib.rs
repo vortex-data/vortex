@@ -8,7 +8,8 @@ pub use row_mask::*;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
+use vortex_expr::forms::cnf::cnf;
+use vortex_expr::{lit, or, ExprRef};
 
 /// Represents a scan operation to read data from a set of rows, with an optional filter expression,
 /// and a projection expression.
@@ -26,7 +27,7 @@ pub struct Scanner {
     #[allow(dead_code)]
     dtype: DType,
     projection: ExprRef,
-    filter: Option<ExprRef>,
+    rev_filter: Box<[ExprRef]>,
     projection_dtype: DType,
     // A sorted list of row indices to include in the scan. We store row indices since they may
     // produce a very sparse RowMask.
@@ -44,17 +45,29 @@ impl Scanner {
             .dtype()
             .clone();
 
+        let conjuncts: Box<[ExprRef]> = if let Some(filter) = filter {
+            let conjuncts = cnf(filter)?;
+            conjuncts
+                .into_iter()
+                .map(|disjunction| {
+                    disjunction
+                        .into_iter()
+                        .reduce(or)
+                        .unwrap_or_else(|| lit(false))
+                })
+                // Reverse the conjuncts so we can pop over the final value each time without a shuffle
+                .rev()
+                .collect()
+        } else {
+            Box::new([])
+        };
+
         Ok(Self {
             dtype,
             projection,
-            filter,
+            rev_filter: conjuncts,
             projection_dtype: result_dtype,
         })
-    }
-
-    /// Returns the filter expression, if any.
-    pub fn filter(&self) -> Option<&ExprRef> {
-        self.filter.as_ref()
     }
 
     /// Returns the projection expression.

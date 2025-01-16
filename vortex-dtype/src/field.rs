@@ -99,6 +99,8 @@ impl Field {
 
 /// A path through a (possibly nested) struct, composed of a sequence of field selectors
 // TODO(ngates): wrap `Vec<Field>` in Option for cheaper "root" path.
+// TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
+//  with a positional index to allow cheap step_into.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldPath(Vec<Field>);
@@ -127,6 +129,15 @@ impl FieldPath {
     /// Pushes a new field selector to the end of this path
     pub fn push<F: Into<Field>>(&mut self, field: F) {
         self.0.push(field.into());
+    }
+
+    /// Steps into the next field in the path
+    pub fn step_into(mut self) -> VortexResult<Self> {
+        if self.0.is_empty() {
+            return Err(vortex_err!("Cannot step into root path"));
+        }
+        self.0 = self.0.iter().skip(1).cloned().collect();
+        Ok(self)
     }
 }
 

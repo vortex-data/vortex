@@ -38,11 +38,18 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
 }
 #[cfg(test)]
 mod test {
-    use vortex_array::array::{BooleanBuffer, ConstantArray};
+    use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::{IntoArrayVariant, ToArrayData};
 
-    use crate::compute::test::ree_array;
+    use crate::RunEndArray;
+
+    fn ree_array() -> RunEndArray {
+        RunEndArray::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn compare_run_end() {

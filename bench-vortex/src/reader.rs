@@ -111,7 +111,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(reader)
         .await?
-        .take(indices, Scan::all())?
+        .scan(Scan::all().with_row_indices(indices))?
         .into_array_data()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.

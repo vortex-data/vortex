@@ -29,3 +29,25 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
         .map(Some)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::test_harness::test_binary_numeric;
+    use vortex_array::{IntoArrayData, ToArrayData};
+
+    use crate::RunEndArray;
+
+    fn ree_array() -> RunEndArray {
+        RunEndArray::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_runend_binary_numeric() {
+        let array = ree_array().into_array();
+        test_binary_numeric::<i32>(array)
+    }
+}
