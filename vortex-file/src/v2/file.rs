@@ -164,12 +164,7 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let dt = self.dtype().clone();
-        let scanner = Arc::new(Scanner::new(
-            self.dtype().clone(),
-            simplify_typed(projection, dt.clone())?,
-            filter.map(|f| simplify_typed(f, dt)).transpose()?,
-        )?);
+        let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
 
         let result_dtype = scanner.result_dtype().clone();
 

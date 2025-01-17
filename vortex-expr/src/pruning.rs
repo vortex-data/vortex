@@ -331,20 +331,7 @@ impl<'a> PruningPredicateRewriter<'a> {
                 let replaced_max = self.rewrite_other_exp(Stat::Max);
                 let replaced_min = self.rewrite_other_exp(Stat::Min);
 
-                let column_value_is_single_known_value = eq(min_col.clone(), max_col.clone());
-                let column_value = min_col;
-
-                let other_value_is_single_known_value =
-                    eq(replaced_min.clone(), replaced_max.clone());
-                let other_value = replaced_min;
-
-                Some(and(
-                    and(
-                        column_value_is_single_known_value,
-                        other_value_is_single_known_value,
-                    ),
-                    eq(column_value, other_value),
-                ))
+                Some(and(eq(min_col, replaced_max), eq(max_col, replaced_min)))
             }
             Operator::Gt | Operator::Gte => {
                 let max_col = get_item(self.add_stat_reference(Stat::Max), ident());

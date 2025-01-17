@@ -21,7 +21,7 @@ impl Display for Scalar {
                     .value()
                 {
                     None => write!(f, "null"),
-                    Some(bs) => write!(f, "{}", bs.as_str()),
+                    Some(bs) => write!(f, "\"{}\"", bs.as_str()),
                 }
             }
             DType::Binary(_) => {
@@ -34,7 +34,10 @@ impl Display for Scalar {
                         write!(
                             f,
                             "{}",
-                            buf.as_slice().iter().map(|b| format!("{b:x}")).format(",")
+                            buf.as_slice()
+                                .iter()
+                                .map(|b| format!("\"{b:x}\""))
+                                .format(",")
                         )
                     }
                 }
