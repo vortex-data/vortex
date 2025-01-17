@@ -6,6 +6,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ChunkedEncoding;
+use crate::compute::Len;
 use crate::encoding::EncodingVTable;
 use crate::visitor::ArrayVisitor;
 use crate::ArrayData;
@@ -54,7 +55,15 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             format_size(nbytes, DECIMAL),
             100f64 * nbytes as f64 / total_size as f64
         )?;
-        self.indent(|i| writeln!(i.fmt, "{}metadata: {:?}", i.indent, array.metadata_bytes()))?;
+        self.indent(|i| {
+            writeln!(
+                i.fmt,
+                "{}metadata: {}",
+                i.indent,
+                // TODO(ngates): add a MetadataVTable to encoding so we can extract a displayable
+                array.metadata_bytes().map_or(0, |b| b.len())
+            )
+        })?;
 
         let old_total_size = self.total_size;
         if array.is_encoding(ChunkedEncoding.id()) {

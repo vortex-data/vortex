@@ -5,7 +5,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::pvalue::PValue;
@@ -36,13 +36,13 @@ impl ScalarValue {
         let mut ser = flexbuffers::FlexbufferSerializer::new();
         self.0
             .serialize(&mut ser)
-            .expect("Failed to serialize ScalarValue");
+            .vortex_expect("Failed to serialize ScalarValue");
         FlatBuffer::copy_from(ser.view())
     }
 
     pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
         Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
-            buf.as_ref(),
+            buf,
         )?)?)
     }
 }
