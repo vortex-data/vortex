@@ -62,8 +62,8 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffers: Box<[ByteBuffer]>,
-        children: Box<[ArrayData]>,
+        buffers: Option<Box<[ByteBuffer]>>,
+        children: Option<Box<[ArrayData]>>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
         Self::try_new(InnerArrayData::Owned(Arc::new(OwnedArrayData {
@@ -218,7 +218,7 @@ impl ArrayData {
     // TODO(ngates): deprecate this function and return impl Iterator
     pub fn children(&self) -> Vec<ArrayData> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.children().to_vec(),
+            InnerArrayData::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
             InnerArrayData::Viewed(_) => {
                 let mut collector = ChildrenCollector::default();
                 self.encoding()
@@ -331,7 +331,7 @@ impl ArrayData {
 
     pub fn nbuffers(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(o) => o.buffers.len(),
+            InnerArrayData::Owned(o) => o.buffers.as_ref().map_or(0, |b| b.len()),
             InnerArrayData::Viewed(v) => v.nbuffers(),
         }
     }

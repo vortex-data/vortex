@@ -142,7 +142,7 @@ impl DeltaArray {
             dtype,
             logical_len,
             metadata,
-            children.into(),
+            Some(children.into()),
             StatsSet::default(),
         )?;
 

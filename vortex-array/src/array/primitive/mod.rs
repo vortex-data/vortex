@@ -46,8 +46,8 @@ impl PrimitiveArray {
             Arc::new(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            [buffer.into_byte_buffer()].into(),
-            validity.into_array().into_iter().collect(),
+            Some([buffer.into_byte_buffer()].into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
         )
         .and_then(|data| data.try_into())
