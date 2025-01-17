@@ -28,7 +28,7 @@ where
 {
     fn validate(&self, array: &ArrayData) -> VortexResult<()> {
         let (array_ref, encoding) = array
-            .downcast_array_ref::<E>()
+            .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         encoding.validate(array_ref)
     }
