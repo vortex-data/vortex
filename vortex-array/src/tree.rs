@@ -54,7 +54,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             format_size(nbytes, DECIMAL),
             100f64 * nbytes as f64 / total_size as f64
         )?;
-        self.indent(|i| writeln!(i.fmt, "{}metadata: {:?}", i.indent, array.metadata()))?;
+        self.indent(|i| writeln!(i.fmt, "{}metadata: {:?}", i.indent, array.metadata_bytes()))?;
 
         let old_total_size = self.total_size;
         if array.is_encoding(ChunkedEncoding.id()) {

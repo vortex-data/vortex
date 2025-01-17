@@ -16,13 +16,17 @@ use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult, VortexUnwrap,
 };
 
+use crate::array::{StructArray, StructMetadata, VarBinMetadata};
 use crate::arrow::FromArrowArray;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
+    RkyvMetadata,
+};
 
 mod accessor;
 mod compute;
@@ -248,7 +252,7 @@ impl VarBinViewArray {
         Self::try_from_parts(
             dtype,
             array_len,
-            &metadata,
+            RkyvMetadata(metadata),
             array_buffers.into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
@@ -256,8 +260,13 @@ impl VarBinViewArray {
     }
 
     fn metadata(&self) -> VarBinViewMetadata {
-        from_bytes::<VarBinViewMetadata, VortexError>(self.as_ref().metadata())
-            .vortex_expect("VarBinViewArray: metadata")
+        // SAFETY: metadata is validated in the ValidateVTable
+        unsafe {
+            RkyvMetadata::<VarBinViewMetadata>::deserialize_unchecked(
+                self.as_ref().metadata_bytes(),
+            )
+            .0
+        }
     }
 
     /// Number of raw string data buffers held by this array.
@@ -438,7 +447,12 @@ where
     builder.finish()
 }
 
-impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
+impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn validate(&self, array: &VarBinViewArray) -> VortexResult<()> {
+        RkyvMetadata::<VarBinViewMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl IntoCanonical for VarBinViewArray {
     fn into_canonical(self) -> VortexResult<Canonical> {

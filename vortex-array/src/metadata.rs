@@ -11,12 +11,6 @@ impl SerializeMetadata for () {
     }
 }
 
-impl SerializeMetadata for [u8] {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
-        Ok(Some(ByteBuffer::from(self)))
-    }
-}
-
 pub trait DeserializeMetadata<'m>
 where
     Self: Sized,
@@ -72,6 +66,7 @@ where
         rkyv::from_bytes::<M, VortexError>(
             metadata.ok_or_else(|| vortex_err!("Missing expected metadata"))?,
         )
+        .map(RkyvMetadata)
     }
 }
 

@@ -128,7 +128,10 @@ impl WriteFlatBuffer for ArrayPartsFlatBuffer<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let encoding = self.array.encoding().id().code();
-        let metadata = Some(fbb.create_vector(self.array.metadata().as_ref()));
+        let metadata = self
+            .array
+            .metadata_bytes()
+            .map(|bytes| fbb.create_vector(bytes));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
