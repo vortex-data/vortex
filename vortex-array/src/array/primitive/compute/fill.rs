@@ -3,7 +3,7 @@ use vortex_dtype::{match_each_native_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
-use crate::array::PrimitiveEncoding;
+use crate::array::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
@@ -27,10 +27,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
 
         if validity.all_invalid() {
             match_each_native_ptype!(array.ptype(), |$T| {
-                return Ok(PrimitiveArray::new(
-                    Buffer::<$T>::zeroed(array.len()),
-                    Validity::AllValid
-                ).into_array());
+                return Ok(ConstantArray::new($T::default(), array.len()).into_array())
             })
         }
 
@@ -90,12 +87,12 @@ mod test {
     #[test]
     fn nullable_non_null() {
         let arr = PrimitiveArray::new(
-            buffer![8u8, 10u8, 12u8, 14u8, 16u8],
+            buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         )
         .into_array();
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
-        assert_eq!(p.as_slice::<u8>(), vec![8, 10, 12, 14, 16]);
+        assert_eq!(p.as_slice::<u8>(), vec![8u8, 10, 12, 14, 16]);
         assert!(p.logical_validity().all_valid());
     }
 }
