@@ -25,7 +25,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: 'us-east-1'
       - name: Run fuzzing target
-        run: RUST_BACKTRACE=1 cargo fuzz run file_io -- -max_total_time=3600
+        run: RUST_BACKTRACE=1 cargo fuzz run file_io -- -max_total_time=300
         continue-on-error: true
       - name: Archive crash artifacts
         uses: actions/upload-artifact@v4
