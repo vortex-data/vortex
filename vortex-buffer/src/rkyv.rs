@@ -5,14 +5,10 @@ use crate::{Alignment, ByteBuffer};
 
 impl<const A: usize> From<AlignedVec<A>> for ByteBuffer {
     fn from(value: AlignedVec<A>) -> Self {
-        println!(
-            "From<AlignedVec<A>> for ByteBuffer {} {}",
-            A,
-            value.as_ptr().align_offset(A)
-        );
-        if value.as_ptr().align_offset(A) != 0 {
-            print!("Hmmm");
+        let alignment = Alignment::new(A);
+        if value.is_empty() {
+            return Self::empty_aligned(alignment);
         }
-        Self::from_bytes_aligned(Bytes::from_owner(value), Alignment::new(A))
+        Self::from_bytes_aligned(Bytes::from_owner(value), alignment)
     }
 }
