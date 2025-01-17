@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
 
-use crate::v2::footer::segment::Segment;
+use crate::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]

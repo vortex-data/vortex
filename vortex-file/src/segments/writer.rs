@@ -3,7 +3,7 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_io::VortexWrite;
 use vortex_layout::segments::{SegmentId, SegmentWriter};
 
-use crate::v2::footer::Segment;
+use crate::footer::Segment;
 
 /// A segment writer that holds buffers in memory until they are flushed by a writer.
 #[derive(Default)]

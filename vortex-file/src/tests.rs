@@ -4,7 +4,9 @@ use std::ops::Deref;
 use std::pin::pin;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use futures::StreamExt;
+use futures_executor::block_on;
 use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
@@ -14,16 +16,17 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, Context, IntoArrayData, IntoArrayVariant, ToArrayData,
+    ArrayDType, ArrayData, ArrayLen, Context, ContextRef, IntoArrayData, IntoArrayVariant,
+    ToArrayData,
 };
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::vortex_panic;
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
-use crate::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
-use crate::{V1_FOOTER_FBS_SIZE, VERSION};
+use crate::io::IoDriver;
+use crate::{Scan, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
 
 #[test]
 fn test_eof_values() {
@@ -1011,4 +1014,48 @@ async fn test_repeated_projection() {
             .map(|index| scalar_at(&expected, index).unwrap())
             .collect_vec()
     );
+}
+
+fn chunked_file() -> VortexFile<impl IoDriver> {
+    let array = ChunkedArray::from_iter([
+        buffer![0, 1, 2].into_array(),
+        buffer![3, 4, 5].into_array(),
+        buffer![6, 7, 8].into_array(),
+    ])
+    .into_array();
+
+    block_on(async {
+        let buffer: Bytes = VortexWriteOptions::default()
+            .write(vec![], array.into_array_stream())
+            .await?
+            .into();
+        VortexOpenOptions::new(ContextRef::default())
+            .open(buffer)
+            .await
+    })
+    .vortex_expect("Failed to create test file")
+}
+
+#[test]
+fn basic_file_roundtrip() -> VortexResult<()> {
+    let vxf = chunked_file();
+    let result = block_on(vxf.scan(Scan::all())?.into_array_data())?.into_primitive()?;
+
+    assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
+
+    Ok(())
+}
+
+#[test]
+fn file_take() -> VortexResult<()> {
+    let vxf = chunked_file();
+    let result = block_on(
+        vxf.scan(Scan::all().with_row_indices(buffer![0, 1, 8]))?
+            .into_array_data(),
+    )?
+    .into_primitive()?;
+
+    assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
+
+    Ok(())
 }

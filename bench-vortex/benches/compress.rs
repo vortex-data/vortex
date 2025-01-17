@@ -31,7 +31,6 @@ use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};

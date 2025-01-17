@@ -66,13 +66,25 @@
 //! If you ultimately seek Arrow arrays, [`VortexRecordBatchReader`] converts a
 //! [`VortexReadArrayStream`] into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
 
-mod read;
-mod write;
-
-mod byte_range;
 #[cfg(test)]
 mod tests;
-pub mod v2;
+
+pub use forever_constant::*;
+
+mod exec;
+mod file;
+mod footer;
+pub mod io;
+mod open;
+pub mod read;
+pub mod segments;
+mod strategy;
+mod writer;
+
+pub use file::*;
+pub use footer::FileLayout;
+pub use open::*;
+pub use writer::*;
 
 /// The current version of the Vortex file format
 pub const VERSION: u16 = 1;
@@ -81,7 +93,7 @@ pub const V1_FOOTER_FBS_SIZE: usize = 32;
 
 /// Constants that will never change (i.e., doing so would break backwards compatibility)
 mod forever_constant {
-    use super::*;
+    use vortex_layout::LayoutId;
 
     /// The extension for Vortex files
     pub const VORTEX_FILE_EXTENSION: &str = "vortex";
@@ -103,6 +115,7 @@ mod forever_constant {
     #[cfg(test)]
     mod test {
         use super::*;
+        use crate::*;
 
         #[test]
         fn never_change_these_constants() {
@@ -116,7 +129,3 @@ mod forever_constant {
         }
     }
 }
-
-pub use forever_constant::*;
-pub use read::*;
-pub use write::*;

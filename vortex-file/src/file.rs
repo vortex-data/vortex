@@ -14,15 +14,14 @@ use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::{RowMask, Scanner};
 
-use crate::v2::exec::ExecDriver;
-use crate::v2::io::IoDriver;
-use crate::v2::segments::channel::SegmentChannel;
-use crate::v2::FileLayout;
+use crate::exec::ExecDriver;
+use crate::io::IoDriver;
+use crate::segments::channel::SegmentChannel;
+use crate::FileLayout;
 
 /// A Vortex file ready for reading.
 ///
@@ -164,12 +163,7 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let dt = self.dtype().clone();
-        let scanner = Arc::new(Scanner::new(
-            self.dtype().clone(),
-            simplify_typed(projection, dt.clone())?,
-            filter.map(|f| simplify_typed(f, dt)).transpose()?,
-        )?);
+        let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
 
         let result_dtype = scanner.result_dtype().clone();
 
