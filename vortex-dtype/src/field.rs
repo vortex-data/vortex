@@ -127,15 +127,16 @@ impl FieldPath {
     }
 
     /// Pushes a new field selector to the end of this path
-    pub fn push<F: Into<Field>>(&mut self, field: F) {
+    pub fn push<F: Into<Field>>(mut self, field: F) -> Self {
         self.0.push(field.into());
+        self
     }
 
     /// Whether the path starts with the given field name
     pub fn starts_with_name(&self, name: &str) -> bool {
         self.0
             .first()
-            .map_or(false, |f| f == &Field::Name(name.into()))
+            .is_some_and(|f| f == &Field::Name(name.into()))
     }
 
     /// Steps into the next field in the path

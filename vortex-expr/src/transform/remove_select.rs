@@ -24,7 +24,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
             let child = select.child();
-            let child_dtype = child.return_dtype(&self.scope_dtype)?;
+            let child_dtype = child.return_dtype(self.scope_dtype)?;
             let child_dtype = child_dtype.as_struct().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",

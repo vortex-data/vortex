@@ -43,10 +43,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
             let fields = children
                 .into_iter()
                 .flat_map(|field_mask| field_mask.into_iter())
-                .map(|mut field_path| {
-                    field_path.push(Field::Name(getitem.field().clone()));
-                    field_path
-                })
+                .map(|field_path| field_path.push(Field::Name(getitem.field().clone())))
                 .collect();
             return Ok(FoldUp::Continue(fields));
         }
@@ -57,5 +54,56 @@ impl<'a> Folder<'a> for FieldMaskFolder {
 
         // Otherwise, return the field paths from the children
         Ok(FoldUp::Continue(children.into_iter().flatten().collect()))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::iter;
+
+    use itertools::Itertools;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, FieldPath, PType, StructDType};
+
+    use crate::transform::field_mask::field_mask;
+    use crate::{get_item, ident};
+
+    fn dtype() -> DType {
+        DType::Struct(
+            StructDType::new(
+                ["A".into(), "B".into(), "C".into()].into(),
+                iter::repeat(DType::Primitive(PType::I32, NonNullable))
+                    .take(3)
+                    .collect(),
+            ),
+            NonNullable,
+        )
+    }
+
+    #[test]
+    fn field_mask_ident() {
+        let mask = field_mask(&ident(), &dtype())
+            .unwrap()
+            .into_iter()
+            .collect_vec();
+        assert_eq!(mask.as_slice(), &[FieldPath::root()]);
+    }
+
+    #[test]
+    fn field_mask_get_item() {
+        let mask = field_mask(&get_item("A", ident()), &dtype())
+            .unwrap()
+            .into_iter()
+            .collect_vec();
+        assert_eq!(mask.as_slice(), &[FieldPath::from_name("A")]);
+    }
+
+    #[test]
+    fn field_mask_get_item_nested() {
+        let mask = field_mask(&get_item("B", get_item("A", ident())), &dtype())
+            .unwrap()
+            .into_iter()
+            .collect_vec();
+        assert_eq!(mask.as_slice(), &[FieldPath::from_name("A").push("B")]);
     }
 }

@@ -138,7 +138,7 @@ impl<I: IoDriver> VortexFile<I> {
 
         println!("Scanning with {} splits", splits.len());
 
-        let row_masks = ArcIter::new(splits.clone()).filter_map(move |row_range| {
+        let row_masks = ArcIter::new(splits).filter_map(move |row_range| {
             let Some(row_indices) = &scan.row_indices else {
                 // If there is no row indices filter, then take the whole range
                 return Some(RowMask::new_valid_between(row_range.start, row_range.end));

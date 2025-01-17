@@ -241,7 +241,7 @@ impl StructDType {
     /// Find the index of a field.
     pub fn find(&self, field: &Field) -> Option<usize> {
         match field {
-            Field::Name(name) => self.find_name(&name),
+            Field::Name(name) => self.find_name(name),
             Field::Index(idx) => Some(*idx),
         }
     }
