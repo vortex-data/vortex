@@ -239,19 +239,41 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                 DType::Bool(_) => {
                     let ends = array.ends().into_primitive()?;
                     let bools = array.values().into_bool()?.boolean_buffer();
-                    let true_count: u64 = match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
-                        let mut begin: $P = 0;
-                        ends
-                            .as_slice::<$P>()
-                            .iter()
-                            .enumerate()
-                            .map(|(index, end)| {
-                                let len = *end - begin;
-                                begin = *end;
-                                (len as u64) * (bools.value(index as usize) as u64)
+
+                    let true_count: u64 = match array.values().logical_validity() {
+                        LogicalValidity::AllValid(_) => {
+                            match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                                let mut begin: $P = 0;
+                                ends
+                                    .as_slice::<$P>()
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, end)| {
+                                        let len = *end - begin;
+                                        begin = *end;
+                                        (len as u64) * (bools.value(index as usize) as u64)
+                                    })
+                                    .sum()
                             })
-                            .sum()
-                    });
+                        }
+                        LogicalValidity::AllInvalid(_) => 0,
+                        LogicalValidity::Array(is_valid) => {
+                            let is_valid = is_valid.into_bool()?.boolean_buffer();
+                            match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                                let mut begin: $P = 0;
+                                ends
+                                    .as_slice::<$P>()
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, end)| {
+                                        let len = *end - begin;
+                                        begin = *end;
+                                        (len as u64) * (bools.value(index as usize) as u64) * (is_valid.value(index as usize) as u64)
+                                    })
+                                    .sum()
+                            })
+                        }
+                    };
                     Some(Scalar::from(true_count))
                 }
                 DType::Primitive(..) => None,
