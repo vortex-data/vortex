@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{
-    FoldChildren, FoldDown, FoldUp, Folder, FolderMut, MutNodeVisitor, Node, TransformResult,
+    FoldDown, FoldUp, Folder, FolderMut, MutNodeVisitor, Node, TransformResult,
 };
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
 
@@ -78,6 +78,7 @@ impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
 // This is a very naive, but simple analysis to find the fields that are accessed directly on an
 // identity node. This is combined to provide an over-approximation of the fields that are accessed
 // by an expression.
+// TODO(ngates): rewrite to use Visitor not Folder
 impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
     type NodeTy = ExprRef;
     type Out = ();
@@ -100,7 +101,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
                 self.sub_expressions
                     .insert(node, HashSet::from_iter(vec![get_item.field().clone()]));
 
-                return Ok(FoldDown::SkipChildren);
+                return Ok(FoldDown::SkipChildren(()));
             }
         } else if let Some(select) = node.as_any().downcast_ref::<Select>() {
             assert!(matches!(select.fields(), SelectField::Include(_)));
@@ -110,7 +111,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
                     HashSet::from_iter(select.fields().fields().iter().cloned()),
                 );
             }
-            return Ok(FoldDown::SkipChildren);
+            return Ok(FoldDown::SkipChildren(()));
         } else if node.as_any().downcast_ref::<Identity>().is_some() {
             let st_dtype = &self.scope_dtype;
             self.sub_expressions
@@ -124,7 +125,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
         &mut self,
         node: &'a ExprRef,
         _context: (),
-        _children: FoldChildren<()>,
+        _children: Vec<()>,
     ) -> VortexResult<FoldUp<()>> {
         let accesses = node
             .children()
@@ -247,7 +248,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
             .unwrap_or(false)
         {
             // Found the top most sub-expression which only access a single field
-            return Ok(FoldDown::SkipChildren);
+            return Ok(FoldDown::SkipChildren(node.clone()));
         };
 
         Ok(FoldDown::Continue(()))
@@ -257,7 +258,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
         &mut self,
         node: Self::NodeTy,
         _context: Self::Context,
-        children: FoldChildren<ExprRef>,
+        children: Vec<ExprRef>,
     ) -> VortexResult<FoldUp<ExprRef>> {
         if let Some(access) = self.accesses.get(&node) {
             if access.len() == 1 {
@@ -308,10 +309,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
             return Ok(FoldUp::Continue(pack(pack_fields, pack_exprs)));
         }
 
-        match children {
-            FoldChildren::Skipped => unreachable!("Children skipped handled above"),
-            FoldChildren::Children(c) => Ok(FoldUp::Continue(node.replacing_children(c))),
-        }
+        Ok(FoldUp::Continue(node.replacing_children(children)))
     }
 }
 
@@ -326,15 +324,12 @@ impl FolderMut for ScopeStepIntoFieldExpr {
         &mut self,
         node: Self::NodeTy,
         _context: (),
-        children: FoldChildren<Self::Out>,
+        children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         if node.as_any().downcast_ref::<Identity>().is_some() {
             Ok(FoldUp::Continue(pack(vec![self.0.clone()], vec![ident()])))
         } else {
-            assert!(!matches!(children, FoldChildren::Skipped));
-            Ok(FoldUp::Continue(
-                node.replacing_children(children.into_iter().collect()),
-            ))
+            Ok(FoldUp::Continue(node.replacing_children(children)))
         }
     }
 }

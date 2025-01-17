@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldChildren, FoldDown, FoldUp, FolderMut, Node as _};
+use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
 use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
@@ -85,28 +85,25 @@ impl FolderMut for NNFVisitor {
             }
         }
 
-        Ok(FoldDown::SkipChildren)
+        Ok(FoldDown::Abort(node.clone()))
     }
 
     fn visit_up(
         &mut self,
         node: ExprRef,
         negating: bool,
-        new_children: FoldChildren<ExprRef>,
+        mut new_children: Vec<ExprRef>,
     ) -> VortexResult<FoldUp<ExprRef>> {
         let node_any = node.as_any();
-        let new_node = if node_any.downcast_ref::<Not>().is_some() {
-            let FoldChildren::Children(mut new_children) = new_children else {
-                unreachable!();
-            };
-            debug_assert_eq!(new_children.len(), 1);
 
+        let new_node = if node_any.downcast_ref::<Not>().is_some() {
+            debug_assert_eq!(new_children.len(), 1);
             new_children.remove(0)
         } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
             if !negating {
                 node
             } else {
-                let new_op = match binary_expr.op() {
+                let new_op = match binary_expr.op().swap() {
                     Operator::Eq => Operator::NotEq,
                     Operator::NotEq => Operator::Eq,
                     Operator::Gt => Operator::Lte,
@@ -118,34 +115,24 @@ impl FolderMut for NNFVisitor {
                 };
                 let (lhs, rhs) = match binary_expr.op() {
                     Operator::Or | Operator::And => {
-                        let FoldChildren::Children(mut negated_children) = new_children else {
-                            unreachable!();
-                        };
+                        let mut negated_children = new_children;
                         debug_assert_eq!(negated_children.len(), 2);
                         let rhs = negated_children.remove(1);
                         let lhs = negated_children.remove(0);
                         (lhs, rhs)
                     }
-                    _ => {
-                        let FoldChildren::Skipped = new_children else {
-                            unreachable!();
-                        };
-                        (binary_expr.lhs().clone(), binary_expr.rhs().clone())
-                    }
+                    _ => (binary_expr.lhs().clone(), binary_expr.rhs().clone()),
                 };
                 BinaryExpr::new_expr(lhs, new_op, rhs)
             }
         } else {
-            let FoldChildren::Skipped = new_children else {
-                unreachable!();
-            };
-
             if negating {
                 not(node)
             } else {
                 node
             }
         };
+
         Ok(FoldUp::Continue(new_node))
     }
 }

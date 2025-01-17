@@ -76,6 +76,7 @@ impl Pack {
     }
 }
 
+// TODO(ngates): make this signature more ergonomic
 pub fn pack(names: impl Into<FieldNames>, values: Vec<ExprRef>) -> ExprRef {
     Pack::try_new_expr(names.into(), values)
         .vortex_expect("pack names and values have the same length")

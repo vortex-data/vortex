@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldChildren, FoldUp, FolderMut, Node};
+use crate::traversal::{FoldUp, FolderMut, Node};
 use crate::{get_item, ident, Column, ExprRef, GetItem, Pack};
 
 pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
@@ -20,7 +20,7 @@ impl FolderMut for Simplify {
         &mut self,
         node: Self::NodeTy,
         _context: Self::Context,
-        children: FoldChildren<Self::Out>,
+        children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         if let Some(column) = node.as_any().downcast_ref::<Column>() {
             // TODO(ngates): deprecate Column, or keep at and simplify GetItem(Ident).
@@ -33,8 +33,6 @@ impl FolderMut for Simplify {
                 return Ok(FoldUp::Continue(expr));
             }
         }
-        Ok(FoldUp::Continue(
-            node.replacing_children(children.contained_children()),
-        ))
+        Ok(FoldUp::Continue(node.replacing_children(children)))
     }
 }
