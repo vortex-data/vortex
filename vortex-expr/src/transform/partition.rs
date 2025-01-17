@@ -241,7 +241,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
     ) -> VortexResult<FoldDown<ExprRef, Self::Context>> {
         // If this expression only accesses a single field, then we can skip the children
         let access = self.accesses.get(node);
-        if access.as_ref().map_or(false, |a| a.len() == 1) {
+        if access.as_ref().is_some_and(|a| a.len() == 1) {
             let field_name = access
                 .vortex_expect("access is non-empty")
                 .iter()

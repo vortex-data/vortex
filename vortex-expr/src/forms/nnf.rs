@@ -125,12 +125,10 @@ impl FolderMut for NNFVisitor {
                 };
                 BinaryExpr::new_expr(lhs, new_op, rhs)
             }
+        } else if negating {
+            not(node)
         } else {
-            if negating {
-                not(node)
-            } else {
-                node
-            }
+            node
         };
 
         Ok(FoldUp::Continue(new_node))
