@@ -14,15 +14,14 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{and, get_item, ident, lit, pack, ExprRef, Identity};
-use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
+use vortex_expr::{and, ident, lit, select, ExprRef};
+use vortex_file::{ExecutionMode, Scan, SplitBy, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
-use vortex_scan::Scan;
 
 use super::cache::FileLayoutCache;
 
 #[derive(Clone)]
-pub struct VortexFileOpener {
+pub(crate) struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
@@ -50,7 +49,8 @@ impl VortexFileOpener {
                 let expr = split_conjunction(expr)
                     .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .fold(lit(true), and);
+                    .reduce(and)
+                    .unwrap_or_else(|| lit(true));
 
                 simplify_typed(expr, dtype)
             })
@@ -58,23 +58,14 @@ impl VortexFileOpener {
 
         let projection = projection
             .as_ref()
-            .map(|fields| {
-                pack(
-                    fields.clone(),
-                    fields
-                        .iter()
-                        .map(|f| get_item(f.clone(), ident()))
-                        .collect(),
-                )
-            })
-            .unwrap_or_else(|| Identity::new_expr());
+            .map(|fields| select(fields.clone(), ident()))
+            .unwrap_or_else(|| ident());
 
         Ok(Self {
             ctx,
             object_store,
             projection,
             filter,
-            // arrow_schema,
             file_layout_cache,
         })
     }
@@ -87,8 +78,6 @@ impl FileOpener for VortexFileOpener {
         // Construct the projection expression based on the DataFusion projection mask.
         // Each index in the mask corresponds to the field position of the root DType.
 
-        let scan = Scan::new(self.projection.clone(), self.filter.clone()).into_arc();
-
         let read_at =
             ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
 
@@ -99,12 +88,14 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, this.object_store.clone())
                         .await?,
                 )
+                // Create larger splits in so that each chunk has more rows
+                .with_split_by(SplitBy::RowCount(2 << 15))
                 .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
                 .open(read_at)
                 .await?;
 
             Ok(vxf
-                .scan(scan)?
+                .scan(Scan::new(this.projection.clone()).with_some_filter(this.filter.clone()))?
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())

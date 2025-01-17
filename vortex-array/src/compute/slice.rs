@@ -17,7 +17,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn slice(&self, array: &ArrayData, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SliceFn::slice(encoding, array_ref, start, stop)
     }
 }
@@ -33,6 +33,10 @@ where
 /// returns an error.
 pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexResult<ArrayData> {
     let array = array.as_ref();
+
+    if start == 0 && stop == array.len() {
+        return Ok(array.clone());
+    }
     check_slice_bounds(array, start, stop)?;
 
     let sliced = array

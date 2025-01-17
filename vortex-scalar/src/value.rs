@@ -69,7 +69,7 @@ impl Display for InnerScalarValue {
                         &bufstr.as_str()[bufstr.len() - 5..bufstr.len()],
                     )
                 } else {
-                    write!(f, "{}", bufstr.as_str())
+                    write!(f, "\"{}\"", bufstr.as_str())
                 }
             }
             Self::List(elems) => {

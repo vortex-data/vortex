@@ -1,6 +1,7 @@
 mod cache;
-pub mod config;
-pub mod execution;
-pub mod format;
-pub mod opener;
-pub mod statistics;
+mod config;
+mod execution;
+mod format;
+mod opener;
+
+pub use format::{VortexFormat, VortexFormatOptions};

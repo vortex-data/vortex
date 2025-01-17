@@ -47,8 +47,8 @@ impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
 pub trait StatsEvaluator {
     async fn evaluate_stats(
         &self,
-        field_paths: &[FieldPath],
-        stats: &[Stat],
+        field_paths: Arc<[FieldPath]>,
+        stats: Arc<[Stat]>,
     ) -> VortexResult<Vec<StatsSet>>;
 }
 
@@ -56,8 +56,8 @@ pub trait StatsEvaluator {
 impl StatsEvaluator for Arc<dyn LayoutReader + 'static> {
     async fn evaluate_stats(
         &self,
-        field_paths: &[FieldPath],
-        stats: &[Stat],
+        field_paths: Arc<[FieldPath]>,
+        stats: Arc<[Stat]>,
     ) -> VortexResult<Vec<StatsSet>> {
         self.as_ref().evaluate_stats(field_paths, stats).await
     }

@@ -78,6 +78,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_submodule(&expr)?;
 
     expr.add_function(wrap_pyfunction!(expr::column, m)?)?;
+    expr.add_function(wrap_pyfunction!(expr::ident, m)?)?;
     expr.add_function(wrap_pyfunction!(expr::literal, m)?)?;
     expr.add_class::<PyExpr>()?;
 

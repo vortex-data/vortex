@@ -18,7 +18,7 @@ use super::cache::FileLayoutCache;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
-pub struct VortexExec {
+pub(crate) struct VortexExec {
     file_scan_config: FileScanConfig,
     metrics: ExecutionPlanMetricsSet,
     predicate: Option<Arc<dyn PhysicalExpr>>,

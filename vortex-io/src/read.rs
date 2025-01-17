@@ -1,8 +1,9 @@
-use std::future::{self, Future};
+use std::future::{ready, Future};
 use std::io;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexUnwrap};
 
 /// A trait for types that support asynchronous reads.
@@ -67,15 +68,37 @@ impl VortexReadAt for Bytes {
         let read_start: usize = pos.try_into().vortex_unwrap();
         let read_end: usize = (len + pos).try_into().vortex_unwrap();
         if read_end > self.len() {
-            return future::ready(Err(io::Error::new(
+            return ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
             )));
         }
-        future::ready(Ok(self.slice(read_start..read_end)))
+        ready(Ok(self.slice(read_start..read_end)))
     }
 
     fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        future::ready(Ok(self.len() as u64))
+        ready(Ok(self.len() as u64))
+    }
+}
+
+impl VortexReadAt for ByteBuffer {
+    fn read_byte_range(
+        &self,
+        pos: u64,
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+        let read_start: usize = pos.try_into().vortex_unwrap();
+        let read_end: usize = (len + pos).try_into().vortex_unwrap();
+        if read_end > self.len() {
+            return ready(Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                vortex_err!("unexpected eof"),
+            )));
+        }
+        ready(Ok(self.slice(read_start..read_end).into_inner()))
+    }
+
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
+        ready(Ok(self.len() as u64))
     }
 }

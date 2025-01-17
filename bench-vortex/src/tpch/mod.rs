@@ -16,12 +16,12 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
-use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
 use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
@@ -31,7 +31,6 @@ mod execute;
 pub mod schema;
 
 pub use execute::*;
-use vortex::file::v2::VortexWriteOptions;
 
 pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,

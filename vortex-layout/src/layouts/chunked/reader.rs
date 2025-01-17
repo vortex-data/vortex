@@ -1,10 +1,13 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
+use arrow_buffer::BooleanBuffer;
 use async_once_cell::OnceCell;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
-use vortex_array::ContextRef;
-use vortex_error::{vortex_panic, VortexResult};
-use vortex_expr::Identity;
+use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_expr::pruning::PruningPredicate;
+use vortex_expr::{ExprRef, Identity};
 use vortex_scan::RowMask;
 
 use crate::layouts::chunked::stats_table::StatsTable;
@@ -18,6 +21,8 @@ pub struct ChunkedReader {
     layout: LayoutData,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
+    /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
+    pruning_result: Arc<RwLock<HashMap<ExprRef, Option<BooleanBuffer>>>>,
     /// Shared stats table
     stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
@@ -48,6 +53,7 @@ impl ChunkedReader {
             layout,
             ctx,
             segments,
+            pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
         })
@@ -95,6 +101,38 @@ impl ChunkedReader {
             })
             .await
             .map(|opt| opt.as_ref())
+    }
+
+    pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<BooleanBuffer>> {
+        if let Some(mask) = self
+            .pruning_result
+            .read()
+            .map_err(|_| vortex_err!("poisoned lock"))?
+            .get(expr)
+        {
+            return Ok(mask.clone());
+        }
+        let pruning_predicate = PruningPredicate::try_new(expr);
+        let res = if let Some(stats_table) = self.stats_table().await? {
+            if let Some(predicate) = pruning_predicate {
+                predicate
+                    .evaluate(stats_table.array())?
+                    .map(|mask| mask.into_bool())
+                    .transpose()?
+                    .map(|mask| mask.boolean_buffer())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        self.pruning_result
+            .write()
+            .map_err(|_| vortex_err!("poisoned lock"))?
+            .insert(expr.clone(), res.clone());
+
+        Ok(res)
     }
 
     /// Return the number of chunks

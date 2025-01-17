@@ -8,7 +8,7 @@ use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::field::DisplayFieldName;
-use crate::{ExprRef, VortexExpr};
+use crate::{ident, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -34,8 +34,16 @@ impl GetItem {
     }
 }
 
+pub fn col(field: impl Into<FieldName>) -> ExprRef {
+    GetItem::new_expr(field, ident())
+}
+
 pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItem::new_expr(field, child)
+}
+
+pub fn get_item_scope(field: impl Into<FieldName>) -> ExprRef {
+    GetItem::new_expr(field, ident())
 }
 
 impl Display for GetItem {

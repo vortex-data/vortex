@@ -18,9 +18,10 @@ use vortex_error::{
 use crate::arrow::FromArrowArray;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 
 mod accessor;
 mod compute;
@@ -241,15 +242,14 @@ impl VarBinViewArray {
         array_buffers.push(views.into_byte_buffer());
         array_buffers.extend(buffers);
 
-        Self::try_from(ArrayData::try_new_owned(
-            &VarBinViewEncoding,
+        Self::try_from_parts(
             dtype,
             array_len,
-            Arc::new(metadata),
-            array_buffers.into(),
-            validity.into_array().into_iter().collect(),
+            metadata,
+            Some(array_buffers.into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
-        )?)
+        )
     }
 
     /// Number of raw string data buffers held by this array.
@@ -430,7 +430,7 @@ where
     builder.finish()
 }
 
-impl ArrayTrait for VarBinViewArray {}
+impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
 impl IntoCanonical for VarBinViewArray {
     fn into_canonical(self) -> VortexResult<Canonical> {

@@ -164,7 +164,7 @@ where
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SearchSortedFn::search_sorted(encoding, array_ref, value, side)
     }
 
@@ -174,7 +174,7 @@ where
         values: &[Scalar],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SearchSortedFn::search_sorted_many(encoding, array_ref, values, side)
     }
 }
@@ -190,7 +190,7 @@ where
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SearchSortedUsizeFn::search_sorted_usize(encoding, array_ref, value, side)
     }
 
@@ -200,7 +200,7 @@ where
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SearchSortedUsizeFn::search_sorted_usize_many(encoding, array_ref, values, side)
     }
 }

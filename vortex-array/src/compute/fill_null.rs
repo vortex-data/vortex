@@ -17,7 +17,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn fill_null(&self, array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FillNullFn::fill_null(encoding, array_ref, fill_value)
     }
 }

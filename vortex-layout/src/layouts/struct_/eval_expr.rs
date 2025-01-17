@@ -5,7 +5,6 @@ use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::transform::partition::partition;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
@@ -16,7 +15,7 @@ use crate::ExprEvaluator;
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = partition(expr.clone(), self.struct_dtype())?;
+        let partitioned = self.partition_expr(expr.clone())?;
         let field_readers: Vec<_> = partitioned
             .partitions
             .iter()
@@ -64,7 +63,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, Nullability, StructDType};
-    use vortex_expr::{get_item, gt, ident, select};
+    use vortex_expr::{get_item, gt, ident, pack};
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -86,9 +85,9 @@ mod tests {
                 Nullability::NonNullable,
             ),
             vec![
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
             ],
         )
         .push_all(
@@ -157,7 +156,10 @@ mod tests {
         let (segments, layout) = struct_layout();
 
         let reader = layout.reader(segments, Default::default()).unwrap();
-        let expr = select(vec!["a".into(), "b".into()], ident());
+        let expr = pack(
+            ["a".into(), "b".into()],
+            vec![get_item("a", ident()), get_item("b", ident())],
+        );
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that
             RowMask::new(FilterMask::from_iter([true, true, false]), 0),

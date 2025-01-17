@@ -46,7 +46,8 @@ macro_rules! impl_encoding {
                     dtype: vortex_dtype::DType,
                     len: usize,
                     metadata: [<$Name Metadata>],
-                    children: Box<[$crate::ArrayData]>,
+                    buffers: Option<Box<[vortex_buffer::ByteBuffer]>>,
+                    children: Option<Box<[$crate::ArrayData]>>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
                     Self::try_from($crate::ArrayData::try_new_owned(
@@ -54,7 +55,7 @@ macro_rules! impl_encoding {
                             dtype,
                             len,
                             std::sync::Arc::new(metadata),
-                            vec![].into(),
+                            buffers,
                             children,
                             stats
                     )?)
@@ -69,6 +70,8 @@ macro_rules! impl_encoding {
                     (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data.clone()))
                 }
             }
+
+            impl $crate::ArrayTrait for [<$Name Array>] {}
 
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
                 type Error = vortex_error::VortexError;

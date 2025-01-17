@@ -4,7 +4,8 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, Buffer, MutableBuffer};
+use arrow_buffer::bit_iterator::BitIterator;
+use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
 use itertools::Itertools;
 use log::debug;
@@ -23,6 +24,19 @@ mod statsset;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+
+/// Stats to keep when serializing arrays to layouts
+pub const STATS_TO_WRITE: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::TrueCount,
+    Stat::NullCount,
+    Stat::RunCount,
+    Stat::IsConstant,
+    Stat::IsSorted,
+    Stat::IsStrictSorted,
+    Stat::UncompressedSizeInBytes,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
@@ -131,15 +145,15 @@ pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
 }
 
 pub fn stats_from_bitset_bytes(bytes: &[u8]) -> Vec<Stat> {
-    BooleanBuffer::new(Buffer::from(bytes), 0, bytes.len() * 8)
-        .set_indices()
+    BitIterator::new(bytes, 0, bytes.len() * 8)
+        .enumerate()
+        .filter_map(|(i, b)| b.then_some(i))
         // Filter out indices failing conversion, these are stats written by newer version of library
         .filter_map(|i| {
             let Ok(stat) = u8::try_from(i) else {
                 debug!("invalid stat encountered: {i}");
                 return None;
             };
-
             Stat::try_from(stat).ok()
         })
         .collect::<Vec<_>>()
@@ -205,7 +219,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }
 }

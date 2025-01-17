@@ -21,6 +21,7 @@ def record(x: int, columns=None) -> dict:
 @pytest.fixture(scope="session")
 def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
+
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vortex.encoding.compress(vortex.array(a))

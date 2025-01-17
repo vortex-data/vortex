@@ -27,7 +27,7 @@ where
         rhs: &ArrayData,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (array_ref, encoding) = lhs.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
         BinaryNumericFn::binary_numeric(encoding, array_ref, rhs, op)
     }
 }

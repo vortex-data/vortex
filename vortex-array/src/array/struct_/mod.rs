@@ -6,12 +6,12 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{StructArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
 };
 
 mod compute;
@@ -83,23 +83,26 @@ impl StructArray {
             StructMetadata {
                 validity: validity_metadata,
             },
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayData)]) -> VortexResult<Self> {
-        let names: Vec<FieldName> = items
-            .iter()
-            .map(|(name, _)| FieldName::from(name.as_ref()))
-            .collect();
+        let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
         let fields: Vec<ArrayData> = items.iter().map(|(_, array)| array.clone()).collect();
         let len = fields
             .first()
             .map(|f| f.len())
             .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
 
-        Self::try_new(FieldNames::from(names), fields, len, Validity::NonNullable)
+        Self::try_new(
+            FieldNames::from_iter(names),
+            fields,
+            len,
+            Validity::NonNullable,
+        )
     }
 
     // TODO(aduffy): Add equivalent function to support field masks for nested column access.
@@ -137,7 +140,7 @@ impl StructArray {
     }
 }
 
-impl ArrayTrait for StructArray {}
+impl ValidateVTable<StructArray> for StructEncoding {}
 
 impl VariantsVTable<StructArray> for StructEncoding {
     fn as_struct_array<'a>(&self, array: &'a StructArray) -> Option<&'a dyn StructArrayTrait> {

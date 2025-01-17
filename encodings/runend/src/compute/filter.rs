@@ -1,0 +1,166 @@
+use std::cmp::min;
+use std::ops::AddAssign;
+
+use arrow_buffer::BooleanBuffer;
+use num_traits::AsPrimitive;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::{filter, FilterFn, FilterMask};
+use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::buffer_mut;
+use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
+use vortex_error::{VortexResult, VortexUnwrap};
+
+use crate::compute::take::take_indices_unchecked;
+use crate::{RunEndArray, RunEndEncoding};
+
+const FILTER_TAKE_THRESHOLD: f64 = 0.1;
+
+impl FilterFn<RunEndArray> for RunEndEncoding {
+    fn filter(&self, array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+        let runs_ratio = mask.true_count() as f64 / array.ends().len() as f64;
+
+        if runs_ratio < FILTER_TAKE_THRESHOLD || mask.true_count() < 25 {
+            // This strategy is directly proportional to the number of indices.
+            take_indices_unchecked(array, mask.indices())
+        } else {
+            // This strategy ends up being close to fixed cost based on the number of runs,
+            // rather than the number of indices.
+            let primitive_run_ends = array.ends().into_primitive()?;
+            let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
+                filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
+            });
+            let values = filter(&array.values(), &values_mask)?;
+
+            RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+        }
+    }
+}
+
+// We expose this function to our benchmarks.
+pub fn filter_run_end(array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    let primitive_run_ends = array.ends().into_primitive()?;
+    let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
+        filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
+    });
+    let values = filter(&array.values(), &values_mask)?;
+
+    RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+}
+
+// Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
+fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mask: &FilterMask,
+) -> VortexResult<(PrimitiveArray, FilterMask)> {
+    let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
+
+    let mut start = 0u64;
+    let mut j = 0;
+    let mut count = R::zero();
+    let filter_values = mask.boolean_buffer();
+
+    let new_mask: FilterMask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
+        let mut keep = false;
+        let end = min(run_ends[i].as_() - offset, length);
+
+        // Safety: predicate must be the same length as the array the ends have been taken from
+        for pred in (start..end)
+            .map(|i| unsafe { filter_values.value_unchecked(i.try_into().vortex_unwrap()) })
+        {
+            count += <R as From<bool>>::from(pred);
+            keep |= pred
+        }
+        // this is to avoid branching
+        new_run_ends[j] = count;
+        j += keep as usize;
+
+        start = end;
+        keep
+    })
+    .into();
+
+    new_run_ends.truncate(j);
+    Ok((
+        PrimitiveArray::new(new_run_ends, Validity::NonNullable),
+        new_mask,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::{slice, FilterMask};
+    use vortex_array::{IntoArrayVariant, ToArrayData};
+
+    use super::filter_run_end;
+    use crate::RunEndArray;
+
+    fn ree_array() -> RunEndArray {
+        RunEndArray::encode(
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn run_end_filter() {
+        let arr = ree_array();
+        let filtered = filter_run_end(
+            &arr,
+            &FilterMask::from_iter([
+                true, true, false, false, false, false, false, false, false, false, true, true,
+            ]),
+        )
+        .unwrap();
+        let filtered_run_end = RunEndArray::maybe_from(filtered).unwrap();
+
+        assert_eq!(
+            filtered_run_end
+                .ends()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<u64>(),
+            [2, 4]
+        );
+        assert_eq!(
+            filtered_run_end
+                .values()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            [1, 5]
+        );
+    }
+
+    #[test]
+    fn filter_sliced_run_end() {
+        let arr = slice(ree_array(), 2, 7).unwrap();
+        let filtered = filter_run_end(
+            &RunEndArray::maybe_from(arr).unwrap(),
+            &FilterMask::from_iter([true, false, false, true, true]),
+        )
+        .unwrap();
+        let filtered_run_end = RunEndArray::try_from(filtered).unwrap();
+
+        assert_eq!(
+            filtered_run_end
+                .ends()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<u64>(),
+            [1, 2, 3]
+        );
+        assert_eq!(
+            filtered_run_end
+                .values()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            [1, 4, 2]
+        );
+    }
+}

@@ -6,9 +6,10 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayLen, ArrayTrait};
+use crate::{impl_encoding, ArrayDType, ArrayLen};
 
 mod canonical;
 mod compute;
@@ -43,7 +44,8 @@ impl ConstantArray {
             dtype,
             length,
             ConstantMetadata { scalar_value },
-            [].into(),
+            None,
+            None,
             stats,
         )
         .vortex_expect("Failed to create Constant array")
@@ -56,7 +58,7 @@ impl ConstantArray {
     }
 }
 
-impl ArrayTrait for ConstantArray {}
+impl ValidateVTable<ConstantArray> for ConstantEncoding {}
 
 impl ValidityVTable<ConstantArray> for ConstantEncoding {
     fn is_valid(&self, array: &ConstantArray, _index: usize) -> bool {

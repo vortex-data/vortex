@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;
@@ -8,12 +7,11 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -145,16 +143,14 @@ impl BitPackedArray {
             children.push(a)
         }
 
-        ArrayData::try_new_owned(
-            &BitPackedEncoding,
+        Self::try_from_parts(
             dtype,
             length,
-            Arc::new(metadata),
-            [packed].into(),
-            children.into(),
+            metadata,
+            Some([packed].into()),
+            Some(children.into()),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     #[inline]
@@ -276,7 +272,7 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
 
 impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
-impl ArrayTrait for BitPackedArray {}
+impl ValidateVTable<BitPackedArray> for BitPackedEncoding {}
 
 impl VariantsVTable<BitPackedArray> for BitPackedEncoding {
     fn as_primitive_array<'a>(

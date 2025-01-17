@@ -6,16 +6,16 @@ use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
-use vortex_file::v2::{FileLayout, VortexOpenOptions};
+use vortex_file::{FileLayout, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 #[derive(Debug, Clone)]
-pub struct FileLayoutCache {
+pub(crate) struct FileLayoutCache {
     inner: Cache<Key, FileLayout>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
-pub struct Key {
+pub(crate) struct Key {
     location: Path,
     m_time: DateTime<Utc>,
 }

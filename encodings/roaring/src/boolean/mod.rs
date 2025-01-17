@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 pub use compress::*;
@@ -9,12 +8,11 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -50,16 +48,14 @@ impl RoaringBoolArray {
             length,
         );
 
-        ArrayData::try_new_owned(
-            &RoaringBoolEncoding,
+        Self::try_from_parts(
             DType::Bool(Nullability::NonNullable),
             length,
-            Arc::new(RoaringBoolMetadata),
-            [ByteBuffer::from(bitmap.serialize::<Native>())].into(),
-            vec![].into(),
+            RoaringBoolMetadata,
+            Some([ByteBuffer::from(bitmap.serialize::<Native>())].into()),
+            None,
             stats,
-        )?
-        .try_into()
+        )
     }
 
     pub fn bitmap(&self) -> Bitmap {
@@ -82,7 +78,7 @@ impl RoaringBoolArray {
     }
 }
 
-impl ArrayTrait for RoaringBoolArray {}
+impl ValidateVTable<RoaringBoolArray> for RoaringBoolEncoding {}
 
 impl VariantsVTable<RoaringBoolArray> for RoaringBoolEncoding {
     fn as_bool_array<'a>(&self, array: &'a RoaringBoolArray) -> Option<&'a dyn BoolArrayTrait> {
