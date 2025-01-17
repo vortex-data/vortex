@@ -30,13 +30,6 @@ impl StatsSet {
         Self { values: None }
     }
 
-    /// Create a new StatsSet with pre-allocated capacity for stats.
-    pub fn with_capacity() -> Self {
-        Self {
-            values: Some(Vec::with_capacity(Stat::CARDINALITY)),
-        }
-    }
-
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
@@ -73,7 +66,7 @@ impl StatsSet {
     }
 
     pub fn constant(scalar: &Scalar, length: usize) -> Self {
-        let mut stats = Self::empty();
+        let mut stats = Self::default();
         if length > 0 {
             stats.set(Stat::IsConstant, true);
             stats.set(Stat::IsSorted, true);
