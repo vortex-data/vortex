@@ -11,9 +11,9 @@ use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 
-use crate::v2::footer::{FileLayout, Segment};
-use crate::v2::io::IoDriver;
-use crate::v2::segments::{SegmentCache, SegmentRequest};
+use crate::footer::{FileLayout, Segment};
+use crate::io::IoDriver;
+use crate::segments::{SegmentCache, SegmentRequest};
 
 /// An I/O driver for reading segments from a file.
 ///

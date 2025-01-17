@@ -2,7 +2,7 @@ use flatbuffers::Follow;
 use vortex_error::{vortex_err, VortexError};
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer};
 
-use crate::v2::footer::segment::Segment;
+use crate::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
 pub(crate) struct Postscript {

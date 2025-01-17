@@ -83,6 +83,7 @@ impl StructArray {
             StructMetadata {
                 validity: validity_metadata,
             },
+            None,
             Some(children.into()),
             StatsSet::default(),
         )

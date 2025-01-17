@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::v2::exec::inline::InlineDriver;
-use crate::v2::exec::tokio::TokioDriver;
-use crate::v2::exec::ExecDriver;
+use crate::exec::inline::InlineDriver;
+use crate::exec::tokio::TokioDriver;
+use crate::exec::ExecDriver;
 
 /// The [`ExecutionMode`] describes how the CPU-bound layout evaluation tasks are executed.
 /// Typically, there is one task per file split (row-group).

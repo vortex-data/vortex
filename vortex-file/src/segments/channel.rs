@@ -8,7 +8,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
-use crate::v2::segments::SegmentRequest;
+use crate::segments::SegmentRequest;
 
 /// The [`SegmentChannel`] is responsible for funnelling segment requests from each of the
 /// evaluation threads into a single stream of segment requests.

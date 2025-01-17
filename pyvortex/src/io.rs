@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
-use vortex::file::v2::VortexWriteOptions;
+use vortex::file::VortexWriteOptions;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::ArrayData;
 

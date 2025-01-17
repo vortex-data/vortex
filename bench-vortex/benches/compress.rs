@@ -19,7 +19,7 @@ use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{fetch_taxi_data, tpch};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use futures::StreamExt;
+use futures::TryStreamExt;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
@@ -31,7 +31,7 @@ use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
+use vortex::file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
@@ -117,10 +117,10 @@ fn vortex_compress_write(
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
     async fn async_write(array: &ArrayData, cursor: &mut Cursor<&mut Vec<u8>>) -> VortexResult<()> {
-        let mut writer = VortexFileWriter::new(cursor);
+        VortexWriteOptions::default()
+            .write(cursor, array.clone().into_array_stream())
+            .await?;
 
-        writer = writer.write_array_columns(array.clone()).await?;
-        writer.finalize().await?;
         Ok(())
     }
 
@@ -135,19 +135,16 @@ fn vortex_compress_write(
 #[inline(never)]
 fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
     async fn async_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
-        let builder: VortexReadBuilder<_> = VortexReadBuilder::new(
-            buf,
-            LayoutDeserializer::new(
-                ALL_ENCODINGS_CONTEXT.clone(),
-                LayoutContext::default().into(),
-            ),
-        );
+        let batches = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+            .open(buf)
+            .await?
+            .scan(Scan::all())?
+            .try_collect::<Vec<_>>()
+            .await?
+            .into_iter()
+            .map(|a| a.into_arrow())
+            .collect::<VortexResult<Vec<_>>>()?;
 
-        let mut batches = vec![];
-        let mut stream = builder.build().await?.into_stream();
-        while let Some(batch) = stream.next().await {
-            batches.push(batch?.into_arrow()?);
-        }
         Ok(batches)
     }
 

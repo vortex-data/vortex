@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dyn_hash::DynHash;
 
 mod binary;
-mod column;
+
 pub mod datafusion;
 mod field;
 pub mod forms;
@@ -18,16 +18,12 @@ mod literal;
 mod not;
 mod operators;
 mod pack;
-mod project;
 pub mod pruning;
-mod row_filter;
 mod select;
 pub mod transform;
 #[allow(dead_code)]
 mod traversal;
-
 pub use binary::*;
-pub use column::*;
 pub use get_item::*;
 pub use identity::*;
 pub use like::*;
@@ -35,8 +31,6 @@ pub use literal::*;
 pub use not::*;
 pub use operators::*;
 pub use pack::*;
-pub use project::*;
-pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
@@ -172,7 +166,7 @@ mod tests {
 
     #[test]
     fn basic_expr_split_test() {
-        let lhs = col("a");
+        let lhs = get_item("col1", ident());
         let rhs = lit(1);
         let expr = eq(lhs, rhs);
         let conjunction = split_conjunction(&expr);
@@ -181,7 +175,7 @@ mod tests {
 
     #[test]
     fn basic_conjunction_split_test() {
-        let lhs = col("a");
+        let lhs = get_item("col1", ident());
         let rhs = lit(1);
         let expr = and(lhs, rhs);
         let conjunction = split_conjunction(&expr);
@@ -190,7 +184,7 @@ mod tests {
 
     #[test]
     fn expr_display() {
-        assert_eq!(col("a").to_string(), "$a");
+        assert_eq!(col("a").to_string(), "[].$a");
         assert_eq!(Identity.to_string(), "[]");
         assert_eq!(Identity.to_string(), "[]");
 
@@ -198,35 +192,35 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
         assert_eq!(
             and(col1.clone(), col2.clone()).to_string(),
-            "($col1 and $col2)"
+            "([].$col1 and [].$col2)"
         );
         assert_eq!(
             or(col1.clone(), col2.clone()).to_string(),
-            "($col1 or $col2)"
+            "([].$col1 or [].$col2)"
         );
         assert_eq!(
             eq(col1.clone(), col2.clone()).to_string(),
-            "($col1 = $col2)"
+            "([].$col1 = [].$col2)"
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone()).to_string(),
-            "($col1 != $col2)"
+            "([].$col1 != [].$col2)"
         );
         assert_eq!(
             gt(col1.clone(), col2.clone()).to_string(),
-            "($col1 > $col2)"
+            "([].$col1 > [].$col2)"
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone()).to_string(),
-            "($col1 >= $col2)"
+            "([].$col1 >= [].$col2)"
         );
         assert_eq!(
             lt(col1.clone(), col2.clone()).to_string(),
-            "($col1 < $col2)"
+            "([].$col1 < [].$col2)"
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone()).to_string(),
-            "($col1 <= $col2)"
+            "([].$col1 <= [].$col2)"
         );
 
         assert_eq!(
@@ -235,10 +229,10 @@ mod tests {
                 not_eq(col1.clone(), col2.clone()),
             )
             .to_string(),
-            "(($col1 < $col2) or ($col1 != $col2))"
+            "(([].$col1 < [].$col2) or ([].$col1 != [].$col2))"
         );
 
-        assert_eq!(not(col1.clone()).to_string(), "!$col1");
+        assert_eq!(not(col1.clone()).to_string(), "![].$col1");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], ident()).to_string(),

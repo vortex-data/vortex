@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
@@ -81,15 +80,14 @@ impl VarBinArray {
             }
         };
 
-        Self::try_from(ArrayData::try_new_owned(
-            &VarBinEncoding,
+        Self::try_from_parts(
             dtype,
             length,
-            Arc::new(metadata),
+            metadata,
             Some([bytes].into()),
             Some(children.into()),
             StatsSet::default(),
-        )?)
+        )
     }
 
     #[inline]

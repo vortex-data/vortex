@@ -61,6 +61,7 @@ impl ALPArray {
             dtype,
             length,
             ALPMetadata { exponents, patches },
+            None,
             Some(children.into()),
             Default::default(),
         )

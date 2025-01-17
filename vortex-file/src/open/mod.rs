@@ -16,11 +16,10 @@ use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
-use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::io::file::FileIoDriver;
-use crate::v2::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
-use crate::v2::VortexFile;
-use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::footer::{FileLayout, Postscript, Segment};
+use crate::io::file::FileIoDriver;
+use crate::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
+use crate::{VortexFile, EOF_SIZE, MAGIC_BYTES, VERSION};
 
 const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
@@ -49,7 +48,7 @@ impl VortexOpenOptions {
     pub fn new(ctx: ContextRef) -> Self {
         Self {
             ctx,
-            layout_ctx: Default::default(),
+            layout_ctx: LayoutContextRef::default(),
             file_size: None,
             file_layout: None,
             initial_read_size: INITIAL_READ_SIZE,

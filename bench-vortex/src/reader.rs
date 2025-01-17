@@ -28,7 +28,7 @@ use vortex::buffer::Buffer;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::stream::ArrayStreamExt;

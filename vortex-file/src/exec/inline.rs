@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
-use crate::v2::exec::ExecDriver;
+use crate::exec::ExecDriver;
 
 /// An [`ExecDriver`] implementation that awaits the futures inline using the caller's runtime.
 pub struct InlineDriver;

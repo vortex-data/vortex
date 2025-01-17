@@ -5,9 +5,9 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatB
 use vortex_io::VortexWrite;
 use vortex_layout::strategies::LayoutStrategy;
 
-use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::writer::BufferedSegmentWriter;
-use crate::v2::strategy::VortexLayoutStrategy;
+use crate::footer::{FileLayout, Postscript, Segment};
+use crate::segments::writer::BufferedSegmentWriter;
+use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct VortexWriteOptions {

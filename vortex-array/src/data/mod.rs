@@ -401,7 +401,7 @@ impl ArrayData {
         }
     }
 
-    pub fn downcast_array_ref<E: Encoding>(self: &ArrayData) -> VortexResult<(&E::Array, &E)>
+    pub fn try_downcast_ref<E: Encoding>(&self) -> VortexResult<(&E::Array, &E)>
     where
         for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
     {

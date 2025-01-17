@@ -77,59 +77,26 @@ pub trait MutNodeVisitor {
 }
 
 pub enum FoldDown<Out, Context> {
-    Stop(Out),
-    SkipChildren,
+    /// Abort the entire traversal and immediately return the result.
+    Abort(Out),
+    /// Skip visiting children of the current node and return the result to the parent's `fold_up`.
+    SkipChildren(Out),
+    /// Continue visiting the `fold_down` of the children of the current node.
     Continue(Context),
-}
-
-pub enum FoldChildren<Out> {
-    Skipped,
-    Children(Vec<Out>),
-}
-
-impl<Out> IntoIterator for FoldChildren<Out> {
-    type Item = Out;
-    type IntoIter = <Vec<Out> as IntoIterator>::IntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        match self {
-            FoldChildren::Skipped => {
-                vec![]
-            }
-            FoldChildren::Children(children) => children,
-        }
-        .into_iter()
-    }
-}
-
-impl<Out> FoldChildren<Out> {
-    pub fn contained_children(self) -> Vec<Out> {
-        match self {
-            FoldChildren::Skipped => vec![],
-            FoldChildren::Children(children) => children,
-        }
-    }
-}
-
-impl<Out> FoldChildren<Out> {
-    pub fn is_empty(&self) -> bool {
-        match self {
-            FoldChildren::Skipped => true,
-            FoldChildren::Children(children) => children.is_empty(),
-        }
-    }
 }
 
 #[derive(Debug)]
 pub enum FoldUp<Out> {
-    Stop(Out),
+    /// Abort the entire traversal and immediately return the result.
+    Abort(Out),
+    /// Continue visiting the `fold_up` of the parent node.
     Continue(Out),
 }
 
 impl<Out> FoldUp<Out> {
     pub fn result(self) -> Out {
         match self {
-            FoldUp::Stop(out) => out,
+            FoldUp::Abort(out) => out,
             FoldUp::Continue(out) => out,
         }
     }
@@ -152,7 +119,7 @@ pub trait Folder<'a> {
         &mut self,
         node: &'a Self::NodeTy,
         context: Self::Context,
-        children: FoldChildren<Self::Out>,
+        children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>>;
 }
 
@@ -173,7 +140,7 @@ pub trait FolderMut {
         &mut self,
         node: Self::NodeTy,
         context: Self::Context,
-        children: FoldChildren<Self::Out>,
+        children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>>;
 }
 
@@ -232,17 +199,17 @@ impl Node for ExprRef {
         context: V::Context,
     ) -> VortexResult<FoldUp<V::Out>> {
         let children = match visitor.visit_down(self, context.clone())? {
-            FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
-            FoldDown::SkipChildren => FoldChildren::Skipped,
+            FoldDown::Abort(out) => return Ok(FoldUp::Abort(out)),
+            FoldDown::SkipChildren(out) => return Ok(FoldUp::Continue(out)),
             FoldDown::Continue(child_context) => {
                 let mut new_children = Vec::with_capacity(self.children().len());
                 for child in self.children() {
                     match child.accept_with_context(visitor, child_context.clone())? {
-                        FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
+                        FoldUp::Abort(out) => return Ok(FoldUp::Abort(out)),
                         FoldUp::Continue(out) => new_children.push(out),
                     }
                 }
-                FoldChildren::Children(new_children)
+                new_children
             }
         };
 
@@ -307,8 +274,8 @@ impl Node for ExprRef {
         context: V::Context,
     ) -> VortexResult<FoldUp<V::Out>> {
         let children = match visitor.visit_down(&self, context.clone())? {
-            FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
-            FoldDown::SkipChildren => FoldChildren::Skipped,
+            FoldDown::Abort(out) => return Ok(FoldUp::Abort(out)),
+            FoldDown::SkipChildren(out) => return Ok(FoldUp::Continue(out)),
             FoldDown::Continue(child_context) => {
                 let mut new_children = Vec::with_capacity(self.children().len());
                 for child in self.children() {
@@ -316,11 +283,11 @@ impl Node for ExprRef {
                         .clone()
                         .transform_with_context(visitor, child_context.clone())?
                     {
-                        FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
+                        FoldUp::Abort(out) => return Ok(FoldUp::Abort(out)),
                         FoldUp::Continue(out) => new_children.push(out),
                     }
                 }
-                FoldChildren::Children(new_children)
+                new_children
             }
         };
 
@@ -338,7 +305,7 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        BinaryExpr, Column, ExprRef, FieldName, Literal, Operator, VortexExpr, VortexExprExt,
+        col, BinaryExpr, ExprRef, FieldName, GetItem, Literal, Operator, VortexExpr, VortexExprExt,
     };
 
     #[derive(Default)]
@@ -366,7 +333,7 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            let col = node.as_any().downcast_ref::<Column>();
+            let col = node.as_any().downcast_ref::<GetItem>();
             if col.is_some() {
                 let id = self.0;
                 self.0 += 1;
@@ -379,7 +346,7 @@ mod tests {
 
     #[test]
     fn expr_deep_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
+        let col1: Arc<dyn VortexExpr> = col("col1");
         let lit1 = Literal::new_expr(1);
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, lit1.clone());
         let lit2 = Literal::new_expr(2);
@@ -391,8 +358,8 @@ mod tests {
 
     #[test]
     fn expr_deep_mut_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
         let lit2 = Literal::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
@@ -409,17 +376,17 @@ mod tests {
 
     #[test]
     fn expr_skip_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let col3: Arc<dyn VortexExpr> = Column::new_expr("col3");
-        let col4: Arc<dyn VortexExpr> = Column::new_expr("col4");
+        let col3: Arc<dyn VortexExpr> = col("col3");
+        let col4: Arc<dyn VortexExpr> = col("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().downcast_ref::<Column>().is_some() {
+            if node.as_any().downcast_ref::<GetItem>().is_some() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
@@ -442,17 +409,17 @@ mod tests {
 
     #[test]
     fn expr_stop_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let col3: Arc<dyn VortexExpr> = Column::new_expr("col3");
-        let col4: Arc<dyn VortexExpr> = Column::new_expr("col4");
+        let col3: Arc<dyn VortexExpr> = col("col3");
+        let col4: Arc<dyn VortexExpr> = col("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().downcast_ref::<Column>().is_some() {
+            if node.as_any().downcast_ref::<GetItem>().is_some() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
