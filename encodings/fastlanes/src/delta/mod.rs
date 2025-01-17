@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 pub use compress::*;
-use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
@@ -11,7 +10,7 @@ use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, SerdeMetadata,
+    IntoCanonical, RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
@@ -22,7 +21,8 @@ mod compute;
 
 impl_encoding!("fastlanes.delta", ids::FL_DELTA, Delta);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
 pub struct DeltaMetadata {
     validity: ValidityMetadata,
     deltas_len: u64,
@@ -142,7 +142,7 @@ impl DeltaArray {
         let delta = Self::try_from_parts(
             dtype,
             logical_len,
-            SerdeMetadata(metadata),
+            RkyvMetadata(metadata),
             [].into(),
             children.into(),
             StatsSet::default(),
@@ -171,9 +171,10 @@ impl DeltaArray {
     }
 
     fn metadata(&self) -> DeltaMetadata {
-        SerdeMetadata::<DeltaMetadata>::deserialize(self.as_ref().metadata_bytes())
-            .vortex_expect("DeltaMetadata metadata")
-            .0
+        // SAFETY: metadata is validated in ValidateVTable
+        unsafe {
+            RkyvMetadata::<DeltaMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
+        }
     }
 
     #[inline]
@@ -229,8 +230,13 @@ impl DeltaArray {
     }
 }
 
-impl ValidateVTable<DeltaArray> for DeltaEncoding {}
-
+impl ValidateVTable<DeltaArray> for DeltaEncoding {
+    fn validate(&self, array: &DeltaArray) -> VortexResult<()> {
+        // Validate the metadata
+        RkyvMetadata::<DeltaMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 impl VariantsVTable<DeltaArray> for DeltaEncoding {
     fn as_primitive_array<'a>(&self, array: &'a DeltaArray) -> Option<&'a dyn PrimitiveArrayTrait> {
         Some(array)
