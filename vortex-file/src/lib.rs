@@ -91,11 +91,6 @@
 //! If you ultimately seek Arrow arrays, [`VortexRecordBatchReader`][`crate::read::VortexRecordBatchReader`] converts an open
 //! Vortex file into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
 
-#[cfg(test)]
-mod tests;
-
-pub use forever_constant::*;
-
 mod exec;
 mod file;
 mod footer;
@@ -104,10 +99,13 @@ mod open;
 pub mod read;
 pub mod segments;
 mod strategy;
+#[cfg(test)]
+mod tests;
 mod writer;
 
 pub use file::*;
 pub use footer::FileLayout;
+pub use forever_constant::*;
 pub use open::*;
 pub use writer::*;
 
