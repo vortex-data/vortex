@@ -158,7 +158,7 @@ fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
     )
 }
 
-pub(crate) fn dict_values_validity(nullable: bool, len: usize) -> Validity {
+fn dict_values_validity(nullable: bool, len: usize) -> Validity {
     if nullable {
         Validity::Array(
             SparseArray::try_new(
