@@ -44,7 +44,7 @@ impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
             .to_null_buffer()?
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
 
-        // TODO(ngates): when we take PrimitiveArray by value, we should mutate in-place
+        // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
         match_each_native_ptype!(array.ptype(), |$T| {
             let as_slice = array.as_slice::<$T>();
             let fill_value = fill_value
