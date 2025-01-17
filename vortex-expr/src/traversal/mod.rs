@@ -338,7 +338,7 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        BinaryExpr, Column, ExprRef, FieldName, Literal, Operator, VortexExpr, VortexExprExt,
+        col, BinaryExpr, ExprRef, FieldName, GetItem, Literal, Operator, VortexExpr, VortexExprExt,
     };
 
     #[derive(Default)]
@@ -366,7 +366,7 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            let col = node.as_any().downcast_ref::<Column>();
+            let col = node.as_any().downcast_ref::<GetItem>();
             if col.is_some() {
                 let id = self.0;
                 self.0 += 1;
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn expr_deep_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
+        let col1: Arc<dyn VortexExpr> = col("col1");
         let lit1 = Literal::new_expr(1);
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, lit1.clone());
         let lit2 = Literal::new_expr(2);
@@ -391,8 +391,8 @@ mod tests {
 
     #[test]
     fn expr_deep_mut_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
         let lit2 = Literal::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
@@ -409,17 +409,17 @@ mod tests {
 
     #[test]
     fn expr_skip_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let col3: Arc<dyn VortexExpr> = Column::new_expr("col3");
-        let col4: Arc<dyn VortexExpr> = Column::new_expr("col4");
+        let col3: Arc<dyn VortexExpr> = col("col3");
+        let col4: Arc<dyn VortexExpr> = col("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().downcast_ref::<Column>().is_some() {
+            if node.as_any().downcast_ref::<GetItem>().is_some() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
@@ -442,17 +442,17 @@ mod tests {
 
     #[test]
     fn expr_stop_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let col3: Arc<dyn VortexExpr> = Column::new_expr("col3");
-        let col4: Arc<dyn VortexExpr> = Column::new_expr("col4");
+        let col3: Arc<dyn VortexExpr> = col("col3");
+        let col4: Arc<dyn VortexExpr> = col("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().downcast_ref::<Column>().is_some() {
+            if node.as_any().downcast_ref::<GetItem>().is_some() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {

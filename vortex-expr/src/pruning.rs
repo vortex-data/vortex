@@ -16,7 +16,7 @@ use vortex_scalar::Scalar;
 use crate::field::DisplayFieldName;
 use crate::{
     and, eq, get_item, gt, ident, lit, not, or, BinaryExpr, ExprRef, GetItem, Identity, Literal,
-    Not, Operator, RowFilter, VortexExprExt,
+    Not, Operator, VortexExprExt,
 };
 
 #[derive(Debug, Clone)]
@@ -225,21 +225,6 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
                 bexp.lhs(),
             );
         };
-    }
-
-    if let Some(RowFilter { conjunction }) = expr.as_any().downcast_ref::<RowFilter>() {
-        let (rewritten_conjunction, refses): (Vec<ExprRef>, Vec<Relation<FieldOrIdentity, Stat>>) =
-            conjunction
-                .iter()
-                .map(convert_to_pruning_expression)
-                .unzip();
-
-        let refs = Relation::union(refses.into_iter());
-
-        return (
-            RowFilter::from_conjunction_expr(rewritten_conjunction),
-            refs,
-        );
     }
 
     not_prunable()
