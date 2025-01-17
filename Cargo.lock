@@ -4870,6 +4870,7 @@ dependencies = [
 name = "vortex-alp"
 version = "0.21.1"
 dependencies = [
+ "arrow-array",
  "divan",
  "itertools 0.14.0",
  "num-traits",

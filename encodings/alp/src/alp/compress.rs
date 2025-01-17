@@ -1,10 +1,9 @@
-use itertools::Itertools as _;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::validity::{ArrayValidity as _, Validity};
+use vortex_array::validity::{ArrayValidity as _, LogicalValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::BufferMut;
+use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ScalarType;
@@ -27,55 +26,69 @@ macro_rules! match_each_alp_float_ptype {
     })
 }
 
+pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
+    let (exponents, encoded, patches) = alp_encode_components(parray)?;
+    ALPArray::try_new(encoded, exponents, patches)
+}
+
+pub fn alp_encode_components(
+    parray: &PrimitiveArray,
+) -> VortexResult<(Exponents, ArrayData, Option<Patches>)> {
+    match parray.ptype() {
+        PType::F32 => alp_encode_components_typed::<f32>(parray),
+        PType::F64 => alp_encode_components_typed::<f64>(parray),
+        _ => vortex_bail!("ALP can only encode f32 and f64"),
+    }
+}
+
 #[allow(clippy::cast_possible_truncation)]
-pub fn alp_encode_components<T>(
+fn alp_encode_components_typed<T>(
     values: &PrimitiveArray,
-    exponents: Option<Exponents>,
 ) -> VortexResult<(Exponents, ArrayData, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
     T: ScalarType,
 {
-    let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
-    let len = encoded.len();
-    let patches_validity = if values.dtype().is_nullable() {
-        Validity::AllValid
-    } else {
-        Validity::NonNullable
-    };
+    let values_slice = values.as_slice::<T>();
 
-    let mut exc_pos_valid_only =
-        BufferMut::<u64>::with_capacity_aligned(exc_pos.len(), exc_pos.alignment());
-    let mut exc_valid_only = BufferMut::<T>::with_capacity_aligned(exc.len(), exc.alignment());
-    for (position, value) in exc_pos.into_iter().zip_eq(exc.into_iter()) {
-        if values.is_valid(position as usize) {
-            exc_pos_valid_only.push(position);
-            exc_valid_only.push(value);
+    let exponents = T::find_best_exponents(values_slice);
+    let (encoded, exceptional_positions) = T::encode(values.as_slice::<T>(), exponents);
+
+    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
+    let exceptional_positions = match values.logical_validity() {
+        LogicalValidity::AllValid(_) => exceptional_positions,
+        LogicalValidity::AllInvalid(_) => Buffer::empty(),
+        LogicalValidity::Array(is_valid) => {
+            let is_valid_buf = is_valid.into_bool()?.boolean_buffer();
+            exceptional_positions
+                .into_iter()
+                // index is a valid usize because it is an index into values.as_slice::<T>()
+                .filter(|index| is_valid_buf.value(*index as usize))
+                .collect()
         }
-    }
-
-    Ok((
-        exponents,
-        PrimitiveArray::new(encoded, values.validity()).into_array(),
-        (!exc_valid_only.is_empty()).then(|| {
-            let position_arr = exc_pos_valid_only.freeze().into_array();
-            Patches::new(
-                len,
-                position_arr,
-                PrimitiveArray::new(exc_valid_only.freeze(), patches_validity).into_array(),
-            )
-        }),
-    ))
-}
-
-pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
-    let (exponents, encoded, patches) = match parray.ptype() {
-        PType::F32 => alp_encode_components::<f32>(parray, None)?,
-        PType::F64 => alp_encode_components::<f64>(parray, None)?,
-        _ => vortex_bail!("ALP can only encode f32 and f64"),
     };
-    ALPArray::try_new(encoded, exponents, patches)
+    let patches = if exceptional_positions.is_empty() {
+        None
+    } else {
+        let patches_validity = if values.dtype().is_nullable() {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        };
+        let exceptional_values: Buffer<T> = exceptional_positions
+            .iter()
+            .map(|index| values_slice[*index as usize])
+            .collect();
+        let exceptional_values =
+            PrimitiveArray::new(exceptional_values, patches_validity).into_array();
+        Some(Patches::new(
+            values_slice.len(),
+            exceptional_positions.into_array(),
+            exceptional_values,
+        ))
+    };
+    Ok((exponents, encoded_array, patches))
 }
 
 pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {

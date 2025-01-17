@@ -70,12 +70,10 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
 
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
-                let (_, encoded, _, exc_patches) = Self::encode(
-                    sample.as_deref().unwrap_or(values),
-                    Some(Exponents { e, f }),
-                );
+                let (encoded, exceptional_positions) =
+                    Self::encode(sample.as_deref().unwrap_or(values), Exponents { e, f });
 
-                let size = Self::estimate_encoded_size(&encoded, &exc_patches);
+                let size = Self::estimate_encoded_size(&encoded, exceptional_positions.len());
                 if size < best_nbytes {
                     best_nbytes = size;
                     best_exp = Exponents { e, f };
@@ -89,7 +87,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     }
 
     #[inline]
-    fn estimate_encoded_size(encoded: &[Self::ALPInt], patches: &[Self]) -> usize {
+    fn estimate_encoded_size(encoded: &[Self::ALPInt], n_exceptions: usize) -> usize {
         let bits_per_encoded = encoded
             .iter()
             .minmax()
@@ -108,42 +106,33 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         let encoded_bytes = (encoded.len() * bits_per_encoded + 7) / 8;
         // each patch is a value + a position
         // in practice, patch positions are in [0, u16::MAX] because of how we chunk
-        let patch_bytes = patches.len() * (size_of::<Self>() + size_of::<u16>());
+        let patch_bytes = n_exceptions * (size_of::<Self>() + size_of::<u16>());
 
         encoded_bytes + patch_bytes
     }
 
-    fn encode(
-        values: &[Self],
-        exponents: Option<Exponents>,
-    ) -> (Exponents, Buffer<Self::ALPInt>, Buffer<u64>, Buffer<Self>) {
-        let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
+    /// ALP encode the given values using the given exponents.
+    ///
+    /// The index of each value for which encode-decode is not the identity function is returned.
+    fn encode(values: &[Self], exponents: Exponents) -> (Buffer<Self::ALPInt>, Buffer<u64>) {
+        let (encoded, needs_patch): (BufferMut<Self::ALPInt>, Vec<bool>) = values
+            .iter()
+            .map(|value| {
+                let maybe_encoded = unsafe { Self::encode_single_unchecked(*value, exponents) };
+                let maybe_decoded = Self::decode_single(maybe_encoded, exponents);
+                let needs_patch = maybe_decoded != *value;
+                (maybe_encoded, needs_patch)
+            })
+            .unzip();
 
-        let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
-        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len());
-        let mut patch_values = BufferMut::<Self>::with_capacity(values.len());
-        let mut fill_value: Option<Self::ALPInt> = None;
+        let patch_indices: BufferMut<u64> = needs_patch
+            .into_iter()
+            .enumerate()
+            .filter(|(_, needs_patch)| *needs_patch)
+            .map(|(index, _)| index as u64)
+            .collect();
 
-        // this is intentionally branchless
-        // we batch this into 32KB of values at a time to make it more L1 cache friendly
-        let encode_chunk_size: usize = (32 << 10) / size_of::<Self::ALPInt>();
-        for chunk in values.chunks(encode_chunk_size) {
-            encode_chunk_unchecked(
-                chunk,
-                exp,
-                &mut encoded_output,
-                &mut patch_indices,
-                &mut patch_values,
-                &mut fill_value,
-            );
-        }
-
-        (
-            exp,
-            encoded_output.freeze(),
-            patch_indices.freeze(),
-            patch_values.freeze(),
-        )
+        (encoded.freeze(), patch_indices.freeze())
     }
 
     #[inline]
@@ -185,7 +174,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn encode_chunk_unchecked<T: ALPFloat>(
+fn _encode_chunk_unchecked<T: ALPFloat>(
     chunk: &[T],
     exp: Exponents,
     encoded_output: &mut BufferMut<T::ALPInt>,
