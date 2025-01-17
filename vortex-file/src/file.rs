@@ -6,6 +6,7 @@ use std::task::{Context, Poll};
 
 use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use itertools::Itertools;
 use pin_project_lite::pin_project;
 use vortex_array::compute::FilterMask;
 use vortex_array::stats::{Stat, StatsSet};
@@ -14,6 +15,7 @@ use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::transform::field_mask::field_mask;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
@@ -22,7 +24,7 @@ use vortex_scan::{RowMask, Scanner};
 use crate::exec::ExecDriver;
 use crate::io::IoDriver;
 use crate::segments::channel::SegmentChannel;
-use crate::FileLayout;
+use crate::{FileLayout, SplitBy};
 
 /// A Vortex file ready for reading.
 ///
@@ -34,7 +36,7 @@ pub struct VortexFile<I> {
     pub(crate) file_layout: FileLayout,
     pub(crate) io_driver: I,
     pub(crate) exec_driver: Arc<dyn ExecDriver>,
-    pub(crate) splits: Arc<[Range<u64>]>,
+    pub(crate) split_by: SplitBy,
 }
 
 pub struct Scan {
@@ -87,6 +89,23 @@ impl Scan {
         self.row_indices = Some(row_indices);
         self
     }
+
+    /// Compute a mask of field paths referenced by this scan.
+    pub fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldPath>> {
+        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
+        let filter = self
+            .filter
+            .clone()
+            .map(|f| simplify_typed(f, scope_dtype))
+            .transpose()?;
+
+        let projection_mask = field_mask(&projection, scope_dtype)?;
+        Ok(filter
+            .map(|f| field_mask(&f, scope_dtype))
+            .transpose()?
+            .map(|mask| projection_mask.union(&mask).cloned().collect_vec())
+            .unwrap_or_else(|| projection_mask.into_iter().collect_vec()))
+    }
 }
 
 /// Async implementation of Vortex File.
@@ -108,7 +127,18 @@ impl<I: IoDriver> VortexFile<I> {
 
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        let row_masks = ArcIter::new(self.splits.clone()).filter_map(move |row_range| {
+        let field_mask = scan.field_mask(self.dtype())?;
+        let splits: Arc<[Range<u64>]> = self
+            .split_by
+            .splits(self.file_layout().root_layout(), &field_mask)?
+            .into_iter()
+            .inspect(|r| println!("Split: {:?}", (r.end - r.start)))
+            .collect_vec()
+            .into();
+
+        println!("Scanning with {} splits", splits.len());
+
+        let row_masks = ArcIter::new(splits.clone()).filter_map(move |row_range| {
             let Some(row_indices) = &scan.row_indices else {
                 // If there is no row indices filter, then take the whole range
                 return Some(RowMask::new_valid_between(row_range.start, row_range.end));
@@ -164,11 +194,12 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let dt = self.dtype().clone();
         let scanner = Arc::new(Scanner::new(
             self.dtype().clone(),
-            simplify_typed(projection, dt.clone())?,
-            filter.map(|f| simplify_typed(f, dt)).transpose()?,
+            simplify_typed(projection, self.dtype())?,
+            filter
+                .map(|f| simplify_typed(f, self.dtype()))
+                .transpose()?,
         )?);
         let result_dtype = scanner.result_dtype().clone();
 

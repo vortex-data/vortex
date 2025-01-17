@@ -1,6 +1,5 @@
 #![allow(clippy::cast_possible_truncation)]
 use std::iter;
-use std::ops::Deref;
 use std::pin::pin;
 use std::sync::Arc;
 
@@ -115,38 +114,6 @@ async fn test_read_simple_with_spawn() {
         .unwrap();
 
     assert!(!buf.is_empty());
-}
-
-#[tokio::test]
-#[cfg_attr(miri, ignore)]
-async fn test_splits() {
-    let strings = ChunkedArray::from_iter([
-        VarBinArray::from(vec!["ab", "foo", "baz"]).into_array(),
-        VarBinArray::from(vec!["ab", "foo"]).into_array(),
-        VarBinArray::from(vec!["ab", "foo", "bar"]).into_array(),
-    ])
-    .into_array();
-
-    let numbers = ChunkedArray::from_iter([
-        buffer![1u32, 2, 3].into_array(),
-        buffer![4u32, 5, 6].into_array(),
-        buffer![7u32, 8].into_array(),
-    ])
-    .into_array();
-
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
-
-    let buf = VortexWriteOptions::default()
-        .write(ByteBufferMut::empty(), st.into_array().into_array_stream())
-        .await
-        .unwrap();
-
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
-        .open(buf.freeze())
-        .await
-        .unwrap();
-
-    assert_eq!(file.splits.deref(), &[0u64..3, 3..5, 5..6, 6..8]);
 }
 
 #[tokio::test]

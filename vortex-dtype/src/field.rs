@@ -131,6 +131,13 @@ impl FieldPath {
         self.0.push(field.into());
     }
 
+    /// Whether the path starts with the given field name
+    pub fn starts_with_name(&self, name: &str) -> bool {
+        self.0
+            .first()
+            .map_or(false, |f| f == &Field::Name(name.into()))
+    }
+
     /// Steps into the next field in the path
     pub fn step_into(mut self) -> VortexResult<Self> {
         if self.0.is_empty() {

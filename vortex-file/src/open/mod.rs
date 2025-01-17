@@ -146,16 +146,13 @@ impl VortexOpenOptions {
             .unwrap_or(ExecutionMode::Inline)
             .into_driver();
 
-        // Compute the splits of the file.
-        let splits = self.split_by.splits(file_layout.root_layout())?.into();
-
         // Finally, create the VortexFile.
         Ok(VortexFile {
             ctx: self.ctx.clone(),
             file_layout,
             io_driver,
             exec_driver,
-            splits,
+            split_by: self.split_by,
         })
     }
 

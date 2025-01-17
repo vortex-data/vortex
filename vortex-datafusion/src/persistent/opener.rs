@@ -52,7 +52,7 @@ impl VortexFileOpener {
                     .reduce(and)
                     .unwrap_or_else(|| lit(true));
 
-                simplify_typed(expr, dtype)
+                simplify_typed(expr, &dtype)
             })
             .transpose()?;
 
