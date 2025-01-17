@@ -14,7 +14,7 @@ use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::{RowMask, Scanner};
 
@@ -45,7 +45,7 @@ pub struct Scan {
 impl Scan {
     pub fn all() -> Self {
         Self {
-            projection: Identity::new_expr(),
+            projection: ident(),
             filter: None,
             row_indices: None,
         }
@@ -61,7 +61,7 @@ impl Scan {
 
     pub fn filtered(filter: ExprRef) -> Self {
         Self {
-            projection: Identity::new_expr(),
+            projection: ident(),
             filter: Some(filter),
             row_indices: None,
         }
