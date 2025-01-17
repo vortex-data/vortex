@@ -24,8 +24,6 @@ impl StatsSet {
     }
 
     /// Create a new, empty StatsSet.
-    ///
-    /// If you are planning to add stats to the set, consider using [StatsSet::with_capacity] instead.
     pub fn empty() -> Self {
         Self { values: None }
     }
