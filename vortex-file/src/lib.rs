@@ -6,14 +6,13 @@
 //! A layout is a serialized array which is stored in some linear and contiguous block of
 //! memory. Layouts are recursively defined in terms of one of three kinds:
 //!
-//! 1. The [`FlatLayout`](layouts::FlatLayout). A contiguously serialized array using the Vortex
-//!    flatbuffer Batch [`message`](vortex_flatbuffers::message).
+//! 1. The [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout). A contiguously serialized array of buffers, with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
 //!
-//! 2. The [`ColumnarLayout`](layouts::ColumnarLayout). Each column of a
+//! 2. The [`StructLayout`](vortex_layout::layouts::struct_::StructLayout). Each column of a
 //!    [`StructArray`][vortex_array::array::StructArray] is sequentially laid out at known offsets.
 //!    This permits reading a subset of columns in time linear in the number of kept columns.
 //!
-//! 3. The [`ChunkedLayout`](layouts::ChunkedLayout). Each chunk of a
+//! 3. The [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout). Each chunk of a
 //!    [`ChunkedArray`](vortex_array::array::ChunkedArray) is sequentially laid out at known
 //!    offsets. This permits reading a subset of rows in time linear in the number of kept rows.
 //!
@@ -47,24 +46,17 @@
 //!
 //! # Reading
 //!
-//! Layout reading is implemented by [`VortexReadArrayStream`]. The [`VortexReadArrayStream`] should
-//! be constructed by a [`VortexReadBuilder`], which first uses an [InitialRead] to read the footer
-//! (schema, layout, postscript, version, and magic bytes). In most cases, these entire footer can
-//! be read by a single read of the suffix of the file.
+//! Reading is implemented by [`VortexFile`]. It's "opened" by [`VortexOpenOptions`], which can be provided with information about's the file's
+//! structure to save on IO before the actual data read. Once the file is open and has done the initial IO work to understand its own structure,
+//! it can be turned into a stream by calling [`VortexFile::scan`] with a [`Scan`], which defines filtering and projection on the file.
 //!
-//! A [`VortexReadArrayStream`] internally contains a [`LayoutMessageCache`] which is shared by its
-//! layout reader and the layout reader's descendants. The cache permits the reading system to
-//! "read" the bytes of a layout multiple times without triggering reads to the underlying storage.
-//! For example, the [`VortexReadArrayStream`] reads an array, evaluates the row filter, and then
-//! reads the array again with the filter mask.
-//!
-//! A [`LayoutReader`] then assembles one or more Vortex arrays by reading the serialized data and
-//! metadata.
+//! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
+//! It also caches buffers between stages of the scan, saving on duplicate IO. The cache can also be reused between scans of the same file (See [`SegmentCache`](`crate::segments::SegmentCache`)).
 //!
 //! # Apache Arrow
 //!
-//! If you ultimately seek Arrow arrays, [`VortexRecordBatchReader`] converts a
-//! [`VortexReadArrayStream`] into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
+//! If you ultimately seek Arrow arrays, [`VortexRecordBatchReader`][`crate::read::VortexRecordBatchReader`] converts an open
+//! Vortex file into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
 
 #[cfg(test)]
 mod tests;
