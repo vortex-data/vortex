@@ -132,11 +132,8 @@ impl<I: IoDriver> VortexFile<I> {
             .split_by
             .splits(self.file_layout().root_layout(), &field_mask)?
             .into_iter()
-            .inspect(|r| println!("Split: {:?}", (r.end - r.start)))
             .collect_vec()
             .into();
-
-        println!("Scanning with {} splits", splits.len());
 
         let row_masks = ArcIter::new(splits).filter_map(move |row_range| {
             let Some(row_indices) = &scan.row_indices else {
