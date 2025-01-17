@@ -14,6 +14,7 @@ use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::{RowMask, Scanner};
@@ -161,7 +162,12 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
+        let dt = self.dtype().clone();
+        let scanner = Arc::new(Scanner::new(
+            self.dtype().clone(),
+            simplify_typed(projection, dt.clone())?,
+            filter.map(|f| simplify_typed(f, dt)).transpose()?,
+        )?);
 
         let result_dtype = scanner.result_dtype().clone();
 
