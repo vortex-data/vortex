@@ -202,7 +202,7 @@ impl Node for ExprRef {
             FoldDown::Abort(out) => return Ok(FoldUp::Abort(out)),
             FoldDown::SkipChildren(out) => return Ok(FoldUp::Continue(out)),
             FoldDown::Continue(child_context) => {
-                let mut new_children = Vec::with_capacity(self.nchildren());
+                let mut new_children = Vec::with_capacity(self.children().len());
                 for child in self.children() {
                     match child.accept_with_context(visitor, child_context.clone())? {
                         FoldUp::Abort(out) => return Ok(FoldUp::Abort(out)),

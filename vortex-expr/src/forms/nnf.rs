@@ -85,7 +85,7 @@ impl FolderMut for NNFVisitor {
             }
         }
 
-        Ok(FoldDown::Abort(node.clone()))
+        Ok(FoldDown::Continue(negating))
     }
 
     fn visit_up(
@@ -103,7 +103,7 @@ impl FolderMut for NNFVisitor {
             if !negating {
                 node
             } else {
-                let new_op = match binary_expr.op().swap() {
+                let new_op = match binary_expr.op() {
                     Operator::Eq => Operator::NotEq,
                     Operator::NotEq => Operator::Eq,
                     Operator::Gt => Operator::Lte,

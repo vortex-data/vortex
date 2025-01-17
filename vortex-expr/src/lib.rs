@@ -69,10 +69,6 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
 
     fn children(&self) -> Vec<&ExprRef>;
 
-    fn nchildren(&self) -> usize {
-        self.children().len()
-    }
-
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
