@@ -46,7 +46,7 @@ impl MutNodeVisitor for RemoveSelectTransform {
                             child_dtype.names()
                         ))
                     })?
-                    .into_iter()
+                    .iter()
                     .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
             );
 
