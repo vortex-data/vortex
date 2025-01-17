@@ -18,20 +18,62 @@
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
 //! neither contain a description of the kind of layout (e.g. flat, column of flat, chunked of
-//! column of flat) nor a data type ([`DType`](vortex_dtype::DType)). A standalone Vortex file
-//! comprises seven sections, the first of which is the serialized array bytes. The interpretation
-//! of those bytes, i.e. which particular layout was used, is given in the fourth section: the
-//! footer.
+//! column of flat) nor a data type ([`DType`](vortex_dtype::DType)).
 //!
-//! | Section     | Size               | Description                                                         |
-//! | ----------- | ------------------ | ------------------------------------------------------------------- |
-//! | Data        | In the Footer.     | The serialized arrays.                                              |
-//! | Metadata    | In the Footer.     | A table per column with a row per chunk. Contains statistics.       |
-//! | Schema      | In the Postscript. | A serialized data type.                                             |
-//! | Footer      | In the Postscript. | A recursive description of the layout including the number of rows. |
-//! | Postscript  | 32 bytes           | Two 64-bit offsets pointing at schema and the footer.               |
-//! | Version     | 4 bytes            | The file format version.                                            |
-//! | Magic bytes | 4 bytes            | The ASCII bytes "VRTX" (86, 82, 84, 88; 0x56525458).                |
+//! # Reading
+//!
+//! Reading is implemented by [`VortexFile`]. It's "opened" by [`VortexOpenOptions`], which can be provided with information about's the file's
+//! structure to save on IO before the actual data read. Once the file is open and has done the initial IO work to understand its own structure,
+//! it can be turned into a stream by calling [`VortexFile::scan`] with a [`Scan`], which defines filtering and projection on the file.
+//!
+//! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
+//! It also caches buffers between stages of the scan, saving on duplicate IO. The cache can also be reused between scans of the same file (See [`SegmentCache`](`crate::segments::SegmentCache`)).
+//!
+//! # File Format
+//!
+//! Succinctly, the file format specification is as follows:
+//!
+//! 1. Data is written first, in a form that is describable by a Layout (typically Array IPC Messages).
+//!     a. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays,
+//!        and then writes the "metadata" arrays (i.e., per-column statistics)
+//! 2. We write what is collectively referred to as the "Footer", which contains:
+//!     a. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
+//!     b. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
+//!        the those byte ranges that we wrote in part 1.
+//!     c. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout
+//!        flatbuffers within the file.
+//!     d. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
+//!
+//! ## Reified File Format
+//! ```text
+//! ┌────────────────────────────┐
+//! │                            │
+//! │            Data            │
+//! │    (Array IPC Messages)    │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
+//! │   Per-Column Statistics    │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
+//! │     Schema Flatbuffer      │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
+//! │     Layout Flatbuffer      │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
+//! │    Postscript Flatbuffer   │
+//! │  (Schema & Layout Offsets) │
+//! │                            │
+//! ├────────────────────────────┤
+//! │     8-byte End of File     │
+//! │(Version, Postscript Length,│
+//! │       Magic Bytes)         │
+//! └────────────────────────────┘
+//! ```
 //!
 //! A Parquet-style file format is realized by using a chunked layout containing column layouts
 //! containing chunked layouts containing flat layouts. The outer chunked layout represents row
@@ -43,15 +85,6 @@
 //! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the "linear and
 //! contiguous memory".
-//!
-//! # Reading
-//!
-//! Reading is implemented by [`VortexFile`]. It's "opened" by [`VortexOpenOptions`], which can be provided with information about's the file's
-//! structure to save on IO before the actual data read. Once the file is open and has done the initial IO work to understand its own structure,
-//! it can be turned into a stream by calling [`VortexFile::scan`] with a [`Scan`], which defines filtering and projection on the file.
-//!
-//! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
-//! It also caches buffers between stages of the scan, saving on duplicate IO. The cache can also be reused between scans of the same file (See [`SegmentCache`](`crate::segments::SegmentCache`)).
 //!
 //! # Apache Arrow
 //!
