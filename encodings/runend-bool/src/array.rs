@@ -10,8 +10,8 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoArrayVariant, IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -109,7 +109,20 @@ impl RunEndBoolArray {
             children.push(a)
         }
 
-        Self::try_from_parts(dtype, length, metadata, children.into(), stats)
+        Self::try_from_parts(
+            dtype,
+            length,
+            SerdeMetadata(metadata),
+            [].into(),
+            children.into(),
+            stats,
+        )
+    }
+
+    fn metadata(&self) -> RunEndBoolMetadata {
+        SerdeMetadata::<RunEndBoolMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("RunEndBoolArray metadata")
+            .0
     }
 
     pub(crate) fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
@@ -181,7 +194,12 @@ impl VariantsVTable<RunEndBoolArray> for RunEndBoolEncoding {
     }
 }
 
-impl ValidateVTable<RunEndBoolArray> for RunEndBoolEncoding {}
+impl ValidateVTable<RunEndBoolArray> for RunEndBoolEncoding {
+    fn validate(&self, array: &RunEndBoolArray) -> VortexResult<()> {
+        SerdeMetadata::<RunEndBoolMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl ValidityVTable<RunEndBoolArray> for RunEndBoolEncoding {
     fn is_valid(&self, array: &RunEndBoolArray, index: usize) -> bool {
@@ -256,7 +274,7 @@ mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::{Validity, ValidityMetadata};
     use vortex_array::{
-        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
+        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, SerdeMetadata, ToArrayData,
     };
     use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::{DType, Nullability, PType};
@@ -267,13 +285,13 @@ mod test {
     fn test_runend_bool_metadata() {
         check_metadata(
             "runend_bool.metadata",
-            RunEndBoolMetadata {
+            SerdeMetadata(RunEndBoolMetadata {
                 num_runs: usize::MAX,
                 ends_ptype: PType::U64,
                 offset: usize::MAX,
                 validity: ValidityMetadata::AllValid,
                 start: true,
-            },
+            }),
         );
     }
 

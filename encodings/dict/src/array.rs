@@ -11,8 +11,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoArrayVariant, IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -39,14 +39,21 @@ impl DictArray {
         Self::try_from_parts(
             values.dtype().clone(),
             codes.len(),
-            DictMetadata {
+            SerdeMetadata(DictMetadata {
                 codes_ptype: PType::try_from(codes.dtype())
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
-            },
+            }),
+            [].into(),
             [codes, values].into(),
             StatsSet::default(),
         )
+    }
+
+    fn metadata(&self) -> DictMetadata {
+        SerdeMetadata::<DictMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("DictMetadata metadata")
+            .0
     }
 
     #[inline]
@@ -125,6 +132,7 @@ impl VisitorVTable<DictArray> for DictEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::DictMetadata;
@@ -134,10 +142,10 @@ mod test {
     fn test_dict_metadata() {
         check_metadata(
             "dict.metadata",
-            DictMetadata {
+            SerdeMetadata(DictMetadata {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
-            },
+            }),
         );
     }
 }

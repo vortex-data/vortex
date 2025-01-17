@@ -10,7 +10,8 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
@@ -141,7 +142,8 @@ impl DeltaArray {
         let delta = Self::try_from_parts(
             dtype,
             logical_len,
-            metadata,
+            SerdeMetadata(metadata),
+            [].into(),
             children.into(),
             StatsSet::default(),
         )?;
@@ -166,6 +168,12 @@ impl DeltaArray {
         }
 
         Ok(delta)
+    }
+
+    fn metadata(&self) -> DeltaMetadata {
+        SerdeMetadata::<DeltaMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("DeltaMetadata metadata")
+            .0
     }
 
     #[inline]
@@ -260,6 +268,7 @@ impl StatisticsVTable<DeltaArray> for DeltaEncoding {}
 mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
+    use vortex_array::SerdeMetadata;
 
     use crate::DeltaMetadata;
 
@@ -268,11 +277,11 @@ mod test {
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            DeltaMetadata {
+            SerdeMetadata(DeltaMetadata {
                 offset: u16::MAX,
                 validity: ValidityMetadata::AllValid,
                 deltas_len: u64::MAX,
-            },
+            }),
         );
     }
 }

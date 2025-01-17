@@ -50,7 +50,7 @@ impl Display for BoolMetadata {
 
 impl BoolArray {
     /// Access the array's metadata
-    pub fn metadata(&self) -> BoolMetadata {
+    fn metadata(&self) -> BoolMetadata {
         // SAFETY: BoolMetadata is validated in ValidateVTable::validate
         unsafe {
             RkyvMetadata::<BoolMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0

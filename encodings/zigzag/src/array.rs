@@ -1,6 +1,3 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
@@ -21,15 +18,6 @@ use crate::zigzag_decode;
 
 impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZigZagMetadata;
-
-impl Display for ZigZagMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ZigZagMetadata")
-    }
-}
-
 impl ZigZagArray {
     pub fn try_new(encoded: ArrayData) -> VortexResult<Self> {
         let encoded_dtype = encoded.dtype().clone();
@@ -46,7 +34,8 @@ impl ZigZagArray {
         Self::try_from_parts(
             dtype,
             len,
-            ZigZagMetadata,
+            (),
+            [].into(),
             children.into(),
             StatsSet::default(),
         )
@@ -133,16 +122,10 @@ impl IntoCanonical for ZigZagArray {
 #[cfg(test)]
 mod test {
     use vortex_array::compute::{scalar_at, slice};
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
 
     use super::*;
-
-    #[test]
-    fn test_zigzag_metadata() {
-        check_metadata("zigzag.metadata", ZigZagMetadata);
-    }
 
     #[test]
     fn test_compute_statistics() {

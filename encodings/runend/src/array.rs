@@ -12,8 +12,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoArrayVariant, IntoCanonical, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -84,10 +84,17 @@ impl RunEndArray {
         Self::try_from_parts(
             dtype,
             length,
-            metadata,
+            SerdeMetadata(metadata),
+            [].into(),
             vec![ends, values].into(),
             StatsSet::default(),
         )
+    }
+
+    fn metadata(&self) -> RunEndMetadata {
+        SerdeMetadata::<RunEndMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("RunEndMetadata metadata")
+            .0
     }
 
     /// Convert the given logical index to an index into the `values` array
@@ -251,7 +258,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, SerdeMetadata};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -262,11 +269,11 @@ mod tests {
     fn test_runend_metadata() {
         check_metadata(
             "runend.metadata",
-            RunEndMetadata {
+            SerdeMetadata(RunEndMetadata {
                 offset: usize::MAX,
                 ends_ptype: PType::U64,
                 num_runs: usize::MAX,
-            },
+            }),
         );
     }
 

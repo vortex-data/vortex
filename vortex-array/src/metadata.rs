@@ -1,3 +1,4 @@
+use flexbuffers::FlexbufferSerializer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 
@@ -67,6 +68,32 @@ where
             metadata.ok_or_else(|| vortex_err!("Missing expected metadata"))?,
         )
         .map(RkyvMetadata)
+    }
+}
+
+pub struct SerdeMetadata<M>(pub M);
+
+impl<M> SerializeMetadata for SerdeMetadata<M>
+where
+    M: serde::Serialize,
+{
+    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+        let mut ser = FlexbufferSerializer::new();
+        serde::Serialize::serialize(&self.0, &mut ser)?;
+        Ok(Some(ser.take_buffer().into()))
+    }
+}
+
+impl<'m, M> DeserializeMetadata<'m> for SerdeMetadata<M>
+where
+    M: serde::Deserialize<'m>,
+{
+    fn deserialize(metadata: Option<&'m [u8]>) -> VortexResult<Self> {
+        let bytes =
+            metadata.ok_or_else(|| vortex_err!("Serde metadata requires metadata bytes"))?;
+        Ok(SerdeMetadata(M::deserialize(
+            flexbuffers::Reader::get_root(bytes)?,
+        )?))
     }
 }
 

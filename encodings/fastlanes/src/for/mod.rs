@@ -8,7 +8,10 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
+    SerdeMetadata,
+};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar};
@@ -53,12 +56,17 @@ impl FoRArray {
         Self::try_from_parts(
             dtype,
             child.len(),
-            FoRMetadata { reference, shift },
+            SerdeMetadata(FoRMetadata { reference, shift }),
+            [].into(),
             [child].into(),
             StatsSet::default(),
         )
     }
-
+    fn metadata(&self) -> FoRMetadata {
+        SerdeMetadata::<FoRMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("FoRMetadata metadata")
+            .0
+    }
     #[inline]
     pub fn encoded(&self) -> ArrayData {
         let dtype = if self.ptype().is_signed_int() {
@@ -123,6 +131,7 @@ impl PrimitiveArrayTrait for FoRArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_scalar::PValue;
 
     use crate::FoRMetadata;
@@ -132,10 +141,10 @@ mod test {
     fn test_for_metadata() {
         check_metadata(
             "for.metadata",
-            FoRMetadata {
+            SerdeMetadata(FoRMetadata {
                 reference: PValue::I64(i64::MAX),
                 shift: u8::MAX,
-            },
+            }),
         );
     }
 }

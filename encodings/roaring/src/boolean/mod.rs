@@ -1,11 +1,7 @@
-use std::fmt::{Debug, Display};
-use std::sync::Arc;
-
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 pub use compress::*;
 use croaring::Native;
 pub use croaring::{Bitmap, Portable};
-use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
@@ -24,15 +20,6 @@ mod stats;
 
 impl_encoding!("vortex.roaring_bool", ids::ROARING_BOOL, RoaringBool);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoaringBoolMetadata;
-
-impl Display for RoaringBoolMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 impl RoaringBoolArray {
     pub fn try_new(bitmap: Bitmap, length: usize) -> VortexResult<Self> {
         let max_set = bitmap.maximum().unwrap_or(0) as usize;
@@ -49,16 +36,14 @@ impl RoaringBoolArray {
             length,
         );
 
-        ArrayData::try_new_owned(
-            &RoaringBoolEncoding,
+        Self::try_from_parts(
             DType::Bool(Nullability::NonNullable),
             length,
-            Arc::new(RoaringBoolMetadata),
+            (),
             [ByteBuffer::from(bitmap.serialize::<Native>())].into(),
             vec![].into(),
             stats,
-        )?
-        .try_into()
+        )
     }
 
     pub fn bitmap(&self) -> Bitmap {
@@ -138,15 +123,9 @@ mod test {
     use std::iter;
 
     use vortex_array::array::BoolArray;
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
-    use crate::{RoaringBoolArray, RoaringBoolMetadata};
-
-    #[test]
-    fn test_roaring_bool_metadata() {
-        check_metadata("roaring_bool.metadata", RoaringBoolMetadata);
-    }
+    use crate::RoaringBoolArray;
 
     #[test]
     #[cfg_attr(miri, ignore)]

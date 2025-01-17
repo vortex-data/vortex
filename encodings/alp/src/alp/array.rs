@@ -10,7 +10,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -60,7 +61,8 @@ impl ALPArray {
         Self::try_from_parts(
             dtype,
             length,
-            ALPMetadata { exponents, patches },
+            SerdeMetadata(ALPMetadata { exponents, patches }),
+            [].into(),
             children.into(),
             Default::default(),
         )
@@ -72,6 +74,12 @@ impl ALPArray {
         } else {
             vortex_bail!("ALP can only encode primitive arrays");
         }
+    }
+
+    fn metadata(&self) -> ALPMetadata {
+        SerdeMetadata::<ALPMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("ALPMetadata metadata")
+            .0
     }
 
     pub fn encoded(&self) -> ArrayData {
@@ -155,6 +163,7 @@ impl StatisticsVTable<ALPArray> for ALPEncoding {}
 mod tests {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::{ALPMetadata, Exponents};
@@ -164,13 +173,13 @@ mod tests {
     fn test_alp_metadata() {
         check_metadata(
             "alp.metadata",
-            ALPMetadata {
+            SerdeMetadata(ALPMetadata {
                 patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
                 exponents: Exponents {
                     e: u8::MAX,
                     f: u8::MAX,
                 },
-            },
+            }),
         );
     }
 }

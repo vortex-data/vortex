@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;
@@ -12,7 +11,10 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
+    SerdeMetadata,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -144,16 +146,20 @@ impl BitPackedArray {
             children.push(a)
         }
 
-        ArrayData::try_new_owned(
-            &BitPackedEncoding,
+        Self::try_from_parts(
             dtype,
             length,
-            Arc::new(metadata),
+            SerdeMetadata(metadata),
             [packed].into(),
             children.into(),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
+    }
+
+    fn metadata(&self) -> BitPackedMetadata {
+        SerdeMetadata::<BitPackedMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("BitPackedMetadata metadata")
+            .0
     }
 
     #[inline]
@@ -294,7 +300,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical, SerdeMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 
@@ -305,12 +311,12 @@ mod test {
     fn test_bitpacked_metadata() {
         check_metadata(
             "bitpacked.metadata",
-            BitPackedMetadata {
+            SerdeMetadata(BitPackedMetadata {
                 patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
                 validity: ValidityMetadata::AllValid,
                 offset: u16::MAX,
                 bit_width: u8::MAX,
-            },
+            }),
         );
     }
 

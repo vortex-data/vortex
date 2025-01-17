@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 pub use compress::*;
 use croaring::{Bitmap, Portable};
@@ -13,7 +12,8 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType as _, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType as _, ArrayData, ArrayLen, Canonical, DeserializeMetadata,
+    IntoArrayData, IntoCanonical, SerdeMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
@@ -63,16 +63,20 @@ impl RoaringIntArray {
         stats.set(Stat::IsSorted, true);
         stats.set(Stat::IsStrictSorted, true);
 
-        ArrayData::try_new_owned(
-            &RoaringIntEncoding,
+        Self::try_from_parts(
             DType::Primitive(ptype, NonNullable),
             length,
-            Arc::new(RoaringIntMetadata { ptype }),
+            SerdeMetadata(RoaringIntMetadata { ptype }),
             [ByteBuffer::from(bitmap.serialize::<Portable>())].into(),
             vec![].into(),
             stats,
-        )?
-        .try_into()
+        )
+    }
+
+    fn metadata(&self) -> RoaringIntMetadata {
+        SerdeMetadata::<RoaringIntMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("RoaringIntMetadata metadata")
+            .0
     }
 
     pub fn owned_bitmap(&self) -> Bitmap {
@@ -168,6 +172,7 @@ impl StatisticsVTable<RoaringIntArray> for RoaringIntEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::RoaringIntMetadata;
@@ -176,7 +181,7 @@ mod test {
     fn test_roaring_int_metadata() {
         check_metadata(
             "roaring_int.metadata",
-            RoaringIntMetadata { ptype: PType::U64 },
+            SerdeMetadata(RoaringIntMetadata { ptype: PType::U64 }),
         );
     }
 }

@@ -38,7 +38,7 @@ macro_rules! impl_encoding {
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,
                     len: usize,
-                    metadata: impl $crate::metadata::SerializeMetadata,
+                    metadata: impl $crate::SerializeMetadata,
                     buffers: Box<[vortex_buffer::ByteBuffer]>,
                     children: Box<[$crate::ArrayData]>,
                     stats: $crate::stats::StatsSet,

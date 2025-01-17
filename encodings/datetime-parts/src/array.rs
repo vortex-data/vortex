@@ -9,7 +9,10 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
+    SerdeMetadata,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
@@ -70,10 +73,17 @@ impl DateTimePartsArray {
         Self::try_from_parts(
             dtype,
             length,
-            metadata,
+            SerdeMetadata(metadata),
+            [].into(),
             [days, seconds, subsecond].into(),
             StatsSet::default(),
         )
+    }
+
+    fn metadata(&self) -> DateTimePartsMetadata {
+        SerdeMetadata::<DateTimePartsMetadata>::deserialize(self.as_ref().metadata_bytes())
+            .vortex_expect("DateTimePartsMetadata metadata")
+            .0
     }
 
     pub fn days(&self) -> ArrayData {
@@ -157,6 +167,7 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::DateTimePartsMetadata;
@@ -166,11 +177,11 @@ mod test {
     fn test_datetimeparts_metadata() {
         check_metadata(
             "datetimeparts.metadata",
-            DateTimePartsMetadata {
+            SerdeMetadata(DateTimePartsMetadata {
                 days_ptype: PType::I64,
                 seconds_ptype: PType::I64,
                 subseconds_ptype: PType::I64,
-            },
+            }),
         );
     }
 }
