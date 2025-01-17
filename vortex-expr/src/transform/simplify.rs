@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldChildren, FoldUp, FolderMut, Node};
+use crate::traversal::{FoldUp, FolderMut, Node};
 use crate::{ExprRef, GetItem, Pack};
 
 pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
