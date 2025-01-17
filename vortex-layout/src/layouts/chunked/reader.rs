@@ -112,7 +112,7 @@ impl ChunkedReader {
         {
             return Ok(mask.clone());
         }
-        let pruning_predicate = PruningPredicate::try_new(&expr);
+        let pruning_predicate = PruningPredicate::try_new(expr);
         let res = if let Some(stats_table) = self.stats_table().await? {
             if let Some(predicate) = pruning_predicate {
                 predicate
