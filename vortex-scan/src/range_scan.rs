@@ -3,7 +3,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use vortex_array::compute::{fill_null, FilterMask};
-use vortex_array::{ArrayData, Canonical, IntoArrayData};
+use vortex_array::ArrayData;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
@@ -22,12 +22,12 @@ enum State {
     // Then we project the selected rows.
     Project((FilterMask, ExprRef)),
     // And then we're done.
-    Ready(ArrayData),
+    Ready(Option<ArrayData>),
 }
 
 pub enum NextOp {
     /// The finished result of the scan.
-    Ready(ArrayData),
+    Ready(Option<ArrayData>),
     /// The next expression to evaluate.
     /// The caller **must** first apply the mask before evaluating the expression.
     Eval((Range<u64>, FilterMask, ExprRef)),
@@ -124,8 +124,7 @@ impl RangeScanner {
                 // Then move onto the projection
                 if mask.true_count() == 0 {
                     // If the mask is empty, then we're done.
-                    self.state =
-                        State::Ready(Canonical::empty(self.scan.result_dtype())?.into_array());
+                    self.state = State::Ready(None);
                 } else if !conjuncts_rev.is_empty() {
                     self.mask = mask;
                     let mask = if self.mask.selectivity() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
@@ -141,7 +140,8 @@ impl RangeScanner {
             }
             State::Project(_) => {
                 // We're done.
-                self.state = State::Ready(result);
+                assert!(!result.is_empty(), "projected array cannot be empty");
+                self.state = State::Ready(Some(result));
             }
             State::Ready(_) => {}
         }
@@ -149,7 +149,7 @@ impl RangeScanner {
     }
 
     /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
-    pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<ArrayData>
+    pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<Option<ArrayData>>
     where
         E: Fn(RowMask, ExprRef) -> VortexResult<ArrayData>,
     {
@@ -165,7 +165,7 @@ impl RangeScanner {
     }
 
     /// Evaluate the [`RangeScanner`] operation using an async expression evaluator.
-    pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<ArrayData>
+    pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<Option<ArrayData>>
     where
         E: Fn(RowMask, ExprRef) -> F,
         F: Future<Output = VortexResult<ArrayData>>,
@@ -246,6 +246,7 @@ mod tests {
 
                 filter(&arr, mask.filter_mask())
             })
+            .unwrap()
             .unwrap();
 
         assert!(res.as_struct_array().is_some());
@@ -301,6 +302,7 @@ mod tests {
 
                 filter(&arr, mask.filter_mask())
             })
+            .unwrap()
             .unwrap();
 
         assert!(res.as_struct_array().is_some());

@@ -32,7 +32,7 @@ impl SplitBy {
                     .into_iter()
                     .tuple_windows()
                     .map(|(start, end)| start..end)
-                    .collect()
+                    .collect::<Vec<_>>()
             }
             SplitBy::RowCount(n) => {
                 let row_count = layout.row_count();

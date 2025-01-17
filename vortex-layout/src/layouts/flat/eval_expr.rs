@@ -20,6 +20,8 @@ impl ExprEvaluator for FlatReader {
         row_mask: RowMask,
         expr: ExprRef,
     ) -> VortexResult<ArrayData> {
+        assert!(row_mask.true_count() > 0);
+
         // Fetch all the array buffers.
         let mut buffers = try_join_all(
             self.layout()

@@ -18,6 +18,6 @@ use vortex_error::VortexResult;
 pub trait ExecDriver: Send + Sync {
     fn drive(
         &self,
-        stream: BoxStream<'static, BoxFuture<'static, VortexResult<ArrayData>>>,
+        stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<ArrayData>>>>,
     ) -> BoxStream<'static, VortexResult<ArrayData>>;
 }
