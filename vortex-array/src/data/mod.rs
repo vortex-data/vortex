@@ -60,7 +60,7 @@ impl ArrayData {
         encoding: EncodingRef,
         dtype: DType,
         len: usize,
-        metadata: ByteBuffer,
+        metadata: Option<ByteBuffer>,
         buffers: Box<[ByteBuffer]>,
         children: Box<[ArrayData]>,
         statistics: StatsSet,
@@ -100,14 +100,10 @@ impl ArrayData {
             },
         )?;
 
-        // Parse the array metadata
-        let metadata = encoding.load_metadata(array.metadata().map(|v| v.bytes()))?;
-
         let view = ViewedArrayData {
             encoding,
             dtype,
             len,
-            metadata,
             flatbuffer,
             flatbuffer_loc,
             buffers: buffers.into(),

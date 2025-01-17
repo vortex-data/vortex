@@ -41,10 +41,6 @@ impl ViewedArrayData {
         unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
-    pub fn metadata_bytes(&self) -> Option<&[u8]> {
-        self.flatbuffer().metadata().map(|m| m.bytes())
-    }
-
     // TODO(ngates): should we separate self and DType lifetimes? Should DType be cloned?
     pub fn child(&self, idx: usize, dtype: &DType, len: usize) -> VortexResult<Self> {
         let child = self
@@ -63,13 +59,10 @@ impl ViewedArrayData {
                 Box::leak(Box::new(OpaqueEncoding(child.encoding())))
             });
 
-        let metadata = encoding.load_metadata(child.metadata().map(|m| m.bytes()))?;
-
         Ok(Self {
             encoding,
             dtype: dtype.clone(),
             len,
-            metadata,
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc,
             buffers: self.buffers.clone(),

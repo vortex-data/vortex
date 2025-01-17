@@ -2,12 +2,14 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use num_traits::{AsPrimitive, PrimInt};
+use rkyv::from_bytes;
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+    VortexUnwrap as _,
 };
 use vortex_scalar::Scalar;
 
@@ -91,6 +93,11 @@ impl VarBinArray {
             children.into(),
             StatsSet::default(),
         )
+    }
+
+    fn metadata(&self) -> VarBinMetadata {
+        from_bytes::<VarBinMetadata, VortexError>(self.as_ref().metadata())
+            .vortex_expect("VarBinArray: metadata")
     }
 
     #[inline]

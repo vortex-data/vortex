@@ -132,20 +132,17 @@ impl BoolArray {
             .into_inner()
             .bit_slice(buffer_byte_offset, buffer_len);
 
-        ArrayData::try_new_owned(
-            &BoolEncoding,
+        Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
-            rkyv::to_bytes::<VortexError>(&BoolMetadata {
+            Some(&BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
-            })?
-            .into(),
+            }),
             vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     /// Create a new BoolArray from a set of indices and a length.

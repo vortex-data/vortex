@@ -19,7 +19,9 @@ mod compute;
 
 impl_encoding!("vortex.ext", ids::EXTENSION, Extension);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ExtensionMetadata;
 
 impl Display for ExtensionMetadata {
@@ -39,7 +41,7 @@ impl ExtensionArray {
         Self::try_from_parts(
             DType::Extension(ext_dtype),
             storage.len(),
-            &(),
+            &ExtensionMetadata,
             [].into(),
             [storage].into(),
             Default::default(),

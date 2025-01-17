@@ -8,11 +8,12 @@ use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
+use rkyv::from_bytes;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult, VortexUnwrap,
 };
 
 use crate::arrow::FromArrowArray;
@@ -187,7 +188,9 @@ impl Debug for BinaryView {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct VarBinViewMetadata {
     // Validity metadata
     pub(crate) validity: ValidityMetadata,
@@ -242,15 +245,19 @@ impl VarBinViewArray {
         array_buffers.push(views.into_byte_buffer());
         array_buffers.extend(buffers);
 
-        Self::try_from(ArrayData::try_new_owned(
-            &VarBinViewEncoding,
+        Self::try_from_parts(
             dtype,
             array_len,
-            Arc::new(metadata),
+            &metadata,
             array_buffers.into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
-        )?)
+        )
+    }
+
+    fn metadata(&self) -> VarBinViewMetadata {
+        from_bytes::<VarBinViewMetadata, VortexError>(self.as_ref().metadata())
+            .vortex_expect("VarBinViewArray: metadata")
     }
 
     /// Number of raw string data buffers held by this array.

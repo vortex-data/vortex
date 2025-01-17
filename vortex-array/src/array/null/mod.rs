@@ -18,7 +18,9 @@ mod compute;
 
 impl_encoding!("vortex.null", ids::NULL, Null);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct NullMetadata;
 
 impl Display for NullMetadata {
@@ -32,7 +34,7 @@ impl NullArray {
         Self::try_from_parts(
             DType::Null,
             len,
-            &(),
+            &NullMetadata,
             [].into(),
             [].into(),
             StatsSet::nulls(len, &DType::Null),

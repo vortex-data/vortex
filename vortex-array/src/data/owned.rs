@@ -14,7 +14,7 @@ pub(super) struct OwnedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) metadata: ByteBuffer,
+    pub(super) metadata: Option<ByteBuffer>,
     pub(super) buffers: Box<[ByteBuffer]>,
     pub(super) children: Box<[ArrayData]>,
     pub(super) stats_set: RwLock<StatsSet>,
@@ -23,10 +23,6 @@ pub(super) struct OwnedArrayData {
 }
 
 impl OwnedArrayData {
-    pub fn metadata(&self) -> &ByteBuffer {
-        &self.metadata
-    }
-
     pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
         self.buffers.get(index)
     }

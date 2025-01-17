@@ -78,7 +78,7 @@ impl ChunkedArray {
         Self::try_from_parts(
             dtype,
             length.try_into().vortex_unwrap(),
-            &ChunkedMetadata { nchunks },
+            Some(&ChunkedMetadata { nchunks }),
             [].into(),
             children.into(),
             StatsSet::default(),

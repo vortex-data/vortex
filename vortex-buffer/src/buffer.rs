@@ -99,8 +99,8 @@ impl<T> Buffer<T> {
         }
         if bytes.as_ptr().align_offset(*alignment) != 0 {
             vortex_panic!(
-                "Bytes alignment must align to the scalar type's alignment {}",
-                Alignment::of::<T>()
+                "Bytes alignment must align to the requested alignment {}",
+                alignment,
             );
         }
         if bytes.len() % size_of::<T>() != 0 {

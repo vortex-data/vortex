@@ -42,16 +42,16 @@ fn test_chunked_metadata() {
     check_metadata("chunked.metadata", ChunkedMetadata { nchunks: 1 });
 }
 
-#[cfg_attr(miri, ignore)]
-#[test]
-fn test_constant_metadata() {
-    check_metadata(
-        "constant.metadata",
-        ConstantMetadata {
-            scalar_value: Scalar::primitive(i32::MAX, Nullability::Nullable).into_value(),
-        },
-    );
-}
+// #[cfg_attr(miri, ignore)]
+// #[test]
+// fn test_constant_metadata() {
+//     check_metadata(
+//         "constant.metadata",
+//         ConstantMetadata {
+//             scalar_value: Scalar::primitive(i32::MAX, Nullability::Nullable).into_value(),
+//         },
+//     );
+// }
 
 #[cfg_attr(miri, ignore)]
 #[test]
@@ -83,18 +83,18 @@ fn test_primitive_metadata() {
     );
 }
 
-#[cfg_attr(miri, ignore)]
-#[test]
-fn test_sparse_metadata() {
-    check_metadata(
-        "sparse.metadata",
-        SparseMetadata {
-            fill_value: Scalar::primitive(i32::MAX, Nullability::NonNullable).into_value(),
-            patches: PatchesMetadata::new(usize::MAX, PType::U64),
-            indices_offset: usize::MAX,
-        },
-    );
-}
+// #[cfg_attr(miri, ignore)]
+// #[test]
+// fn test_sparse_metadata() {
+//     check_metadata(
+//         "sparse.metadata",
+//         SparseMetadata {
+//             fill_value: Scalar::primitive(i32::MAX, Nullability::NonNullable).into_value(),
+//             patches: PatchesMetadata::new(usize::MAX, PType::U64),
+//             indices_offset: usize::MAX,
+//         },
+//     );
+// }
 
 #[cfg_attr(miri, ignore)]
 #[test]

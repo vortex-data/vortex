@@ -43,7 +43,7 @@ macro_rules! impl_encoding {
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,
                     len: usize,
-                    metadata: &impl for<'a> rkyv::Serialize<rkyv::api::high::HighSerializer<rkyv::util::AlignedVec, rkyv::ser::allocator::ArenaHandle<'a>, vortex_error::VortexError>>,
+                    metadata: Option<&impl for<'a> rkyv::Serialize<rkyv::api::high::HighSerializer<rkyv::util::AlignedVec, rkyv::ser::allocator::ArenaHandle<'a>, vortex_error::VortexError>>>,
                     buffers: Box<[vortex_buffer::ByteBuffer]>,
                     children: Box<[$crate::ArrayData]>,
                     stats: $crate::stats::StatsSet,
@@ -52,8 +52,9 @@ macro_rules! impl_encoding {
                             &[<$Name Encoding>],
                             dtype,
                             len,
-                            rkyv::to_bytes::<vortex_error::VortexError>(metadata)?
-                            .into(),
+                            metadata.map(|m| rkyv::to_bytes::<vortex_error::VortexError>(m))
+                                .transpose()?
+                                .map(|b| b.into()),
                             buffers,
                             children,
                             stats
