@@ -199,10 +199,10 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                     exprs.first().vortex_expect("exprs is non-empty").clone()
                 } else {
                     pack(
-                        (0..exprs.len())
-                            .map(|idx| FieldName::from(Self::field_idx_name(&name, idx)))
-                            .collect_vec(),
-                        exprs,
+                        exprs
+                            .into_iter()
+                            .enumerate()
+                            .map(|(idx, expr)| (Self::field_idx_name(&name, idx), expr)),
                     )
                 };
                 VortexResult::Ok(Partition {
@@ -271,8 +271,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
         if node.as_any().downcast_ref::<Identity>().is_some() {
             let field_names = self.scope_dtype.names();
 
-            let mut pack_fields = Vec::with_capacity(field_names.len());
-            let mut pack_exprs = Vec::with_capacity(field_names.len());
+            let mut elements = Vec::with_capacity(field_names.len());
 
             for field_name in field_names.iter() {
                 let sub_exprs = self
@@ -284,15 +283,17 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
                 sub_exprs.push(ident());
 
-                pack_fields.push(field_name.clone());
-                // Partitions are packed into a struct of field name -> occurrence idx -> array
-                pack_exprs.push(get_item(
-                    Self::field_idx_name(field_name, idx),
-                    get_item(field_name.clone(), ident()),
+                elements.push((
+                    field_name.clone(),
+                    // Partitions are packed into a struct of field name -> occurrence idx -> array
+                    get_item(
+                        Self::field_idx_name(field_name, idx),
+                        get_item(field_name.clone(), ident()),
+                    ),
                 ));
             }
 
-            return Ok(FoldDown::SkipChildren(pack(pack_fields, pack_exprs)));
+            return Ok(FoldDown::SkipChildren(pack(elements)));
         }
 
         // Otherwise, continue traversing.
@@ -323,7 +324,7 @@ impl FolderMut for ScopeStepIntoFieldExpr {
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         if node.as_any().downcast_ref::<Identity>().is_some() {
-            Ok(FoldUp::Continue(pack(vec![self.0.clone()], vec![ident()])))
+            Ok(FoldUp::Continue(pack([(self.0.clone(), ident())])))
         } else {
             Ok(FoldUp::Continue(node.replacing_children(children)))
         }
@@ -418,26 +419,26 @@ mod tests {
     fn test_expr_top_level_ref_get_item_and_split_pack() {
         let dtype = dtype();
 
-        let expr = pack(
-            vec!["a".into(), "b".into(), "c".into()],
-            vec![
-                get_item("a", get_item("a", ident())),
-                get_item("b", get_item("a", ident())),
-                get_item("c", ident()),
-            ],
-        );
+        let expr = pack([
+            ("a", get_item("a", get_item("a", ident()))),
+            ("b", get_item("b", get_item("a", ident()))),
+            ("c", get_item("c", ident())),
+        ]);
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
             &simplify(split_a.expr.clone()).unwrap(),
-            &pack(
-                vec![
+            &pack([
+                (
                     StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
+                    get_item("a", ident())
+                ),
+                (
                     StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                ],
-                vec![get_item("a", ident()), get_item("b", ident())]
-            )
+                    get_item("b", ident())
+                )
+            ])
         );
         let split_c = partitioned.find_partition(&"c".into()).unwrap();
         assert_eq!(&simplify(split_c.expr.clone()).unwrap(), &ident())
@@ -492,16 +493,16 @@ mod tests {
                     StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
                     get_item("a", ident())
                 ),
-                pack(
-                    vec!["a".into(), "b".into()],
-                    vec![
+                pack([
+                    (
+                        "a",
                         get_item(
                             StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
                             get_item("a", ident())
-                        ),
-                        get_item("b", ident()),
-                    ]
-                )
+                        )
+                    ),
+                    ("b", get_item("b", ident()))
+                ])
             )
         )
     }
