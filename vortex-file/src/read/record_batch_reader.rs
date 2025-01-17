@@ -24,6 +24,7 @@ pub trait AsyncRuntime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output;
 }
 
+#[cfg(feature = "tokio")]
 impl AsyncRuntime for tokio::runtime::Runtime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
         self.block_on(fut)
