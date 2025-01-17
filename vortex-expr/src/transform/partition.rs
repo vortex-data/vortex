@@ -105,14 +105,14 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
             }
         } else if let Some(select) = node.as_any().downcast_ref::<Select>() {
             assert!(matches!(select.fields(), SelectField::Include(_)));
-            if select.child().as_any().downcast_ref::<Identity>().is_some() {
+            if select.child().as_any().is::<Identity>() {
                 self.sub_expressions.insert(
                     node,
                     HashSet::from_iter(select.fields().fields().iter().cloned()),
                 );
             }
             return Ok(FoldDown::SkipChildren(()));
-        } else if node.as_any().downcast_ref::<Identity>().is_some() {
+        } else if node.as_any().is::<Identity>() {
             let st_dtype = &self.scope_dtype;
             self.sub_expressions
                 .insert(node, st_dtype.names().iter().cloned().collect());
@@ -268,7 +268,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
         };
 
         // If the expression is an identity, then we need to partition it into the fields of the scope.
-        if node.as_any().downcast_ref::<Identity>().is_some() {
+        if node.as_any().is::<Identity>() {
             let field_names = self.scope_dtype.names();
 
             let mut pack_fields = Vec::with_capacity(field_names.len());
@@ -384,7 +384,7 @@ mod tests {
 
         let partitioned = split.unwrap();
 
-        assert!(partitioned.root.as_any().downcast_ref::<Pack>().is_some());
+        assert!(partitioned.root.as_any().is::<Pack>());
         // Have a single top level pack with all fields in dtype
         assert_eq!(
             partitioned.partitions.len(),

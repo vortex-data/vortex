@@ -79,6 +79,6 @@ mod tests {
         let e = select(["a".into(), "b".into()], ident());
         let e = remove_select(e, dtype).unwrap();
 
-        assert!(e.as_any().downcast_ref::<Pack>().is_some());
+        assert!(e.as_any().is::<Pack>());
     }
 }

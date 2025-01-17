@@ -74,7 +74,7 @@ impl FolderMut for NNFVisitor {
         negating: bool,
     ) -> VortexResult<FoldDown<ExprRef, bool>> {
         let node_any = node.as_any();
-        if node_any.downcast_ref::<Not>().is_some() {
+        if node_any.is::<Not>() {
             return Ok(FoldDown::Continue(!negating));
         } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
             match binary_expr.op() {
@@ -96,7 +96,7 @@ impl FolderMut for NNFVisitor {
     ) -> VortexResult<FoldUp<ExprRef>> {
         let node_any = node.as_any();
 
-        let new_node = if node_any.downcast_ref::<Not>().is_some() {
+        let new_node = if node_any.is::<Not>() {
             debug_assert_eq!(new_children.len(), 1);
             new_children.remove(0)
         } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
