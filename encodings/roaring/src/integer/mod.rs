@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 pub use compress::*;
 use croaring::{Bitmap, Portable};

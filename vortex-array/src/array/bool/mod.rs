@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
@@ -14,7 +13,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{impl_encoding, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 pub mod compute;
 mod patch;

@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};

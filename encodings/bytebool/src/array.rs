@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
@@ -10,7 +9,7 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};

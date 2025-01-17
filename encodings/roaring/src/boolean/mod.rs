@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 pub use compress::*;

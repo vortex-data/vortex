@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;

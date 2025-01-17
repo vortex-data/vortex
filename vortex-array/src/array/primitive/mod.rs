@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 use std::ptr;
-use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
