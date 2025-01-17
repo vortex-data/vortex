@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
@@ -40,17 +40,26 @@ impl ComputeVTable for StructEncoding {
 
 impl CastFn<StructArray> for StructEncoding {
     fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayData> {
-        let Some(sdtype) = dtype.as_struct() else {
+        let Some(target_sdtype) = dtype.as_struct() else {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         };
+
+        let source_sdtype = array
+            .dtype()
+            .as_struct()
+            .vortex_expect("struct array must have struct dtype");
+
+        if target_sdtype.names() != source_sdtype.names() {
+            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
+        }
 
         let validity = array.validity().with_nullability(dtype.nullability())?;
 
         StructArray::try_new(
-            array.names().clone(),
+            target_sdtype.names().clone(),
             array
                 .children()
-                .zip_eq(sdtype.dtypes())
+                .zip_eq(target_sdtype.dtypes())
                 .map(|(field, dtype)| try_cast(&field, &dtype))
                 .try_collect()?,
             array.len(),
@@ -139,7 +148,7 @@ impl MaskFn<StructArray> for StructEncoding {
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructDType};
 
     use crate::array::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::test_harness::test_mask;
@@ -226,6 +235,43 @@ mod tests {
             DType::Struct(StructDType::new([].into(), vec![]), Nullability::Nullable);
         let casted = try_cast(&array, &nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
+    }
+
+    #[test]
+    fn test_cast_cannot_change_name_order() {
+        let array = StructArray::try_new(
+            ["xs".into(), "ys".into(), "zs".into()].into(),
+            vec![
+                buffer![1u8].into_array(),
+                buffer![1u8].into_array(),
+                buffer![1u8].into_array(),
+            ],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let tu8 = DType::Primitive(PType::U8, Nullability::NonNullable);
+
+        let result = try_cast(
+            array,
+            &DType::Struct(
+                StructDType::new(
+                    FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
+                    vec![tu8.clone(), tu8.clone(), tu8.clone()],
+                ),
+                Nullability::NonNullable,
+            ),
+        );
+        assert!(
+            result.as_ref().is_err_and(|err| {
+                err.to_string()
+                    .contains("cannot cast {xs=u8, ys=u8, zs=u8} to {ys=u8, xs=u8, zs=u8}")
+            }),
+            "{:?}",
+            result
+        );
     }
 
     #[test]
