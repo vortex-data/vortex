@@ -44,7 +44,7 @@ impl ConstantArray {
             dtype,
             length,
             ConstantMetadata { scalar_value },
-            [].into(),
+            None,
             stats,
         )
         .vortex_expect("Failed to create Constant array")

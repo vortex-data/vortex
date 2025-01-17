@@ -20,7 +20,7 @@ impl FolderMut for Simplify {
         &mut self,
         node: Self::NodeTy,
         _context: Self::Context,
-        children: FoldChildren<Self::Out>,
+        children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
             if let Some(pack) = get_item.child().as_any().downcast_ref::<Pack>() {
@@ -28,8 +28,6 @@ impl FolderMut for Simplify {
                 return Ok(FoldUp::Continue(expr));
             }
         }
-        Ok(FoldUp::Continue(
-            node.replacing_children(children.contained_children()),
-        ))
+        Ok(FoldUp::Continue(node.replacing_children(children)))
     }
 }

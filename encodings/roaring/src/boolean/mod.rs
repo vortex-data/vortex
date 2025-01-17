@@ -54,8 +54,8 @@ impl RoaringBoolArray {
             DType::Bool(Nullability::NonNullable),
             length,
             Arc::new(RoaringBoolMetadata),
-            [ByteBuffer::from(bitmap.serialize::<Native>())].into(),
-            vec![].into(),
+            Some([ByteBuffer::from(bitmap.serialize::<Native>())].into()),
+            None,
             stats,
         )?
         .try_into()

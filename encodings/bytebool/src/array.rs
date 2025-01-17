@@ -47,8 +47,8 @@ impl ByteBoolArray {
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            [buffer.into_byte_buffer()].into(),
-            validity.into_array().into_iter().collect::<Vec<_>>().into(),
+            Some([buffer.into_byte_buffer()].into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
         )?
         .try_into()

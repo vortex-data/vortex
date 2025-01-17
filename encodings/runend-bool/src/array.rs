@@ -109,7 +109,7 @@ impl RunEndBoolArray {
             children.push(a)
         }
 
-        Self::try_from_parts(dtype, length, metadata, children.into(), stats)
+        Self::try_from_parts(dtype, length, metadata, Some(children.into()), stats)
     }
 
     pub(crate) fn find_physical_index(&self, index: usize) -> VortexResult<usize> {

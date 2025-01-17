@@ -47,7 +47,7 @@ impl ZigZagArray {
             dtype,
             len,
             ZigZagMetadata,
-            children.into(),
+            Some(children.into()),
             StatsSet::default(),
         )
     }

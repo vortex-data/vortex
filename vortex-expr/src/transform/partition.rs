@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{
-    FoldChildren, FoldDown, FoldUp, Folder, FolderMut, MutNodeVisitor, Node, TransformResult,
+    FoldDown, FoldUp, Folder, FolderMut, MutNodeVisitor, Node, TransformResult,
 };
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
 
@@ -78,6 +78,7 @@ impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
 // This is a very naive, but simple analysis to find the fields that are accessed directly on an
 // identity node. This is combined to provide an over-approximation of the fields that are accessed
 // by an expression.
+// TODO(ngates): rewrite to use Visitor not Folder
 impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
     type NodeTy = ExprRef;
     type Out = ();
@@ -100,7 +101,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
                 self.sub_expressions
                     .insert(node, HashSet::from_iter(vec![get_item.field().clone()]));
 
-                return Ok(FoldDown::SkipChildren);
+                return Ok(FoldDown::SkipChildren(()));
             }
         } else if let Some(select) = node.as_any().downcast_ref::<Select>() {
             assert!(matches!(select.fields(), SelectField::Include(_)));
@@ -110,7 +111,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
                     HashSet::from_iter(select.fields().fields().iter().cloned()),
                 );
             }
-            return Ok(FoldDown::SkipChildren);
+            return Ok(FoldDown::SkipChildren(()));
         } else if node.as_any().downcast_ref::<Identity>().is_some() {
             let st_dtype = &self.scope_dtype;
             self.sub_expressions
@@ -124,20 +125,18 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
         &mut self,
         node: &'a ExprRef,
         _context: (),
-        _children: FoldChildren<()>,
+        _children: Vec<()>,
     ) -> VortexResult<FoldUp<()>> {
         let accesses = node
             .children()
             .iter()
-            .map(|c| self.sub_expressions.get(c).cloned())
+            .filter_map(|c| self.sub_expressions.get(c).cloned())
             .collect_vec();
 
-        accesses.into_iter().for_each(|c| {
-            let accesses = self.sub_expressions.entry(node).or_default();
-            if let Some(fields) = c {
-                accesses.extend(fields.iter().cloned());
-            }
-        });
+        let node_accesses = self.sub_expressions.entry(node).or_default();
+        accesses
+            .into_iter()
+            .for_each(|fields| node_accesses.extend(fields.iter().cloned()));
 
         Ok(FoldUp::Continue(()))
     }
@@ -240,47 +239,35 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
         node: &Self::NodeTy,
         _context: Self::Context,
     ) -> VortexResult<FoldDown<ExprRef, Self::Context>> {
-        if self
-            .accesses
-            .get(node)
-            .map(|a| a.len() == 1)
-            .unwrap_or(false)
-        {
-            // Found the top most sub-expression which only access a single field
-            return Ok(FoldDown::SkipChildren);
+        // If this expression only accesses a single field, then we can skip the children
+        let access = self.accesses.get(node);
+        if access.as_ref().is_some_and(|a| a.len() == 1) {
+            let field_name = access
+                .vortex_expect("access is non-empty")
+                .iter()
+                .next()
+                .vortex_expect("expected one field");
+
+            // TODO(joe): dedup the sub_expression, if there are two expressions that are the same
+            // only create one entry here and reuse it.
+            let sub_exprs = self.sub_expressions.entry(field_name.clone()).or_default();
+            let idx = sub_exprs.len();
+
+            // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
+            let replaced = node
+                .clone()
+                .transform_with_context(&mut ScopeStepIntoFieldExpr(field_name.clone()), ())?;
+            sub_exprs.push(replaced.result());
+
+            let access = get_item(
+                Self::field_idx_name(field_name, idx),
+                get_item(field_name.clone(), ident()),
+            );
+
+            return Ok(FoldDown::SkipChildren(access));
         };
 
-        Ok(FoldDown::Continue(()))
-    }
-
-    fn visit_up(
-        &mut self,
-        node: Self::NodeTy,
-        _context: Self::Context,
-        children: FoldChildren<ExprRef>,
-    ) -> VortexResult<FoldUp<ExprRef>> {
-        if let Some(access) = self.accesses.get(&node) {
-            if access.len() == 1 {
-                let field_name = access.iter().next().vortex_expect("access is non-empty");
-                // TODO(joe): dedup the sub_expression, if there are two expressions that are the same
-                // only create one entry here and reuse it.
-                let sub_exprs = self.sub_expressions.entry(field_name.clone()).or_default();
-                let idx = sub_exprs.len();
-
-                // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
-                let replaced = node
-                    .transform_with_context(&mut ScopeStepIntoFieldExpr(field_name.clone()), ())?;
-                sub_exprs.push(replaced.result());
-
-                let access = get_item(
-                    Self::field_idx_name(field_name, idx),
-                    get_item(field_name.clone(), ident()),
-                );
-
-                return Ok(FoldUp::Continue(access));
-            }
-        };
-
+        // If the expression is an identity, then we need to partition it into the fields of the scope.
         if node.as_any().downcast_ref::<Identity>().is_some() {
             let field_names = self.scope_dtype.names();
 
@@ -305,13 +292,20 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 ));
             }
 
-            return Ok(FoldUp::Continue(pack(pack_fields, pack_exprs)));
+            return Ok(FoldDown::SkipChildren(pack(pack_fields, pack_exprs)));
         }
 
-        match children {
-            FoldChildren::Skipped => unreachable!("Children skipped handled above"),
-            FoldChildren::Children(c) => Ok(FoldUp::Continue(node.replacing_children(c))),
-        }
+        // Otherwise, continue traversing.
+        Ok(FoldDown::Continue(()))
+    }
+
+    fn visit_up(
+        &mut self,
+        node: Self::NodeTy,
+        _context: Self::Context,
+        children: Vec<Self::Out>,
+    ) -> VortexResult<FoldUp<Self::Out>> {
+        Ok(FoldUp::Continue(node.replacing_children(children)))
     }
 }
 
@@ -326,15 +320,12 @@ impl FolderMut for ScopeStepIntoFieldExpr {
         &mut self,
         node: Self::NodeTy,
         _context: (),
-        children: FoldChildren<Self::Out>,
+        children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         if node.as_any().downcast_ref::<Identity>().is_some() {
             Ok(FoldUp::Continue(pack(vec![self.0.clone()], vec![ident()])))
         } else {
-            assert!(!matches!(children, FoldChildren::Skipped));
-            Ok(FoldUp::Continue(
-                node.replacing_children(children.into_iter().collect()),
-            ))
+            Ok(FoldUp::Continue(node.replacing_children(children)))
         }
     }
 }

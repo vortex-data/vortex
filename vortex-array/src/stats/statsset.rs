@@ -1,22 +1,14 @@
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexError};
+use vortex_error::{vortex_panic, VortexError, VortexExpect};
 use vortex_scalar::Scalar;
 
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct StatsSet {
-    values: Vec<(Stat, Scalar)>,
-}
-
-impl Default for StatsSet {
-    fn default() -> Self {
-        Self {
-            values: Vec::with_capacity(Stat::CARDINALITY),
-        }
-    }
+    values: Option<Vec<(Stat, Scalar)>>,
 }
 
 impl StatsSet {
@@ -26,14 +18,14 @@ impl StatsSet {
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
     pub fn new_unchecked(values: Vec<(Stat, Scalar)>) -> Self {
-        Self { values }
+        Self {
+            values: Some(values),
+        }
     }
 
     /// Create a new, empty StatsSet.
-    ///
-    /// If you are planning to add stats to the set, consider using [StatsSet::default] instead.
     pub fn empty() -> Self {
-        Self { values: vec![] }
+        Self { values: None }
     }
 
     /// Specialized constructor for the case where the StatsSet represents
@@ -125,16 +117,18 @@ impl StatsSet {
 impl StatsSet {
     /// Count of stored stats with known values.
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.values.as_ref().map_or(0, |v| v.len())
     }
 
     /// Predicate equivalent to a [len][Self::len] of zero.
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.values.as_ref().is_none_or(|v| v.is_empty())
     }
 
     pub fn get(&self, stat: Stat) -> Option<&Scalar> {
-        self.values.iter().find(|(s, _)| *s == stat).map(|(_, v)| v)
+        self.values
+            .as_ref()
+            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v))
     }
 
     pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
@@ -155,27 +149,35 @@ impl StatsSet {
 
     /// Set the stat `stat` to `value`.
     pub fn set<S: Into<Scalar>>(&mut self, stat: Stat, value: S) {
-        if let Some(existing) = self.values.iter_mut().find(|(s, _)| *s == stat) {
+        if self.values.is_none() {
+            self.values = Some(Vec::with_capacity(Stat::CARDINALITY));
+        }
+        let values = self.values.as_mut().vortex_expect("we just initialized it");
+        if let Some(existing) = values.iter_mut().find(|(s, _)| *s == stat) {
             *existing = (stat, value.into());
         } else {
-            self.values.push((stat, value.into()));
+            values.push((stat, value.into()));
         }
     }
 
     /// Clear the stat `stat` from the set.
     pub fn clear(&mut self, stat: Stat) {
-        self.values.retain(|(s, _)| *s != stat);
+        if let Some(v) = &mut self.values {
+            v.retain(|(s, _)| *s != stat);
+        }
     }
 
     pub fn retain_only(&mut self, stats: &[Stat]) {
-        self.values.retain(|(s, _)| stats.contains(s))
+        if let Some(v) = &mut self.values {
+            v.retain(|(s, _)| stats.contains(s));
+        }
     }
 
     /// Iterate over the statistic names and values in-place.
     ///
     /// See [Iterator].
     pub fn iter(&self) -> impl Iterator<Item = &(Stat, Scalar)> {
-        self.values.iter()
+        self.values.iter().flat_map(|v| v.iter())
     }
 }
 
@@ -184,13 +186,13 @@ impl StatsSet {
 /// Owned iterator over the stats.
 ///
 /// See [IntoIterator].
-pub struct StatsSetIntoIter(std::vec::IntoIter<(Stat, Scalar)>);
+pub struct StatsSetIntoIter(Option<std::vec::IntoIter<(Stat, Scalar)>>);
 
 impl Iterator for StatsSetIntoIter {
     type Item = (Stat, Scalar);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
+        self.0.as_mut().and_then(|i| i.next())
     }
 }
 
@@ -199,7 +201,7 @@ impl IntoIterator for StatsSet {
     type IntoIter = StatsSetIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        StatsSetIntoIter(self.values.into_iter())
+        StatsSetIntoIter(self.values.map(|v| v.into_iter()))
     }
 }
 
@@ -208,7 +210,7 @@ impl FromIterator<(Stat, Scalar)> for StatsSet {
         let iter = iter.into_iter();
         let (lower_bound, _) = iter.size_hint();
         let mut this = Self {
-            values: Vec::with_capacity(lower_bound),
+            values: Some(Vec::with_capacity(lower_bound)),
         };
         this.extend(iter);
         this
@@ -220,7 +222,9 @@ impl Extend<(Stat, Scalar)> for StatsSet {
     fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         let (lower_bound, _) = iter.size_hint();
-        self.values.reserve(lower_bound);
+        if let Some(v) = &mut self.values {
+            v.reserve(lower_bound);
+        }
         iter.for_each(|(stat, value)| self.set(stat, value));
     }
 }

@@ -99,7 +99,7 @@ impl FSSTArray {
                 codes_nullability,
                 uncompressed_lengths_ptype,
             },
-            children,
+            Some(children),
             StatsSet::default(),
         )
     }

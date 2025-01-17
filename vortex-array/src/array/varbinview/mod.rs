@@ -247,8 +247,8 @@ impl VarBinViewArray {
             dtype,
             array_len,
             Arc::new(metadata),
-            array_buffers.into(),
-            validity.into_array().into_iter().collect(),
+            Some(array_buffers.into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
         )?)
     }

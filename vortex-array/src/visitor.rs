@@ -16,7 +16,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn accept(&self, array: &ArrayData, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         VisitorVTable::accept(encoding, array_ref, visitor)
     }
 }

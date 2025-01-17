@@ -149,8 +149,8 @@ impl BitPackedArray {
             dtype,
             length,
             Arc::new(metadata),
-            [packed].into(),
-            children.into(),
+            Some([packed].into()),
+            Some(children.into()),
             StatsSet::default(),
         )?
         .try_into()

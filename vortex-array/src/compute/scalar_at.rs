@@ -18,7 +18,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn scalar_at(&self, array: &ArrayData, index: usize) -> VortexResult<Scalar> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         ScalarAtFn::scalar_at(encoding, array_ref, index)
     }
 }

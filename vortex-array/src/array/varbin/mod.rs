@@ -86,8 +86,8 @@ impl VarBinArray {
             dtype,
             length,
             Arc::new(metadata),
-            [bytes].into(),
-            children.into(),
+            Some([bytes].into()),
+            Some(children.into()),
             StatsSet::default(),
         )?)
     }

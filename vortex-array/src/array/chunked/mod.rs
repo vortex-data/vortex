@@ -74,7 +74,7 @@ impl ChunkedArray {
             dtype,
             length.try_into().vortex_unwrap(),
             ChunkedMetadata { nchunks },
-            children.into(),
+            Some(children.into()),
             StatsSet::default(),
         )
     }

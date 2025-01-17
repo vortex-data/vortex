@@ -14,7 +14,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn cast(&self, array: &ArrayData, dtype: &DType) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         CastFn::cast(encoding, array_ref, dtype)
     }
 }
