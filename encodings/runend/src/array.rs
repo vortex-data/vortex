@@ -16,7 +16,7 @@ use vortex_array::{
     IntoCanonical,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -227,31 +227,113 @@ impl VisitorVTable<RunEndArray> for RunEndEncoding {
 
 impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
-        let maybe_stat = match stat {
-            Stat::Min | Stat::Max => array.values().statistics().compute(stat),
-            Stat::IsSorted => Some(Scalar::from(
-                array
-                    .values()
-                    .statistics()
-                    .compute_is_sorted()
-                    .unwrap_or(false)
-                    && array.logical_validity().all_valid(),
-            )),
-            _ => None,
+        let mut stats = StatsSet::default();
+
+        match stat {
+            Stat::Min | Stat::Max => {
+                if let Some(extrema) = array.values().statistics().compute(stat) {
+                    stats.set(stat, extrema);
+                }
+            }
+            Stat::IsSorted => {
+                let is_sorted = Scalar::from(
+                    array
+                        .values()
+                        .statistics()
+                        .compute_is_sorted()
+                        .unwrap_or(false)
+                        && array.logical_validity().all_valid(),
+                );
+                stats.set(stat, is_sorted);
+            }
+            Stat::TrueCount => match array.dtype() {
+                DType::Bool(_) => {
+                    let ends = array.ends().into_primitive()?;
+                    let bools = array.values().into_bool()?.boolean_buffer();
+                    let mut true_count: u64 = 0;
+                    let mut null_count: u64 = 0;
+
+                    match array.values().logical_validity() {
+                        LogicalValidity::AllValid(_) => {
+                            null_count = 0;
+                            true_count = match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                                let mut begin = array.offset() as $P;
+                                ends
+                                    .as_slice::<$P>()
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, end)| {
+                                        let len = *end - begin;
+                                        begin = *end;
+                                        (len as u64) * (bools.value(index as usize) as u64)
+                                    })
+                                    .sum()
+                            });
+                        }
+                        LogicalValidity::AllInvalid(_) => {
+                            null_count = array.len() as u64;
+                            true_count = 0;
+                        }
+                        LogicalValidity::Array(is_valid) => {
+                            let is_valid = is_valid.into_bool()?.boolean_buffer();
+
+                            match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                                let mut begin = array.offset() as $P;
+                                for (index, end) in ends.as_slice::<$P>().iter().enumerate() {
+                                    let len = *end - begin;
+                                    begin = *end;
+                                    true_count += (len as u64) * (bools.value(index as usize) as u64) * (is_valid.value(index as usize) as u64);
+                                    null_count += (len as u64) * (is_valid.value(index as usize) as u64);
+                                }
+                            });
+                        }
+                    };
+
+                    stats.set(Stat::TrueCount, true_count);
+                    stats.set(Stat::NullCount, null_count);
+                }
+                DType::Primitive(..) => {}
+                dtype => vortex_bail!("invalid dtype: {}", dtype),
+            },
+            Stat::NullCount => {
+                let ends = array.ends().into_primitive()?;
+                let null_count: u64 = match array.values().logical_validity() {
+                    LogicalValidity::AllValid(_) => 0_u64,
+                    LogicalValidity::AllInvalid(_) => array.len() as u64,
+                    LogicalValidity::Array(is_valid) => {
+                        let is_valid = is_valid.into_bool()?.boolean_buffer();
+                        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                            let mut begin = array.offset() as $P;
+                            ends
+                                .as_slice::<$P>()
+                                .iter()
+                                .enumerate()
+                                .map(|(index, end)| {
+                                    let len = *end - begin;
+                                    begin = *end;
+                                    (len as u64) * ((!is_valid.value(index as usize)) as u64)
+                                })
+                                .sum()
+                        })
+                    }
+                };
+                stats.set(stat, null_count);
+            }
+            _ => {}
         };
 
-        let mut stats = StatsSet::default();
-        if let Some(stat_value) = maybe_stat {
-            stats.set(stat, stat_value);
-        }
         Ok(stats)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::scalar_at;
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::array::BoolArray;
+    use vortex_array::compute::{scalar_at, slice};
+    use vortex_array::stats::{ArrayStatistics as _, Stat};
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -291,5 +373,90 @@ mod tests {
         assert_eq!(scalar_at(arr.as_ref(), 2).unwrap(), 2.into());
         assert_eq!(scalar_at(arr.as_ref(), 5).unwrap(), 3.into());
         assert_eq!(scalar_at(arr.as_ref(), 9).unwrap(), 3.into());
+    }
+
+    #[test]
+    fn test_runend_int_stats() {
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        )
+        .unwrap();
+
+        assert_eq!(arr.statistics().compute_as::<i32>(Stat::Min).unwrap(), 1);
+        assert_eq!(arr.statistics().compute_as::<i32>(Stat::Max).unwrap(), 3);
+        assert_eq!(
+            arr.statistics().compute_as::<u64>(Stat::NullCount).unwrap(),
+            0
+        );
+        assert!(arr.statistics().compute_as::<bool>(Stat::IsSorted).unwrap());
+    }
+
+    #[test]
+    fn test_runend_bool_stats() {
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            BoolArray::try_new(
+                BooleanBuffer::from_iter([true, true, false]),
+                Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+            )
+            .unwrap()
+            .into_array(),
+        )
+        .unwrap();
+
+        assert!(!arr.statistics().compute_as::<bool>(Stat::Min).unwrap());
+        assert!(arr.statistics().compute_as::<bool>(Stat::Max).unwrap());
+        assert_eq!(
+            arr.statistics().compute_as::<u64>(Stat::NullCount).unwrap(),
+            3
+        );
+        assert!(!arr.statistics().compute_as::<bool>(Stat::IsSorted).unwrap());
+        assert_eq!(
+            arr.statistics().compute_as::<u64>(Stat::TrueCount).unwrap(),
+            2
+        );
+
+        let sliced = slice(arr, 4, 7).unwrap();
+
+        assert!(!sliced.statistics().compute_as::<bool>(Stat::Min).unwrap());
+        assert!(!sliced.statistics().compute_as::<bool>(Stat::Max).unwrap());
+        assert_eq!(
+            sliced
+                .statistics()
+                .compute_as::<u64>(Stat::NullCount)
+                .unwrap(),
+            1
+        );
+        // Not sorted because null must come last
+        assert!(!sliced
+            .statistics()
+            .compute_as::<bool>(Stat::IsSorted)
+            .unwrap());
+        assert_eq!(
+            sliced
+                .statistics()
+                .compute_as::<u64>(Stat::TrueCount)
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_all_invalid_true_count() {
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10].into_array(),
+            BoolArray::from_iter([None, None, None]).into_array(),
+        )
+        .unwrap()
+        .into_array();
+        assert_eq!(
+            arr.statistics().compute_as::<u64>(Stat::TrueCount).unwrap(),
+            0
+        );
+        assert_eq!(
+            arr.statistics().compute_as::<u64>(Stat::NullCount).unwrap(),
+            10
+        );
     }
 }
