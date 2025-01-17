@@ -49,6 +49,11 @@ impl ExprEvaluator for ChunkedReader {
                 .slice(chunk_range.start, chunk_range.end)?
                 .shift(chunk_range.start)?;
 
+            // If the chunk is empty skip `evaluate_expr` on child and omit chunk from array
+            if chunk_mask.true_count() == 0 {
+                continue;
+            }
+
             // If the pruning mask tells us the chunk is pruned (i.e. the expr is ALL false),
             // then we can just return a constant array.
             if let Some(pruning_mask) = &pruning_mask {
