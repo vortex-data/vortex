@@ -1,6 +1,7 @@
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{ConstantArray, PrimitiveEncoding};
@@ -27,7 +28,8 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
 
         if validity.all_invalid() {
             match_each_native_ptype!(array.ptype(), |$T| {
-                return Ok(ConstantArray::new($T::default(), array.len()).into_array())
+                let fill_value = Scalar::from($T::default()).cast(array.dtype())?;
+                return Ok(ConstantArray::new(fill_value, array.len()).into_array())
             })
         }
 
