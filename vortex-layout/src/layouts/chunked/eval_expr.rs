@@ -60,13 +60,17 @@ impl ExprEvaluator for ChunkedReader {
                 continue;
             }
 
+            let chunk_mask = row_mask
+                .slice(chunk_range.start, chunk_range.end)?
+                .shift(chunk_range.start)?;
+
             // If the pruning mask tells us the chunk is pruned (i.e. the expr is ALL false),
             // then we can just return a constant array.
             if let Some(pruning_mask) = &pruning_mask {
                 if pruning_mask.value(chunk_idx) {
                     let false_array = ConstantArray::new(
                         Scalar::bool(false, dtype.nullability()),
-                        row_mask.true_count(),
+                        chunk_mask.true_count(),
                     );
                     chunks.push(ready(Ok(false_array.into_array())).boxed());
                     continue;
@@ -74,9 +78,6 @@ impl ExprEvaluator for ChunkedReader {
             }
 
             // Otherwise, we need to read it. So we set up a mask for the chunk range.
-            let chunk_mask = row_mask
-                .slice(chunk_range.start, chunk_range.end)?
-                .shift(chunk_range.start)?;
 
             let expr = expr.clone();
             chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr).boxed());
