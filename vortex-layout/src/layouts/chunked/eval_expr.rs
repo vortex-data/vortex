@@ -2,9 +2,8 @@ use async_trait::async_trait;
 use futures::future::{ready, try_join_all};
 use futures::FutureExt;
 use vortex_array::array::{ChunkedArray, ConstantArray};
-use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::ExprRef;
 use vortex_scalar::Scalar;
 use vortex_scan::RowMask;
@@ -27,21 +26,7 @@ impl ExprEvaluator for ChunkedReader {
             .clone();
 
         // First we need to compute the pruning mask
-        let pruning_predicate = PruningPredicate::try_new(&expr);
-        let pruning_mask = if let Some(predicate) = pruning_predicate {
-            // If the expression is prune-able, then fetch the stats table
-            if let Some(stats_table) = self.stats_table().await? {
-                predicate
-                    .evaluate(stats_table.array())?
-                    .map(|mask| mask.into_bool())
-                    .transpose()?
-                    .map(|mask| mask.boolean_buffer())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let pruning_mask = self.pruning_mask(&expr).await?;
 
         // Now we set up futures to evaluate each chunk at the same time
         let mut chunks = Vec::with_capacity(self.nchunks());
