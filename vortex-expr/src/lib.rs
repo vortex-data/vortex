@@ -282,7 +282,7 @@ mod tests {
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
             .to_string(),
-            "{dog:32_u32,cat:rufus}"
+            "{dog:32_u32,cat:\"rufus\"}"
         );
     }
 }

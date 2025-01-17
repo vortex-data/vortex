@@ -527,18 +527,12 @@ mod tests {
             ])
         );
         let expected_expr = and(
-            and(
-                eq(
-                    get_item_scope(stat_field_name(&column, Stat::Min)),
-                    get_item_scope(stat_field_name(&column, Stat::Max)),
-                ),
-                eq(
-                    get_item_scope(stat_field_name(&other_col, Stat::Min)),
-                    get_item_scope(stat_field_name(&other_col, Stat::Max)),
-                ),
-            ),
             eq(
                 get_item_scope(stat_field_name(&column, Stat::Min)),
+                get_item_scope(stat_field_name(&other_col, Stat::Max)),
+            ),
+            eq(
+                get_item_scope(stat_field_name(&column, Stat::Max)),
                 get_item_scope(stat_field_name(&other_col, Stat::Min)),
             ),
         );
