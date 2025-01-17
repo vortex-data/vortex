@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
-use vortex::file::VortexFileWriter;
+use vortex::file::VortexWriteOptions;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::ArrayData;
 
@@ -61,31 +61,18 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// >>> c = vortex.io.read_path("a.vortex", projection = ["age"])
 /// >>> c.to_arrow_array()
-/// <pyarrow.lib.StructArray object at ...>
-/// -- is_valid: all not null
-/// -- child 0 type: int64
-///   [
-///     25,
-///     31,
-///     null,
-///     57,
-///     null
-///   ]
-///
-/// Read just the name column, by its index:
-///
-/// >>> d = vortex.io.read_path("a.vortex", projection = [1])
-/// >>> d.to_arrow_array()
-/// <pyarrow.lib.StructArray object at ...>
-/// -- is_valid: all not null
-/// -- child 0 type: string_view
-///   [
-///     "Joseph",
-///     null,
-///     "Angela",
-///     "Mikhail",
-///     null
-///   ]
+/// <pyarrow.lib.ChunkedArray object at ...>
+/// [
+///   -- is_valid: all not null
+///   -- child 0 type: int64
+///     [
+///       25,
+///       31,
+///       null,
+///       57,
+///       null
+///     ]
+/// ]
 ///
 ///
 /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
@@ -225,10 +212,10 @@ pub fn write_path(
 ) -> PyResult<()> {
     async fn run(array: &ArrayData, fname: &str) -> PyResult<()> {
         let file = File::create(Path::new(fname)).await?;
-        let mut writer = VortexFileWriter::new(file);
+        let _file = VortexWriteOptions::default()
+            .write(file, array.clone().into_array_stream())
+            .await?;
 
-        writer = writer.write_array_columns(array.clone()).await?;
-        writer.finalize().await?;
         Ok(())
     }
 

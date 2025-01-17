@@ -79,10 +79,10 @@ impl SliceFn<ALPArray> for ALPEncoding {
 }
 
 impl FilterFn<ALPArray> for ALPEncoding {
-    fn filter(&self, array: &ALPArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ALPArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         let patches = array
             .patches()
-            .map(|p| p.filter(mask.clone()))
+            .map(|p| p.filter(mask))
             .transpose()?
             .flatten();
 

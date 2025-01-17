@@ -22,11 +22,12 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ContextRef, NamedChildrenCollector,
-    TryDeserializeArrayMetadata,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ChildrenCollector, ContextRef,
+    NamedChildrenCollector, TryDeserializeArrayMetadata,
 };
 
 mod owned;
+mod statistics;
 mod viewed;
 
 /// A central type for all Vortex arrays, which are known length sequences of typed and possibly compressed data.
@@ -38,14 +39,14 @@ pub struct ArrayData(InnerArrayData);
 #[derive(Debug, Clone)]
 enum InnerArrayData {
     /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
-    Owned(OwnedArrayData),
+    Owned(Arc<OwnedArrayData>),
     /// Zero-copy view over flatbuffer-encoded [`ArrayData`] data, created without eager serialization.
     Viewed(ViewedArrayData),
 }
 
 impl From<OwnedArrayData> for ArrayData {
     fn from(data: OwnedArrayData) -> Self {
-        ArrayData(InnerArrayData::Owned(data))
+        ArrayData(InnerArrayData::Owned(Arc::new(data)))
     }
 }
 
@@ -61,21 +62,21 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffers: Arc<[ByteBuffer]>,
-        children: Arc<[ArrayData]>,
+        buffers: Option<Box<[ByteBuffer]>>,
+        children: Option<Box<[ArrayData]>>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
-        Self::try_new(InnerArrayData::Owned(OwnedArrayData {
+        Self::try_new(InnerArrayData::Owned(Arc::new(OwnedArrayData {
             encoding,
             dtype,
             len,
             metadata,
             buffers,
             children,
-            stats_set: Arc::new(RwLock::new(statistics)),
+            stats_set: RwLock::new(statistics),
             #[cfg(feature = "canonical_counter")]
-            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-        }))
+            canonical_counter: std::sync::atomic::AtomicUsize::new(0),
+        })))
     }
 
     pub fn try_new_viewed<F>(
@@ -140,8 +141,10 @@ impl ArrayData {
             array.dtype()
         );
 
-        // TODO(ngates): we should run something like encoding.validate(array) so the encoding
-        //  can check the number of children, number of buffers, and metadata values etc.
+        // Invoke the encoding's validate function to ensure that we pass basic checks.
+        // This is called for both Owned and Viewed array data since there are public functions
+        // for constructing an ArrayData, e.g. `try_new_owned`.
+        array.encoding().validate(&array)?;
 
         Ok(array)
     }
@@ -212,10 +215,17 @@ impl ArrayData {
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
+    // TODO(ngates): deprecate this function and return impl Iterator
     pub fn children(&self) -> Vec<ArrayData> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.children().to_vec(),
-            InnerArrayData::Viewed(v) => v.children(),
+            InnerArrayData::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
+            InnerArrayData::Viewed(_) => {
+                let mut collector = ChildrenCollector::default();
+                self.encoding()
+                    .accept(self, &mut collector)
+                    .vortex_expect("Failed to get children");
+                collector.children()
+            }
         }
     }
 
@@ -321,7 +331,7 @@ impl ArrayData {
 
     pub fn nbuffers(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(o) => o.buffers.len(),
+            InnerArrayData::Owned(o) => o.buffers.as_ref().map_or(0, |b| b.len()),
             InnerArrayData::Viewed(v) => v.nbuffers(),
         }
     }
@@ -340,8 +350,11 @@ impl ArrayData {
     }
 
     pub fn into_byte_buffer(self, index: usize) -> Option<ByteBuffer> {
-        match self.0 {
-            InnerArrayData::Owned(d) => d.into_byte_buffer(index),
+        // NOTE(ngates): we can't really into_inner an Arc, so instead we clone the buffer out,
+        //  but we still consume self by value such that the ref-count drops at the end of this
+        //  function.
+        match &self.0 {
+            InnerArrayData::Owned(d) => d.byte_buffer(index).cloned(),
             InnerArrayData::Viewed(v) => v.buffer(index).cloned(),
         }
     }
@@ -388,7 +401,7 @@ impl ArrayData {
         }
     }
 
-    pub fn downcast_array_ref<E: Encoding>(self: &ArrayData) -> VortexResult<(&E::Array, &E)>
+    pub fn try_downcast_ref<E: Encoding>(&self) -> VortexResult<(&E::Array, &E)>
     where
         for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
     {
@@ -428,15 +441,6 @@ impl<T: AsRef<ArrayData>> ArrayDType for T {
     }
 }
 
-impl ArrayData {
-    pub fn into_dtype(self) -> DType {
-        match self.0 {
-            InnerArrayData::Owned(d) => d.dtype,
-            InnerArrayData::Viewed(v) => v.dtype,
-        }
-    }
-}
-
 impl<T: AsRef<ArrayData>> ArrayLen for T {
     fn len(&self) -> usize {
         self.as_ref().len()
@@ -461,10 +465,7 @@ impl<A: AsRef<ArrayData>> ArrayValidity for A {
 
 impl<T: AsRef<ArrayData>> ArrayStatistics for T {
     fn statistics(&self) -> &(dyn Statistics + '_) {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d,
-            InnerArrayData::Viewed(v) => v,
-        }
+        self.as_ref()
     }
 
     // FIXME(ngates): this is really slow...

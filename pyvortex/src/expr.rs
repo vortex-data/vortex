@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, Field, Nullability, PType};
-use vortex::expr::{col, lit, BinaryExpr, ExprRef, GetItem, Operator};
+use vortex::dtype::{DType, Nullability, PType};
+use vortex::expr::{lit, BinaryExpr, ExprRef, GetItem, Operator};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -225,8 +223,23 @@ impl PyExpr {
         py_binary_opeartor(self_, Operator::Or, coerce_expr(right)?)
     }
 
-    fn __getitem__(self_: PyRef<'_, Self>, field: PyObject) -> PyResult<PyExpr> {
-        get_item(self_.py(), field, self_.clone())
+    fn __getitem__(self_: PyRef<'_, Self>, field: String) -> PyResult<PyExpr> {
+        get_item(field, self_.clone())
+    }
+}
+
+#[pyfunction]
+pub fn literal<'py>(
+    dtype: &Bound<'py, PyDType>,
+    value: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyExpr>> {
+    scalar(dtype.borrow().unwrap().clone(), value)
+}
+
+#[pyfunction]
+pub fn ident() -> PyExpr {
+    PyExpr {
+        inner: vortex::expr::ident(),
     }
 }
 
@@ -249,15 +262,12 @@ impl PyExpr {
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();
     let name: String = name.extract()?;
-    Bound::new(py, PyExpr { inner: col(name) })
-}
-
-#[pyfunction]
-pub fn literal<'py>(
-    dtype: &Bound<'py, PyDType>,
-    value: &Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyExpr>> {
-    scalar(dtype.borrow().unwrap().clone(), value)
+    Bound::new(
+        py,
+        PyExpr {
+            inner: vortex::expr::get_item(name, vortex::expr::ident()),
+        },
+    )
 }
 
 pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
@@ -311,18 +321,7 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
     }
 }
 
-pub fn get_item(py: Python, field: PyObject, child: PyExpr) -> PyResult<PyExpr> {
-    let field = if let Ok(value) = field.downcast_bound::<PyLong>(py) {
-        Field::Index(value.extract()?)
-    } else if let Ok(value) = field.downcast_bound::<PyString>(py) {
-        Field::Name(Arc::from(value.extract::<String>()?.as_str()))
-    } else {
-        return Err(PyValueError::new_err(format!(
-            "expected int, or str but found: {}",
-            field
-        )));
-    };
-
+pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
         inner: GetItem::new_expr(field, child.inner),
     })

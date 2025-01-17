@@ -1,4 +1,4 @@
-use vortex_dtype::Field;
+use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
@@ -87,7 +87,7 @@ impl StructArrayTrait for SparseArray {
         )
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
         let new_patches = self.patches().map_values(|values| {
             values
                 .as_struct_array()

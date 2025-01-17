@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -47,7 +47,8 @@ impl ZigZagArray {
             dtype,
             len,
             ZigZagMetadata,
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )
     }
@@ -69,7 +70,7 @@ impl ZigZagArray {
     }
 }
 
-impl ArrayTrait for ZigZagArray {}
+impl ValidateVTable<ZigZagArray> for ZigZagEncoding {}
 
 impl VariantsVTable<ZigZagArray> for ZigZagEncoding {
     fn as_primitive_array<'a>(

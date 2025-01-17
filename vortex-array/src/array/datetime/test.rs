@@ -1,7 +1,9 @@
+use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 
 use crate::array::{PrimitiveArray, TemporalArray};
+use crate::validity::Validity;
 use crate::{IntoArrayData, IntoArrayVariant};
 
 macro_rules! test_temporal_roundtrip {
@@ -137,4 +139,31 @@ fn test_timestamp_fails_i32() {
     let ts_array = ts.into_array();
 
     let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::S, None);
+}
+
+#[rstest]
+#[case(Validity::NonNullable)]
+#[case(Validity::AllValid)]
+#[case(Validity::AllInvalid)]
+#[case(Validity::from_iter([true, false, true]))]
+fn test_validity_preservation(#[case] validity: Validity) {
+    let milliseconds = PrimitiveArray::new(
+        buffer![
+            86_400i64,            // element with only day component
+            86_400i64 + 1000,     // element with day + second components
+            86_400i64 + 1000 + 1, // element with day + second + sub-second components
+        ],
+        validity.clone(),
+    )
+    .into_array();
+    let temporal_array =
+        TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
+    assert_eq!(
+        temporal_array
+            .temporal_values()
+            .into_primitive()
+            .unwrap()
+            .validity(),
+        validity
+    );
 }

@@ -24,8 +24,14 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
 
-[dev-dependencies]
-vortex-array = { workspace = true, features = ["test-harness"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+vortex-array = { workspace = true, features = ["test-harness"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "run_end_filter"
+harness = false

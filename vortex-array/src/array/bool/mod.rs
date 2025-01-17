@@ -1,21 +1,19 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 pub mod compute;
 mod patch;
@@ -119,19 +117,17 @@ impl BoolArray {
             .into_inner()
             .bit_slice(buffer_byte_offset, buffer_len);
 
-        ArrayData::try_new_owned(
-            &BoolEncoding,
+        Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
-            Arc::new(BoolMetadata {
+            BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
-            }),
-            vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into(),
-            validity.into_array().into_iter().collect(),
+            },
+            Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     /// Create a new BoolArray from a set of indices and a length.
@@ -148,7 +144,17 @@ impl BoolArray {
     }
 }
 
-impl ArrayTrait for BoolArray {}
+impl ValidateVTable<BoolArray> for BoolEncoding {
+    fn validate(&self, array: &BoolArray) -> VortexResult<()> {
+        if array.as_ref().nbuffers() != 1 {
+            vortex_bail!(
+                "BoolArray: expected 1 buffer, found {}",
+                array.as_ref().nbuffers()
+            );
+        }
+        Ok(())
+    }
+}
 
 impl VariantsVTable<BoolArray> for BoolEncoding {
     fn as_bool_array<'a>(&self, array: &'a BoolArray) -> Option<&'a dyn BoolArrayTrait> {

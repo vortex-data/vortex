@@ -19,7 +19,7 @@ impl ValidityVTable<VarBinArray> for VarBinEncoding {
 impl VisitorVTable<VarBinArray> for VarBinEncoding {
     fn accept(&self, array: &VarBinArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("offsets", &array.offsets())?;
-        visitor.visit_child("bytes", &array.bytes())?;
+        visitor.visit_buffer(&array.bytes())?;
         visitor.visit_validity(&array.validity())
     }
 }

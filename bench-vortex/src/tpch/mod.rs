@@ -16,12 +16,12 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
+use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
-use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
 use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
@@ -275,9 +275,9 @@ async fn register_vortex_file(
             .open(&vtx_file)
             .await?;
 
-        let mut writer = VortexFileWriter::new(f);
-        writer = writer.write_array_columns(data).await?;
-        writer.finalize().await?;
+        VortexWriteOptions::default()
+            .write(f, data.into_array_stream())
+            .await?;
 
         anyhow::Ok(())
     })

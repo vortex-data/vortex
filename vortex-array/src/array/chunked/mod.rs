@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 
@@ -16,12 +16,11 @@ use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 mod canonical;
 mod compute;
@@ -51,7 +50,8 @@ impl ChunkedArray {
             }
         }
 
-        let chunk_offsets = Buffer::from_iter(
+        let mut chunk_offsets = BufferMut::<u64>::with_capacity(chunks.len() + 1);
+        chunk_offsets.extend(
             [0u64]
                 .into_iter()
                 .chain(chunks.iter().map(|c| c.len() as u64))
@@ -74,7 +74,8 @@ impl ChunkedArray {
             dtype,
             length.try_into().vortex_unwrap(),
             ChunkedMetadata { nchunks },
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )
     }
@@ -189,7 +190,7 @@ impl ChunkedArray {
     }
 }
 
-impl ArrayTrait for ChunkedArray {}
+impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
 
 impl FromIterator<ArrayData> for ChunkedArray {
     fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {

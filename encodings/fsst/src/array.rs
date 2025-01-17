@@ -1,15 +1,15 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBinArray, VarBinEncoding};
 use vortex_array::encoding::{ids, Encoding};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -89,7 +89,7 @@ impl FSSTArray {
         let len = codes.len();
         let uncompressed_lengths_ptype = PType::try_from(uncompressed_lengths.dtype())?;
         let codes_nullability = codes.dtype().nullability();
-        let children = Arc::new([symbols, symbol_lengths, codes, uncompressed_lengths]);
+        let children = [symbols, symbol_lengths, codes, uncompressed_lengths].into();
 
         Self::try_from_parts(
             dtype,
@@ -99,7 +99,8 @@ impl FSSTArray {
                 codes_nullability,
                 uncompressed_lengths_ptype,
             },
-            children,
+            None,
+            Some(children),
             StatsSet::default(),
         )
     }
@@ -224,7 +225,7 @@ impl Utf8ArrayTrait for FSSTArray {}
 
 impl BinaryArrayTrait for FSSTArray {}
 
-impl ArrayTrait for FSSTArray {}
+impl ValidateVTable<FSSTArray> for FSSTEncoding {}
 
 #[cfg(test)]
 mod test {

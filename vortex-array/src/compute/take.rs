@@ -32,7 +32,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn take(&self, array: &ArrayData, indices: &ArrayData) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         TakeFn::take(encoding, array_ref, indices)
     }
 }

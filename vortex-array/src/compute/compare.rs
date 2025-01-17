@@ -92,7 +92,7 @@ where
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (lhs_ref, encoding) = lhs.downcast_array_ref::<E>()?;
+        let (lhs_ref, encoding) = lhs.try_downcast_ref::<E>()?;
         CompareFn::compare(encoding, lhs_ref, rhs, operator)
     }
 }

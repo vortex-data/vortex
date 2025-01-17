@@ -1,4 +1,5 @@
 //! A collection of transformations that can be applied to a [`crate::ExprRef`].
 pub mod partition;
-pub mod resolve_field_names;
+pub(crate) mod remove_select;
 pub mod simplify;
+pub mod simplify_typed;

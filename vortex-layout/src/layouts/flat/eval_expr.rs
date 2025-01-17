@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use flatbuffers::root;
 use futures::future::try_join_all;
-use vortex_array::compute::filter;
+use vortex_array::compute::{filter, slice};
 use vortex_array::parts::ArrayParts;
 use vortex_array::ArrayData;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -13,7 +13,7 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutReaderExt;
 use crate::{ExprEvaluator, LayoutReader};
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(
         self: &Self,
@@ -47,11 +47,24 @@ impl ExprEvaluator for FlatReader {
 
         // Decode into an ArrayData.
         let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
+        assert_eq!(
+            array.len() as u64,
+            self.row_count(),
+            "FlatLayout array length mismatch {} != {}",
+            array.len(),
+            self.row_count()
+        );
 
-        // And finally apply the expression
         // TODO(ngates): what's the best order to apply the filter mask / expression?
-        let array = expr.evaluate(&array)?;
-        filter(&array, row_mask.into_filter_mask()?)
+
+        // Filter the array based on the row mask.
+        let begin = usize::try_from(row_mask.begin())
+            .vortex_expect("RowMask begin must fit within FlatLayout size");
+        let array = slice(array, begin, begin + row_mask.len())?;
+        let array = filter(&array, row_mask.filter_mask())?;
+
+        // Then apply the expression
+        expr.evaluate(&array)
     }
 }
 
@@ -65,7 +78,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, lit, Identity};
+    use vortex_expr::{gt, ident, lit, Identity};
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -77,7 +90,7 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 
@@ -102,7 +115,7 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 
@@ -120,6 +133,28 @@ mod test {
                 BooleanBuffer::from_iter([false, false, false, true, true]),
                 result.boolean_buffer()
             );
+        })
+    }
+
+    #[test]
+    fn flat_unaligned_row_mask() {
+        block_on(async {
+            let mut segments = TestSegments::default();
+            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
+                .push_one(&mut segments, array.to_array())
+                .unwrap();
+
+            let result = layout
+                .reader(Arc::new(segments), Default::default())
+                .unwrap()
+                .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
+                .await
+                .unwrap()
+                .into_primitive()
+                .unwrap();
+
+            assert_eq!(result.as_slice::<i32>(), &[3, 4],);
         })
     }
 }

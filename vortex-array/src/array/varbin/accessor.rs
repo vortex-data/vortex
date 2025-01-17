@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -12,27 +13,28 @@ impl ArrayAccessor<[u8]> for VarBinArray {
     where
         F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
     {
-        // TODO(ngates): what happens if bytes is much larger than sliced_bytes?
-        let primitive = self.bytes().into_primitive()?;
         let offsets = self.offsets().into_primitive()?;
         let validity = self.logical_validity().to_null_buffer()?;
 
+        // TODO(ngates): what happens if bytes is much larger than sliced_bytes?
+        let bytes = self.bytes();
+        let bytes = bytes.as_slice();
+
         match_each_integer_ptype!(offsets.ptype(), |$T| {
             let offsets = offsets.as_slice::<$T>();
-            let bytes = primitive.as_slice::<u8>();
 
             match validity {
                 None => {
                     let mut iter = offsets
                         .iter()
-                        .zip(offsets.iter().skip(1))
+                        .tuple_windows()
                         .map(|(start, end)| Some(&bytes[*start as usize..*end as usize]));
                     Ok(f(&mut iter))
                 }
                 Some(validity) => {
                     let mut iter = offsets
                         .iter()
-                        .zip(offsets.iter().skip(1))
+                        .tuple_windows()
                         .zip(validity.iter())
                         .map(|((start, end), valid)| {
                             if valid {

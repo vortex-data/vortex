@@ -6,6 +6,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
+use crate::validate::ValidateVTable;
 use crate::validity::ValidityVTable;
 use crate::variants::VariantsVTable;
 use crate::visitor::VisitorVTable;
@@ -79,6 +80,7 @@ pub trait EncodingVTable:
     + MetadataVTable
     + ComputeVTable
     + StatisticsVTable<ArrayData>
+    + ValidateVTable<ArrayData>
     + ValidityVTable<ArrayData>
     + VariantsVTable<ArrayData>
     + VisitorVTable<ArrayData>

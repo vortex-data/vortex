@@ -5,22 +5,21 @@ use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::transform::partition::partition;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::ExprEvaluator;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = partition(expr, self.struct_dtype())?;
+        let partitioned = self.partition_expr(expr.clone())?;
         let field_readers: Vec<_> = partitioned
             .partitions
             .iter()
-            .map(|partition| self.child(&partition.field))
+            .map(|partition| self.child(&partition.name.clone()))
             .try_collect()?;
 
         let arrays = try_join_all(
@@ -49,7 +48,6 @@ impl ExprEvaluator for StructReader {
         )?
         .into_array();
 
-        // Recombine the partitioned expressions into a single expression
         partitioned.root.evaluate(&root_scope)
     }
 }
@@ -64,8 +62,8 @@ mod tests {
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructDType};
-    use vortex_expr::{get_item, gt, ident};
+    use vortex_dtype::{DType, Field, Nullability, StructDType};
+    use vortex_expr::{get_item, gt, ident, pack};
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -87,9 +85,9 @@ mod tests {
                 Nullability::NonNullable,
             ),
             vec![
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
             ],
         )
         .push_all(
@@ -150,6 +148,49 @@ mod tests {
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_struct_layout_select() {
+        let (segments, layout) = struct_layout();
+
+        let reader = layout.reader(segments, Default::default()).unwrap();
+        let expr = pack(
+            ["a".into(), "b".into()],
+            vec![get_item("a", ident()), get_item("b", ident())],
+        );
+        let result = block_on(reader.evaluate_expr(
+            // Take rows 0 and 1, skip row 2, and anything after that
+            RowMask::new(FilterMask::from_iter([true, true, false]), 0),
+            expr,
+        ))
+        .unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        assert_eq!(
+            result
+                .as_struct_array()
+                .unwrap()
+                .maybe_null_field(&Field::Name("a".into()))
+                .unwrap()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            [7, 2].as_slice()
+        );
+
+        assert_eq!(
+            result
+                .as_struct_array()
+                .unwrap()
+                .maybe_null_field(&Field::Name("b".into()))
+                .unwrap()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            [4, 5].as_slice()
         );
     }
 }

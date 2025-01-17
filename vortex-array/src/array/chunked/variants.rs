@@ -1,4 +1,5 @@
-use vortex_dtype::{DType, Field};
+use itertools::Itertools;
+use vortex_dtype::{DType, Field, FieldName};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
@@ -84,7 +85,7 @@ impl StructArrayTrait for ChunkedArray {
         Some(chunked)
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(
@@ -99,7 +100,13 @@ impl StructArrayTrait for ChunkedArray {
             .dtype()
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?
-            .project(projection)?;
+            .project(
+                projection
+                    .iter()
+                    .map(|f| Field::Name(f.clone()))
+                    .collect_vec()
+                    .as_slice(),
+            )?;
         ChunkedArray::try_new(
             chunks,
             DType::Struct(projected_dtype, self.dtype().nullability()),

@@ -46,17 +46,34 @@ impl<T> BufferMut<T> {
         }
     }
 
-    /// Create a new empty `ByteBuffer` with the provided alignment.
+    /// Create a new zeroed `BufferMut`.
+    pub fn zeroed(len: usize) -> Self {
+        Self::zeroed_aligned(len, Alignment::of::<T>())
+    }
+
+    /// Create a new zeroed `BufferMut`.
+    pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
+        bytes.advance(bytes.as_ptr().align_offset(*alignment));
+        Self {
+            bytes,
+            length: len,
+            alignment,
+            _marker: Default::default(),
+        }
+    }
+
+    /// Create a new empty `BufferMut` with the provided alignment.
     pub fn empty() -> Self {
         Self::empty_aligned(Alignment::of::<T>())
     }
 
-    /// Create a new empty `ByteBuffer` with the provided alignment.
+    /// Create a new empty `BufferMut` with the provided alignment.
     pub fn empty_aligned(alignment: Alignment) -> Self {
         BufferMut::with_capacity_aligned(0, alignment)
     }
 
-    /// Create a new full `ByteBuffer` with the given value.
+    /// Create a new full `BufferMut` with the given value.
     pub fn full(item: T, len: usize) -> Self
     where
         T: Copy,
@@ -258,7 +275,19 @@ impl<T> BufferMut<T> {
         T: Copy,
     {
         self.reserve(n);
+        unsafe { self.push_n_unchecked(item, n) }
+    }
 
+    /// Appends n scalars to the buffer.
+    ///
+    /// ## Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the array.
+    #[inline]
+    pub unsafe fn push_n_unchecked(&mut self, item: T, n: usize)
+    where
+        T: Copy,
+    {
         let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         // SAFETY: we checked the capacity in the reserve call
         unsafe {

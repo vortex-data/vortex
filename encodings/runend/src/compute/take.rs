@@ -1,32 +1,45 @@
+use num_traits::AsPrimitive;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::{RunEndArray, RunEndEncoding};
 
 impl TakeFn<RunEndArray> for RunEndEncoding {
-    #[allow(deprecated)]
     fn take(&self, array: &RunEndArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
-        let usize_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
+
+        let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
                 .as_slice::<$P>()
                 .iter()
+                .copied()
                 .map(|idx| {
-                    let usize_idx = *idx as usize;
+                    let usize_idx = idx as usize;
                     if usize_idx >= array.len() {
-                        vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
+                        vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
                     }
-
-                    Ok(usize_idx + array.offset())
+                    Ok(usize_idx)
                 })
-                .collect::<VortexResult<Vec<usize>>>()?
+                .collect::<VortexResult<Vec<_>>>()?
         });
-        let physical_indices = array.find_physical_indices(&usize_indices)?.into_array();
-        take(array.values(), &physical_indices)
+        take_indices_unchecked(array, &checked_indices)
     }
+}
+
+/// Perform a take operation on a RunEndArray by binary searching for each of the indices.
+pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
+    array: &RunEndArray,
+    indices: &[T],
+) -> VortexResult<ArrayData> {
+    let adjusted_indices = indices
+        .iter()
+        .map(|idx| idx.as_() + array.offset())
+        .collect::<Vec<_>>();
+    let physical_indices = array.find_physical_indices(&adjusted_indices)?.into_array();
+    take(array.values(), &physical_indices)
 }
 
 #[cfg(test)]
@@ -37,7 +50,7 @@ mod test {
 
     use crate::RunEndArray;
 
-    pub(crate) fn ree_array() -> RunEndArray {
+    fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
         )

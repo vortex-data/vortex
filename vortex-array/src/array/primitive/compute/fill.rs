@@ -28,7 +28,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
         if validity.all_invalid() {
             match_each_native_ptype!(array.ptype(), |$T| {
                 return Ok(PrimitiveArray::new(
-                    Buffer::full($T::default(), array.len()),
+                    Buffer::<$T>::zeroed(array.len()),
                     Validity::AllValid
                 ).into_array());
             })

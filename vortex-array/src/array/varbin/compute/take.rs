@@ -14,14 +14,14 @@ use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 impl TakeFn<VarBinArray> for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let offsets = array.offsets().into_primitive()?;
-        let data = array.bytes().into_primitive()?;
+        let data = array.bytes();
         let indices = indices.clone().into_primitive()?;
         match_each_integer_ptype!(offsets.ptype(), |$O| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
                     array.dtype().clone(),
                     offsets.as_slice::<$O>(),
-                    data.as_slice::<u8>(),
+                    data.as_slice(),
                     indices.as_slice::<$I>(),
                     array.validity(),
                 )?.into_array())
