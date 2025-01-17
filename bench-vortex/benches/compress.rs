@@ -117,11 +117,10 @@ fn vortex_compress_write(
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
     let compressed = compressor.compress(array, None)?.into_array();
-    let cursor = Cursor::new(buf);
     runtime
         .block_on(async {
             VortexWriteOptions::default()
-                .write(cursor, compressed.into_array_stream())
+                .write(Cursor::new(buf), compressed.into_array_stream())
                 .await
         })
         .map(|c| c.position())
