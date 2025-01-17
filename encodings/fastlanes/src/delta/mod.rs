@@ -274,7 +274,7 @@ impl StatisticsVTable<DeltaArray> for DeltaEncoding {}
 mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::SerdeMetadata;
+    use vortex_array::RkyvMetadata;
 
     use crate::DeltaMetadata;
 
@@ -283,7 +283,7 @@ mod test {
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            SerdeMetadata(DeltaMetadata {
+            RkyvMetadata(DeltaMetadata {
                 offset: u16::MAX,
                 validity: ValidityMetadata::AllValid,
                 deltas_len: u64::MAX,

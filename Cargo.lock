@@ -5215,6 +5215,7 @@ dependencies = [
  "num-traits",
  "rand",
  "rkyv",
+ "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
