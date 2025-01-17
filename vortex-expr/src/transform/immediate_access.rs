@@ -9,9 +9,9 @@ use crate::{ExprRef, GetItem, Identity, Select};
 
 pub(crate) type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 
-// For all subexpressions in an expression, find the fields that are accessed directly from the
-// scope, but not any fields in those fields
-// e.g. scope = {a: {b: .., c: ..}, d: ..}, expr = ident().a.b + ident().d accesses {a,d} (not b).
+/// For all subexpressions in an expression, find the fields that are accessed directly from the
+/// scope, but not any fields in those fields
+/// e.g. scope = {a: {b: .., c: ..}, d: ..}, expr = ident().a.b + ident().d accesses {a,d} (not b).
 pub(crate) struct ImmediateIdentityAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
     scope_dtype: &'a StructDType,
