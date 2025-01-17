@@ -53,7 +53,7 @@ where
     let values_slice = values.as_slice::<T>();
 
     let exponents = T::find_best_exponents(values_slice);
-    let (encoded, exceptional_positions) = T::encode(values.as_slice::<T>(), exponents);
+    let (encoded, exceptional_positions) = T::chunked_encode(values.as_slice::<T>(), exponents);
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
     let exceptional_positions = match values.logical_validity() {

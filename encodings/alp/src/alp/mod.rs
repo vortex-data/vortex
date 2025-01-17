@@ -111,28 +111,52 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         encoded_bytes + patch_bytes
     }
 
+    /// A quantity of [Self] expected to fit into L1 cache.
+    const ENCODE_CHUNK_SIZE: usize = (32 << 10) / size_of::<Self::ALPInt>();
+
+    /// ALP encode chunk-by-chunk.
+    ///
+    /// Unlike [Self::encode], this operation processes no more than [Self::ENCODE_CHUNK_SIZE]
+    /// elements at once which can make better use of the L1 cache because [Self::encode] makes two
+    /// passes over `values`: first to encode and second to extract the exceptional values.
+    fn chunked_encode(
+        values: &[Self],
+        exponents: Exponents,
+    ) -> (Buffer<Self::ALPInt>, Buffer<u64>) {
+        let mut encoded = BufferMut::<Self::ALPInt>::with_capacity(values.len());
+        let mut patch_indices = BufferMut::<u64>::empty();
+        for chunk in values.chunks(Self::ENCODE_CHUNK_SIZE) {
+            let (encoded_chunk, patches_indices_chunk) = Self::encode(chunk, exponents);
+            encoded.extend(encoded_chunk);
+            patch_indices.extend(patches_indices_chunk);
+        }
+        (encoded.freeze(), patch_indices.freeze())
+    }
+
     /// ALP encode the given values using the given exponents.
     ///
     /// The index of each value for which encode-decode is not the identity function is returned.
-    fn encode(values: &[Self], exponents: Exponents) -> (Buffer<Self::ALPInt>, Buffer<u64>) {
-        let (encoded, needs_patch): (BufferMut<Self::ALPInt>, Vec<bool>) = values
+    ///
+    /// See also: [Self::chunked_encode].
+    fn encode(values: &[Self], exponents: Exponents) -> (Vec<Self::ALPInt>, Vec<u64>) {
+        let (encoded, needs_patch): (Vec<Self::ALPInt>, Vec<bool>) = values
             .iter()
             .map(|value| {
-                let maybe_encoded = unsafe { Self::encode_single_unchecked(*value, exponents) };
-                let maybe_decoded = Self::decode_single(maybe_encoded, exponents);
+                let encoded = unsafe { Self::encode_single_unchecked(*value, exponents) };
+                let maybe_decoded = Self::decode_single(encoded, exponents);
                 let needs_patch = maybe_decoded != *value;
-                (maybe_encoded, needs_patch)
+                (encoded, needs_patch)
             })
             .unzip();
 
-        let patch_indices: BufferMut<u64> = needs_patch
+        let patch_indices: Vec<u64> = needs_patch
             .into_iter()
             .enumerate()
             .filter(|(_, needs_patch)| *needs_patch)
             .map(|(index, _)| index as u64)
             .collect();
 
-        (encoded.freeze(), patch_indices.freeze())
+        (encoded, patch_indices)
     }
 
     #[inline]
