@@ -41,7 +41,7 @@ impl ExtensionArray {
         Self::try_from_parts(
             DType::Extension(ext_dtype),
             storage.len(),
-            &ExtensionMetadata,
+            (),
             [].into(),
             [storage].into(),
             Default::default(),

@@ -35,15 +35,10 @@ macro_rules! impl_encoding {
 
             impl [<$Name Array>] {
                 #[allow(dead_code)]
-                fn metadata_bytes(&self) -> &[u8] {
-                    self.0.metadata()
-                }
-
-                #[allow(dead_code)]
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,
                     len: usize,
-                    metadata: Option<&impl for<'a> rkyv::Serialize<rkyv::api::high::HighSerializer<rkyv::util::AlignedVec, rkyv::ser::allocator::ArenaHandle<'a>, vortex_error::VortexError>>>,
+                    metadata: impl $crate::metadata::SerializeMetadata,
                     buffers: Box<[vortex_buffer::ByteBuffer]>,
                     children: Box<[$crate::ArrayData]>,
                     stats: $crate::stats::StatsSet,
@@ -52,9 +47,7 @@ macro_rules! impl_encoding {
                             &[<$Name Encoding>],
                             dtype,
                             len,
-                            metadata.map(|m| rkyv::to_bytes::<vortex_error::VortexError>(m))
-                                .transpose()?
-                                .map(|b| b.into()),
+                            metadata.serialize()?,
                             buffers,
                             children,
                             stats

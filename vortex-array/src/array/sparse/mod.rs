@@ -15,7 +15,10 @@ use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
+    RkyvMetadata,
+};
 mod canonical;
 mod compute;
 mod variants;
@@ -100,26 +103,24 @@ impl SparseArray {
 
         let fill_value_buffer = fill_value.into_value().to_flexbytes();
 
-        ArrayData::try_new_owned(
-            &SparseEncoding,
+        Self::try_from_parts(
             patches.dtype().clone(),
             len,
-            to_bytes::<VortexError>(&SparseMetadata {
+            RkyvMetadata(SparseMetadata {
                 indices_offset,
                 patches: patches_metadata,
-            })?
-            .into(),
+            }),
             [fill_value_buffer.into_inner()].into(),
             [patches.indices().clone(), patches.values().clone()].into(),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     fn metadata(&self) -> SparseMetadata {
-        from_bytes::<SparseMetadata, Error>(self.as_ref().metadata())
-            .map_err(|e| vortex_err!("Invalid SparseArray metadata: {}", e))
-            .vortex_expect("Failed to deserialize SparseArray metadata")
+        // SAFETY: The metadata is checked in ValidateVTable
+        unsafe {
+            RkyvMetadata::<SparseMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
+        }
     }
 
     #[inline]
@@ -161,7 +162,12 @@ impl SparseArray {
     }
 }
 
-impl ValidateVTable<SparseArray> for SparseEncoding {}
+impl ValidateVTable<SparseArray> for SparseEncoding {
+    fn validate(&self, array: &SparseArray) -> VortexResult<()> {
+        RkyvMetadata::<SparseMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl VisitorVTable<SparseArray> for SparseEncoding {
     fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

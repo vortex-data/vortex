@@ -14,7 +14,8 @@ use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTabl
 use crate::variants::{StructArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
 };
 
 mod compute;
@@ -37,8 +38,10 @@ impl Display for StructMetadata {
 
 impl StructArray {
     fn metadata(&self) -> StructMetadata {
-        from_bytes::<StructMetadata, VortexError>(self.as_ref().metadata())
-            .vortex_expect("StructArray: metadata")
+        // SAFETY: StructMetadata is validated in the ValidateVTable
+        unsafe {
+            RkyvMetadata::<StructMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
+        }
     }
 
     pub fn validity(&self) -> Validity {
@@ -91,9 +94,9 @@ impl StructArray {
         Self::try_from_parts(
             DType::Struct(StructDType::new(names, field_dtypes), nullability),
             length,
-            &StructMetadata {
+            RkyvMetadata(StructMetadata {
                 validity: validity_metadata,
-            },
+            }),
             [].into(),
             children.into(),
             StatsSet::default(),
@@ -149,7 +152,12 @@ impl StructArray {
     }
 }
 
-impl ValidateVTable<StructArray> for StructEncoding {}
+impl ValidateVTable<StructArray> for StructEncoding {
+    fn validate(&self, array: &StructArray) -> VortexResult<()> {
+        RkyvMetadata::<StructMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl VariantsVTable<StructArray> for StructEncoding {
     fn as_struct_array<'a>(&self, array: &'a StructArray) -> Option<&'a dyn StructArrayTrait> {

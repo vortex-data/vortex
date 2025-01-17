@@ -274,14 +274,10 @@ impl ArrayData {
         offsets
     }
 
-    pub fn metadata(&self) -> &[u8] {
+    pub fn metadata_bytes(&self) -> Option<&[u8]> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.metadata.as_slice(),
-            InnerArrayData::Viewed(v) => v
-                .flatbuffer()
-                .metadata()
-                .vortex_expect("metadata not found in flatbuffer")
-                .bytes(),
+            InnerArrayData::Owned(d) => d.metadata.as_ref().map(|b| b.as_slice()),
+            InnerArrayData::Viewed(v) => v.flatbuffer().metadata().map(|m| m.bytes()),
         }
     }
 

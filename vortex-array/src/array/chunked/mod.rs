@@ -15,7 +15,7 @@ use vortex_error::{
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use crate::encoding::ids;
+use crate::encoding::{ids, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
@@ -23,7 +23,10 @@ use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
+};
 
 mod canonical;
 mod compute;
@@ -78,7 +81,7 @@ impl ChunkedArray {
         Self::try_from_parts(
             dtype,
             length.try_into().vortex_unwrap(),
-            Some(&ChunkedMetadata { nchunks }),
+            RkyvMetadata(ChunkedMetadata { nchunks }),
             [].into(),
             children.into(),
             StatsSet::default(),
@@ -100,14 +103,15 @@ impl ChunkedArray {
             .child(idx + 1, self.as_ref().dtype(), chunk_end - chunk_start)
     }
 
-    fn metadata(&self) -> &ArchivedChunkedMetadata {
-        // FIXME(ngates): verify in ValidateVTable and use unsafe here.
-        access::<_, VortexError>(self.as_ref().metadata())
-            .vortex_expect("Invalid metadata in ChunkedArray")
+    fn metadata(&self) -> ChunkedMetadata {
+        // SAFETY: metadata is validated in ValidateVTable
+        unsafe {
+            RkyvMetadata::<ChunkedMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
+        }
     }
 
     pub fn nchunks(&self) -> usize {
-        self.metadata().nchunks.to_native() as usize
+        self.metadata().nchunks
     }
 
     #[inline]
@@ -201,7 +205,12 @@ impl ChunkedArray {
     }
 }
 
-impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
+impl ValidateVTable<ChunkedArray> for ChunkedEncoding {
+    fn validate(&self, array: &ChunkedArray) -> VortexResult<()> {
+        RkyvMetadata::<ChunkedMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl FromIterator<ArrayData> for ChunkedArray {
     fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {

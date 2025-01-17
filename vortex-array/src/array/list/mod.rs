@@ -25,7 +25,10 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
+    RkyvMetadata,
+};
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
@@ -87,19 +90,22 @@ impl ListArray {
         Self::try_from_parts(
             list_dtype,
             list_len,
-            &ListMetadata {
+            RkyvMetadata(ListMetadata {
                 validity: validity_metadata,
                 elements_len: element_len,
                 offset_ptype,
-            },
+            }),
             [].into(),
             children.into(),
             StatsSet::default(),
         )
     }
 
-    fn metadata(&self) -> &ArchivedListMetadata {
-        access::<_, VortexError>(self.as_ref().metadata()).vortex_expect("ListArray: metadata")
+    fn metadata(&self) -> ListMetadata {
+        // SAFETY: metadata is validated in ValidateVTable
+        unsafe {
+            RkyvMetadata::<ListMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
+        }
     }
 
     pub fn validity(&self) -> Validity {
@@ -156,7 +162,7 @@ impl ListArray {
             .as_list_element()
             .vortex_expect("must be list dtype");
         self.as_ref()
-            .child(0, dtype, self.metadata().elements_len.to_native() as usize)
+            .child(0, dtype, self.metadata().elements_len)
             .vortex_expect("array contains elements")
     }
 }
@@ -167,7 +173,12 @@ impl VariantsVTable<ListArray> for ListEncoding {
     }
 }
 
-impl ValidateVTable<ListArray> for ListEncoding {}
+impl ValidateVTable<ListArray> for ListEncoding {
+    fn validate(&self, array: &ListArray) -> VortexResult<()> {
+        RkyvMetadata::<ListMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl VisitorVTable<ListArray> for ListEncoding {
     fn accept(&self, array: &ListArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

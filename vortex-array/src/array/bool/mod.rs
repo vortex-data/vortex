@@ -12,7 +12,10 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
+};
 
 pub mod compute;
 mod patch;
@@ -47,9 +50,11 @@ impl Display for BoolMetadata {
 
 impl BoolArray {
     /// Access the array's metadata
-    pub fn metadata(&self) -> &ArchivedBoolMetadata {
+    pub fn metadata(&self) -> BoolMetadata {
         // SAFETY: BoolMetadata is validated in ValidateVTable::validate
-        unsafe { rkyv::access_unchecked::<ArchivedBoolMetadata>(self.as_ref().metadata()) }
+        unsafe {
+            RkyvMetadata::<BoolMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
+        }
     }
 
     /// Access internal array buffer
@@ -135,7 +140,7 @@ impl BoolArray {
         Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
-            Some(&BoolMetadata {
+            RkyvMetadata(BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
             }),
@@ -169,7 +174,7 @@ impl ValidateVTable<BoolArray> for BoolEncoding {
         }
 
         // Now we validate the metadata
-        rkyv::access::<BoolMetadata, VortexError>(array.as_ref().metadata())?;
+        RkyvMetadata::<BoolMetadata>::deserialize(array.as_ref().metadata_bytes())?;
 
         Ok(())
     }

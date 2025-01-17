@@ -34,7 +34,7 @@ impl NullArray {
         Self::try_from_parts(
             DType::Null,
             len,
-            &NullMetadata,
+            (),
             [].into(),
             [].into(),
             StatsSet::nulls(len, &DType::Null),

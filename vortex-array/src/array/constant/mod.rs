@@ -36,7 +36,7 @@ impl ConstantArray {
         Self::try_from_parts(
             dtype,
             length,
-            &(),
+            (),
             [value_buffer.into_inner()].into(),
             [].into(),
             stats,

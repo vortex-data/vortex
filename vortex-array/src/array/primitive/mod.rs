@@ -16,7 +16,10 @@ use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
+};
 
 mod compute;
 mod patch;
@@ -25,17 +28,8 @@ mod stats;
 impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
 
 #[derive(
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::bytecheck::CheckBytes,
-    rkyv::Portable,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
-#[bytecheck(crate = rkyv::bytecheck)]
 #[repr(C)]
 pub struct PrimitiveMetadata {
     pub(crate) validity: ValidityMetadata,
@@ -51,20 +45,17 @@ impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         let len = buffer.len();
-        ArrayData::try_new_owned(
-            &PrimitiveEncoding,
+
+        Self::try_from_parts(
             DType::from(T::PTYPE).with_nullability(validity.nullability()),
             len,
-            to_bytes::<VortexError>(&PrimitiveMetadata {
+            RkyvMetadata(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
-            })
-            .vortex_expect("Failed to serialize metadata")
-            .into(),
+            }),
             [buffer.into_byte_buffer()].into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )
-        .and_then(|data| data.try_into())
         .vortex_expect("Should not fail to create PrimitiveArray")
     }
 
@@ -106,9 +97,12 @@ impl PrimitiveArray {
         Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
-    fn metadata(&self) -> &PrimitiveMetadata {
-        rkyv::access::<_, VortexError>(self.as_ref().metadata())
-            .vortex_expect("Failed to access PrimitiveArray metadata")
+    fn metadata(&self) -> PrimitiveMetadata {
+        // SAFETY: metadata is validated in ValidateVTable
+        unsafe {
+            RkyvMetadata::<PrimitiveMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes())
+                .0
+        }
     }
 
     pub fn validity(&self) -> Validity {
@@ -265,6 +259,9 @@ impl ValidateVTable<PrimitiveArray> for PrimitiveEncoding {
                 vortex_bail!("PrimitiveArray: buffer is not aligned to {}", stringify!($T));
             }
         });
+
+        // Validate the metadata bytes
+        RkyvMetadata::<PrimitiveMetadata>::deserialize(array.as_ref().metadata_bytes())?;
 
         Ok(())
     }

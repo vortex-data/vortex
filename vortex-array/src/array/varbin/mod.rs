@@ -21,7 +21,7 @@ use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, RkyvMetadata};
 
 mod accessor;
 mod array;
@@ -88,7 +88,7 @@ impl VarBinArray {
         Self::try_from_parts(
             dtype,
             length,
-            &metadata,
+            RkyvMetadata(metadata),
             [bytes].into(),
             children.into(),
             StatsSet::default(),
