@@ -94,11 +94,9 @@ impl LayoutWriter for FlatLayoutWriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::test::TestSegments;
-    use crate::strategies::LayoutWriterExt;
-    use futures::executor::block_on;
     use std::sync::Arc;
+
+    use futures::executor::block_on;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::stats::{ArrayStatistics, Stat};
     use vortex_array::validity::Validity;
@@ -106,6 +104,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_expr::ident;
     use vortex_scan::RowMask;
+
+    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::segments::test::TestSegments;
+    use crate::strategies::LayoutWriterExt;
 
     #[test]
     fn flat_stats() {
