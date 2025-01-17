@@ -4,20 +4,18 @@ use arrow_buffer::BooleanBufferBuilder;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
-use futures_util::StreamExt;
+use futures_util::TryStreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
-use vortex_file::{LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
+use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 fuzz_target!(|array_data: ArrayData| -> Corpus {
     if !array_data.dtype().is_struct() {
         return Corpus::Reject;
     }
-
-    let buf = Vec::new();
-    let mut writer = VortexFileWriter::new(buf);
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -25,19 +23,24 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
         .unwrap();
 
     runtime.block_on(async move {
-        writer = writer
-            .write_array_columns(array_data.clone())
+        let buf = Vec::new();
+        let full_buff = VortexWriteOptions::default()
+            .write(buf, array_data.clone().into_array_stream())
             .await
             .unwrap();
-        let written = Bytes::from(writer.finalize().await.unwrap());
 
-        let stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
-            .build()
+        let written = Bytes::from(full_buff);
+
+        let output = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+            .open(written)
             .await
             .unwrap()
-            .into_stream();
+            .scan(Scan::all())
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
 
-        let output = stream.map(|a| a.unwrap()).collect::<Vec<_>>().await;
         let output = if output.is_empty() {
             ChunkedArray::try_new(output, array_data.dtype().clone())
                 .unwrap()
