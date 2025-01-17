@@ -144,16 +144,14 @@ impl BitPackedArray {
             children.push(a)
         }
 
-        ArrayData::try_new_owned(
-            &BitPackedEncoding,
+        Self::try_from_parts(
             dtype,
             length,
-            Arc::new(metadata),
+            metadata,
             Some([packed].into()),
             Some(children.into()),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     #[inline]

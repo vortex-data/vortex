@@ -71,6 +71,7 @@ impl DateTimePartsArray {
             dtype,
             length,
             metadata,
+            None,
             Some([days, seconds, subsecond].into()),
             StatsSet::default(),
         )

@@ -81,15 +81,14 @@ impl VarBinArray {
             }
         };
 
-        Self::try_from(ArrayData::try_new_owned(
-            &VarBinEncoding,
+        Self::try_from_parts(
             dtype,
             length,
-            Arc::new(metadata),
+            metadata,
             Some([bytes].into()),
             Some(children.into()),
             StatsSet::default(),
-        )?)
+        )
     }
 
     #[inline]

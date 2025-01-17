@@ -49,16 +49,14 @@ impl RoaringBoolArray {
             length,
         );
 
-        ArrayData::try_new_owned(
-            &RoaringBoolEncoding,
+        Self::try_from_parts(
             DType::Bool(Nullability::NonNullable),
             length,
-            Arc::new(RoaringBoolMetadata),
+            RoaringBoolMetadata,
             Some([ByteBuffer::from(bitmap.serialize::<Native>())].into()),
             None,
             stats,
-        )?
-        .try_into()
+        )
     }
 
     pub fn bitmap(&self) -> Bitmap {

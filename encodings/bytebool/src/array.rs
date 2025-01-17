@@ -39,19 +39,16 @@ impl ByteBoolArray {
 
     pub fn try_new(buffer: ByteBuffer, validity: Validity) -> VortexResult<Self> {
         let length = buffer.len();
-
-        ArrayData::try_new_owned(
-            &ByteBoolEncoding,
+        Self::try_from_parts(
             DType::Bool(validity.nullability()),
             length,
-            Arc::new(ByteBoolMetadata {
+            ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
-            }),
+            },
             Some([buffer.into_byte_buffer()].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     // TODO(ngates): deprecate construction from vec

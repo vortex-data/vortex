@@ -242,15 +242,14 @@ impl VarBinViewArray {
         array_buffers.push(views.into_byte_buffer());
         array_buffers.extend(buffers);
 
-        Self::try_from(ArrayData::try_new_owned(
-            &VarBinViewEncoding,
+        Self::try_from_parts(
             dtype,
             array_len,
-            Arc::new(metadata),
+            metadata,
             Some(array_buffers.into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
-        )?)
+        )
     }
 
     /// Number of raw string data buffers held by this array.

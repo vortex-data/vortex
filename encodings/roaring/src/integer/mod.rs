@@ -63,16 +63,14 @@ impl RoaringIntArray {
         stats.set(Stat::IsSorted, true);
         stats.set(Stat::IsStrictSorted, true);
 
-        ArrayData::try_new_owned(
-            &RoaringIntEncoding,
+        Self::try_from_parts(
             DType::Primitive(ptype, NonNullable),
             length,
-            Arc::new(RoaringIntMetadata { ptype }),
+            RoaringIntMetadata { ptype },
             Some([ByteBuffer::from(bitmap.serialize::<Portable>())].into()),
             None,
             stats,
-        )?
-        .try_into()
+        )
     }
 
     pub fn owned_bitmap(&self) -> Bitmap {

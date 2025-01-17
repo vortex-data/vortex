@@ -118,19 +118,17 @@ impl BoolArray {
             .into_inner()
             .bit_slice(buffer_byte_offset, buffer_len);
 
-        ArrayData::try_new_owned(
-            &BoolEncoding,
+        Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
-            Arc::new(BoolMetadata {
+            BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
-            }),
+            },
             Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     /// Create a new BoolArray from a set of indices and a length.
