@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 use std::ptr;
-use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -39,18 +38,16 @@ impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         let len = buffer.len();
-        ArrayData::try_new_owned(
-            &PrimitiveEncoding,
+        Self::try_from_parts(
             DType::from(T::PTYPE).with_nullability(validity.nullability()),
             len,
-            Arc::new(PrimitiveMetadata {
+            PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
-            }),
+            },
             Some([buffer.into_byte_buffer()].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
         )
-        .and_then(|data| data.try_into())
         .vortex_expect("Should not fail to create PrimitiveArray")
     }
 

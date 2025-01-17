@@ -106,6 +106,7 @@ impl ALPRDArray {
                 left_parts_ptype,
                 patches,
             },
+            None,
             Some(children.into()),
             StatsSet::default(),
         )

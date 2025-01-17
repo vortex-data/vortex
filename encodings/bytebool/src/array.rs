@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
@@ -10,7 +9,7 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -39,19 +38,16 @@ impl ByteBoolArray {
 
     pub fn try_new(buffer: ByteBuffer, validity: Validity) -> VortexResult<Self> {
         let length = buffer.len();
-
-        ArrayData::try_new_owned(
-            &ByteBoolEncoding,
+        Self::try_from_parts(
             DType::Bool(validity.nullability()),
             length,
-            Arc::new(ByteBoolMetadata {
+            ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
-            }),
+            },
             Some([buffer.into_byte_buffer()].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
-        )?
-        .try_into()
+        )
     }
 
     // TODO(ngates): deprecate construction from vec

@@ -46,6 +46,7 @@ macro_rules! impl_encoding {
                     dtype: vortex_dtype::DType,
                     len: usize,
                     metadata: [<$Name Metadata>],
+                    buffers: Option<Box<[vortex_buffer::ByteBuffer]>>,
                     children: Option<Box<[$crate::ArrayData]>>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
@@ -54,7 +55,7 @@ macro_rules! impl_encoding {
                             dtype,
                             len,
                             std::sync::Arc::new(metadata),
-                            None,
+                            buffers,
                             children,
                             stats
                     )?)
