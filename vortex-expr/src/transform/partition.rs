@@ -256,8 +256,8 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
             // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
             let replaced = node
                 .clone()
-                .transform_with_context(&mut ScopeStepIntoFieldExpr(field_name.clone()), ())?;
-            sub_exprs.push(replaced.result());
+                .transform(&mut ScopeStepIntoFieldExpr(field_name.clone()))?;
+            sub_exprs.push(replaced.result);
 
             let access = get_item(
                 Self::field_idx_name(field_name, idx),
@@ -311,21 +311,17 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
 struct ScopeStepIntoFieldExpr(FieldName);
 
-impl FolderMut for ScopeStepIntoFieldExpr {
+impl MutNodeVisitor for ScopeStepIntoFieldExpr {
     type NodeTy = ExprRef;
-    type Out = ExprRef;
-    type Context = ();
 
-    fn visit_up(
-        &mut self,
-        node: Self::NodeTy,
-        _context: (),
-        children: Vec<Self::Out>,
-    ) -> VortexResult<FoldUp<Self::Out>> {
-        if node.as_any().downcast_ref::<Identity>().is_some() {
-            Ok(FoldUp::Continue(pack(vec![self.0.clone()], vec![ident()])))
+    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
+        if node.as_any().is::<Identity>() {
+            Ok(TransformResult::yes(pack(
+                vec![self.0.clone()],
+                vec![ident()],
+            )))
         } else {
-            Ok(FoldUp::Continue(node.replacing_children(children)))
+            Ok(TransformResult::no(node))
         }
     }
 }
