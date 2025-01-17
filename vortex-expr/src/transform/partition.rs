@@ -358,20 +358,17 @@ mod tests {
 
     fn dtype() -> DType {
         DType::Struct(
-            StructDType::new(
-                vec!["a".into(), "b".into(), "c".into()].into(),
-                vec![
+            StructDType::from_iter([
+                (
+                    "a",
                     DType::Struct(
-                        StructDType::new(
-                            vec!["a".into(), "b".into()].into(),
-                            vec![I32.into(), I32.into()],
-                        ),
+                        StructDType::from_iter([("a", I32.into()), ("b", DType::from(I32))]),
                         NonNullable,
                     ),
-                    I32.into(),
-                    I32.into(),
-                ],
-            ),
+                ),
+                ("b", I32.into()),
+                ("c", I32.into()),
+            ]),
             NonNullable,
         )
     }
