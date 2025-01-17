@@ -9,9 +9,10 @@ use crate::compute::{scalar_at, sub_scalar};
 use crate::encoding::ids;
 use crate::patches::{Patches, PatchesMetadata};
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
 mod canonical;
 mod compute;
@@ -136,7 +137,7 @@ impl SparseArray {
     }
 }
 
-impl ArrayTrait for SparseArray {}
+impl ValidateVTable<SparseArray> for SparseEncoding {}
 
 impl VisitorVTable<SparseArray> for SparseEncoding {
     fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

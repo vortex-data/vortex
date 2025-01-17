@@ -85,9 +85,9 @@ mod tests {
                 Nullability::NonNullable,
             ),
             vec![
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
             ],
         )
         .push_all(

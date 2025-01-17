@@ -5,19 +5,18 @@ mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 mod compute;
 mod patch;
@@ -229,7 +228,28 @@ impl PrimitiveArray {
     }
 }
 
-impl ArrayTrait for PrimitiveArray {}
+impl ValidateVTable<PrimitiveArray> for PrimitiveEncoding {
+    fn validate(&self, array: &PrimitiveArray) -> VortexResult<()> {
+        if array.as_ref().nbuffers() != 1 {
+            vortex_bail!(
+                "PrimitiveArray: expected 1 buffer, found {}",
+                array.as_ref().nbuffers()
+            );
+        }
+
+        match_each_native_ptype!(array.ptype(), |$T| {
+            if !array
+                .byte_buffer()
+                .alignment()
+                .is_aligned_to(Alignment::of::<$T>())
+            {
+                vortex_bail!("PrimitiveArray: buffer is not aligned to {}", stringify!($T));
+            }
+        });
+
+        Ok(())
+    }
+}
 
 impl VariantsVTable<PrimitiveArray> for PrimitiveEncoding {
     fn as_primitive_array<'a>(

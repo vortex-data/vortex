@@ -16,12 +16,11 @@ use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 mod canonical;
 mod compute;
@@ -190,7 +189,7 @@ impl ChunkedArray {
     }
 }
 
-impl ArrayTrait for ChunkedArray {}
+impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
 
 impl FromIterator<ArrayData> for ChunkedArray {
     fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {

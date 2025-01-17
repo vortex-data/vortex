@@ -48,6 +48,7 @@ pub mod stream;
 #[cfg(feature = "test-harness")]
 pub mod test_harness;
 pub mod tree;
+pub mod validate;
 pub mod validity;
 pub mod variants;
 pub mod visitor;

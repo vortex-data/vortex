@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
 use owned::OwnedArrayData;
@@ -34,25 +34,25 @@ mod viewed;
 ///
 /// This is the main entrypoint for working with in-memory Vortex data, and dispatches work over the underlying encoding or memory representations.
 #[derive(Debug, Clone)]
-pub struct ArrayData(Arc<InnerArrayData>);
+pub struct ArrayData(InnerArrayData);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum InnerArrayData {
     /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
-    Owned(OwnedArrayData),
+    Owned(Arc<OwnedArrayData>),
     /// Zero-copy view over flatbuffer-encoded [`ArrayData`] data, created without eager serialization.
     Viewed(ViewedArrayData),
 }
 
 impl From<OwnedArrayData> for ArrayData {
     fn from(data: OwnedArrayData) -> Self {
-        ArrayData(Arc::new(InnerArrayData::Owned(data)))
+        ArrayData(InnerArrayData::Owned(Arc::new(data)))
     }
 }
 
 impl From<ViewedArrayData> for ArrayData {
     fn from(data: ViewedArrayData) -> Self {
-        ArrayData(Arc::new(InnerArrayData::Viewed(data)))
+        ArrayData(InnerArrayData::Viewed(data))
     }
 }
 
@@ -66,7 +66,7 @@ impl ArrayData {
         children: Box<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
-        Self::try_new(InnerArrayData::Owned(OwnedArrayData {
+        Self::try_new(InnerArrayData::Owned(Arc::new(OwnedArrayData {
             encoding,
             dtype,
             len,
@@ -76,7 +76,7 @@ impl ArrayData {
             stats_set: RwLock::new(statistics),
             #[cfg(feature = "canonical_counter")]
             canonical_counter: std::sync::atomic::AtomicUsize::new(0),
-        }))
+        })))
     }
 
     pub fn try_new_viewed<F>(
@@ -114,7 +114,7 @@ impl ArrayData {
             buffers: buffers.into(),
             ctx,
             #[cfg(feature = "canonical_counter")]
-            canonical_counter: std::sync::atomic::AtomicUsize::new(0),
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
         Self::try_new(InnerArrayData::Viewed(view))
@@ -122,7 +122,7 @@ impl ArrayData {
 
     /// Shared constructor that performs common array validation.
     fn try_new(inner: InnerArrayData) -> VortexResult<Self> {
-        let array = ArrayData(Arc::new(inner));
+        let array = ArrayData(inner);
 
         // Sanity check that the encoding implements the correct array trait
         debug_assert!(
@@ -141,15 +141,17 @@ impl ArrayData {
             array.dtype()
         );
 
-        // TODO(ngates): we should run something like encoding.validate(array) so the encoding
-        //  can check the number of children, number of buffers, and metadata values etc.
+        // Invoke the encoding's validate function to ensure that we pass basic checks.
+        // This is called for both Owned and Viewed array data since there are public functions
+        // for constructing an ArrayData, e.g. `try_new_owned`.
+        array.encoding().validate(&array)?;
 
         Ok(array)
     }
 
     /// Return the array's encoding
     pub fn encoding(&self) -> EncodingRef {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.encoding,
             InnerArrayData::Viewed(v) => v.encoding,
         }
@@ -158,7 +160,7 @@ impl ArrayData {
     /// Returns the number of logical elements in the array.
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.len,
             InnerArrayData::Viewed(v) => v.len,
         }
@@ -204,18 +206,18 @@ impl ArrayData {
     }
 
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.child(idx, dtype, len).cloned(),
             InnerArrayData::Viewed(v) => v
                 .child(idx, dtype, len)
-                .map(|view| ArrayData(Arc::new(InnerArrayData::Viewed(view)))),
+                .map(|view| ArrayData(InnerArrayData::Viewed(view))),
         }
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
     // TODO(ngates): deprecate this function and return impl Iterator
     pub fn children(&self) -> Vec<ArrayData> {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.children().to_vec(),
             InnerArrayData::Viewed(_) => {
                 let mut collector = ChildrenCollector::default();
@@ -238,7 +240,7 @@ impl ArrayData {
 
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.nchildren(),
             InnerArrayData::Viewed(v) => v.nchildren(),
         }
@@ -278,7 +280,7 @@ impl ArrayData {
     }
 
     pub fn array_metadata(&self) -> &dyn ArrayMetadata {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => &*d.metadata,
             InnerArrayData::Viewed(v) => &*v.metadata,
         }
@@ -287,7 +289,7 @@ impl ArrayData {
     pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
         &self,
     ) -> VortexResult<&M> {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => &d.metadata,
             InnerArrayData::Viewed(v) => &v.metadata,
         }
@@ -306,7 +308,7 @@ impl ArrayData {
     /// View arrays will return a reference to their bytes, while heap-backed arrays
     /// must first serialize their metadata, returning an owned byte array to the caller.
     pub fn metadata_bytes(&self) -> VortexResult<Cow<[u8]>> {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(array_data) => {
                 // Heap-backed arrays must first try and serialize the metadata.
                 let owned_meta: Vec<u8> = array_data
@@ -328,14 +330,14 @@ impl ArrayData {
     }
 
     pub fn nbuffers(&self) -> usize {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(o) => o.buffers.len(),
             InnerArrayData::Viewed(v) => v.nbuffers(),
         }
     }
 
     pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.byte_buffer(index),
             InnerArrayData::Viewed(v) => v.buffer(index),
         }
@@ -351,7 +353,7 @@ impl ArrayData {
         // NOTE(ngates): we can't really into_inner an Arc, so instead we clone the buffer out,
         //  but we still consume self by value such that the ref-count drops at the end of this
         //  function.
-        match self.0.as_ref() {
+        match &self.0 {
             InnerArrayData::Owned(d) => d.byte_buffer(index).cloned(),
             InnerArrayData::Viewed(v) => v.buffer(index).cloned(),
         }
@@ -379,7 +381,7 @@ impl ArrayData {
 
     #[cfg(feature = "canonical_counter")]
     pub(crate) fn inc_canonical_counter(&self) {
-        let prev = match self.0.as_ref() {
+        let prev = match &self.0 {
             InnerArrayData::Owned(o) => o
                 .canonical_counter
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
@@ -415,7 +417,7 @@ impl ArrayData {
 
 impl Display for ArrayData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let prefix = match self.0.as_ref() {
+        let prefix = match &self.0 {
             InnerArrayData::Owned(_) => "",
             InnerArrayData::Viewed(_) => "$",
         };
@@ -432,7 +434,7 @@ impl Display for ArrayData {
 
 impl<T: AsRef<ArrayData>> ArrayDType for T {
     fn dtype(&self) -> &DType {
-        match self.as_ref().0.as_ref() {
+        match &self.as_ref().0 {
             InnerArrayData::Owned(d) => &d.dtype,
             InnerArrayData::Viewed(v) => &v.dtype,
         }
@@ -495,22 +497,5 @@ impl Iterator for ArrayDataIterator {
                 chunk
             }),
         }
-    }
-}
-
-/// An array data that holds a weak reference to its internals.
-pub struct WeakArrayData(Weak<InnerArrayData>);
-
-impl WeakArrayData {
-    /// Attempts to upgrade the weak reference to a strong reference.
-    pub fn upgrade(&self) -> Option<ArrayData> {
-        self.0.upgrade().map(ArrayData)
-    }
-}
-
-impl ArrayData {
-    /// Downgrades the array data to a weak reference.
-    pub fn downgrade(self) -> WeakArrayData {
-        WeakArrayData(Arc::downgrade(&self.0))
     }
 }

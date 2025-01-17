@@ -12,6 +12,7 @@ use crate::encoding::EncodingRef;
 use crate::{flatbuffers as fb, ArrayMetadata, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
+#[derive(Clone)]
 pub(super) struct ViewedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
@@ -22,7 +23,7 @@ pub(super) struct ViewedArrayData {
     pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: ContextRef,
     #[cfg(feature = "canonical_counter")]
-    pub(super) canonical_counter: std::sync::atomic::AtomicUsize,
+    pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Debug for ViewedArrayData {
@@ -75,7 +76,7 @@ impl ViewedArrayData {
             buffers: self.buffers.clone(),
             ctx: self.ctx.clone(),
             #[cfg(feature = "canonical_counter")]
-            canonical_counter: std::sync::atomic::AtomicUsize::new(0),
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         })
     }
 

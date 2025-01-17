@@ -96,11 +96,13 @@ impl PartialEq<dyn Any> for Pack {
 
 impl Display for Pack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("Pack");
-        for (name, value) in self.names.iter().zip_eq(self.values.iter()) {
-            f.field(name, value);
-        }
-        f.finish()
+        f.write_str("{")?;
+        self.names
+            .iter()
+            .zip(&self.values)
+            .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}")))
+            .fmt(f)?;
+        f.write_str("}")
     }
 }
 

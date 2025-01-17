@@ -20,10 +20,11 @@ use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{StatisticsVTable, StatsSet};
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
@@ -158,7 +159,7 @@ impl VariantsVTable<ListArray> for ListEncoding {
     }
 }
 
-impl ArrayTrait for ListArray {}
+impl ValidateVTable<ListArray> for ListEncoding {}
 
 impl VisitorVTable<ListArray> for ListEncoding {
     fn accept(&self, array: &ListArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

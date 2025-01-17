@@ -15,7 +15,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::{RowMask, Scanner};
 
@@ -46,7 +46,7 @@ pub struct Scan {
 impl Scan {
     pub fn all() -> Self {
         Self {
-            projection: Identity::new_expr(),
+            projection: ident(),
             filter: None,
             row_indices: None,
         }
@@ -62,7 +62,7 @@ impl Scan {
 
     pub fn filtered(filter: ExprRef) -> Self {
         Self {
-            projection: Identity::new_expr(),
+            projection: ident(),
             filter: Some(filter),
             row_indices: None,
         }
@@ -115,7 +115,9 @@ impl<I: IoDriver> VortexFile<I> {
             };
 
             // Otherwise, find the indices that are within the row range.
-            if row_range.end <= row_indices[0]
+            if row_indices
+                .first()
+                .is_some_and(|&first| first >= row_range.end)
                 || row_indices
                     .last()
                     .is_some_and(|&last| row_range.start >= last)

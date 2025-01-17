@@ -8,10 +8,11 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
+use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::{ExtensionArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
 
 mod compute;
 
@@ -57,7 +58,7 @@ impl ExtensionArray {
     }
 }
 
-impl ArrayTrait for ExtensionArray {}
+impl ValidateVTable<ExtensionArray> for ExtensionEncoding {}
 
 impl VariantsVTable<ExtensionArray> for ExtensionEncoding {
     fn as_extension_array<'a>(

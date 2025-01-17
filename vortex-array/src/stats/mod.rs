@@ -25,6 +25,19 @@ mod statsset;
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
+/// Stats to keep when serializing arrays to layouts
+pub const STATS_TO_WRITE: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::TrueCount,
+    Stat::NullCount,
+    Stat::RunCount,
+    Stat::IsConstant,
+    Stat::IsSorted,
+    Stat::IsStrictSorted,
+    Stat::UncompressedSizeInBytes,
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Stat {

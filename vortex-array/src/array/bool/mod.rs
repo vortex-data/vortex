@@ -6,16 +6,15 @@ use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
+use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 pub mod compute;
 mod patch;
@@ -148,7 +147,17 @@ impl BoolArray {
     }
 }
 
-impl ArrayTrait for BoolArray {}
+impl ValidateVTable<BoolArray> for BoolEncoding {
+    fn validate(&self, array: &BoolArray) -> VortexResult<()> {
+        if array.as_ref().nbuffers() != 1 {
+            vortex_bail!(
+                "BoolArray: expected 1 buffer, found {}",
+                array.as_ref().nbuffers()
+            );
+        }
+        Ok(())
+    }
+}
 
 impl VariantsVTable<BoolArray> for BoolEncoding {
     fn as_bool_array<'a>(&self, array: &'a BoolArray) -> Option<&'a dyn BoolArrayTrait> {
