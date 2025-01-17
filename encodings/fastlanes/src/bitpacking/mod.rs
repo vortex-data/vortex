@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 
-use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
@@ -13,7 +12,7 @@ use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    SerdeMetadata,
+    RkyvMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
@@ -24,7 +23,8 @@ mod compute;
 
 impl_encoding!("fastlanes.bitpacked", ids::FL_BITPACKED, BitPacked);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
 pub struct BitPackedMetadata {
     validity: ValidityMetadata,
     bit_width: u8,
@@ -149,7 +149,7 @@ impl BitPackedArray {
         Self::try_from_parts(
             dtype,
             length,
-            SerdeMetadata(metadata),
+            RkyvMetadata(metadata),
             [packed].into(),
             children.into(),
             StatsSet::default(),
@@ -157,9 +157,11 @@ impl BitPackedArray {
     }
 
     fn metadata(&self) -> BitPackedMetadata {
-        SerdeMetadata::<BitPackedMetadata>::deserialize(self.as_ref().metadata_bytes())
-            .vortex_expect("BitPackedMetadata metadata")
-            .0
+        // SAFETY: metadata is validated in ValidateVTable
+        unsafe {
+            RkyvMetadata::<BitPackedMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes())
+                .0
+        }
     }
 
     #[inline]
@@ -281,7 +283,13 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
 
 impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
-impl ValidateVTable<BitPackedArray> for BitPackedEncoding {}
+impl ValidateVTable<BitPackedArray> for BitPackedEncoding {
+    fn validate(&self, array: &BitPackedArray) -> VortexResult<()> {
+        // Validate the metadata
+        RkyvMetadata::<BitPackedMetadata>::deserialize(array.as_ref().metadata_bytes())?;
+        Ok(())
+    }
+}
 
 impl VariantsVTable<BitPackedArray> for BitPackedEncoding {
     fn as_primitive_array<'a>(
@@ -300,7 +308,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical, SerdeMetadata};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical, RkyvMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 
@@ -311,7 +319,7 @@ mod test {
     fn test_bitpacked_metadata() {
         check_metadata(
             "bitpacked.metadata",
-            SerdeMetadata(BitPackedMetadata {
+            RkyvMetadata(BitPackedMetadata {
                 patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
                 validity: ValidityMetadata::AllValid,
                 offset: u16::MAX,

@@ -22,6 +22,7 @@ arrow-buffer = { workspace = true }
 fastlanes = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+rkyv = { workspace = true }
 serde = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
