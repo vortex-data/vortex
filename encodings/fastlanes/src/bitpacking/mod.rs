@@ -319,7 +319,7 @@ mod test {
         let expected = &[1, 0, 1, 0, 1, 0, u64::MAX];
         let results = packed
             .into_array()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();

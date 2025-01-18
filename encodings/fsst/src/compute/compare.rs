@@ -43,10 +43,10 @@ fn compare_fsst_constant(
     right: &ConstantArray,
     equal: bool,
 ) -> VortexResult<ArrayData> {
-    let symbols = left.symbols().into_primitive()?;
+    let symbols = left.symbols().into_canonical_primitive()?;
     let symbols_u64 = symbols.as_slice::<u64>();
 
-    let symbol_lens = left.symbol_lengths().into_primitive()?;
+    let symbol_lens = left.symbol_lengths().into_canonical_primitive()?;
     let symbol_lens_u8 = symbol_lens.as_slice::<u8>();
 
     let mut compressor = fsst::CompressorBuilder::new();
@@ -115,7 +115,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals: Vec<bool> = compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap()
             .boolean_buffer()
             .into_iter()
@@ -126,7 +126,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals: Vec<bool> = compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap()
             .boolean_buffer()
             .into_iter()

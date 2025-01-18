@@ -35,7 +35,7 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
                 LogicalValidity::Array(a) => self.compute_statistics(
                     &NullableValues(
                         array.as_slice::<$P>(),
-                        &a.clone().into_bool()?.boolean_buffer(),
+                        &a.clone().into_canonical_bool()?.boolean_buffer(),
                     ),
                     stat
                 ),

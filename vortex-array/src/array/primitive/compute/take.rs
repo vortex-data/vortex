@@ -12,7 +12,7 @@ use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &ArrayData) -> VortexResult<ArrayData> {
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.clone().into_canonical_primitive()?;
         let validity = array.validity().take(indices.as_ref())?;
 
         match_each_native_ptype!(array.ptype(), |$T| {
@@ -28,7 +28,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         array: &PrimitiveArray,
         indices: &ArrayData,
     ) -> VortexResult<ArrayData> {
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.clone().into_canonical_primitive()?;
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
 
         match_each_native_ptype!(array.ptype(), |$T| {

@@ -44,7 +44,7 @@ mod test {
 
         let decoded = slice(encoded.as_ref(), 1, 3)
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
 
         assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);

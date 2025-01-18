@@ -14,7 +14,7 @@ use crate::DeltaArray;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     // Fill forward nulls
-    let filled = fill_forward(array.as_ref())?.into_primitive()?;
+    let filled = fill_forward(array.as_ref())?.into_canonical_primitive()?;
 
     // Compress the filled array
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |$T| {
@@ -99,8 +99,8 @@ where
 }
 
 pub fn delta_decompress(array: DeltaArray) -> VortexResult<PrimitiveArray> {
-    let bases = array.bases().into_primitive()?;
-    let deltas = array.deltas().into_primitive()?;
+    let bases = array.bases().into_canonical_primitive()?;
+    let deltas = array.deltas().into_canonical_primitive()?;
     let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |$T| {
         PrimitiveArray::new(
             decompress_primitive::<$T>(bases.as_slice(), deltas.as_slice()),
@@ -108,7 +108,7 @@ pub fn delta_decompress(array: DeltaArray) -> VortexResult<PrimitiveArray> {
         )
     });
 
-    slice(decoded, array.offset(), array.offset() + array.len())?.into_primitive()
+    slice(decoded, array.offset(), array.offset() + array.len())?.into_canonical_primitive()
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the

@@ -311,14 +311,14 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(len)),
-            Validity::Array(a) => a.into_bool()?,
+            Validity::Array(a) => a.into_canonical_bool()?,
         };
 
         let patch_values = match patches {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(indices.len())),
-            Validity::Array(a) => a.into_bool()?,
+            Validity::Array(a) => a.into_canonical_bool()?,
         };
 
         let patches = Patches::new(len, indices.clone(), patch_values.into_array());
@@ -352,12 +352,12 @@ impl PartialEq for Validity {
             (Self::Array(a), Self::Array(b)) => {
                 let a_buffer = a
                     .clone()
-                    .into_bool()
+                    .into_canonical_bool()
                     .vortex_expect("Failed to get Validity Array as BoolArray")
                     .boolean_buffer();
                 let b_buffer = b
                     .clone()
-                    .into_bool()
+                    .into_canonical_bool()
                     .vortex_expect("Failed to get Validity Array as BoolArray")
                     .boolean_buffer();
                 a_buffer == b_buffer
@@ -406,7 +406,7 @@ impl FromIterator<LogicalValidity> for Validity {
                 LogicalValidity::AllInvalid(count) => buffer.append_n(count, false),
                 LogicalValidity::Array(array) => {
                     let array_buffer = array
-                        .into_bool()
+                        .into_canonical_bool()
                         .vortex_expect("Failed to get Validity Array as BoolArray")
                         .boolean_buffer();
                     buffer.append_buffer(&array_buffer);
@@ -466,7 +466,7 @@ impl LogicalValidity {
             Self::AllValid(_) => Ok(None),
             Self::AllInvalid(l) => Ok(Some(NullBuffer::new_null(*l))),
             Self::Array(a) => Ok(Some(NullBuffer::new(
-                a.clone().into_bool()?.boolean_buffer(),
+                a.clone().into_canonical_bool()?.boolean_buffer(),
             ))),
         }
     }

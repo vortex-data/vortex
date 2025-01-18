@@ -55,7 +55,7 @@ mod tests {
                 BinaryOperator::Or
             )
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap()
             .boolean_buffer(),
             vec![true, true, false, false, true].into()

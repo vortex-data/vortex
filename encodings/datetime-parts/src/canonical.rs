@@ -42,7 +42,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         array.days(),
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
-    .into_primitive()?;
+    .into_canonical_primitive()?;
 
     // We start with the days component, which is always present.
     // And then add the seconds and subseconds components.
@@ -63,7 +63,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         }
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
-            .into_primitive()?;
+            .into_canonical_primitive()?;
         for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
@@ -83,7 +83,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             array.subsecond(),
             &DType::Primitive(PType::I64, NonNullable),
         )?
-        .into_primitive()?;
+        .into_canonical_primitive()?;
         for (v, subsecond) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subsecond;
         }
@@ -134,7 +134,7 @@ mod test {
         let primitive_values = decode_to_temporal(&date_times)
             .unwrap()
             .temporal_values()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
 
         assert_eq!(

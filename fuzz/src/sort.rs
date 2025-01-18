@@ -12,7 +12,7 @@ use crate::take::take_canonical_array;
 pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool().unwrap();
+            let bool_array = array.clone().into_canonical_bool().unwrap();
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -20,7 +20,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                     bool_array
                         .logical_validity()
                         .into_array()
-                        .into_bool()
+                        .into_canonical_bool()
                         .unwrap()
                         .boolean_buffer()
                         .iter(),
@@ -31,21 +31,19 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             BoolArray::from_iter(opt_values).into_array()
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive().unwrap();
+            let primitive_array = array.clone().into_canonical_primitive().unwrap();
+            let validity_buf = primitive_array
+                .logical_validity()
+                .into_array()
+                .into_canonical_bool()
+                .unwrap()
+                .boolean_buffer();
             match_each_native_ptype!(p, |$P| {
                 let mut opt_values = primitive_array
                     .as_slice::<$P>()
                     .iter()
                     .copied()
-                    .zip(
-                        primitive_array
-                            .logical_validity()
-                            .into_array()
-                            .into_bool()
-                            .unwrap()
-                            .boolean_buffer()
-                            .iter(),
-                    )
+                    .zip(validity_buf.iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
@@ -53,7 +51,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview().unwrap();
+            let utf8 = array.clone().into_canonical_varbinview().unwrap();
             let mut opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();

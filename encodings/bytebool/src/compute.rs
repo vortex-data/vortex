@@ -49,7 +49,7 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = array.validity();
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.clone().into_canonical_primitive()?;
         let bools = array.as_slice();
 
         let arr = match validity {

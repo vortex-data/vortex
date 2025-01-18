@@ -174,7 +174,7 @@ mod tests {
                 .maybe_null_field_by_name(field)
                 .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
         }
-        Ok(array.into_primitive().unwrap())
+        Ok(array.into_canonical_primitive().unwrap())
     }
 
     #[test]

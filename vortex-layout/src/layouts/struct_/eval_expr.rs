@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(
             vec![true, false, false],
             result
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(
             vec![true, false],
             result
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()
@@ -175,7 +175,7 @@ mod tests {
                 .unwrap()
                 .maybe_null_field(&Field::Name("a".into()))
                 .unwrap()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap()
                 .as_slice::<i32>(),
             [7, 2].as_slice()
@@ -187,7 +187,7 @@ mod tests {
                 .unwrap()
                 .maybe_null_field(&Field::Name("b".into()))
                 .unwrap()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5].as_slice()

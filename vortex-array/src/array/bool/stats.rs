@@ -29,7 +29,10 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
             LogicalValidity::AllValid(_) => self.compute_statistics(&array.boolean_buffer(), stat),
             LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
             LogicalValidity::Array(a) => self.compute_statistics(
-                &NullableBools(&array.boolean_buffer(), &a.into_bool()?.boolean_buffer()),
+                &NullableBools(
+                    &array.boolean_buffer(),
+                    &a.into_canonical_bool()?.boolean_buffer(),
+                ),
                 stat,
             ),
         }

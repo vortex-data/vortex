@@ -205,7 +205,7 @@ impl Patches {
         let mut value_indices = BufferMut::<u64>::empty();
         let mut last_inserted_index: usize = 0;
 
-        let flat_indices = self.indices().clone().into_primitive()?;
+        let flat_indices = self.indices().clone().into_canonical_primitive()?;
         match_each_integer_ptype!(flat_indices.ptype(), |$I| {
             for (value_idx, coordinate) in flat_indices.as_slice::<$I>().iter().enumerate() {
                 if buffer.value(*coordinate as usize) {
@@ -260,7 +260,7 @@ impl Patches {
         if take_indices.is_empty() {
             return Ok(None);
         }
-        let take_indices = take_indices.clone().into_primitive()?;
+        let take_indices = take_indices.clone().into_canonical_primitive()?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices)
         } else {
@@ -303,7 +303,7 @@ impl Patches {
     }
 
     pub fn take_map(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
-        let indices = self.indices.clone().into_primitive()?;
+        let indices = self.indices.clone().into_canonical_primitive()?;
         match_each_integer_ptype!(self.indices_ptype(), |$INDICES| {
             let indices = indices
                 .as_slice::<$INDICES>();
@@ -407,8 +407,16 @@ mod test {
             .unwrap()
             .unwrap();
 
-        let indices = filtered.indices().clone().into_primitive().unwrap();
-        let values = filtered.values().clone().into_primitive().unwrap();
+        let indices = filtered
+            .indices()
+            .clone()
+            .into_canonical_primitive()
+            .unwrap();
+        let values = filtered
+            .values()
+            .clone()
+            .into_canonical_primitive()
+            .unwrap();
         assert_eq!(indices.as_slice::<u64>(), &[0, 1]);
         assert_eq!(values.as_slice::<i32>(), &[100, 200]);
     }

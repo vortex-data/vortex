@@ -11,7 +11,7 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
         }
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future
-        let bools = array.as_ref().clone().into_bool()?;
+        let bools = array.as_ref().clone().into_canonical_bool()?;
         Ok(bools
             .statistics()
             .compute(stat)

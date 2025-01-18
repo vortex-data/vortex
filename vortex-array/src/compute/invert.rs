@@ -50,5 +50,5 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
         "No invert implementation found for encoding {}",
         array.encoding().id(),
     );
-    invert(&array.clone().into_bool()?.into_array())
+    invert(&array.clone().into_canonical_bool()?.into_array())
 }

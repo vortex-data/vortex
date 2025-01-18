@@ -132,7 +132,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap();
 
             assert_eq!(result.len(), 9);

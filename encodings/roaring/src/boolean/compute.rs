@@ -83,7 +83,7 @@ mod tests {
 
         assert_eq!(
             sliced
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()

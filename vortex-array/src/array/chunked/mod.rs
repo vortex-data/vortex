@@ -268,7 +268,7 @@ mod test {
         let results = chunks_out
             .next()
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();
@@ -276,7 +276,7 @@ mod test {
         let results = chunks_out
             .next()
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();
@@ -284,7 +284,7 @@ mod test {
         let results = chunks_out
             .next()
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();

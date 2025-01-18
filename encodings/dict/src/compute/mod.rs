@@ -94,7 +94,7 @@ mod test {
             PrimitiveArray::from_option_iter([Some(42), Some(-9), None, Some(42), None, Some(-9)]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-        let flattened_dict = dict.to_array().into_primitive().unwrap();
+        let flattened_dict = dict.to_array().into_canonical_primitive().unwrap();
         assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
     }
 
@@ -107,7 +107,7 @@ mod test {
         assert_eq!(reference.len(), 6);
         let (codes, values) = dict_encode_varbinview(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-        let flattened_dict = dict.to_array().into_varbinview().unwrap();
+        let flattened_dict = dict.to_array().into_canonical_varbinview().unwrap();
         assert_eq!(
             flattened_dict
                 .with_iterator(|iter| iter

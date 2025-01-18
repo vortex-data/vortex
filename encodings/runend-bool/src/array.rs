@@ -195,7 +195,7 @@ impl ValidityVTable<RunEndBoolArray> for RunEndBoolEncoding {
 
 impl IntoCanonical for RunEndBoolArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let pends = self.ends().into_primitive()?;
+        let pends = self.ends().into_canonical_primitive()?;
         decode_runend_bool(
             &pends,
             self.start(),
@@ -219,7 +219,7 @@ impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
         let maybe_scalar: Option<Scalar> = match stat {
             Stat::NullCount => Some(array.validity().null_count(array.len())?.into()),
             Stat::TrueCount => {
-                let pends = array.ends().into_primitive()?;
+                let pends = array.ends().into_canonical_primitive()?;
                 let mut true_count: usize = 0;
                 let mut prev_end: usize = 0;
                 let mut include = array.start();

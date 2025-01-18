@@ -272,14 +272,14 @@ mod tests {
 
         let matches = compare(&arr, &arr, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
 
         assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
 
         let matches = compare(&arr, &arr, Operator::NotEq)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
@@ -293,25 +293,25 @@ mod tests {
 
         let matches = compare(&arr, &other, Operator::Lte)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&arr, &other, Operator::Lt)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
 
         let matches = compare(&other, &arr, Operator::Gte)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&other, &arr, Operator::Gt)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
     }

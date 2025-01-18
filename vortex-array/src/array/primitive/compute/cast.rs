@@ -83,7 +83,7 @@ mod test {
         // cast from u32 to u8
         let p = try_cast(&arr, PType::U8.into())
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
@@ -91,7 +91,7 @@ mod test {
         // to nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
@@ -99,7 +99,7 @@ mod test {
         // back to non-nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
@@ -107,7 +107,7 @@ mod test {
         // to nullable u32
         let p = try_cast(&p, &DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
@@ -115,7 +115,7 @@ mod test {
         // to non-nullable u8
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
@@ -126,7 +126,7 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = try_cast(&arr, PType::F32.into())
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }

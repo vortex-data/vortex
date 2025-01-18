@@ -63,11 +63,11 @@ pub fn search_sorted_canonical_array(
 ) -> SearchResult {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool().unwrap();
+            let bool_array = array.clone().into_canonical_bool().unwrap();
             let validity = bool_array
                 .logical_validity()
                 .into_array()
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap()
                 .boolean_buffer();
             let opt_values = bool_array
@@ -80,11 +80,11 @@ pub fn search_sorted_canonical_array(
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive().unwrap();
+            let primitive_array = array.clone().into_canonical_primitive().unwrap();
             let validity = primitive_array
                 .logical_validity()
                 .into_array()
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap()
                 .boolean_buffer();
             match_each_native_ptype!(p, |$P| {
@@ -100,7 +100,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview().unwrap();
+            let utf8 = array.clone().into_canonical_varbinview().unwrap();
             let opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();

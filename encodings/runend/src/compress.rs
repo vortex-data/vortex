@@ -23,7 +23,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             ));
         }
-        Validity::Array(a) => Some(a.into_bool()?.boolean_buffer()),
+        Validity::Array(a) => Some(a.into_canonical_bool()?.boolean_buffer()),
     };
 
     Ok(match validity {
@@ -191,7 +191,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             PrimitiveArray::new(buffer![T::default(); length], Validity::AllInvalid)
         }
         LogicalValidity::Array(array) => {
-            let validity = array.into_bool()?.boolean_buffer();
+            let validity = array.into_canonical_bool()?.boolean_buffer();
             let mut decoded = BufferMut::with_capacity(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
@@ -236,7 +236,7 @@ pub fn runend_decode_typed_bool(
                 .vortex_expect("invalid array")
         }
         LogicalValidity::Array(array) => {
-            let validity = array.into_bool()?.boolean_buffer();
+            let validity = array.into_canonical_bool()?.boolean_buffer();
             let mut decoded = BooleanBufferBuilder::new(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
@@ -275,7 +275,7 @@ mod test {
     fn encode() {
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         let (ends, values) = runend_encode(&arr).unwrap();
-        let values = values.into_primitive().unwrap();
+        let values = values.into_canonical_primitive().unwrap();
 
         assert_eq!(ends.as_slice::<u64>(), vec![2, 5, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 2, 3]);
@@ -290,7 +290,7 @@ mod test {
             ])),
         );
         let (ends, values) = runend_encode(&arr).unwrap();
-        let values = values.into_primitive().unwrap();
+        let values = values.into_canonical_primitive().unwrap();
 
         assert_eq!(ends.as_slice::<u64>(), vec![2, 4, 5, 8, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 0, 2, 3, 0]);
@@ -303,7 +303,7 @@ mod test {
             Validity::from(BooleanBuffer::new_unset(5)),
         );
         let (ends, values) = runend_encode(&arr).unwrap();
-        let values = values.into_primitive().unwrap();
+        let values = values.into_canonical_primitive().unwrap();
 
         assert_eq!(ends.as_slice::<u64>(), vec![5]);
         assert_eq!(values.as_slice::<i32>(), vec![0]);

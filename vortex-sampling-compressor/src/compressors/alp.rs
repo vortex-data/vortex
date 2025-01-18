@@ -44,7 +44,7 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = array.clone().into_primitive()?;
+        let parray = array.clone().into_canonical_primitive()?;
 
         let (exponents, encoded, patches) = match_each_alp_float_ptype!(
             parray.ptype(), |$T| {

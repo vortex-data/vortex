@@ -22,8 +22,8 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
             )
             .and_then(|values| {
                 runend_decode_bools(
-                    lhs.ends().into_primitive()?,
-                    values.into_bool()?,
+                    lhs.ends().into_canonical_primitive()?,
+                    values.into_canonical_bool()?,
                     lhs.offset(),
                     lhs.len(),
                 )
@@ -55,7 +55,7 @@ mod test {
     fn compare_run_end() {
         let arr = ree_array();
         let res = compare(arr, ConstantArray::new(5, 12), Operator::Eq).unwrap();
-        let res_canon = res.into_bool().unwrap();
+        let res_canon = res.into_canonical_bool().unwrap();
         assert_eq!(
             res_canon.boolean_buffer(),
             BooleanBuffer::from(vec![

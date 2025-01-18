@@ -34,7 +34,7 @@ impl Stream for VortexRecordBatchStream {
         self.idx += 1;
 
         let struct_array = chunk
-            .into_struct()
+            .into_canonical_struct()
             .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
 
         let projected_struct = struct_array

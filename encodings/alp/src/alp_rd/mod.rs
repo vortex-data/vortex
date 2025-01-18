@@ -276,8 +276,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().into_primitive()?;
-        let patch_values = patches.values().clone().into_primitive()?;
+        let indices = patches.indices().clone().into_canonical_primitive()?;
+        let patch_values = patches.values().clone().into_canonical_primitive()?;
         match_each_integer_ptype!(indices.ptype(), |$T| {
             indices
                 .as_slice::<$T>()

@@ -19,9 +19,9 @@ impl FillNullFn<BoolArray> for BoolEncoding {
             Validity::AllInvalid => ConstantArray::new(fill, array.len()).into_array(),
             Validity::Array(v) => {
                 let bool_buffer = if fill {
-                    &array.boolean_buffer() | &!&v.into_bool()?.boolean_buffer()
+                    &array.boolean_buffer() | &!&v.into_canonical_bool()?.boolean_buffer()
                 } else {
-                    &array.boolean_buffer() & &v.into_bool()?.boolean_buffer()
+                    &array.boolean_buffer() & &v.into_canonical_bool()?.boolean_buffer()
                 };
                 BoolArray::from(bool_buffer).into_array()
             }
@@ -51,7 +51,7 @@ mod tests {
         .unwrap();
         let non_null_array = fill_null(bool_array, fill_value.into())
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),

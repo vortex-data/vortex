@@ -9,7 +9,7 @@ use crate::{RunEndArray, RunEndEncoding};
 
 impl TakeFn<RunEndArray> for RunEndEncoding {
     fn take(&self, array: &RunEndArray, indices: &ArrayData) -> VortexResult<ArrayData> {
-        let primitive_indices = indices.clone().into_primitive()?;
+        let primitive_indices = indices.clone().into_canonical_primitive()?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -65,7 +65,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            taken.into_primitive().unwrap().as_slice::<i32>(),
+            taken.into_canonical_primitive().unwrap().as_slice::<i32>(),
             &[5, 5, 1, 4]
         );
     }
@@ -77,7 +77,10 @@ mod test {
             PrimitiveArray::from_iter([11]).as_ref(),
         )
         .unwrap();
-        assert_eq!(taken.into_primitive().unwrap().as_slice::<i32>(), &[5]);
+        assert_eq!(
+            taken.into_canonical_primitive().unwrap().as_slice::<i32>(),
+            &[5]
+        );
     }
 
     #[test]

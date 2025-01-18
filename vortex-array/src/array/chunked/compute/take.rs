@@ -27,7 +27,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
             return take_strict_sorted(array, indices);
         }
 
-        let indices = try_cast(indices, PType::U64.into())?.into_primitive()?;
+        let indices = try_cast(indices, PType::U64.into())?.into_canonical_primitive()?;
 
         // While the chunk idx remains the same, accumulate a list of chunk indices.
         let mut chunks = Vec::new();
@@ -140,7 +140,7 @@ mod test {
         let result = &ChunkedArray::try_from(take(arr.as_ref(), &indices).unwrap())
             .unwrap()
             .into_array()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }

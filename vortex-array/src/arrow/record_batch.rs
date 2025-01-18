@@ -36,7 +36,7 @@ impl TryFrom<ArrayData> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: ArrayData) -> VortexResult<Self> {
-        let struct_arr = value.into_struct().map_err(|err| {
+        let struct_arr = value.into_canonical_struct().map_err(|err| {
             vortex_err!("RecordBatch can only be constructed from a Vortex StructArray: {err}")
         })?;
 

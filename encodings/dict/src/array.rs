@@ -100,7 +100,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
         if array.dtype().is_nullable() {
             let primitive_codes = array
                 .codes()
-                .into_primitive()
+                .into_canonical_primitive()
                 .vortex_expect("Failed to convert DictArray codes to primitive array");
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                 let is_valid = primitive_codes

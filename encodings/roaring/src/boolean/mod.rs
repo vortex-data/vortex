@@ -162,7 +162,7 @@ mod test {
             BoolArray::from_iter([true, true].into_iter().chain(iter::repeat_n(false, 100)));
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();
-        let bool_arr = round_trip.into_bool().unwrap();
+        let bool_arr = round_trip.into_canonical_bool().unwrap();
         assert_eq!(bool_arr.len(), 102);
     }
 }

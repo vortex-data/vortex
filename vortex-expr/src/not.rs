@@ -79,7 +79,7 @@ mod tests {
             not_expr
                 .evaluate(bools.as_ref())
                 .unwrap()
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()

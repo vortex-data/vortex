@@ -14,7 +14,7 @@ use crate::{ArrayDType, IntoArrayVariant, ToArrayData};
 pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayRef> {
     let offsets = varbin_array
         .offsets()
-        .into_primitive()
+        .into_canonical_primitive()
         .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
     let offsets = match offsets.ptype() {
         PType::I32 | PType::I64 => offsets,
@@ -23,7 +23,7 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
 
         // Unless it's u64, everything else can be converted into an i32.
         _ => try_cast(offsets.to_array(), PType::I32.into())
-            .and_then(|a| a.into_primitive())
+            .and_then(|a| a.into_canonical_primitive())
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
     };
     let nulls = varbin_array

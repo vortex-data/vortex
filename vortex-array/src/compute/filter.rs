@@ -581,7 +581,9 @@ impl TryFrom<ArrayData> for FilterMask {
 
         // TODO(ngates): should we have a `to_filter_mask` compute function where encodings
         //  pick the best possible conversion? E.g. SparseArray may want from_indices.
-        Ok(Self::from_buffer(array.into_bool()?.boolean_buffer()))
+        Ok(Self::from_buffer(
+            array.into_canonical_bool()?.boolean_buffer(),
+        ))
     }
 }
 

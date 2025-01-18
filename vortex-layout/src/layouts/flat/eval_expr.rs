@@ -105,7 +105,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap();
 
             assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
@@ -128,7 +128,7 @@ mod test {
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
                 .unwrap()
-                .into_bool()
+                .into_canonical_bool()
                 .unwrap();
 
             assert_eq!(
@@ -153,7 +153,7 @@ mod test {
                 .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
                 .await
                 .unwrap()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap();
 
             assert_eq!(result.as_slice::<i32>(), &[3, 4],);

@@ -13,7 +13,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
     where
         F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
     {
-        let offsets = self.offsets().into_primitive()?;
+        let offsets = self.offsets().into_canonical_primitive()?;
         let validity = self.logical_validity().to_null_buffer()?;
 
         // TODO(ngates): what happens if bytes is much larger than sliced_bytes?

@@ -358,7 +358,10 @@ where
             .map_err(DataFusionError::from)?)));
         }
 
-        let chunk = this.vortex_array.chunk(*this.chunk_idx)?.into_struct()?;
+        let chunk = this
+            .vortex_array
+            .chunk(*this.chunk_idx)?
+            .into_canonical_struct()?;
 
         *this.chunk_idx += 1;
 

@@ -88,7 +88,11 @@ mod test {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array()
     )]
     fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
-        let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
+        let r = or(&lhs, &rhs)
+            .unwrap()
+            .into_canonical_bool()
+            .unwrap()
+            .into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
         let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
@@ -107,7 +111,11 @@ mod test {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
     fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
-        let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
+        let r = and(&lhs, &rhs)
+            .unwrap()
+            .into_canonical_bool()
+            .unwrap()
+            .into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
         let v1 = scalar_at(&r, 1).unwrap().as_bool().value();

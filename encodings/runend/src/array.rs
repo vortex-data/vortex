@@ -202,14 +202,14 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
 
 impl IntoCanonical for RunEndArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let pends = self.ends().into_primitive()?;
+        let pends = self.ends().into_canonical_primitive()?;
         match self.dtype() {
             DType::Bool(_) => {
-                let bools = self.values().into_bool()?;
+                let bools = self.values().into_canonical_bool()?;
                 runend_decode_bools(pends, bools, self.offset(), self.len()).map(Canonical::Bool)
             }
             DType::Primitive(..) => {
-                let pvalues = self.values().into_primitive()?;
+                let pvalues = self.values().into_canonical_primitive()?;
                 runend_decode_primitive(pends, pvalues, self.offset(), self.len())
                     .map(Canonical::Primitive)
             }

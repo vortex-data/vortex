@@ -77,7 +77,12 @@ pub(crate) fn try_canonicalize_chunks(
                 .iter()
                 // Extension-typed arrays can be compressed into something that is not an
                 // ExtensionArray, so we should canonicalize each chunk into ExtensionArray first.
-                .map(|chunk| chunk.clone().into_extension().map(|ext| ext.storage()))
+                .map(|chunk| {
+                    chunk
+                        .clone()
+                        .into_canonical_extension()
+                        .map(|ext| ext.storage())
+                })
                 .collect::<VortexResult<Vec<ArrayData>>>()?;
             let storage_dtype = ext_dtype.storage_dtype().clone();
             let chunked_storage =
@@ -132,13 +137,13 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
         .vortex_expect("ListArray must have List dtype");
 
     for chunk in chunks {
-        let chunk = chunk.clone().into_list()?;
+        let chunk = chunk.clone().into_canonical_list()?;
         // TODO: handle i32 offsets if they fit.
         let offsets_arr = try_cast(
             chunk.offsets(),
             &DType::Primitive(PType::I64, Nullability::NonNullable),
         )?
-        .into_primitive()?;
+        .into_canonical_primitive()?;
 
         let first_offset_value: usize = usize::try_from(&scalar_at(offsets_arr.as_ref(), 0)?)?;
         let last_offset_value: usize =
@@ -200,7 +205,7 @@ fn pack_bools(chunks: &[ArrayData], validity: Validity) -> VortexResult<BoolArra
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut buffer = BooleanBufferBuilder::new(len);
     for chunk in chunks {
-        let chunk = chunk.clone().into_bool()?;
+        let chunk = chunk.clone().into_canonical_bool()?;
         buffer.append_buffer(&chunk.boolean_buffer());
     }
 
@@ -219,7 +224,7 @@ fn pack_primitives<T: NativePType>(
     let total_len = chunks.iter().map(|a| a.len()).sum();
     let mut buffer = BufferMut::with_capacity(total_len);
     for chunk in chunks {
-        let chunk = chunk.clone().into_primitive()?;
+        let chunk = chunk.clone().into_canonical_primitive()?;
         buffer.extend_from_slice(chunk.as_slice::<T>());
     }
     Ok(PrimitiveArray::new(buffer.freeze(), validity))
@@ -243,7 +248,7 @@ fn pack_views(
         // As part of the packing operation, we need to rewrite them to be referenced to the global
         // merged buffers list.
         let buffers_offset = u32::try_from(buffers.len())?;
-        let canonical_chunk = chunk.clone().into_varbinview()?;
+        let canonical_chunk = chunk.clone().into_canonical_varbinview()?;
         buffers.extend(canonical_chunk.buffers());
 
         for view in canonical_chunk.views().iter() {
@@ -328,16 +333,16 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        let canonical_struct = chunked.into_struct().unwrap();
+        let canonical_struct = chunked.into_canonical_struct().unwrap();
         let canonical_varbin = canonical_struct
             .maybe_null_field_by_idx(0)
             .unwrap()
-            .into_varbinview()
+            .into_canonical_varbinview()
             .unwrap();
         let original_varbin = struct_array
             .maybe_null_field_by_idx(0)
             .unwrap()
-            .into_varbinview()
+            .into_canonical_varbinview()
             .unwrap();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
@@ -369,7 +374,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().into_list().unwrap();
+        let canon_values = chunked_list.unwrap().into_canonical_list().unwrap();
 
         assert_eq!(
             scalar_at(l1, 0).unwrap(),

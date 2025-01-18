@@ -272,7 +272,7 @@ pub(crate) fn varbinview_to_arrow(
 fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef> {
     let offsets = list
         .offsets()
-        .into_primitive()
+        .into_canonical_primitive()
         .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
     let (cast_ptype, element_dtype) = match data_type {
@@ -283,7 +283,7 @@ fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef
 
     let arrow_offsets = try_cast(offsets, cast_ptype.into())
         .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray"))?
-        .into_primitive()?;
+        .into_canonical_primitive()?;
 
     let values = list.elements().into_arrow_with_data_type(element_dtype)?;
 
@@ -318,7 +318,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 $values,
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
-            .into_primitive()?;
+            .into_canonical_primitive()?;
             let nulls = temporal_values.logical_validity().to_null_buffer()?;
             let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
@@ -465,50 +465,50 @@ where
 ///
 /// This trait has a blanket implementation for all types implementing [IntoCanonical].
 pub trait IntoArrayVariant {
-    fn into_null(self) -> VortexResult<NullArray>;
+    fn into_canonical_null(self) -> VortexResult<NullArray>;
 
-    fn into_bool(self) -> VortexResult<BoolArray>;
+    fn into_canonical_bool(self) -> VortexResult<BoolArray>;
 
-    fn into_primitive(self) -> VortexResult<PrimitiveArray>;
+    fn into_canonical_primitive(self) -> VortexResult<PrimitiveArray>;
 
-    fn into_struct(self) -> VortexResult<StructArray>;
+    fn into_canonical_struct(self) -> VortexResult<StructArray>;
 
-    fn into_list(self) -> VortexResult<ListArray>;
+    fn into_canonical_list(self) -> VortexResult<ListArray>;
 
-    fn into_varbinview(self) -> VortexResult<VarBinViewArray>;
+    fn into_canonical_varbinview(self) -> VortexResult<VarBinViewArray>;
 
-    fn into_extension(self) -> VortexResult<ExtensionArray>;
+    fn into_canonical_extension(self) -> VortexResult<ExtensionArray>;
 }
 
 impl<T> IntoArrayVariant for T
 where
     T: IntoCanonical,
 {
-    fn into_null(self) -> VortexResult<NullArray> {
+    fn into_canonical_null(self) -> VortexResult<NullArray> {
         self.into_canonical()?.into_null()
     }
 
-    fn into_bool(self) -> VortexResult<BoolArray> {
+    fn into_canonical_bool(self) -> VortexResult<BoolArray> {
         self.into_canonical()?.into_bool()
     }
 
-    fn into_primitive(self) -> VortexResult<PrimitiveArray> {
+    fn into_canonical_primitive(self) -> VortexResult<PrimitiveArray> {
         self.into_canonical()?.into_primitive()
     }
 
-    fn into_struct(self) -> VortexResult<StructArray> {
+    fn into_canonical_struct(self) -> VortexResult<StructArray> {
         self.into_canonical()?.into_struct()
     }
 
-    fn into_list(self) -> VortexResult<ListArray> {
+    fn into_canonical_list(self) -> VortexResult<ListArray> {
         self.into_canonical()?.into_list()
     }
 
-    fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
+    fn into_canonical_varbinview(self) -> VortexResult<VarBinViewArray> {
         self.into_canonical()?.into_varbinview()
     }
 
-    fn into_extension(self) -> VortexResult<ExtensionArray> {
+    fn into_canonical_extension(self) -> VortexResult<ExtensionArray> {
         self.into_canonical()?.into_extension()
     }
 }

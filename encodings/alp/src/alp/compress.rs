@@ -60,7 +60,7 @@ pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
 }
 
 pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
-    let encoded = array.encoded().into_primitive()?;
+    let encoded = array.encoded().into_canonical_primitive()?;
     let validity = encoded.validity();
     let ptype = array.dtype().try_into()?;
 
@@ -96,7 +96,7 @@ mod tests {
         assert_eq!(
             encoded
                 .encoded()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap()
                 .as_slice::<i32>(),
             vec![1234; 1025]
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(
             encoded
                 .encoded()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap()
                 .as_slice::<i32>(),
             vec![0, 1234, 0]
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(
             encoded
                 .encoded()
-                .into_primitive()
+                .into_canonical_primitive()
                 .unwrap()
                 .as_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000] // fill forward
@@ -178,7 +178,7 @@ mod tests {
     fn roundtrips_close_fractional() {
         let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
         let alp_arr = alp_encode(&original).unwrap();
-        let decompressed = alp_arr.into_primitive().unwrap();
+        let decompressed = alp_arr.into_canonical_primitive().unwrap();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());
     }
 
@@ -189,7 +189,7 @@ mod tests {
             Validity::AllInvalid,
         );
         let alp_arr = alp_encode(&original).unwrap();
-        let decompressed = alp_arr.into_primitive().unwrap();
+        let decompressed = alp_arr.into_canonical_primitive().unwrap();
         assert_eq!(original.as_slice::<f64>(), decompressed.as_slice::<f64>());
         assert_eq!(original.validity(), decompressed.validity());
     }

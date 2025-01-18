@@ -107,7 +107,7 @@ mod test {
                 &DType::Primitive(PType::U64, Nullability::NonNullable)
             )
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap()
             .as_slice::<u64>(),
             &[0u64, 1, 2, 3],

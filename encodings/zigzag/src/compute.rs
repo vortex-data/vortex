@@ -133,10 +133,13 @@ mod tests {
     fn take_zigzag() {
         let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
         let indices = buffer![0, 2].into_array();
-        let actual = take(zigzag, indices).unwrap().into_primitive().unwrap();
+        let actual = take(zigzag, indices)
+            .unwrap()
+            .into_canonical_primitive()
+            .unwrap();
         let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
     }
@@ -147,11 +150,11 @@ mod tests {
         let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
         let actual = filter(&zigzag.into_array(), &filter_mask)
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()
-            .into_primitive()
+            .into_canonical_primitive()
             .unwrap();
         assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
     }

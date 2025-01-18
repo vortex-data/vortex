@@ -36,7 +36,7 @@ fn array_view_fixture() -> VarBinViewArray {
         .unwrap()
         .into_array_data()
         .unwrap()
-        .into_varbinview()
+        .into_canonical_varbinview()
         .unwrap()
 }
 

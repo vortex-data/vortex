@@ -39,7 +39,7 @@ impl ScalarAtFn<RunEndBoolArray> for RunEndBoolEncoding {
 
 impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
     fn take(&self, array: &RunEndBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
-        let primitive_indices = indices.clone().into_primitive()?;
+        let primitive_indices = indices.clone().into_canonical_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
                 .as_slice::<$P>()
@@ -149,7 +149,7 @@ mod tests {
         .unwrap();
 
         let taken = take(&re_array, PrimitiveArray::from_iter([6, 9])).unwrap();
-        let taken_bool = taken.into_bool().unwrap();
+        let taken_bool = taken.into_canonical_bool().unwrap();
         assert_eq!(taken_bool.dtype(), re_array.dtype());
         assert_eq!(
             taken_bool.boolean_buffer(),

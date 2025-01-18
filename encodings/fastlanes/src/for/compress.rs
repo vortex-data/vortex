@@ -60,7 +60,7 @@ fn encoded_zero<T: NativePType>(
         LogicalValidity::Array(a) => {
             let len = a.len();
             let valid_indices = a
-                .into_bool()?
+                .into_canonical_bool()?
                 .boolean_buffer()
                 .set_indices()
                 .map(|i| i as u64)
@@ -97,7 +97,10 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.ptype();
 
     // TODO(ngates): do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().into_primitive()?.reinterpret_cast(ptype);
+    let encoded = array
+        .encoded()
+        .into_canonical_primitive()?
+        .reinterpret_cast(ptype);
     let validity = encoded.validity();
 
     Ok(match_each_integer_ptype!(ptype, |$T| {
@@ -215,7 +218,7 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = for_compress(array.clone()).unwrap();
         assert!(compressed.shift() > 0);
-        let decompressed = compressed.into_primitive().unwrap();
+        let decompressed = compressed.into_canonical_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }
 
@@ -232,12 +235,16 @@ mod test {
                 .unwrap()
         );
 
-        let encoded = compressed.encoded().into_primitive().unwrap();
+        let encoded = compressed.encoded().into_canonical_primitive().unwrap();
         let encoded_bytes: &[u8] = encoded.as_slice::<u8>();
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         assert_eq!(encoded_bytes, unsigned.as_slice());
 
-        let decompressed = compressed.as_ref().clone().into_primitive().unwrap();
+        let decompressed = compressed
+            .as_ref()
+            .clone()
+            .into_canonical_primitive()
+            .unwrap();
         assert_eq!(decompressed.as_slice::<i8>(), array.as_slice::<i8>());
         array
             .as_slice::<i8>()

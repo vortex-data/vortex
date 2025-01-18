@@ -12,8 +12,8 @@ impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
         let (_, patch_indices, patch_values) = patches.into_parts();
-        let patch_indices = patch_indices.into_primitive()?;
-        let patch_values = patch_values.into_primitive()?;
+        let patch_indices = patch_indices.into_canonical_primitive()?;
+        let patch_values = patch_values.into_canonical_primitive()?;
 
         let patched_validity =
             self.validity()
@@ -61,7 +61,7 @@ mod tests {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = slice(input, 2, 8).unwrap();
         assert_eq!(
-            sliced.into_primitive().unwrap().as_slice::<u32>(),
+            sliced.into_canonical_primitive().unwrap().as_slice::<u32>(),
             &[2u32; 6]
         );
     }

@@ -127,7 +127,7 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
 
 impl IntoCanonical for ZigZagArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        zigzag_decode(self.encoded().into_primitive()?).map(Canonical::Primitive)
+        zigzag_decode(self.encoded().into_canonical_primitive()?).map(Canonical::Primitive)
     }
 }
 

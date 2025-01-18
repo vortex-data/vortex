@@ -160,13 +160,16 @@ mod test {
         let mut rng = StdRng::seed_from_u64(39451);
         let input = (0..16 * 8 - 61).map(|_x| rng.gen::<bool>()).collect_vec();
         let b = BoolArray::from_iter(input.clone());
-        let b = slice(b, 3, 16 * 8 - 66).unwrap().into_bool().unwrap();
+        let b = slice(b, 3, 16 * 8 - 66)
+            .unwrap()
+            .into_canonical_bool()
+            .unwrap();
         let (ends, start) = runend_bool_encode_slice(&b.boolean_buffer());
         let ends = PrimitiveArray::new(ends, Validity::NonNullable);
 
         let decoded = decode_runend_bool(&ends, start, Validity::NonNullable, 0, 16 * 8 - 69)
             .unwrap()
-            .into_bool()
+            .into_canonical_bool()
             .unwrap()
             .boolean_buffer()
             .iter()

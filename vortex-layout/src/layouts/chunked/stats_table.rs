@@ -88,7 +88,7 @@ impl StatsTable {
                     // TODO(ngates): use Stat::Sum when we add it.
                     let parray =
                         try_cast(array, &DType::Primitive(PType::U64, Nullability::Nullable))?
-                            .into_primitive()?;
+                            .into_canonical_primitive()?;
                     let sum: u64 = parray
                         .as_slice::<u64>()
                         .iter()
