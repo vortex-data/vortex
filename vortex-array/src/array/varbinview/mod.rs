@@ -290,7 +290,7 @@ impl VarBinViewArray {
             self.0
                 .byte_buffer(0)
                 .vortex_expect("Must have views buffer")
-                .slice(view_byte_start..view_byte_end)
+                .slice_with_alignment(view_byte_start..view_byte_end, Alignment::new(1))
         }
     }
 
