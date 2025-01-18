@@ -179,6 +179,9 @@ impl VarBinArray {
         builder.finish(dtype)
     }
 
+    /// Get value offset at a given index
+    ///
+    /// Note: There's 1 more offsets than the elements in the array, thus last offset is at array length index
     pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
         if index > self.len() + 1 {
             vortex_bail!(OutOfBounds: index, 0, self.len() + 1)
@@ -201,6 +204,9 @@ impl VarBinArray {
             }))
     }
 
+    /// Access value bytes at a given index
+    ///
+    /// Will return buffer referncing underlying data without performing a copy
     pub fn bytes_at(&self, index: usize) -> VortexResult<ByteBuffer> {
         let start = self.offset_at(index)?;
         let end = self.offset_at(index + 1)?;

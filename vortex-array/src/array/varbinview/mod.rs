@@ -254,7 +254,7 @@ impl VarBinViewArray {
 
     /// Number of raw string data buffers held by this array.
     pub fn buffer_count(&self) -> usize {
-        self.as_ref().nbuffers() - 1
+        self.0.nbuffers() - 1
     }
 
     /// Access to the primitive views buffer.
@@ -272,6 +272,9 @@ impl VarBinViewArray {
         )
     }
 
+    /// Access value bytes at a given index
+    ///
+    /// Will return a bytebuffer pointing to the underlying data without performing a copy
     #[inline]
     pub fn bytes_at(&self, index: usize) -> ByteBuffer {
         let view = self.views()[index];
@@ -284,7 +287,10 @@ impl VarBinViewArray {
             // Return access to the range of bytes around it.
             let view_byte_start = index * size_of::<BinaryView>() + 4;
             let view_byte_end = view_byte_start + view.len() as usize;
-            self.buffer(0).slice(view_byte_start..view_byte_end)
+            self.0
+                .byte_buffer(0)
+                .vortex_expect("Must have views buffer")
+                .slice(view_byte_start..view_byte_end)
         }
     }
 
@@ -303,7 +309,7 @@ impl VarBinViewArray {
             );
         }
 
-        self.as_ref()
+        self.0
             .byte_buffer(idx + 1)
             .vortex_expect("Out of bounds view buffer")
             .clone()
@@ -315,9 +321,10 @@ impl VarBinViewArray {
         self.0.byte_buffers().skip(1)
     }
 
+    /// Validity of the array
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
-            self.as_ref()
+            self.0
                 .child(0, &Validity::DTYPE, self.len())
                 .vortex_expect("VarBinViewArray: validity child")
         })

@@ -236,7 +236,7 @@ impl DictEncoder for BytesDictBuilder {
     }
 
     fn values(&mut self) -> ArrayData {
-        let values_validity = dict_values_validity(self.dtype.is_nullable(), self.values.len());
+        let values_validity = dict_values_validity(self.dtype.is_nullable(), self.views.len());
         VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],
