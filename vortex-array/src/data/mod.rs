@@ -7,7 +7,7 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
@@ -23,7 +23,7 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
     ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ChildrenCollector, ContextRef,
-    NamedChildrenCollector, TryDeserializeArrayMetadata,
+    IntoArrayData, NamedChildrenCollector, TryDeserializeArrayMetadata,
 };
 
 mod owned;
@@ -53,6 +53,21 @@ impl From<OwnedArrayData> for ArrayData {
 impl From<ViewedArrayData> for ArrayData {
     fn from(data: ViewedArrayData) -> Self {
         ArrayData(InnerArrayData::Viewed(data))
+    }
+}
+
+impl TryFrom<Vec<ArrayData>> for ArrayData {
+    type Error = VortexError;
+
+    fn try_from(mut value: Vec<ArrayData>) -> Result<Self, Self::Error> {
+        match value.len() {
+            0 => vortex_bail!("Can't construct ArrayData from empty vec"),
+            1 => Ok(value.remove(0)),
+            _ => {
+                let dtype = value[0].dtype().clone();
+                ChunkedArray::try_new(value, dtype).map(|a| a.into_array())
+            }
+        }
     }
 }
 

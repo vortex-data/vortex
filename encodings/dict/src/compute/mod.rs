@@ -80,20 +80,17 @@ mod test {
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
-    use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayData, ArrayLen, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::{
-        dict_encode_primitive, dict_encode_typed_primitive, dict_encode_varbinview, DictArray,
-    };
+    use crate::dict_encode;
 
     #[test]
     fn canonicalise_nullable_primitive() {
         let reference =
             PrimitiveArray::from_option_iter([Some(42), Some(-9), None, Some(42), None, Some(-9)]);
-        let (codes, values) = dict_encode_typed_primitive::<i32>(&reference);
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+        let dict = dict_encode(reference.as_ref()).unwrap();
         let flattened_dict = dict.to_array().into_primitive().unwrap();
         assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
     }
@@ -105,8 +102,7 @@ mod test {
             DType::Utf8(Nullability::Nullable),
         );
         assert_eq!(reference.len(), 6);
-        let (codes, values) = dict_encode_varbinview(&reference);
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+        let dict = dict_encode(reference.as_ref()).unwrap();
         let flattened_dict = dict.to_array().into_varbinview().unwrap();
         assert_eq!(
             flattened_dict
@@ -131,8 +127,7 @@ mod test {
             Some(1),
             Some(5),
         ]);
-        let (codes, values) = dict_encode_primitive(&reference);
-        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+        let dict = dict_encode(reference.as_ref()).unwrap();
         slice(dict, 1, 4).unwrap()
     }
 

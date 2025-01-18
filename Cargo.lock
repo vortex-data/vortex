@@ -5016,7 +5016,6 @@ version = "0.21.1"
 dependencies = [
  "arrow-buffer",
  "criterion",
- "hashbrown 0.15.2",
  "num-traits",
  "rand",
  "serde",
