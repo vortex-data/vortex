@@ -127,7 +127,7 @@ impl VarBinArray {
     /// Access value bytes child array limited to values that are logically present in
     /// the array unlike [bytes][Self::bytes].
     pub fn sliced_bytes(&self) -> ByteBuffer {
-        let first_offset: usize = self.offset_at(0).vortex_expect("0th offset");
+        let first_offset: usize = self.offset_at(0).vortex_expect("1st offset");
         let last_offset = self.offset_at(self.len()).vortex_expect("Last offset");
 
         self.bytes().slice(first_offset..last_offset)
