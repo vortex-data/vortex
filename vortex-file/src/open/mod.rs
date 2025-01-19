@@ -290,7 +290,7 @@ impl VortexOpenOptions {
                 )
             })?;
 
-        let root_layout = LayoutData::try_new_viewed(
+        let root_layout = LayoutData::try_new_viewed_unchecked(
             root_encoding,
             dtype,
             bytes.clone(),
