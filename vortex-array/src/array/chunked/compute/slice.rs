@@ -67,7 +67,7 @@ mod tests {
         ChunkedArray::try_from(arr)
             .unwrap()
             .chunks()
-            .map(|a| a.into_canonical_primitive().unwrap())
+            .map(|a| a.into_canonical_primitive())
             .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
         assert_eq!(values, slice);
     }

@@ -1,7 +1,7 @@
 use arrow_array::ArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
@@ -10,17 +10,23 @@ use crate::arrow::FromArrowArray;
 use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         let nullable = self.dtype().is_nullable();
-        let array_ref = varbin_to_arrow(&self)?;
+        let array_ref = varbin_to_arrow(&self).vortex_expect("Varbin to arrow");
         let array = match self.dtype() {
-            DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
-            DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
+            DType::Utf8(_) => {
+                arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View).vortex_unwrap()
+            }
+            DType::Binary(_) => {
+                arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView).vortex_unwrap()
+            }
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
 
-        VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
+        VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable))
+            .map(Canonical::VarBinView)
+            .vortex_unwrap()
     }
 
     fn into_arrow(self) -> VortexResult<ArrayRef> {
@@ -47,7 +53,7 @@ mod test {
 
     use crate::array::varbin::builder::VarBinBuilder;
     use crate::validity::ArrayValidity;
-    use crate::{ArrayDType, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayVariant};
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]
@@ -62,7 +68,7 @@ mod test {
         varbin.push_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.into_canonical().unwrap().into_varbinview().unwrap();
+        let canonical = varbin.into_canonical_varbinview();
         assert_eq!(canonical.dtype(), &dtype);
 
         assert!(!canonical.is_valid(0));

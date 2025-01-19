@@ -200,7 +200,7 @@ pub mod test_harness {
 
     use crate::array::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{ArrayDType as _, ArrayData, IntoArrayData as _, IntoCanonical as _};
+    use crate::{ArrayDType as _, ArrayData, IntoArrayData as _, IntoArrayVariant};
 
     #[allow(clippy::unwrap_used)]
     fn to_vec_of_scalar(array: &ArrayData) -> Vec<Scalar> {
@@ -216,12 +216,7 @@ pub mod test_harness {
     where
         Scalar: From<T>,
     {
-        let canonicalized_array = array
-            .clone()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let canonicalized_array = array.clone().into_canonical_primitive();
         let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
         let one = T::from(1)
@@ -297,17 +292,14 @@ mod test {
 
     use crate::array::PrimitiveArray;
     use crate::compute::{scalar_at, sub_scalar};
-    use crate::{ArrayLen as _, IntoArrayData, IntoCanonical};
+    use crate::{ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_scalar_subtract_unsigned() {
         let values = buffer![1u16, 2, 3].into_array();
         let results = sub_scalar(&values, 1u16.into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap()
+            .into_canonical_primitive()
             .as_slice::<u16>()
             .to_vec();
         assert_eq!(results, &[0u16, 1, 2]);
@@ -318,10 +310,7 @@ mod test {
         let values = buffer![1i64, 2, 3].into_array();
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap()
+            .into_canonical_primitive()
             .as_slice::<i64>()
             .to_vec();
         assert_eq!(results, &[2i64, 3, 4]);
@@ -333,10 +322,7 @@ mod test {
             PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]).into_array();
         let result = sub_scalar(&values, Some(1u16).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         let actual = (0..result.len())
             .map(|index| scalar_at(&result, index).unwrap())
@@ -358,10 +344,7 @@ mod test {
         let to_subtract = -1f64;
         let results = sub_scalar(&values, to_subtract.into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap()
+            .into_canonical_primitive()
             .as_slice::<f64>()
             .to_vec();
         assert_eq!(results, &[2.0f64, 3.0, 4.0]);

@@ -47,7 +47,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         Ok(CompressedArray::compressed(
-            roaring_bool_encode(array.clone().into_canonical_bool()?)?.into_array(),
+            roaring_bool_encode(array.clone().into_canonical_bool())?.into_array(),
             Some(CompressionTree::flat(self)),
             array,
         ))

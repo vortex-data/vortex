@@ -31,7 +31,7 @@ fn filter_select_var_bin_by_slice(
     mask: &FilterMask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().into_canonical_primitive()?;
+    let offsets = values.offsets().into_canonical_primitive();
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
@@ -58,7 +58,7 @@ where
     usize: AsPrimitive<O>,
 {
     let logical_validity = validity.to_logical(offsets.len() - 1);
-    if let Some(val) = logical_validity.to_null_buffer()? {
+    if let Some(val) = logical_validity.to_null_buffer() {
         let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
         for (start, end) in mask.slices().iter().copied() {
@@ -131,7 +131,7 @@ fn filter_select_var_bin_by_index(
     mask: &FilterMask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().into_canonical_primitive()?;
+    let offsets = values.offsets().into_canonical_primitive();
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),

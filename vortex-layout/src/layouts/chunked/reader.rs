@@ -118,7 +118,6 @@ impl ChunkedReader {
                 predicate
                     .evaluate(stats_table.array())?
                     .map(|mask| mask.into_canonical_bool())
-                    .transpose()?
                     .map(|mask| mask.boolean_buffer())
             } else {
                 None

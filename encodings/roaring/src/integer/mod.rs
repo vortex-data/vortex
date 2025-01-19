@@ -17,7 +17,7 @@ use vortex_array::{
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
 mod compress;
 mod compute;
@@ -118,7 +118,7 @@ impl ValidityVTable<RoaringIntArray> for RoaringIntEncoding {
 }
 
 impl IntoCanonical for RoaringIntArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         try_cast(
             PrimitiveArray::new(
                 // TODO(ngates): we may well care about this copy.
@@ -127,7 +127,8 @@ impl IntoCanonical for RoaringIntArray {
             ),
             self.dtype(),
         )
-        .and_then(ArrayData::into_canonical)
+        .vortex_unwrap()
+        .into_canonical()
     }
 }
 

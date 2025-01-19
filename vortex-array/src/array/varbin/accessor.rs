@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
@@ -9,12 +8,12 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::IntoArrayVariant;
 
 impl ArrayAccessor<[u8]> for VarBinArray {
-    fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
+    fn with_iterator<F, R>(&self, f: F) -> R
     where
         F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
     {
-        let offsets = self.offsets().into_canonical_primitive()?;
-        let validity = self.logical_validity().to_null_buffer()?;
+        let offsets = self.offsets().into_canonical_primitive();
+        let validity = self.logical_validity().to_null_buffer();
 
         // TODO(ngates): what happens if bytes is much larger than sliced_bytes?
         let bytes = self.bytes();
@@ -29,7 +28,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                         .iter()
                         .tuple_windows()
                         .map(|(start, end)| Some(&bytes[*start as usize..*end as usize]));
-                    Ok(f(&mut iter))
+                    f(&mut iter)
                 }
                 Some(validity) => {
                     let mut iter = offsets
@@ -43,7 +42,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                                 None
                             }
                         });
-                    Ok(f(&mut iter))
+                    f(&mut iter)
                 }
             }
         })

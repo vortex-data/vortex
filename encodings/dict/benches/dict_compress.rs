@@ -68,7 +68,7 @@ fn dict_decode(c: &mut Criterion) {
     group.bench_function("dict_decode_primitives", |b| {
         b.iter_batched(
             || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
-            |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
+            |dict_arr| black_box(dict_arr.into_canonical()),
             BatchSize::SmallInput,
         );
     });
@@ -79,7 +79,7 @@ fn dict_decode(c: &mut Criterion) {
     group.bench_function("dict_decode_varbin", |b| {
         b.iter_batched(
             || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
-            |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
+            |dict_arr| black_box(dict_arr.into_canonical()),
             BatchSize::SmallInput,
         );
     });
@@ -90,7 +90,7 @@ fn dict_decode(c: &mut Criterion) {
     group.bench_function("dict_decode_varbinview", |b| {
         b.iter_batched(
             || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
-            |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
+            |dict_arr| black_box(dict_arr.into_canonical()),
             BatchSize::SmallInput,
         );
     });

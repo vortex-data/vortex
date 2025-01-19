@@ -15,7 +15,7 @@ use vortex_array::{
     IntoCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 
 impl_encoding!("vortex.dict", ids::DICT, Dict);
 
@@ -68,18 +68,22 @@ impl DictArray {
 impl ValidateVTable<DictArray> for DictEncoding {}
 
 impl IntoCanonical for DictArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         match self.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayData = self.values().into_canonical()?.into();
-                take(canonical_values, self.codes())?.into_canonical()
+                let canonical_values: ArrayData = self.values().into_canonical().into();
+                take(canonical_values, self.codes())
+                    .vortex_unwrap()
+                    .into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => take(self.values(), self.codes())?.into_canonical(),
+            _ => take(self.values(), self.codes())
+                .vortex_unwrap()
+                .into_canonical(),
         }
     }
 }
@@ -98,10 +102,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
 
     fn logical_validity(&self, array: &DictArray) -> LogicalValidity {
         if array.dtype().is_nullable() {
-            let primitive_codes = array
-                .codes()
-                .into_canonical_primitive()
-                .vortex_expect("Failed to convert DictArray codes to primitive array");
+            let primitive_codes = array.codes().into_canonical_primitive();
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                 let is_valid = primitive_codes
                     .as_slice::<$P>();

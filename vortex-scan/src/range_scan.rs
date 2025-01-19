@@ -250,17 +250,10 @@ mod tests {
             .unwrap();
 
         assert!(res.as_struct_array().is_some());
-        let field = res
-            .into_canonical_struct()
-            .unwrap()
-            .maybe_null_field_by_name("a");
+        let field = res.into_canonical_struct().maybe_null_field_by_name("a");
 
         assert_eq!(
-            field
-                .unwrap()
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            field.unwrap().into_canonical_primitive().as_slice::<u64>(),
             (0..len as u64)
                 .filter(|&i| {
                     (i <= 10 || i >= 30) && (i <= 100 || i >= 130) && (i <= 510 || i >= 530)
@@ -314,17 +307,10 @@ mod tests {
 
         assert!(res.as_struct_array().is_some());
 
-        let field = res
-            .into_canonical_struct()
-            .unwrap()
-            .maybe_null_field_by_name("a");
+        let field = res.into_canonical_struct().maybe_null_field_by_name("a");
 
         assert_eq!(
-            field
-                .unwrap()
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            field.unwrap().into_canonical_primitive().as_slice::<u64>(),
             (0..len as u64)
                 .filter(|&i| !(i > 10 && i < 990))
                 .collect::<Vec<_>>()

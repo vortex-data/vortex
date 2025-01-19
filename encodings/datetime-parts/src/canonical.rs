@@ -7,14 +7,14 @@ use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::PrimitiveScalar;
 
 use crate::DateTimePartsArray;
 
 impl IntoCanonical for DateTimePartsArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(&self)?.into()))
+    fn into_canonical(self) -> Canonical {
+        Canonical::Extension(decode_to_temporal(&self).vortex_unwrap().into())
     }
 }
 
@@ -42,7 +42,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         array.days(),
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
-    .into_canonical_primitive()?;
+    .into_canonical_primitive();
 
     // We start with the days component, which is always present.
     // And then add the seconds and subseconds components.
@@ -63,7 +63,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         }
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
-            .into_canonical_primitive()?;
+            .into_canonical_primitive();
         for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
@@ -83,7 +83,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             array.subsecond(),
             &DType::Primitive(PType::I64, NonNullable),
         )?
-        .into_canonical_primitive()?;
+        .into_canonical_primitive();
         for (v, subsecond) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subsecond;
         }
@@ -134,8 +134,7 @@ mod test {
         let primitive_values = decode_to_temporal(&date_times)
             .unwrap()
             .temporal_values()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         assert_eq!(
             primitive_values.as_slice::<i64>(),

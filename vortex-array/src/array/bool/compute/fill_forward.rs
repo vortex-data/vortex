@@ -29,7 +29,7 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
         }
 
         let validity = validity
-            .to_null_buffer()?
+            .to_null_buffer()
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
 
         let bools = array.boolean_buffer();

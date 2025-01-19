@@ -99,8 +99,8 @@ impl RowMask {
         let length = usize::try_from(end - begin)
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 
-        let indices = try_cast(array, &DType::Primitive(PType::U64, NonNullable))?
-            .into_canonical_primitive()?;
+        let indices =
+            try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_canonical_primitive();
 
         let mask = FilterMask::from_indices(
             length,
@@ -157,7 +157,7 @@ impl RowMask {
             let sparse_mask =
                 SparseArray::try_new(self.to_indices_array()?, bitmask, self.len(), false.into())?
                     .into_array()
-                    .into_canonical_bool()?;
+                    .into_canonical_bool();
             Self::from_mask_array(sparse_mask.as_ref(), self.begin())
         }
     }
@@ -383,10 +383,7 @@ mod tests {
         let array = Buffer::from_iter(0..20).into_array();
         let filtered = mask.filter_array(array).unwrap().unwrap();
         assert_eq!(
-            filtered
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered.into_canonical_primitive().as_slice::<i32>(),
             (5..10).collect::<Vec<_>>()
         );
     }

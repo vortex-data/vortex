@@ -1,5 +1,3 @@
-use vortex_error::VortexResult;
-
 use crate::accessor::ArrayAccessor;
 use crate::array::varbinview::VarBinViewArray;
 // use crate::array::BinaryView;
@@ -9,13 +7,13 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
         &self,
         f: F,
-    ) -> VortexResult<R> {
+    ) -> R {
         let bytes = (0..self.metadata().buffer_lens.len())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 
         let views = self.views();
-        let validity = self.logical_validity().to_null_buffer()?;
+        let validity = self.logical_validity().to_null_buffer();
 
         match validity {
             None => {
@@ -29,7 +27,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                         )
                     }
                 });
-                Ok(f(&mut iter))
+                f(&mut iter)
             }
             Some(validity) => {
                 let mut iter = views.iter().zip(validity.iter()).map(|(view, valid)| {
@@ -46,7 +44,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                         None
                     }
                 });
-                Ok(f(&mut iter))
+                f(&mut iter)
             }
         }
     }

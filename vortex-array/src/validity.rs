@@ -311,14 +311,14 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(len)),
-            Validity::Array(a) => a.into_canonical_bool()?,
+            Validity::Array(a) => a.into_canonical_bool(),
         };
 
         let patch_values = match patches {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(indices.len())),
-            Validity::Array(a) => a.into_canonical_bool()?,
+            Validity::Array(a) => a.into_canonical_bool(),
         };
 
         let patches = Patches::new(len, indices.clone(), patch_values.into_array());
@@ -350,16 +350,8 @@ impl PartialEq for Validity {
             (Self::AllValid, Self::AllValid) => true,
             (Self::AllInvalid, Self::AllInvalid) => true,
             (Self::Array(a), Self::Array(b)) => {
-                let a_buffer = a
-                    .clone()
-                    .into_canonical_bool()
-                    .vortex_expect("Failed to get Validity Array as BoolArray")
-                    .boolean_buffer();
-                let b_buffer = b
-                    .clone()
-                    .into_canonical_bool()
-                    .vortex_expect("Failed to get Validity Array as BoolArray")
-                    .boolean_buffer();
+                let a_buffer = a.clone().into_canonical_bool().boolean_buffer();
+                let b_buffer = b.clone().into_canonical_bool().boolean_buffer();
                 a_buffer == b_buffer
             }
             _ => false,
@@ -405,10 +397,7 @@ impl FromIterator<LogicalValidity> for Validity {
                 LogicalValidity::AllValid(count) => buffer.append_n(count, true),
                 LogicalValidity::AllInvalid(count) => buffer.append_n(count, false),
                 LogicalValidity::Array(array) => {
-                    let array_buffer = array
-                        .into_canonical_bool()
-                        .vortex_expect("Failed to get Validity Array as BoolArray")
-                        .boolean_buffer();
+                    let array_buffer = array.into_canonical_bool().boolean_buffer();
                     buffer.append_buffer(&array_buffer);
                 }
             };
@@ -461,13 +450,13 @@ impl LogicalValidity {
         Ok(Self::Array(array))
     }
 
-    pub fn to_null_buffer(&self) -> VortexResult<Option<NullBuffer>> {
+    pub fn to_null_buffer(&self) -> Option<NullBuffer> {
         match self {
-            Self::AllValid(_) => Ok(None),
-            Self::AllInvalid(l) => Ok(Some(NullBuffer::new_null(*l))),
-            Self::Array(a) => Ok(Some(NullBuffer::new(
-                a.clone().into_canonical_bool()?.boolean_buffer(),
-            ))),
+            Self::AllValid(_) => None,
+            Self::AllInvalid(l) => Some(NullBuffer::new_null(*l)),
+            Self::Array(a) => Some(NullBuffer::new(
+                a.clone().into_canonical_bool().boolean_buffer(),
+            )),
         }
     }
 

@@ -67,7 +67,6 @@ mod test {
                 .patches()
                 .into_indices()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u64>(),
             [0, 1, 2, 3, 4]
         );
@@ -76,7 +75,6 @@ mod test {
                 .patches()
                 .into_values()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<f64>(),
             [1.23f64, 9.99, 9.99, 1.23, 3.5]
         );
@@ -100,7 +98,6 @@ mod test {
                 .patches()
                 .into_indices()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u64>(),
             [1]
         );
@@ -109,7 +106,6 @@ mod test {
                 .patches()
                 .into_values()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<f64>(),
             [0.47f64]
         );

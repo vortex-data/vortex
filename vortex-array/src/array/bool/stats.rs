@@ -31,7 +31,7 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
             LogicalValidity::Array(a) => self.compute_statistics(
                 &NullableBools(
                     &array.boolean_buffer(),
-                    &a.into_canonical_bool()?.boolean_buffer(),
+                    &a.into_canonical_bool().boolean_buffer(),
                 ),
                 stat,
             ),

@@ -57,7 +57,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     fn take(&self, array: &VarBinViewArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
             take_views(array.views(), indices.as_slice::<$I>())
@@ -79,7 +79,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     ) -> VortexResult<ArrayData> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
             take_views_unchecked(array.views(), indices.as_slice::<$I>())
@@ -141,13 +141,9 @@ mod tests {
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
-            taken
-                .into_canonical_varbinview()
-                .unwrap()
-                .with_iterator(|it| it
-                    .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                    .collect::<Vec<_>>())
-                .unwrap(),
+            taken.into_canonical_varbinview().with_iterator(|it| it
+                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>()),
             [Some("one".to_string()), Some("four".to_string())]
         );
     }

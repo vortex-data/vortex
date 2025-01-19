@@ -15,7 +15,6 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             .logical_validity()
             .into_array()
             .into_canonical_bool()
-            .unwrap()
             .boolean_buffer();
         Validity::from_iter(
             filter
@@ -30,7 +29,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_canonical_bool().unwrap();
+            let bool_array = array.clone().into_canonical_bool();
             BoolArray::try_new(
                 BooleanBuffer::from_iter(
                     filter
@@ -45,7 +44,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
-            let primitive_array = array.clone().into_canonical_primitive().unwrap();
+            let primitive_array = array.clone().into_canonical_primitive();
             PrimitiveArray::new(
                 filter
                     .iter()
@@ -58,19 +57,17 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             .into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_canonical_varbinview().unwrap();
-            let values = utf8
-                .with_iterator(|iter| {
-                    iter.zip(filter.iter())
-                        .filter(|(_, f)| **f)
-                        .map(|(v, _)| v.map(|u| u.to_vec()))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap();
+            let utf8 = array.clone().into_canonical_varbinview();
+            let values = utf8.with_iterator(|iter| {
+                iter.zip(filter.iter())
+                    .filter(|(_, f)| **f)
+                    .map(|(v, _)| v.map(|u| u.to_vec()))
+                    .collect::<Vec<_>>()
+            });
             VarBinViewArray::from_iter(values, array.dtype().clone()).into_array()
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_canonical_struct().unwrap();
+            let struct_array = array.clone().into_canonical_struct();
             let filtered_children = struct_array
                 .children()
                 .map(|c| filter_canonical_array(&c, filter))

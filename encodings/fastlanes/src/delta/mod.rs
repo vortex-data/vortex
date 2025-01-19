@@ -233,8 +233,8 @@ impl VariantsVTable<DeltaArray> for DeltaEncoding {
 impl PrimitiveArrayTrait for DeltaArray {}
 
 impl IntoCanonical for DeltaArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        delta_decompress(self).map(Canonical::Primitive)
+    fn into_canonical(self) -> Canonical {
+        Canonical::Primitive(delta_decompress(self))
     }
 }
 

@@ -10,10 +10,7 @@ macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
         let array = buffer![100 as $prim].into_array();
         let temporal: TemporalArray = $constructor(array, $unit);
-        let prims = temporal
-            .temporal_values()
-            .into_canonical_primitive()
-            .unwrap();
+        let prims = temporal.temporal_values().into_canonical_primitive();
 
         assert_eq!(prims.as_slice::<$prim>(), vec![100 as $prim].as_slice(),);
         assert_eq!(temporal.temporal_metadata().time_unit(), $unit);
@@ -125,10 +122,7 @@ fn test_timestamp() {
         for tz in [Some("UTC".to_string()), None] {
             let temporal_array = TemporalArray::new_timestamp(ts_array.clone(), unit, tz.clone());
 
-            let values = temporal_array
-                .temporal_values()
-                .into_canonical_primitive()
-                .unwrap();
+            let values = temporal_array.temporal_values().into_canonical_primitive();
             assert_eq!(values.as_slice::<i64>(), vec![100i64].as_slice());
             assert_eq!(
                 temporal_array.temporal_metadata(),
@@ -168,7 +162,6 @@ fn test_validity_preservation(#[case] validity: Validity) {
         temporal_array
             .temporal_values()
             .into_canonical_primitive()
-            .unwrap()
             .validity(),
         validity
     );

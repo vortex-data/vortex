@@ -59,10 +59,10 @@ pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
     ALPArray::try_new(encoded, exponents, patches)
 }
 
-pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
-    let encoded = array.encoded().into_canonical_primitive()?;
+pub fn decompress(array: ALPArray) -> PrimitiveArray {
+    let encoded = array.encoded().into_canonical_primitive();
     let validity = encoded.validity();
-    let ptype = array.dtype().try_into()?;
+    let ptype = array.dtype().try_into().vortex_unwrap();
 
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::new::<$T>(
@@ -72,9 +72,9 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     });
 
     if let Some(patches) = array.patches() {
-        decoded.patch(patches)
+        decoded.patch(patches).vortex_unwrap()
     } else {
-        Ok(decoded)
+        decoded
     }
 }
 
@@ -97,13 +97,12 @@ mod tests {
             encoded
                 .encoded()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             vec![1234; 1025]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(encoded);
         assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
     }
 
@@ -116,13 +115,12 @@ mod tests {
             encoded
                 .encoded()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             vec![0, 1234, 0]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(encoded);
         let expected = vec![0f32, 1.234f32, 0f32];
         assert_eq!(decoded.as_slice::<f32>(), expected.as_slice());
     }
@@ -138,13 +136,12 @@ mod tests {
             encoded
                 .encoded()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000] // fill forward
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(encoded);
         assert_eq!(values.as_slice(), decoded.as_slice::<f64>());
     }
 
@@ -171,14 +168,14 @@ mod tests {
         let s = scalar_at(encoded.as_ref(), 4).unwrap();
         assert!(s.is_null());
 
-        let _decoded = decompress(encoded).unwrap();
+        let _decoded = decompress(encoded);
     }
 
     #[test]
     fn roundtrips_close_fractional() {
         let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
         let alp_arr = alp_encode(&original).unwrap();
-        let decompressed = alp_arr.into_canonical_primitive().unwrap();
+        let decompressed = alp_arr.into_canonical_primitive();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());
     }
 
@@ -189,7 +186,7 @@ mod tests {
             Validity::AllInvalid,
         );
         let alp_arr = alp_encode(&original).unwrap();
-        let decompressed = alp_arr.into_canonical_primitive().unwrap();
+        let decompressed = alp_arr.into_canonical_primitive();
         assert_eq!(original.as_slice::<f64>(), decompressed.as_slice::<f64>());
         assert_eq!(original.validity(), decompressed.validity());
     }

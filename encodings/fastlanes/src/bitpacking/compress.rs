@@ -10,7 +10,7 @@ use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -189,7 +189,7 @@ pub fn gather_patches(
     })
 }
 
-pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
+pub fn unpack(array: BitPackedArray) -> PrimitiveArray {
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
@@ -207,9 +207,9 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
     }
 
     if let Some(patches) = array.patches() {
-        unpacked.patch(patches)
+        unpacked.patch(patches).vortex_unwrap()
     } else {
-        Ok(unpacked)
+        unpacked
     }
 }
 
@@ -411,7 +411,6 @@ mod test {
                 .logical_validity()
                 .to_null_buffer()
                 .unwrap()
-                .unwrap()
                 .into_inner()
                 .set_indices()
                 .collect::<Vec<_>>()
@@ -434,7 +433,7 @@ mod test {
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.to_array().into_canonical_primitive().unwrap();
+        let decompressed = compressed.to_array().into_canonical_primitive();
         assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
         values

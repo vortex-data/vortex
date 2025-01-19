@@ -49,8 +49,7 @@ mod test {
 
         let taken = take(encoded.as_ref(), PrimitiveArray::from_iter([0, 2]).as_ref())
             .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         assert_eq!(taken.as_slice::<T>(), &[a, outlier]);
     }

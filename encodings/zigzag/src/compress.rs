@@ -4,7 +4,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArrayData;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::ZigZagArray;
@@ -34,19 +34,18 @@ where
     PrimitiveArray::new(values.map_each(|v| T::encode(v)).freeze(), validity)
 }
 
-pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
+pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
     let validity = parray.validity();
-    let decoded = match parray.ptype() {
+    match parray.ptype() {
         PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),
         PType::U32 => zigzag_decode_primitive::<i32>(parray.into_buffer_mut(), validity),
         PType::U64 => zigzag_decode_primitive::<i64>(parray.into_buffer_mut(), validity),
-        _ => vortex_bail!(
+        _ => vortex_panic!(
             "ZigZag can only decode unsigned integers, got {}",
             parray.ptype()
         ),
-    };
-    Ok(decoded)
+    }
 }
 
 fn zigzag_decode_primitive<T: ExternalZigZag + NativePType>(
@@ -72,10 +71,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
         assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
         assert_eq!(
-            compressed
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<i8>(),
+            compressed.into_canonical_primitive().as_slice::<i8>(),
             (-100_i8..100).collect::<Vec<_>>()
         );
     }
@@ -84,10 +80,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
         assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
         assert_eq!(
-            compressed
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<i16>(),
+            compressed.into_canonical_primitive().as_slice::<i16>(),
             (-100_i16..100).collect::<Vec<_>>()
         );
     }
@@ -96,10 +89,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
         assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
         assert_eq!(
-            compressed
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            compressed.into_canonical_primitive().as_slice::<i32>(),
             (-100_i32..100).collect::<Vec<_>>()
         );
     }
@@ -108,10 +98,7 @@ mod test {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
         assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
         assert_eq!(
-            compressed
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            compressed.into_canonical_primitive().as_slice::<i64>(),
             (-100_i64..100).collect::<Vec<_>>()
         );
     }

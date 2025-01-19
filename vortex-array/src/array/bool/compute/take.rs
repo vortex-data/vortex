@@ -12,7 +12,7 @@ use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 impl TakeFn<BoolArray> for BoolEncoding {
     fn take(&self, array: &BoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = array.validity();
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
 
         // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
         // the overhead to convert to a Vec<bool>.
@@ -36,7 +36,7 @@ impl TakeFn<BoolArray> for BoolEncoding {
         indices: &ArrayData,
     ) -> VortexResult<ArrayData> {
         let validity = array.validity();
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
 
         // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
         // the overhead to convert to a Vec<bool>.

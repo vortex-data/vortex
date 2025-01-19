@@ -10,7 +10,7 @@ use vortex_array::array::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, IntoArrayData, IntoCanonical};
+use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{buffer_mut, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, ToBytes};
 use vortex_error::{VortexExpect as _, VortexUnwrap};
@@ -55,26 +55,24 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
         values.push(T::zero());
     }
 
-    array
-        .with_iterator(|iter| {
-            for ov in iter {
-                match ov {
-                    None => codes.push(NULL_CODE),
-                    Some(&v) => {
-                        codes.push(match lookup.entry(Value(v)) {
-                            Entry::Occupied(o) => *o.get(),
-                            Entry::Vacant(vac) => {
-                                let next_code = values.len() as u64;
-                                vac.insert(next_code.as_());
-                                values.push(v);
-                                next_code
-                            }
-                        });
-                    }
+    array.with_iterator(|iter| {
+        for ov in iter {
+            match ov {
+                None => codes.push(NULL_CODE),
+                Some(&v) => {
+                    codes.push(match lookup.entry(Value(v)) {
+                        Entry::Occupied(o) => *o.get(),
+                        Entry::Vacant(vac) => {
+                            let next_code = values.len() as u64;
+                            vac.insert(next_code.as_());
+                            values.push(v);
+                            next_code
+                        }
+                    });
                 }
             }
-        })
-        .vortex_expect("Failed to dictionary encode primitive array");
+        }
+    });
 
     let values_validity = dict_values_validity(array.dtype().is_nullable(), values.len());
 
@@ -86,24 +84,14 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
 
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
 pub fn dict_encode_varbin(array: &VarBinArray) -> (PrimitiveArray, VarBinArray) {
-    array
-        .with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().clone(), iter))
-        .vortex_unwrap()
+    array.with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().clone(), iter))
 }
 
 /// Dictionary encode a VarbinViewArray.
 pub fn dict_encode_varbinview(array: &VarBinViewArray) -> (PrimitiveArray, VarBinViewArray) {
-    let (codes, values) = array
-        .with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().clone(), iter))
-        .vortex_unwrap();
-    (
-        codes,
-        values
-            .into_canonical()
-            .vortex_expect("VarBin to canonical")
-            .into_varbinview()
-            .vortex_expect("VarBinView"),
-    )
+    let (codes, values) =
+        array.with_iterator(|iter| dict_encode_varbin_bytes(array.dtype().clone(), iter));
+    (codes, values.into_canonical_varbinview())
 }
 
 fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
@@ -239,16 +227,14 @@ mod test {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let (codes, values) = dict_encode_varbin(&arr);
         assert_eq!(codes.as_slice::<u64>(), &[0, 1, 0, 2, 1]);
-        values
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.flatten()
-                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                        .collect::<Vec<_>>(),
-                    vec!["hello", "world", "again"]
-                );
-            })
-            .unwrap();
+        values.with_iterator(|iter| {
+            assert_eq!(
+                iter.flatten()
+                    .map(|b| unsafe { str::from_utf8_unchecked(b) })
+                    .collect::<Vec<_>>(),
+                vec!["hello", "world", "again"]
+            );
+        });
     }
 
     #[test]
@@ -268,31 +254,27 @@ mod test {
         let (codes, values) = dict_encode_varbin(&arr);
         assert_eq!(codes.as_slice::<u64>(), &[1, 0, 2, 1, 0, 3, 2, 0]);
         assert_eq!(str::from_utf8(&values.bytes_at(0).unwrap()).unwrap(), "");
-        values
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
-                        .collect::<Vec<_>>(),
-                    vec![None, Some("hello"), Some("world"), Some("again")]
-                );
-            })
-            .unwrap();
+        values.with_iterator(|iter| {
+            assert_eq!(
+                iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
+                    .collect::<Vec<_>>(),
+                vec![None, Some("hello"), Some("world"), Some("again")]
+            );
+        });
     }
 
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let (codes, values) = dict_encode_varbin(&arr);
-        values
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.flatten()
-                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                        .collect::<Vec<_>>(),
-                    vec!["a", "b"]
-                );
-            })
-            .unwrap();
+        values.with_iterator(|iter| {
+            assert_eq!(
+                iter.flatten()
+                    .map(|b| unsafe { str::from_utf8_unchecked(b) })
+                    .collect::<Vec<_>>(),
+                vec!["a", "b"]
+            );
+        });
         assert_eq!(codes.as_slice::<u64>(), &[0u64, 0, 1, 1, 0, 1, 0, 1]);
     }
 }

@@ -212,8 +212,7 @@ mod test {
             .into_array_data()
             .await
             .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

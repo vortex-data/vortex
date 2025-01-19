@@ -6,7 +6,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::iter::trimmed_ends_iter;
@@ -23,7 +23,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             ));
         }
-        Validity::Array(a) => Some(a.into_canonical_bool()?.boolean_buffer()),
+        Validity::Array(a) => Some(a.into_canonical_bool().boolean_buffer()),
     };
 
     Ok(match validity {
@@ -141,7 +141,7 @@ pub fn runend_decode_primitive(
     values: PrimitiveArray,
     offset: usize,
     length: usize,
-) -> VortexResult<PrimitiveArray> {
+) -> PrimitiveArray {
     match_each_native_ptype!(values.ptype(), |$P| {
         match_each_integer_ptype!(ends.ptype(), |$E| {
             runend_decode_typed_primitive(
@@ -160,7 +160,7 @@ pub fn runend_decode_bools(
     values: BoolArray,
     offset: usize,
     length: usize,
-) -> VortexResult<BoolArray> {
+) -> BoolArray {
     match_each_integer_ptype!(ends.ptype(), |$E| {
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
@@ -178,8 +178,8 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     values_validity: LogicalValidity,
     values_nullability: Nullability,
     length: usize,
-) -> VortexResult<PrimitiveArray> {
-    Ok(match values_validity {
+) -> PrimitiveArray {
+    match values_validity {
         LogicalValidity::AllValid(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             for (end, value) in run_ends.zip_eq(values) {
@@ -191,7 +191,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             PrimitiveArray::new(buffer![T::default(); length], Validity::AllInvalid)
         }
         LogicalValidity::Array(array) => {
-            let validity = array.into_canonical_bool()?.boolean_buffer();
+            let validity = array.into_canonical_bool().boolean_buffer();
             let mut decoded = BufferMut::with_capacity(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
@@ -213,7 +213,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             }
             PrimitiveArray::new(decoded, Validity::from(decoded_validity.finish()))
         }
-    })
+    }
 }
 
 pub fn runend_decode_typed_bool(
@@ -222,8 +222,8 @@ pub fn runend_decode_typed_bool(
     values_validity: LogicalValidity,
     values_nullability: Nullability,
     length: usize,
-) -> VortexResult<BoolArray> {
-    Ok(match values_validity {
+) -> BoolArray {
+    match values_validity {
         LogicalValidity::AllValid(_) => {
             let mut decoded = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(values.iter()) {
@@ -236,7 +236,7 @@ pub fn runend_decode_typed_bool(
                 .vortex_expect("invalid array")
         }
         LogicalValidity::Array(array) => {
-            let validity = array.into_canonical_bool()?.boolean_buffer();
+            let validity = array.into_canonical_bool().boolean_buffer();
             let mut decoded = BooleanBufferBuilder::new(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
@@ -256,9 +256,10 @@ pub fn runend_decode_typed_bool(
                     }
                 }
             }
-            BoolArray::try_new(decoded.finish(), Validity::from(decoded_validity.finish()))?
+            BoolArray::try_new(decoded.finish(), Validity::from(decoded_validity.finish()))
+                .vortex_unwrap()
         }
-    })
+    }
 }
 
 #[cfg(test)]
@@ -275,7 +276,7 @@ mod test {
     fn encode() {
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         let (ends, values) = runend_encode(&arr).unwrap();
-        let values = values.into_canonical_primitive().unwrap();
+        let values = values.into_canonical_primitive();
 
         assert_eq!(ends.as_slice::<u64>(), vec![2, 5, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 2, 3]);
@@ -290,7 +291,7 @@ mod test {
             ])),
         );
         let (ends, values) = runend_encode(&arr).unwrap();
-        let values = values.into_canonical_primitive().unwrap();
+        let values = values.into_canonical_primitive();
 
         assert_eq!(ends.as_slice::<u64>(), vec![2, 4, 5, 8, 10]);
         assert_eq!(values.as_slice::<i32>(), vec![1, 0, 2, 3, 0]);
@@ -303,7 +304,7 @@ mod test {
             Validity::from(BooleanBuffer::new_unset(5)),
         );
         let (ends, values) = runend_encode(&arr).unwrap();
-        let values = values.into_canonical_primitive().unwrap();
+        let values = values.into_canonical_primitive();
 
         assert_eq!(ends.as_slice::<u64>(), vec![5]);
         assert_eq!(values.as_slice::<i32>(), vec![0]);
@@ -313,7 +314,7 @@ mod test {
     fn decode() {
         let ends = PrimitiveArray::from_iter([2, 5, 10]);
         let values = PrimitiveArray::from_iter([1i32, 2, 3]);
-        let decoded = runend_decode_primitive(ends, values, 0, 10).unwrap();
+        let decoded = runend_decode_primitive(ends, values, 0, 10);
 
         assert_eq!(
             decoded.as_slice::<i32>(),

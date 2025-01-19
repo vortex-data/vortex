@@ -1,15 +1,15 @@
 use arrow_array::builder::make_view;
 use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
+use vortex_error::VortexUnwrap;
 
 use crate::FSSTArray;
 
 impl IntoCanonical for FSSTArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         self.with_decompressor(|decompressor| {
             // FSSTArray has two child arrays:
             //
@@ -21,15 +21,14 @@ impl IntoCanonical for FSSTArray {
             // call. We then turn our uncompressed_lengths into an offsets buffer
             // necessary for a VarBinViewArray and construct the canonical array.
 
-            let bytes = VarBinArray::try_from(self.codes())?.sliced_bytes();
+            let bytes = VarBinArray::try_from(self.codes())
+                .vortex_unwrap()
+                .sliced_bytes();
 
             // Bulk-decompress the entire array.
             let uncompressed_bytes = decompressor.decompress(bytes.as_slice());
 
-            let uncompressed_lens_array = self
-                .uncompressed_lengths()
-                .into_canonical()?
-                .into_primitive()?;
+            let uncompressed_lens_array = self.uncompressed_lengths().into_canonical_primitive();
 
             // Directly create the binary views.
             let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
@@ -60,5 +59,6 @@ impl IntoCanonical for FSSTArray {
             )
             .map(Canonical::VarBinView)
         })
+        .vortex_unwrap()
     }
 }

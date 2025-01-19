@@ -12,7 +12,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap};
 
 impl_encoding!("vortex.bytebool", ids::BYTE_BOOL, ByteBool);
 
@@ -100,14 +100,11 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
 }
 
 impl IntoCanonical for ByteBoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         let boolean_buffer = BooleanBuffer::from(self.as_slice());
         let validity = self.validity();
 
-        Ok(Canonical::Bool(BoolArray::try_new(
-            boolean_buffer,
-            validity,
-        )?))
+        Canonical::Bool(BoolArray::try_new(boolean_buffer, validity).vortex_unwrap())
     }
 }
 

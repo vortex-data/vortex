@@ -4,7 +4,7 @@ use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
@@ -49,7 +49,7 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = array.validity();
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
         let bools = array.as_slice();
 
         let arr = match validity {
@@ -111,16 +111,14 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
             );
         }
 
-        let validity = validity
-            .to_null_buffer()?
-            .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
+        let validity = validity.to_null_buffer().vortex_expect("Null buffer");
 
         let bools = array.as_slice();
         let mut last_value = bool::default();
 
         let filled = bools
             .iter()
-            .zip(validity.inner().iter())
+            .zip(validity.iter())
             .map(|(&v, is_valid)| {
                 if is_valid {
                     last_value = v

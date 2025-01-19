@@ -16,7 +16,6 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
             .logical_validity()
             .into_array()
             .into_canonical_bool()
-            .unwrap()
             .boolean_buffer()
             .iter()
             .collect::<Vec<_>>();
@@ -28,23 +27,22 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_canonical_bool().unwrap();
+            let bool_array = array.clone().into_canonical_bool();
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
             BoolArray::try_new(indices.iter().map(|i| vec_values[*i]).collect(), validity)
                 .vortex_expect("Validity length cannot mismatch")
                 .into_array()
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_canonical_primitive().unwrap();
+            let primitive_array = array.clone().into_canonical_primitive();
             match_each_native_ptype!(p, |$P| {
                 take_primitive::<$P>(primitive_array, validity, indices)
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_canonical_varbinview().unwrap();
-            let values = utf8
-                .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+            let utf8 = array.clone().into_canonical_varbinview();
+            let values =
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             VarBinViewArray::from_iter(
                 indices.iter().map(|i| values[*i].clone()),
                 array.dtype().clone(),
@@ -52,7 +50,7 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
             .into_array()
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_canonical_struct().unwrap();
+            let struct_array = array.clone().into_canonical_struct();
             let taken_children = struct_array
                 .children()
                 .map(|c| take_canonical_array(&c, indices))

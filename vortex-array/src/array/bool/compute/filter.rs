@@ -80,8 +80,7 @@ mod test {
 
         let filtered = filter(&arr.into_array(), &mask)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
         assert_eq!(2, filtered.len());
 
         assert_eq!(

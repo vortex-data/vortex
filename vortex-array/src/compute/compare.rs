@@ -247,8 +247,7 @@ mod tests {
         let null_buffer = indices_bits
             .validity()
             .to_logical(indices_bits.len())
-            .to_null_buffer()
-            .unwrap();
+            .to_null_buffer();
         let is_valid = |idx: usize| match null_buffer.as_ref() {
             None => true,
             Some(buffer) => buffer.is_valid(idx),
@@ -272,15 +271,13 @@ mod tests {
 
         let matches = compare(&arr, &arr, Operator::Eq)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
 
         assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
 
         let matches = compare(&arr, &arr, Operator::NotEq)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
 
@@ -293,26 +290,22 @@ mod tests {
 
         let matches = compare(&arr, &other, Operator::Lte)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&arr, &other, Operator::Lt)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
         assert_eq!(to_int_indices(matches), [4u64]);
 
         let matches = compare(&other, &arr, Operator::Gte)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&other, &arr, Operator::Gt)
             .unwrap()
-            .into_canonical_bool()
-            .unwrap();
+            .into_canonical_bool();
         assert_eq!(to_int_indices(matches), [4u64]);
     }
 

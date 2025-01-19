@@ -14,7 +14,7 @@ use vortex_array::{
     IntoCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice, trimmed_ends_iter};
@@ -158,10 +158,10 @@ pub(crate) fn decode_runend_bool(
     validity: Validity,
     offset: usize,
     length: usize,
-) -> VortexResult<BoolArray> {
+) -> BoolArray {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
         let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.as_slice::<$E>(), offset, length), start, length);
-        Ok(BoolArray::try_new(bools, validity)?)
+        BoolArray::try_new(bools, validity).vortex_unwrap()
     })
 }
 
@@ -194,16 +194,15 @@ impl ValidityVTable<RunEndBoolArray> for RunEndBoolEncoding {
 }
 
 impl IntoCanonical for RunEndBoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let pends = self.ends().into_canonical_primitive()?;
-        decode_runend_bool(
+    fn into_canonical(self) -> Canonical {
+        let pends = self.ends().into_canonical_primitive();
+        Canonical::Bool(decode_runend_bool(
             &pends,
             self.start(),
             self.validity(),
             self.offset(),
             self.len(),
-        )
-        .map(Canonical::Bool)
+        ))
     }
 }
 
@@ -219,7 +218,7 @@ impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
         let maybe_scalar: Option<Scalar> = match stat {
             Stat::NullCount => Some(array.validity().null_count(array.len())?.into()),
             Stat::TrueCount => {
-                let pends = array.ends().into_canonical_primitive()?;
+                let pends = array.ends().into_canonical_primitive();
                 let mut true_count: usize = 0;
                 let mut prev_end: usize = 0;
                 let mut include = array.start();
@@ -256,7 +255,7 @@ mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::{Validity, ValidityMetadata};
     use vortex_array::{
-        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
+        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData,
     };
     use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::{DType, Nullability, PType};
@@ -371,10 +370,7 @@ mod test {
 
     fn to_bool_vec(arr: &ArrayData) -> Vec<bool> {
         arr.clone()
-            .into_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap()
+            .into_canonical_bool()
             .boolean_buffer()
             .iter()
             .collect::<Vec<_>>()
@@ -400,7 +396,7 @@ mod test {
 
         let arr =
             RunEndBoolArray::try_new(ends.into_array(), start, Validity::NonNullable).unwrap();
-        let bools = arr.clone().into_canonical().unwrap().into_bool().unwrap();
+        let bools = arr.clone().into_canonical_bool();
         for stat in [
             Stat::IsConstant,
             Stat::NullCount,

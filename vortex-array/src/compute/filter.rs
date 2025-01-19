@@ -582,7 +582,7 @@ impl TryFrom<ArrayData> for FilterMask {
         // TODO(ngates): should we have a `to_filter_mask` compute function where encodings
         //  pick the best possible conversion? E.g. SparseArray may want from_indices.
         Ok(Self::from_buffer(
-            array.into_canonical_bool()?.boolean_buffer(),
+            array.into_canonical_bool().boolean_buffer(),
         ))
     }
 }
@@ -606,7 +606,7 @@ mod test {
     use super::*;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
-    use crate::{IntoArrayData, IntoCanonical};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_filter() {
@@ -620,12 +620,7 @@ mod test {
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
-            filtered
-                .into_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered.into_canonical_primitive().as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

@@ -188,8 +188,8 @@ impl FromIterator<Option<bool>> for BoolArray {
 }
 
 impl IntoCanonical for BoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(self))
+    fn into_canonical(self) -> Canonical {
+        Canonical::Bool(self)
     }
 }
 
@@ -273,11 +273,7 @@ mod tests {
             BoolArray::from(builder.finish())
         };
         let sliced = slice(arr.clone(), 4, 12).unwrap();
-        let (values, offset) = sliced
-            .clone()
-            .into_canonical_bool()
-            .unwrap()
-            .into_boolean_builder();
+        let (values, offset) = sliced.clone().into_canonical_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[254, 15]);
 
@@ -288,12 +284,12 @@ mod tests {
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(patches).unwrap();
-        let (values, offset) = arr.into_canonical_bool().unwrap().into_boolean_builder();
+        let (values, offset) = arr.into_canonical_bool().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
-        let (values, offset) = sliced.into_canonical_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.into_canonical_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[254, 15]); // unchanged
     }
@@ -314,7 +310,7 @@ mod tests {
         let arr = arr.patch(patches).unwrap();
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
-        let (values, offset) = arr.into_canonical_bool().unwrap().into_boolean_builder();
+        let (values, offset) = arr.into_canonical_bool().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.as_slice(), &[254, 127]);
     }

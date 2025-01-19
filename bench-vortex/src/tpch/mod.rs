@@ -222,7 +222,7 @@ async fn register_vortex_file(
         let sts = record_batches
             .into_iter()
             .map(ArrayData::try_from)
-            .map(|a| a.unwrap().into_canonical_struct().unwrap())
+            .map(|a| a.unwrap().into_canonical_struct())
             .collect::<Vec<_>>();
 
         let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();

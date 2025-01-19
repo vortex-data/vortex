@@ -171,11 +171,7 @@ mod test {
         let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), Default::default()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader
-            .into_array_data()
-            .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+        let result = reader.into_array_data().unwrap().into_canonical_primitive();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

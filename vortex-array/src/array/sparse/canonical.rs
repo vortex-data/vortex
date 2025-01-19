@@ -1,7 +1,7 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
 use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
@@ -12,8 +12,8 @@ use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let resolved_patches = self.resolved_patches()?;
+    fn into_canonical(self) -> Canonical {
+        let resolved_patches = self.resolved_patches().vortex_unwrap();
         if resolved_patches.num_patches() == 0 {
             return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
         }
@@ -21,7 +21,7 @@ impl IntoCanonical for SparseArray {
         if matches!(self.dtype(), DType::Bool(_)) {
             canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
         } else {
-            let ptype = PType::try_from(resolved_patches.values().dtype())?;
+            let ptype = PType::try_from(resolved_patches.values().dtype()).vortex_unwrap();
             match_each_native_ptype!(ptype, |$P| {
                 canonicalize_sparse_primitives::<$P>(
                     resolved_patches,
@@ -32,12 +32,12 @@ impl IntoCanonical for SparseArray {
     }
 }
 
-fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
+fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> Canonical {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
     } else {
         (
-            fill_value.try_into()?,
+            fill_value.try_into().vortex_expect("Fill value into bool"),
             if patches.dtype().nullability() == Nullability::NonNullable {
                 Validity::NonNullable
             } else {
@@ -53,9 +53,10 @@ fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexRes
             BooleanBuffer::new_unset(patches.array_len())
         },
         validity,
-    )?;
+    )
+    .vortex_unwrap();
 
-    bools.patch(patches).map(Canonical::Bool)
+    bools.patch(patches).map(Canonical::Bool).vortex_unwrap()
 }
 
 fn canonicalize_sparse_primitives<
@@ -63,12 +64,14 @@ fn canonicalize_sparse_primitives<
 >(
     patches: Patches,
     fill_value: &Scalar,
-) -> VortexResult<Canonical> {
+) -> Canonical {
     let (primitive_fill, validity) = if fill_value.is_null() {
         (T::default(), Validity::AllInvalid)
     } else {
         (
-            fill_value.try_into()?,
+            fill_value
+                .try_into()
+                .vortex_expect("Fill value into primitive"),
             if patches.dtype().nullability() == Nullability::NonNullable {
                 Validity::NonNullable
             } else {
@@ -79,7 +82,10 @@ fn canonicalize_sparse_primitives<
 
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
-    parray.patch(patches).map(Canonical::Primitive)
+    parray
+        .patch(patches)
+        .map(Canonical::Primitive)
+        .vortex_unwrap()
 }
 
 #[cfg(test)]
@@ -94,7 +100,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[rstest]
     #[case(Some(true))]
@@ -108,7 +114,7 @@ mod test {
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
 
-        let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
+        let flat_bools = sparse_bools.into_canonical_bool();
         let expected = bool_array_from_nullable_vec(
             vec![
                 Some(true),
@@ -170,11 +176,7 @@ mod test {
             DType::Primitive(PType::I32, Nullability::Nullable)
         );
 
-        let flat_ints = sparse_ints
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let flat_ints = sparse_ints.into_canonical_primitive();
         let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,

@@ -132,8 +132,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_canonical_primitive()
-                .unwrap();
+                .into_canonical_primitive();
 
             assert_eq!(result.len(), 9);
             assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);

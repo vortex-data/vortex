@@ -245,8 +245,8 @@ impl BitPackedArray {
 }
 
 impl IntoCanonical for BitPackedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        unpack(self).map(Canonical::Primitive)
+    fn into_canonical(self) -> Canonical {
+        Canonical::Primitive(unpack(self))
     }
 }
 
@@ -291,7 +291,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 
@@ -320,7 +320,6 @@ mod test {
         let results = packed
             .into_array()
             .into_canonical_primitive()
-            .unwrap()
             .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, expected);
@@ -345,10 +344,7 @@ mod test {
         assert!(packed_with_patches.patches().is_some());
         assert_eq!(
             packed_with_patches
-                .into_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
+                .into_canonical_primitive()
                 .as_slice::<i32>(),
             values.as_slice()
         );

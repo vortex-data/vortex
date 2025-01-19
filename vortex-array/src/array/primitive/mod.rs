@@ -316,8 +316,8 @@ impl<T: NativePType> IntoArrayData for BufferMut<T> {
 }
 
 impl IntoCanonical for PrimitiveArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(self))
+    fn into_canonical(self) -> Canonical {
+        Canonical::Primitive(self)
     }
 }
 

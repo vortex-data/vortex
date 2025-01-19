@@ -215,8 +215,7 @@ mod test {
         let primitive = filtered_array
             .patches()
             .into_indices()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         assert_eq!(primitive.as_slice::<u64>(), &[1, 3]);
     }

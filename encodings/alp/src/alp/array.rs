@@ -135,8 +135,8 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
 }
 
 impl IntoCanonical for ALPArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        decompress(self).map(Canonical::Primitive)
+    fn into_canonical(self) -> Canonical {
+        Canonical::Primitive(decompress(self))
     }
 }
 

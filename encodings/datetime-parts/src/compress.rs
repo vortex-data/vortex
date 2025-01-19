@@ -19,7 +19,7 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
-    let temporal_values = array.temporal_values().into_canonical_primitive()?;
+    let temporal_values = array.temporal_values().into_canonical_primitive();
     let validity = temporal_values.validity();
 
     // After this operation, timestamps will be non-nullable PrimitiveArray<i64>
@@ -27,7 +27,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
         &temporal_values,
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
     )?
-    .into_canonical_primitive()?;
+    .into_canonical_primitive();
 
     let divisor = match array.temporal_metadata().time_unit() {
         TimeUnit::Ns => 1_000_000_000,
@@ -102,16 +102,13 @@ mod tests {
             seconds,
             subseconds,
         } = split_temporal(temporal_array).unwrap();
+        assert_eq!(days.into_canonical_primitive().validity(), validity);
         assert_eq!(
-            days.into_canonical_primitive().unwrap().validity(),
-            validity
-        );
-        assert_eq!(
-            seconds.into_canonical_primitive().unwrap().validity(),
+            seconds.into_canonical_primitive().validity(),
             Validity::NonNullable
         );
         assert_eq!(
-            subseconds.into_canonical_primitive().unwrap().validity(),
+            subseconds.into_canonical_primitive().validity(),
             Validity::NonNullable
         );
     }

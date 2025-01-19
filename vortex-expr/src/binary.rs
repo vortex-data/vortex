@@ -93,7 +93,7 @@ impl PartialEq for BinaryExpr {
 /// let result = eq(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -116,7 +116,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = not_eq(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -139,7 +139,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = gt_eq(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -162,7 +162,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = gt(ident(), lit(2)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -185,7 +185,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = lt_eq(ident(), lit(2)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -208,7 +208,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = lt(ident(), lit(3)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -229,7 +229,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = or(ident(), lit(false)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -250,7 +250,7 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = and(ident(), lit(true)).evaluate(&xs).unwrap();
 ///
 /// assert_eq!(
-///     result.into_canonical_bool().unwrap().boolean_buffer(),
+///     result.into_canonical_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
 /// );
 /// ```

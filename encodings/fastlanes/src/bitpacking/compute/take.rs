@@ -3,9 +3,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical, ToArrayData,
-};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -24,7 +22,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
     fn take(&self, array: &BitPackedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.clone().into_canonical()?.into_primitive()?, indices);
+            return take(array.clone().into_canonical_primitive(), indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -33,7 +31,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 take_primitive::<$T, $I>(array, &indices, taken_validity)?
@@ -145,8 +143,7 @@ mod test {
 
         let primitive_result = take(bitpacked.as_ref(), &indices)
             .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -160,8 +157,7 @@ mod test {
 
         let primitive_result = take(bitpacked.as_ref(), &indices)
             .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
         let res_bytes = primitive_result.as_slice::<u32>();
         assert_eq!(res_bytes, &[0, 2, 4, 6]);
     }
@@ -175,10 +171,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
-        let primitive_result = take(&sliced, &indices)
-            .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+        let primitive_result = take(&sliced, &indices).unwrap().into_canonical_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }

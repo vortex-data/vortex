@@ -40,5 +40,5 @@ fn decompress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
 
     bencher
         .with_inputs(move || encoded.clone())
-        .bench_local_values(|encoded| encoded.into_canonical().unwrap());
+        .bench_local_values(|encoded| encoded.into_canonical());
 }

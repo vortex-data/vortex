@@ -18,7 +18,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
 
 use crate::match_each_alp_float_ptype;
@@ -262,9 +262,9 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<Patches>,
-) -> VortexResult<Buffer<T>> {
+) -> Buffer<T> {
     if left_parts.len() != right_parts.len() {
-        vortex_bail!("alp_rd_decode: left_parts.len != right_parts.len");
+        vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
     }
 
     // Decode the left-parts dictionary
@@ -276,8 +276,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().into_canonical_primitive()?;
-        let patch_values = patches.values().clone().into_canonical_primitive()?;
+        let indices = patches.indices().clone().into_canonical_primitive();
+        let patch_values = patches.values().clone().into_canonical_primitive();
         match_each_integer_ptype!(indices.ptype(), |$T| {
             indices
                 .as_slice::<$T>()
@@ -289,14 +289,14 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Shift the left-parts and add in the right-parts.
     let mut index = 0;
-    Ok(right_parts
+    right_parts
         .map_each(|right| {
             let left = values[index];
             index += 1;
             let left = <T as ALPRDFloat>::from_u16(left);
             T::from_bits((left << (right_bit_width as usize)) | right)
         })
-        .freeze())
+        .freeze()
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

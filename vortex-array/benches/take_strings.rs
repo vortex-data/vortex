@@ -31,7 +31,7 @@ fn bench_varbin(c: &mut Criterion) {
 }
 
 fn bench_varbinview(c: &mut Criterion) {
-    let array = fixture(65_535).into_canonical_varbinview().unwrap();
+    let array = fixture(65_535).into_canonical_varbinview();
     let indices = indices(1024);
 
     c.bench_function("varbinview", |b| {

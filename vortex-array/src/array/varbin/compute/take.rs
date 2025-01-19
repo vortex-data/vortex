@@ -13,9 +13,9 @@ use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
-        let offsets = array.offsets().into_canonical_primitive()?;
+        let offsets = array.offsets().into_canonical_primitive();
         let data = array.bytes();
-        let indices = indices.clone().into_canonical_primitive()?;
+        let indices = indices.clone().into_canonical_primitive();
         match_each_integer_ptype!(offsets.ptype(), |$O| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
@@ -38,7 +38,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
     validity: Validity,
 ) -> VortexResult<VarBinArray> {
     let logical_validity = validity.to_logical(offsets.len() - 1);
-    if let Some(v) = logical_validity.to_null_buffer()? {
+    if let Some(v) = logical_validity.to_null_buffer() {
         return Ok(take_nullable(dtype, offsets, data, indices, v));
     }
 

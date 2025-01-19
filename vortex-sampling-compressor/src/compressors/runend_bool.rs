@@ -37,7 +37,7 @@ impl EncodingCompressor for RunEndBoolCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let bool_array = array.clone().into_canonical_bool()?;
+        let bool_array = array.clone().into_canonical_bool();
         let (ends, start) = runend_bool_encode_slice(&bool_array.boolean_buffer());
         let ends = downscale_integer_array(ends.into_array())?;
 

@@ -41,8 +41,8 @@ impl NullArray {
 }
 
 impl IntoCanonical for NullArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(self))
+    fn into_canonical(self) -> Canonical {
+        Canonical::Null(self)
     }
 }
 

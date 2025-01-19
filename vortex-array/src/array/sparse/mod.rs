@@ -327,11 +327,7 @@ mod test {
     #[test]
     pub fn sparse_logical_validity() {
         let array = sparse_array(nullable_fill());
-        let validity = array
-            .logical_validity()
-            .into_array()
-            .into_canonical_bool()
-            .unwrap();
+        let validity = array.logical_validity().into_array().into_canonical_bool();
         assert_eq!(
             validity.boolean_buffer().iter().collect_vec(),
             [false, false, true, false, false, true, false, false, true, false]
@@ -347,7 +343,6 @@ mod test {
                 .logical_validity()
                 .into_array()
                 .into_canonical_bool()
-                .unwrap()
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>(),

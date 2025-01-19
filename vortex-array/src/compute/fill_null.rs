@@ -61,7 +61,7 @@ fn fill_null_impl(array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayDa
     }
 
     log::debug!("FillNullFn not implemented for {}", array.encoding().id());
-    let canonical_arr = array.clone().into_canonical()?.into_array();
+    let canonical_arr = array.clone().into_canonical().into_array();
     if let Some(fill_null_fn) = canonical_arr.encoding().fill_null_fn() {
         return fill_null_fn.fill_null(&canonical_arr, fill_value);
     }

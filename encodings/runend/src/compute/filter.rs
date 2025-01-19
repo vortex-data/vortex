@@ -27,7 +27,7 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
         } else {
             // This strategy ends up being close to fixed cost based on the number of runs,
             // rather than the number of indices.
-            let primitive_run_ends = array.ends().into_canonical_primitive()?;
+            let primitive_run_ends = array.ends().into_canonical_primitive();
             let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
                 filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
             });
@@ -40,7 +40,7 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
 
 // We expose this function to our benchmarks.
 pub fn filter_run_end(array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
-    let primitive_run_ends = array.ends().into_canonical_primitive()?;
+    let primitive_run_ends = array.ends().into_canonical_primitive();
     let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
         filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
     });
@@ -122,7 +122,6 @@ mod tests {
             filtered_run_end
                 .ends()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u64>(),
             [2, 4]
         );
@@ -130,7 +129,6 @@ mod tests {
             filtered_run_end
                 .values()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             [1, 5]
         );
@@ -150,7 +148,6 @@ mod tests {
             filtered_run_end
                 .ends()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u64>(),
             [1, 2, 3]
         );
@@ -158,7 +155,6 @@ mod tests {
             filtered_run_end
                 .values()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             [1, 4, 2]
         );

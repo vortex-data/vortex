@@ -57,8 +57,7 @@ mod test {
 
         let filtered = filter(&arr.to_array(), &FilterMask::from_iter(mask))
             .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
         assert_eq!(
             filtered.len(),
             mask.iter().filter(|x| **x).collect_vec().len()

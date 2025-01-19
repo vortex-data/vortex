@@ -50,8 +50,7 @@ mod tests {
             .unwrap()
             .patches()
             .into_values()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
     }
@@ -71,8 +70,7 @@ mod tests {
             .unwrap()
             .patches()
             .into_values()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
@@ -81,8 +79,7 @@ mod tests {
             .unwrap()
             .patches()
             .into_values()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
     }
@@ -97,11 +94,7 @@ mod tests {
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let actual = sliced
-            .into_canonical_primitive()
-            .unwrap()
-            .as_slice::<u64>()
-            .to_vec();
+        let actual = sliced.into_canonical_primitive().as_slice::<u64>().to_vec();
         assert_eq!(expected, actual);
     }
 }

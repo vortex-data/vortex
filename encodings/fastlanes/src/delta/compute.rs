@@ -19,7 +19,7 @@ impl ComputeVTable for DeltaEncoding {
 
 impl ScalarAtFn<DeltaArray> for DeltaEncoding {
     fn scalar_at(&self, array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
-        let decompressed = slice(array, index, index + 1)?.into_canonical_primitive()?;
+        let decompressed = slice(array, index, index + 1)?.into_canonical_primitive();
         scalar_at(decompressed, 0)
     }
 }
@@ -131,7 +131,6 @@ mod test {
             slice(&delta, 10, 250)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             (10u32..250).collect::<Vec<_>>()
         );
@@ -145,7 +144,6 @@ mod test {
             slice(&delta, 1024 + 10, 1024 + 250)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
         );
@@ -159,7 +157,6 @@ mod test {
             slice(&delta, 1000, 1048)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             (1000u32..1048).collect::<Vec<_>>()
         );
@@ -173,7 +170,6 @@ mod test {
             slice(&delta, 2040, 2050)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             (2040u32..2050).collect::<Vec<_>>()
         );
@@ -187,7 +183,6 @@ mod test {
             slice(&delta, 0, 4096)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             (0u32..4096).collect::<Vec<_>>()
         );
@@ -201,7 +196,6 @@ mod test {
             slice(&delta, 0, 0)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
@@ -210,7 +204,6 @@ mod test {
             slice(&delta, 4096, 4096)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
@@ -219,7 +212,6 @@ mod test {
             slice(&delta, 1024, 1024)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
@@ -233,7 +225,6 @@ mod test {
             slice(&delta, 1024 + 10, 1024 + 250)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
         );
@@ -247,7 +238,6 @@ mod test {
             slice(&delta, 0, 0)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
@@ -256,7 +246,6 @@ mod test {
             slice(&delta, 4000, 4000)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
@@ -265,7 +254,6 @@ mod test {
             slice(&delta, 1024, 1024)
                 .unwrap()
                 .into_canonical_primitive()
-                .unwrap()
                 .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
@@ -279,10 +267,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            sliced_again.into_canonical_primitive().as_slice::<u32>(),
             vec![10, 11]
         );
     }
@@ -295,10 +280,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            sliced_again.into_canonical_primitive().as_slice::<u32>(),
             vec![10, 11]
         );
     }
@@ -311,10 +293,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            sliced_again.into_canonical_primitive().as_slice::<u32>(),
             vec![1034, 1035]
         );
     }
@@ -327,10 +306,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            sliced_again.into_canonical_primitive().as_slice::<u32>(),
             vec![1034, 1035]
         );
     }
@@ -343,10 +319,7 @@ mod test {
         let sliced_again = slice(sliced, 5, 20).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            sliced_again.into_canonical_primitive().as_slice::<u32>(),
             (1015..1030).collect::<Vec<_>>(),
         );
     }
@@ -359,10 +332,7 @@ mod test {
         let sliced_again = slice(sliced, 5, 20).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            sliced_again.into_canonical_primitive().as_slice::<u32>(),
             (1015..1030).collect::<Vec<_>>(),
         );
     }

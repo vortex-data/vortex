@@ -177,8 +177,8 @@ impl StructArrayTrait for StructArray {
 
 impl IntoCanonical for StructArray {
     /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self))
+    fn into_canonical(self) -> Canonical {
+        Canonical::Struct(self)
     }
 }
 

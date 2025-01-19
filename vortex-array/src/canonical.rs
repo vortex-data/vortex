@@ -13,10 +13,9 @@ use arrow_array::{
 use arrow_buffer::ScalarBuffer;
 use arrow_cast::cast;
 use arrow_schema::{DataType, Field, FieldRef, Fields};
-use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 
 use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
@@ -81,7 +80,7 @@ impl Canonical {
             Canonical::Null(a) => null_to_arrow(a, data_type),
             Canonical::Bool(a) => bool_to_arrow(a, data_type),
             Canonical::Primitive(a) => primitive_to_arrow(a, data_type),
-            Canonical::Struct(a) => struct_to_arrow(a, data_type),
+            Canonical::Struct(a) => struct_to_arrow(a),
             Canonical::List(a) => list_to_arrow(a, data_type),
             Canonical::VarBinView(a) => varbinview_to_arrow(&a, data_type),
             Canonical::Extension(a) => {
@@ -102,62 +101,62 @@ impl Canonical {
     // Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
         let arrow_dtype = infer_data_type(dtype)?;
-        ArrayData::from_arrow(
+        Ok(ArrayData::from_arrow(
             arrow_array::new_empty_array(&arrow_dtype),
             dtype.is_nullable(),
         )
-        .into_canonical()
+        .into_canonical())
     }
 }
 
 // Unwrap canonical type back down to specialized type.
 impl Canonical {
-    pub fn into_null(self) -> VortexResult<NullArray> {
+    pub fn into_null(self) -> NullArray {
         match self {
-            Canonical::Null(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap NullArray from {:?}", &self),
+            Canonical::Null(a) => a,
+            _ => vortex_panic!("Cannot unwrap NullArray from {:?}", &self),
         }
     }
 
-    pub fn into_bool(self) -> VortexResult<BoolArray> {
+    pub fn into_bool(self) -> BoolArray {
         match self {
-            Canonical::Bool(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap BoolArray from {:?}", &self),
+            Canonical::Bool(a) => a,
+            _ => vortex_panic!("Cannot unwrap BoolArray from {:?}", &self),
         }
     }
 
-    pub fn into_primitive(self) -> VortexResult<PrimitiveArray> {
+    pub fn into_primitive(self) -> PrimitiveArray {
         match self {
-            Canonical::Primitive(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap PrimitiveArray from {:?}", &self),
+            Canonical::Primitive(a) => a,
+            _ => vortex_panic!("Cannot unwrap PrimitiveArray from {:?}", &self),
         }
     }
 
-    pub fn into_struct(self) -> VortexResult<StructArray> {
+    pub fn into_struct(self) -> StructArray {
         match self {
-            Canonical::Struct(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+            Canonical::Struct(a) => a,
+            _ => vortex_panic!("Cannot unwrap StructArray from {:?}", &self),
         }
     }
 
-    pub fn into_list(self) -> VortexResult<ListArray> {
+    pub fn into_list(self) -> ListArray {
         match self {
-            Canonical::List(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+            Canonical::List(a) => a,
+            _ => vortex_panic!("Cannot unwrap StructArray from {:?}", &self),
         }
     }
 
-    pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
+    pub fn into_varbinview(self) -> VarBinViewArray {
         match self {
-            Canonical::VarBinView(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self),
+            Canonical::VarBinView(a) => a,
+            _ => vortex_panic!("Cannot unwrap VarBinViewArray from {:?}", &self),
         }
     }
 
-    pub fn into_extension(self) -> VortexResult<ExtensionArray> {
+    pub fn into_extension(self) -> ExtensionArray {
         match self {
-            Canonical::Extension(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap ExtensionArray from {:?}", &self),
+            Canonical::Extension(a) => a,
+            _ => vortex_panic!("Cannot unwrap ExtensionArray from {:?}", &self),
         }
     }
 }
@@ -170,7 +169,7 @@ fn bool_to_arrow(bool_array: BoolArray, data_type: &DataType) -> VortexResult<Ar
     debug_assert_eq!(data_type, &DataType::Boolean);
     Ok(Arc::new(ArrowBoolArray::new(
         bool_array.boolean_buffer(),
-        bool_array.logical_validity().to_null_buffer()?,
+        bool_array.logical_validity().to_null_buffer(),
     )))
 }
 
@@ -189,7 +188,7 @@ fn primitive_to_arrow(
                 0,
                 array.len(),
             ),
-            array.logical_validity().to_null_buffer()?,
+            array.logical_validity().to_null_buffer(),
         )))
     }
 
@@ -209,23 +208,13 @@ fn primitive_to_arrow(
     })
 }
 
-fn struct_to_arrow(struct_array: StructArray, data_type: &DataType) -> VortexResult<ArrayRef> {
-    let target_fields = match data_type {
-        DataType::Struct(fields) => fields,
-        _ => vortex_bail!("Expected DataType::Struct, got {:?}", data_type),
-    };
-
-    let field_arrays = target_fields
-        .iter()
-        .zip_eq(struct_array.children())
-        .map(|(field, arr)| {
-            arr.into_canonical()
-                .map_err(|err| err.with_context(format!("Failed to canonicalize field {}", field)))
-                .and_then(|c| c.into_arrow())
-        })
+fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
+    let field_arrays = struct_array
+        .children()
+        .map(|arr| arr.into_canonical().into_arrow())
         .collect::<VortexResult<Vec<_>>>()?;
 
-    let nulls = struct_array.logical_validity().to_null_buffer()?;
+    let nulls = struct_array.logical_validity().to_null_buffer();
 
     if field_arrays.is_empty() {
         Ok(Arc::new(ArrowStructArray::new_empty_fields(
@@ -270,10 +259,7 @@ pub(crate) fn varbinview_to_arrow(
 
 // TODO(joe): unify with varbin
 fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef> {
-    let offsets = list
-        .offsets()
-        .into_canonical_primitive()
-        .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
+    let offsets = list.offsets().into_canonical_primitive();
 
     let (cast_ptype, element_dtype) = match data_type {
         DataType::List(field) => (PType::I32, field.data_type()),
@@ -283,7 +269,7 @@ fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef
 
     let arrow_offsets = try_cast(offsets, cast_ptype.into())
         .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray"))?
-        .into_canonical_primitive()?;
+        .into_canonical_primitive();
 
     let values = list.elements().into_arrow_with_data_type(element_dtype)?;
 
@@ -292,7 +278,7 @@ fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef
         list.validity().nullability().into(),
     ));
 
-    let nulls = list.logical_validity().to_null_buffer()?;
+    let nulls = list.logical_validity().to_null_buffer();
 
     Ok(match arrow_offsets.ptype() {
         PType::I32 => Arc::new(arrow_array::ListArray::try_new(
@@ -318,8 +304,8 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 $values,
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
-            .into_canonical_primitive()?;
-            let nulls = temporal_values.logical_validity().to_null_buffer()?;
+            .into_canonical_primitive();
+            let nulls = temporal_values.logical_validity().to_null_buffer();
             let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
             (scalars, nulls)
@@ -394,27 +380,27 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
 ///
 /// The DType of the array will be unchanged by canonicalization.
 pub trait IntoCanonical {
-    fn into_canonical(self) -> VortexResult<Canonical>;
+    fn into_canonical(self) -> Canonical;
 
     fn into_arrow(self) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
-        self.into_canonical()?.into_arrow()
+        self.into_canonical().into_arrow()
     }
 
     fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
-        self.into_canonical()?.into_arrow_with_data_type(data_type)
+        self.into_canonical().into_arrow_with_data_type(data_type)
     }
 }
 
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
 pub trait IntoCanonicalVTable {
-    fn into_canonical(&self, array: ArrayData) -> VortexResult<Canonical>;
+    fn into_canonical(&self, array: ArrayData) -> Canonical;
 
     fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef>;
 
@@ -438,12 +424,14 @@ where
     E::Array: IntoCanonical,
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
-    fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
+    fn into_canonical(&self, data: ArrayData) -> Canonical {
         #[cfg(feature = "canonical_counter")]
         data.inc_canonical_counter();
-        let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
+        let canonical = E::Array::try_from(data.clone())
+            .vortex_expect("Wrong array encoding")
+            .into_canonical();
         canonical.inherit_statistics(data.statistics());
-        Ok(canonical)
+        canonical
     }
 
     fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef> {
@@ -465,51 +453,51 @@ where
 ///
 /// This trait has a blanket implementation for all types implementing [IntoCanonical].
 pub trait IntoArrayVariant {
-    fn into_canonical_null(self) -> VortexResult<NullArray>;
+    fn into_canonical_null(self) -> NullArray;
 
-    fn into_canonical_bool(self) -> VortexResult<BoolArray>;
+    fn into_canonical_bool(self) -> BoolArray;
 
-    fn into_canonical_primitive(self) -> VortexResult<PrimitiveArray>;
+    fn into_canonical_primitive(self) -> PrimitiveArray;
 
-    fn into_canonical_struct(self) -> VortexResult<StructArray>;
+    fn into_canonical_struct(self) -> StructArray;
 
-    fn into_canonical_list(self) -> VortexResult<ListArray>;
+    fn into_canonical_list(self) -> ListArray;
 
-    fn into_canonical_varbinview(self) -> VortexResult<VarBinViewArray>;
+    fn into_canonical_varbinview(self) -> VarBinViewArray;
 
-    fn into_canonical_extension(self) -> VortexResult<ExtensionArray>;
+    fn into_canonical_extension(self) -> ExtensionArray;
 }
 
 impl<T> IntoArrayVariant for T
 where
     T: IntoCanonical,
 {
-    fn into_canonical_null(self) -> VortexResult<NullArray> {
-        self.into_canonical()?.into_null()
+    fn into_canonical_null(self) -> NullArray {
+        self.into_canonical().into_null()
     }
 
-    fn into_canonical_bool(self) -> VortexResult<BoolArray> {
-        self.into_canonical()?.into_bool()
+    fn into_canonical_bool(self) -> BoolArray {
+        self.into_canonical().into_bool()
     }
 
-    fn into_canonical_primitive(self) -> VortexResult<PrimitiveArray> {
-        self.into_canonical()?.into_primitive()
+    fn into_canonical_primitive(self) -> PrimitiveArray {
+        self.into_canonical().into_primitive()
     }
 
-    fn into_canonical_struct(self) -> VortexResult<StructArray> {
-        self.into_canonical()?.into_struct()
+    fn into_canonical_struct(self) -> StructArray {
+        self.into_canonical().into_struct()
     }
 
-    fn into_canonical_list(self) -> VortexResult<ListArray> {
-        self.into_canonical()?.into_list()
+    fn into_canonical_list(self) -> ListArray {
+        self.into_canonical().into_list()
     }
 
-    fn into_canonical_varbinview(self) -> VortexResult<VarBinViewArray> {
-        self.into_canonical()?.into_varbinview()
+    fn into_canonical_varbinview(self) -> VarBinViewArray {
+        self.into_canonical().into_varbinview()
     }
 
-    fn into_canonical_extension(self) -> VortexResult<ExtensionArray> {
-        self.into_canonical()?.into_extension()
+    fn into_canonical_extension(self) -> ExtensionArray {
+        self.into_canonical().into_extension()
     }
 }
 
@@ -518,7 +506,7 @@ where
 /// Canonicalizing an array requires potentially decompressing, so this requires a roundtrip through
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         // We only care to know when we canonicalize something non-trivial.
         if !self.is_canonical() && self.len() > 1 {
             log::trace!("Canonicalizing array with encoding {:?}", self.encoding());

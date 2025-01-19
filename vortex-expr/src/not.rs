@@ -80,7 +80,6 @@ mod tests {
                 .evaluate(bools.as_ref())
                 .unwrap()
                 .into_canonical_bool()
-                .unwrap()
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>(),

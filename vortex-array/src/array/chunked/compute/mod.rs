@@ -108,7 +108,6 @@ mod test {
             )
             .unwrap()
             .into_canonical_primitive()
-            .unwrap()
             .as_slice::<u64>(),
             &[0u64, 1, 2, 3],
         );

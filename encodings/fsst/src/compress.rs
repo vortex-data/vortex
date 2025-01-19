@@ -21,17 +21,15 @@ pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResu
     let dtype = strings.dtype().clone();
 
     // Compress VarBinArray
-    if let Ok(varbin) = VarBinArray::try_from(strings.clone()) {
-        return varbin
-            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"));
+    if let Some(varbin) = VarBinArray::maybe_from(strings) {
+        return Ok(varbin.with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor)));
     }
 
     // Compress VarBinViewArray
-    if let Ok(varbin_view) = VarBinViewArray::try_from(strings.clone()) {
-        return varbin_view
-            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"));
+    if let Some(varbin_view) = VarBinViewArray::maybe_from(strings) {
+        return Ok(
+            varbin_view.with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
+        );
     }
 
     vortex_bail!(
@@ -46,14 +44,10 @@ pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResu
 ///
 /// If the provided array is not FSST compressible.
 pub fn fsst_train_compressor(array: &ArrayData) -> VortexResult<Compressor> {
-    if let Ok(varbin) = VarBinArray::try_from(array.clone()) {
-        varbin
-            .with_iterator(|iter| fsst_train_compressor_iter(iter))
-            .map_err(|err| err.with_context("Failed to train FSST Compressor from VarBinArray"))
-    } else if let Ok(varbin_view) = VarBinViewArray::try_from(array.clone()) {
-        varbin_view
-            .with_iterator(|iter| fsst_train_compressor_iter(iter))
-            .map_err(|err| err.with_context("Failed to train FSST Compressor from VarBinViewArray"))
+    if let Some(varbin) = VarBinArray::maybe_from(array) {
+        Ok(varbin.with_iterator(|iter| fsst_train_compressor_iter(iter)))
+    } else if let Some(varbin_view) = VarBinViewArray::maybe_from(array) {
+        Ok(varbin_view.with_iterator(|iter| fsst_train_compressor_iter(iter)))
     } else {
         vortex_bail!(
             "cannot fsst_compress array with unsupported encoding {:?}",

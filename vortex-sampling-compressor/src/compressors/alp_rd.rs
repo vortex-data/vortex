@@ -50,7 +50,7 @@ impl EncodingCompressor for ALPRDCompressor {
         like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let primitive = array.clone().into_canonical_primitive()?;
+        let primitive = array.clone().into_canonical_primitive();
 
         // Train a new compressor or reuse an existing compressor.
         let encoder = like

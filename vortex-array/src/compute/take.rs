@@ -108,7 +108,7 @@ fn take_impl(
 
     // Otherwise, flatten and try again.
     log::debug!("No take implementation found for {}", array.encoding().id());
-    let canonical = array.clone().into_canonical()?.into_array();
+    let canonical = array.clone().into_canonical().into_array();
     let canonical_take_fn = canonical
         .encoding()
         .take_fn()

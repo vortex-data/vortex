@@ -160,7 +160,7 @@ impl ChunkedArray {
             {
                 new_chunks.push(
                     ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
-                        .into_canonical()?
+                        .into_canonical()
                         .into(),
                 );
 
@@ -181,7 +181,7 @@ impl ChunkedArray {
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
                 ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
-                    .into_canonical()?
+                    .into_canonical()
                     .into(),
             );
         }
@@ -269,7 +269,6 @@ mod test {
             .next()
             .unwrap()
             .into_canonical_primitive()
-            .unwrap()
             .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[0u64, 1, 2]);
@@ -277,7 +276,6 @@ mod test {
             .next()
             .unwrap()
             .into_canonical_primitive()
-            .unwrap()
             .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[3u64, 4, 5]);
@@ -285,7 +283,6 @@ mod test {
             .next()
             .unwrap()
             .into_canonical_primitive()
-            .unwrap()
             .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[6u64, 7, 8]);

@@ -35,7 +35,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
         }
 
         let nulls = validity
-            .to_null_buffer()?
+            .to_null_buffer()
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
 
         // TODO(ngates): when we take PrimitiveArray by value, we should mutate in-place
@@ -72,10 +72,7 @@ mod test {
     fn leading_none() {
         let arr =
             PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]).into_array();
-        let p = fill_forward(&arr)
-            .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+        let p = fill_forward(&arr).unwrap().into_canonical_primitive();
         assert_eq!(p.as_slice::<u8>(), vec![0, 8, 8, 10, 10]);
         assert!(p.logical_validity().all_valid());
     }
@@ -85,10 +82,7 @@ mod test {
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None])
             .into_array();
 
-        let p = fill_forward(&arr)
-            .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+        let p = fill_forward(&arr).unwrap().into_canonical_primitive();
         assert_eq!(p.as_slice::<u8>(), vec![0, 0, 0, 0, 0]);
         assert!(p.logical_validity().all_valid());
     }
@@ -100,10 +94,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         )
         .into_array();
-        let p = fill_forward(&arr)
-            .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+        let p = fill_forward(&arr).unwrap().into_canonical_primitive();
         assert_eq!(p.as_slice::<u8>(), vec![8, 10, 12, 14, 16]);
         assert!(p.logical_validity().all_valid());
     }

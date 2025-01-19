@@ -50,7 +50,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             stats
         }
         Stat::IsConstant => {
-            let is_constant = array.with_iterator(compute_is_constant)?;
+            let is_constant = array.with_iterator(compute_is_constant);
             if is_constant {
                 // we know that the array is not empty
                 StatsSet::constant(&scalar_at(array, 0)?, array.len())
@@ -60,7 +60,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
         }
         Stat::Min | Stat::Max => compute_min_max(array)?,
         Stat::IsSorted => {
-            let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
+            let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted());
             let mut stats = StatsSet::of(Stat::IsSorted, is_sorted);
             if !is_sorted {
                 stats.set(Stat::IsStrictSorted, false);
@@ -71,7 +71,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             let is_strict_sorted = array.with_iterator(|iter| {
                 iter.flatten()
                     .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
-            })?;
+            });
             let mut stats = StatsSet::of(Stat::IsStrictSorted, is_strict_sorted);
             if is_strict_sorted {
                 stats.set(Stat::IsSorted, true);
@@ -119,7 +119,7 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
             varbin_scalar(ByteBuffer::from(min.to_vec()), array.dtype()),
             varbin_scalar(ByteBuffer::from(max.to_vec()), array.dtype()),
         )),
-    })?;
+    });
     let Some((min, max)) = minmax else {
         // we know that the array is not empty, so it must be all nulls
         return Ok(StatsSet::nulls(array.len(), array.dtype()));

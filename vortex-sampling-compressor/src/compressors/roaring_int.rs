@@ -49,7 +49,7 @@ impl EncodingCompressor for RoaringIntCompressor {
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         Ok(CompressedArray::compressed(
-            roaring_int_encode(array.clone().into_canonical_primitive()?)?.into_array(),
+            roaring_int_encode(array.clone().into_canonical_primitive())?.into_array(),
             Some(CompressionTree::flat(self)),
             array,
         ))

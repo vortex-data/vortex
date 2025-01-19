@@ -261,7 +261,7 @@ impl<'a> SamplingCompressor<'a> {
             .collect::<VortexResult<Vec<ArrayData>>>()?,
             array.dtype().clone(),
         )?
-        .into_canonical()?
+        .into_canonical()
         .into();
 
         let best = find_best_compression(candidates, &sample, self)?

@@ -59,7 +59,7 @@ fn try_cast_impl(array: &ArrayData, dtype: &DType) -> VortexResult<ArrayData> {
         array.dtype(),
         dtype
     );
-    let canonicalized = array.clone().into_canonical()?.into_array();
+    let canonicalized = array.clone().into_canonical().into_array();
     if let Some(f) = canonicalized.encoding().cast_fn() {
         return f.cast(&canonicalized, dtype);
     }

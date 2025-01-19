@@ -92,7 +92,7 @@ fn primitive(c: &mut Criterion) {
             b.iter_batched(
                 || compressed.clone(),
                 |compressed| {
-                    black_box(compressed.into_canonical().unwrap());
+                    black_box(compressed.into_canonical());
                 },
                 BatchSize::SmallInput,
             )
@@ -111,7 +111,7 @@ fn strings(c: &mut Criterion) {
     group.bench_function("dict_decode_varbinview", |b| {
         b.iter_batched(
             || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
-            |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
+            |dict_arr| black_box(dict_arr.into_canonical()),
             BatchSize::SmallInput,
         );
     });
@@ -121,7 +121,7 @@ fn strings(c: &mut Criterion) {
     group.bench_function("fsst_decompress_varbinview", |b| {
         b.iter_batched(
             || fsst_array.clone(),
-            |fsst_arr| black_box(fsst_arr.into_canonical().unwrap()),
+            |fsst_arr| black_box(fsst_arr.into_canonical()),
             BatchSize::SmallInput,
         );
     });

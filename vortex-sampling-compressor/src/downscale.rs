@@ -45,52 +45,52 @@ fn downscale_primitive_integer_array(
     if min < 0 || max < 0 {
         // Signed
         if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-            return try_cast(
+            return Ok(try_cast(
                 &array,
                 &DType::Primitive(PType::I8, array.dtype().nullability()),
             )?
-            .into_canonical_primitive();
+            .into_canonical_primitive());
         }
 
         if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-            return try_cast(
+            return Ok(try_cast(
                 &array,
                 &DType::Primitive(PType::I16, array.dtype().nullability()),
             )?
-            .into_canonical_primitive();
+            .into_canonical_primitive());
         }
 
         if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-            return try_cast(
+            return Ok(try_cast(
                 &array,
                 &DType::Primitive(PType::I32, array.dtype().nullability()),
             )?
-            .into_canonical_primitive();
+            .into_canonical_primitive());
         }
     } else {
         // Unsigned
         if max <= u8::MAX as i64 {
-            return try_cast(
+            return Ok(try_cast(
                 &array,
                 &DType::Primitive(PType::U8, array.dtype().nullability()),
             )?
-            .into_canonical_primitive();
+            .into_canonical_primitive());
         }
 
         if max <= u16::MAX as i64 {
-            return try_cast(
+            return Ok(try_cast(
                 &array,
                 &DType::Primitive(PType::U16, array.dtype().nullability()),
             )?
-            .into_canonical_primitive();
+            .into_canonical_primitive());
         }
 
         if max <= u32::MAX as i64 {
-            return try_cast(
+            return Ok(try_cast(
                 &array,
                 &DType::Primitive(PType::U32, array.dtype().nullability()),
             )?
-            .into_canonical_primitive();
+            .into_canonical_primitive());
         }
     }
 

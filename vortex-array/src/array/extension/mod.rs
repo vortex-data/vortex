@@ -77,8 +77,8 @@ impl ExtensionArrayTrait for ExtensionArray {
 }
 
 impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
+    fn into_canonical(self) -> Canonical {
+        Canonical::Extension(self)
     }
 }
 

@@ -171,8 +171,8 @@ impl VisitorVTable<ListArray> for ListEncoding {
 }
 
 impl IntoCanonical for ListArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self))
+    fn into_canonical(self) -> Canonical {
+        Canonical::List(self)
     }
 }
 

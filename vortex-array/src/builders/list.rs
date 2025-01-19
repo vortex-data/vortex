@@ -180,7 +180,7 @@ mod tests {
         let list = builder.finish().unwrap();
         assert_eq!(list.len(), 2);
 
-        let list_array = list.into_canonical_list().unwrap();
+        let list_array = list.into_canonical_list();
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.elements_at(1).unwrap().len(), 3);
@@ -230,7 +230,7 @@ mod tests {
         let list = builder.finish().unwrap();
         assert_eq!(list.len(), 3);
 
-        let list_array = list.into_canonical_list().unwrap();
+        let list_array = list.into_canonical_list();
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.elements_at(1).unwrap().len(), 0);

@@ -361,7 +361,7 @@ where
         let chunk = this
             .vortex_array
             .chunk(*this.chunk_idx)?
-            .into_canonical_struct()?;
+            .into_canonical_struct();
 
         *this.chunk_idx += 1;
 

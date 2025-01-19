@@ -108,7 +108,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<ArrayData> {
-    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+    Ok(VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(reader)
         .await?
         .scan(Scan::all().with_row_indices(indices))?
@@ -116,7 +116,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .into_canonical()
-        .map(ArrayData::from)
+        .into())
 }
 
 pub async fn take_vortex_object_store(

@@ -433,24 +433,19 @@ where
 impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
 impl IntoCanonical for VarBinViewArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         let nullable = self.dtype().is_nullable();
         let arrow_self = varbinview_as_arrow(&self);
         let vortex_array = ArrayData::from_arrow(arrow_self, nullable);
 
-        Ok(Canonical::VarBinView(VarBinViewArray::try_from(
-            vortex_array,
-        )?))
+        Canonical::VarBinView(VarBinViewArray::try_from(vortex_array).vortex_unwrap())
     }
 }
 
 pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     let views = var_bin_view.views();
 
-    let nulls = var_bin_view
-        .logical_validity()
-        .to_null_buffer()
-        .vortex_expect("VarBinViewArray: validity child must be bool");
+    let nulls = var_bin_view.logical_validity().to_null_buffer();
 
     let data = (0..var_bin_view.buffer_count())
         .map(|i| var_bin_view.buffer(i))
@@ -567,10 +562,10 @@ mod test {
     pub fn flatten_array() {
         let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
 
-        let flattened = binary_arr.into_canonical().unwrap();
+        let flattened = binary_arr.into_canonical();
         assert!(matches!(flattened, Canonical::VarBinView(_)));
 
-        let var_bin = flattened.into_varbinview().unwrap().into_array();
+        let var_bin = flattened.into_varbinview().into_array();
         assert_eq!(scalar_at(&var_bin, 0).unwrap(), Scalar::from("string1"));
         assert_eq!(scalar_at(&var_bin, 1).unwrap(), Scalar::from("string2"));
     }

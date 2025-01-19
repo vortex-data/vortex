@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion_common::{exec_datafusion_err, DataFusionError, Result as DFResult};
+use datafusion_common::{exec_datafusion_err, Result as DFResult};
 use datafusion_execution::RecordBatchStream;
 use futures::Stream;
 use vortex_array::array::ChunkedArray;
@@ -33,9 +33,7 @@ impl Stream for VortexRecordBatchStream {
         let chunk = self.chunks.chunk(self.idx)?;
         self.idx += 1;
 
-        let struct_array = chunk
-            .into_canonical_struct()
-            .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
+        let struct_array = chunk.into_canonical_struct();
 
         let projected_struct = struct_array
             .project(&self.projection)

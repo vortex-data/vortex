@@ -15,7 +15,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 mod compress;
 mod compute;
@@ -109,13 +109,13 @@ impl ValidityVTable<RoaringBoolArray> for RoaringBoolEncoding {
 }
 
 impl IntoCanonical for RoaringBoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> Canonical {
         // TODO(ngates): benchmark the fastest conversion from BitMap.
         //  Via bitset requires two copies.
         let bitset = self
             .bitmap()
             .to_bitset()
-            .ok_or_else(|| vortex_err!("Failed to convert RoaringBitmap to Bitset"))?;
+            .vortex_expect("Failed to convert RoaringBitmap to Bitset");
 
         let byte_length = (self.len() + 7) / 8;
         let mut buffer = MutableBuffer::with_capacity(byte_length);
@@ -123,10 +123,10 @@ impl IntoCanonical for RoaringBoolArray {
         if byte_length > bitset.size_in_bytes() {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
-        Ok(Canonical::Bool(BoolArray::new(
+        Canonical::Bool(BoolArray::new(
             BooleanBuffer::new(buffer.into(), 0, self.len()),
             Nullability::NonNullable,
-        )))
+        ))
     }
 }
 
@@ -162,7 +162,7 @@ mod test {
             BoolArray::from_iter([true, true].into_iter().chain(iter::repeat_n(false, 100)));
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();
-        let bool_arr = round_trip.into_canonical_bool().unwrap();
+        let bool_arr = round_trip.into_canonical_bool();
         assert_eq!(bool_arr.len(), 102);
     }
 }

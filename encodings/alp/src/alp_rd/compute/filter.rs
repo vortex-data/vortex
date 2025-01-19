@@ -51,8 +51,7 @@ mod test {
             &FilterMask::from_iter([true, false, true]),
         )
         .unwrap()
-        .into_canonical_primitive()
-        .unwrap();
+        .into_canonical_primitive();
         assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
     }
 }

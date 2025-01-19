@@ -13,7 +13,6 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
             .logical_validity()
             .into_array()
             .into_canonical_bool()
-            .unwrap()
             .boolean_buffer();
 
         Validity::from(bool_buff.slice(start, stop - start))
@@ -23,28 +22,27 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_canonical_bool().unwrap();
+            let bool_array = array.clone().into_canonical_bool();
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
             BoolArray::try_new(sliced_bools, validity)
                 .vortex_expect("Validity length cannot mismatch")
                 .into_array()
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_canonical_primitive().unwrap();
+            let primitive_array = array.clone().into_canonical_primitive();
             match_each_native_ptype!(p, |$P| {
                 PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array()
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_canonical_varbinview().unwrap();
-            let values = utf8
-                .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+            let utf8 = array.clone().into_canonical_varbinview();
+            let values =
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>());
             VarBinViewArray::from_iter(values[start..stop].iter().cloned(), array.dtype().clone())
                 .into_array()
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_canonical_struct().unwrap();
+            let struct_array = array.clone().into_canonical_struct();
             let sliced_children = struct_array
                 .children()
                 .map(|c| slice_canonical_array(&c, start, stop))
@@ -59,10 +57,9 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
             .into_array()
         }
         DType::List(..) => {
-            let list_array = array.clone().into_canonical_list().unwrap();
+            let list_array = array.clone().into_canonical_list();
             let offsets = slice_canonical_array(&list_array.offsets(), start, stop + 1)
-                .into_canonical_primitive()
-                .unwrap();
+                .into_canonical_primitive();
 
             let elements = slice_canonical_array(
                 &list_array.elements(),

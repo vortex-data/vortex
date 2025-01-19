@@ -9,7 +9,7 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -164,20 +164,10 @@ impl FSSTArray {
         F: FnOnce(Decompressor) -> VortexResult<R>,
     {
         // canonicalize the symbols child array, so we can view it contiguously
-        let symbols_array = self
-            .symbols()
-            .into_canonical()
-            .map_err(|err| err.with_context("Failed to canonicalize symbols array"))?
-            .into_primitive()
-            .map_err(|err| err.with_context("Symbols must be a Primitive Array"))?;
+        let symbols_array = self.symbols().into_canonical_primitive();
         let symbols = symbols_array.as_slice::<u64>();
 
-        let symbol_lengths_array = self
-            .symbol_lengths()
-            .into_canonical()
-            .map_err(|err| err.with_context("Failed to canonicalize symbol_lengths array"))?
-            .into_primitive()
-            .map_err(|err| err.with_context("Symbol lengths must be a Primitive Array"))?;
+        let symbol_lengths_array = self.symbol_lengths().into_canonical_primitive();
         let symbol_lengths = symbol_lengths_array.as_slice::<u8>();
 
         // Transmute the 64-bit symbol values into fsst `Symbol`s.

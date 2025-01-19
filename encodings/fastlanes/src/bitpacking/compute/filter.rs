@@ -43,8 +43,8 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 
     // Short-circuit if the selectivity is high enough.
     if mask.selectivity() > 0.8 {
-        return filter(array.clone().into_canonical_primitive()?.as_ref(), mask)
-            .and_then(|a| a.into_canonical_primitive());
+        return filter(array.clone().into_canonical_primitive().as_ref(), mask)
+            .map(|a| a.into_canonical_primitive());
     }
 
     let values: Buffer<T> = match mask.iter() {
@@ -145,8 +145,7 @@ mod test {
 
         let primitive_result = filter(bitpacked.as_ref(), &mask)
             .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+            .into_canonical_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -160,10 +159,7 @@ mod test {
 
         let mask = FilterMask::from_indices(sliced.len(), vec![1919, 1921]);
 
-        let primitive_result = filter(&sliced, &mask)
-            .unwrap()
-            .into_canonical_primitive()
-            .unwrap();
+        let primitive_result = filter(&sliced, &mask).unwrap().into_canonical_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
@@ -178,10 +174,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            filtered
-                .into_canonical_primitive()
-                .unwrap()
-                .as_slice::<u8>(),
+            filtered.into_canonical_primitive().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
         );
     }
@@ -196,8 +189,7 @@ mod test {
             &FilterMask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()
-        .into_canonical_primitive()
-        .unwrap();
+        .into_canonical_primitive();
 
         assert_eq!(filtered.as_slice::<i64>(), &values[0..250]);
     }

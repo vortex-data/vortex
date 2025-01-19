@@ -37,7 +37,6 @@ fn array_view_fixture() -> VarBinViewArray {
         .into_array_data()
         .unwrap()
         .into_canonical_varbinview()
-        .unwrap()
 }
 
 fn benchmark(c: &mut Criterion) {
