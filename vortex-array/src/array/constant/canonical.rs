@@ -8,6 +8,10 @@ use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
+use crate::builders::{
+    ArrayBuilder, BinaryBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder, Utf8Builder,
+};
+use crate::iter::Accessor;
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
@@ -61,6 +65,52 @@ impl IntoCanonical for ConstantArray {
                 ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
             }
         })
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        match self.dtype() {
+            DType::Null => builder
+                .as_any()
+                .downcast_mut_unchecked::<NullBuilder>()
+                .append_nulls(self.len()),
+            DType::Bool(_) => {
+                let builder = builder.as_any().downcast_mut_unchecked::<BoolBuilder>();
+                match self.scalar().as_bool().value() {
+                    None => builder.append_nulls(self.len()),
+                    Some(b) => builder.append_values(b, self.len()),
+                }
+            }
+            DType::Primitive(ptype, _) => {
+                match_each_native_ptype!(ptype, |$P| {
+                    let builder = builder
+                        .as_any()
+                        .downcast_mut_unchecked::<PrimitiveBuilder<$P>>();
+                    match self.scalar().as_primitive().typed_value::<$P>() {
+                        None => builder.append_nulls(self.len()),
+                        Some(v) => builder.append_values(v, self.len()),
+                    }
+                })
+            }
+            DType::Utf8(_) => {
+                let builder = builder.as_any().downcast_mut_unchecked::<Utf8Builder>();
+                match self.scalar().as_utf8().value() {
+                    None => builder.append_nulls(self.len()),
+                    Some(v) => builder.append_values(v, self.len()),
+                }
+            }
+            DType::Binary(_) => {
+                let builder = builder.as_any().downcast_mut_unchecked::<BinaryBuilder>();
+                match self.scalar().as_binary().value() {
+                    None => builder.append_nulls(self.len()),
+                    Some(v) => builder.append_values(v, self.len()),
+                }
+            }
+            DType::Struct(..) => {
+                
+            }
+            DType::List(..) => {}
+            DType::Extension(_) => {}
+        }
     }
 }
 

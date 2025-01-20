@@ -28,6 +28,13 @@ impl BinaryBuilder {
         self.inner.append_value(value.as_ref())
     }
 
+    pub fn append_values<S: AsRef<[u8]>>(&mut self, value: S, n: usize) {
+        let value = value.as_ref();
+        for _ in 0..n {
+            self.inner.append_value(value)
+        }
+    }
+
     pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
         self.inner.append_option(value.as_ref())
     }

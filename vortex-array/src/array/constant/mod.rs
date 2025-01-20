@@ -56,6 +56,11 @@ impl ConstantArray {
         // NOTE(ngates): these clones are pretty cheap.
         Scalar::new(self.dtype().clone(), self.metadata().scalar_value.clone())
     }
+
+    /// Returns whether the [`Scalar`] value of this constant array is valid.
+    pub fn is_valid(&self) -> bool {
+        !self.scalar().is_null()
+    }
 }
 
 impl ValidateVTable<ConstantArray> for ConstantEncoding {}

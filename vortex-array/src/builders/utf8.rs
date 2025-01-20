@@ -28,6 +28,14 @@ impl Utf8Builder {
         self.inner.append_value(value.as_ref())
     }
 
+    pub fn append_values<S: AsRef<str>>(&mut self, value: S, n: usize) {
+        let value = value.as_ref();
+        // TODO(ngates): can we re-use the same offset in the buffer?
+        for _ in 0..n {
+            self.inner.append_value(value)
+        }
+    }
+
     pub fn append_option<S: AsRef<str>>(&mut self, value: Option<S>) {
         self.inner.append_option(value.as_ref())
     }
