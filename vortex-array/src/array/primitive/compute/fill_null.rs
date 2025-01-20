@@ -1,6 +1,7 @@
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, Nullability};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{ConstantArray, PrimitiveEncoding};
@@ -10,11 +11,7 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
 impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
-    fn fill_null(
-        &self,
-        array: &PrimitiveArray,
-        fill_value: vortex_scalar::Scalar,
-    ) -> VortexResult<ArrayData> {
+    fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<ArrayData> {
         let result_validity = match fill_value.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
