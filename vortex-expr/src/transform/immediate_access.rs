@@ -9,6 +9,13 @@ use crate::{ExprRef, GetItem, Identity, Select};
 
 pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 
+/// For all subexpressions in an expression, find the fields that are accessed directly from the
+/// scope, but not any fields in those fields
+/// e.g. scope = {a: {b: .., c: ..}, d: ..}, expr = ident().a.b + ident().d accesses {a,d} (not b).
+///
+/// Note: This is a very naive, but simple analysis to find the fields that are accessed directly on an
+/// identity node. This is combined to provide an over-approximation of the fields that are accessed
+/// by an expression.
 pub fn immediate_scope_accesses<'a>(
     expr: &'a ExprRef,
     scope_dtype: &'a StructDType,
@@ -16,9 +23,6 @@ pub fn immediate_scope_accesses<'a>(
     ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)
 }
 
-/// For all subexpressions in an expression, find the fields that are accessed directly from the
-/// scope, but not any fields in those fields
-/// e.g. scope = {a: {b: .., c: ..}, d: ..}, expr = ident().a.b + ident().d accesses {a,d} (not b).
 struct ImmediateScopeAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
     scope_dtype: &'a StructDType,
@@ -39,9 +43,6 @@ impl<'a> ImmediateScopeAccessesAnalysis<'a> {
     }
 }
 
-// This is a very naive, but simple analysis to find the fields that are accessed directly on an
-// identity node. This is combined to provide an over-approximation of the fields that are accessed
-// by an expression.
 impl<'a> NodeVisitor<'a> for ImmediateScopeAccessesAnalysis<'a> {
     type NodeTy = ExprRef;
 
