@@ -1,5 +1,6 @@
 [package]
 name = "vortex-mask"
+description = "Vortex Mask - sorted, unique, positive integers"
 version.workspace = true
 homepage.workspace = true
 repository.workspace = true
