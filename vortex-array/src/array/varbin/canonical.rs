@@ -7,6 +7,7 @@ use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinViewArray;
 use crate::arrow::FromArrowArray;
+use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
@@ -21,6 +22,11 @@ impl IntoCanonical for VarBinArray {
         };
 
         VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let builder = builder.as_binary_mut();
+        todo!()
     }
 
     fn into_arrow(self) -> VortexResult<ArrayRef> {

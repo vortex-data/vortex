@@ -15,7 +15,7 @@ use crate::{ArrayData, IntoArrayData};
 
 pub struct ListBuilder<O: PrimInt + NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
-    index_builder: PrimitiveBuilder<O>,
+    offset_builder: PrimitiveBuilder<O>,
     validity: BoolBuilder,
     nullability: Nullability,
     dtype: DType,
@@ -41,11 +41,22 @@ where
 
         Self {
             value_builder,
-            index_builder,
+            offset_builder: index_builder,
             validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
             nullability,
             dtype: DType::List(value_dtype, nullability),
         }
+    }
+
+    pub fn elements_mut(&mut self) -> &mut dyn ArrayBuilder {
+        self.value_builder
+            .as_any_mut()
+            .downcast_mut()
+            .vortex_expect("Invalid list elements")
+    }
+
+    pub fn offsets_mut(&mut self) -> &mut PrimitiveBuilder<O> {
+        &mut self.offset_builder
     }
 
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
@@ -67,7 +78,7 @@ where
     }
 
     fn append_index(&mut self, index: O) -> VortexResult<()> {
-        self.index_builder.append_scalar(&Scalar::from(index))
+        self.offset_builder.append_scalar(&Scalar::from(index))
     }
 }
 
@@ -122,7 +133,7 @@ where
 
         ListArray::try_new(
             self.value_builder.finish()?,
-            self.index_builder.finish()?,
+            self.offset_builder.finish()?,
             validity,
         )
         .map(ListArray::into_array)

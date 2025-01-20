@@ -14,11 +14,12 @@ pub use bool::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;
+use num_traits::PrimInt;
 pub use primitive::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, StructScalar,
     Utf8Scalar,
@@ -146,6 +147,54 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .append_value(ExtScalar::try_from(scalar)?)?,
         }
         Ok(())
+    }
+
+    fn as_null_mut(&mut self) -> &mut NullBuilder {
+        self.as_any_mut()
+            .downcast_mut::<NullBuilder>()
+            .vortex_expect("Builder is not a NullBuilder")
+    }
+
+    fn as_bool_mut(&mut self) -> &mut BoolBuilder {
+        self.as_any_mut()
+            .downcast_mut::<BoolBuilder>()
+            .vortex_expect("Builder is not a BoolBuilder")
+    }
+
+    fn as_primitive_mut<P: NativePType>(&mut self) -> &mut PrimitiveBuilder<P> {
+        self.as_any_mut()
+            .downcast_mut::<PrimitiveBuilder<P>>()
+            .vortex_expect("Builder is not a PrimitiveBuilder")
+    }
+
+    fn as_utf8_mut(&mut self) -> &mut Utf8Builder {
+        self.as_any_mut()
+            .downcast_mut::<Utf8Builder>()
+            .vortex_expect("Builder is not a Utf8Builder")
+    }
+
+    fn as_binary_mut(&mut self) -> &mut BinaryBuilder {
+        self.as_any_mut()
+            .downcast_mut::<BinaryBuilder>()
+            .vortex_expect("Builder is not a BinaryBuilder")
+    }
+
+    fn as_struct_mut(&mut self) -> &mut StructBuilder {
+        self.as_any_mut()
+            .downcast_mut::<StructBuilder>()
+            .vortex_expect("Builder is not a StructBuilder")
+    }
+
+    fn as_list_mut<O: PrimInt + NativePType>(&mut self) -> &mut ListBuilder<O> {
+        self.as_any_mut()
+            .downcast_mut::<ListBuilder<O>>()
+            .vortex_expect("Builder is not a ListBuilder")
+    }
+
+    fn as_extension_mut(&mut self) -> &mut ExtensionBuilder {
+        self.as_any_mut()
+            .downcast_mut::<ExtensionBuilder>()
+            .vortex_expect("Builder is not an ExtensionBuilder")
     }
 }
 

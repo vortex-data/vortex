@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
+use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
@@ -179,6 +180,14 @@ impl IntoCanonical for StructArray {
     /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
     fn into_canonical(self) -> VortexResult<Canonical> {
         Ok(Canonical::Struct(self))
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let builder = builder.as_struct_mut();
+        builder
+            .field_builders()
+            .zip(self.children())
+            .try_for_each(|(field_builder, field)| field.into_canonical_builder(field_builder))
     }
 }
 

@@ -1,4 +1,3 @@
-#![feature(downcast_unchecked)]
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
 #![feature(substr_range)]

@@ -7,6 +7,7 @@ use vortex_scalar::Scalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
 use crate::array::{BoolArray, ConstantArray};
+use crate::builders::ArrayBuilder;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
@@ -29,6 +30,11 @@ impl IntoCanonical for SparseArray {
                 )
             })
         }
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        // Ideally we can set_len, and then update individual values?
+        todo!()
     }
 }
 

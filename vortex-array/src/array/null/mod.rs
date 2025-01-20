@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
+use crate::builders::ArrayBuilder;
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
@@ -43,6 +44,11 @@ impl NullArray {
 impl IntoCanonical for NullArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         Ok(Canonical::Null(self))
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        builder.append_nulls(self.len());
+        Ok(())
     }
 }
 

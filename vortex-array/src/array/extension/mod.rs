@@ -7,7 +7,6 @@ use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::builders::{ArrayBuilder, ExtensionBuilder};
-use crate::compute::binary_boolean;
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;

@@ -195,6 +195,7 @@ impl IntoCanonical for BoolArray {
     }
 
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        // FIXME(ngates): validity
         let builder = builder
             .as_any()
             .downcast_mut::<BoolBuilder>()
