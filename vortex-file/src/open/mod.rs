@@ -160,15 +160,7 @@ impl VortexOpenOptions {
         // Set up the execution driver.
         let exec_driver = self
             .execution_mode
-            .unwrap_or_else(|| {
-                // Default to tokio-specific behavior if its enabled and there's a runtime running.
-                #[cfg(feature = "tokio")]
-                if let Ok(h) = tokio::runtime::Handle::try_current() {
-                    return ExecutionMode::TokioRuntime(h);
-                }
-
-                ExecutionMode::Inline
-            })
+            .unwrap_or_default()
             .into_driver(self.exec_concurrency.unwrap_or(self.io_concurrency * 2));
 
         // Compute the splits of the file.

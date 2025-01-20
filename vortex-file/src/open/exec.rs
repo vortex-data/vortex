@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-#[cfg(feature = "tokio")]
-use tokio::runtime::Handle;
-
 use crate::exec::inline::InlineDriver;
 #[cfg(feature = "tokio")]
 use crate::exec::tokio::TokioDriver;
@@ -19,7 +16,19 @@ pub enum ExecutionMode {
     RayonThreadPool(Arc<rayon::ThreadPool>),
     /// Spawns the tasks onto a provided Tokio runtime.
     #[cfg(feature = "tokio")]
-    TokioRuntime(Handle),
+    TokioRuntime(tokio::runtime::Handle),
+}
+
+impl Default for ExecutionMode {
+    fn default() -> Self {
+        // Default to tokio-specific behavior if its enabled and there's a runtime running.
+        #[cfg(feature = "tokio")]
+        if let Ok(h) = tokio::runtime::Handle::try_current() {
+            return ExecutionMode::TokioRuntime(h);
+        }
+
+        ExecutionMode::Inline
+    }
 }
 
 impl ExecutionMode {
