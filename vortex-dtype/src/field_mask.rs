@@ -15,7 +15,6 @@ pub enum FieldMask {
     Exact(FieldPath),
 }
 
-// TODO(joe): ..
 impl FieldMask {
     /// Creates a new field mask stepping one level into the layout structure.
     pub fn step_into(self) -> VortexResult<Self> {
