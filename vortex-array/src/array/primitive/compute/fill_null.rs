@@ -25,12 +25,7 @@ impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
 
         let array_validity = array.logical_validity();
         if array_validity.all_valid() {
-            return Ok(PrimitiveArray::from_byte_buffer(
-                array.byte_buffer().clone(),
-                array.ptype(),
-                result_validity,
-            )
-            .into_array());
+            return Ok(array.clone().into_array());
         }
 
         if array_validity.all_invalid() {
