@@ -230,34 +230,24 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let mut stats = StatsSet::default();
 
-        match stat {
-            Stat::Min | Stat::Max => {
-                if let Some(extrema) = array.values().statistics().compute(stat) {
-                    stats.set(stat, extrema);
-                }
-            }
-            Stat::IsSorted => {
-                let is_sorted = Scalar::from(
-                    array
-                        .values()
-                        .statistics()
-                        .compute_is_sorted()
-                        .unwrap_or(false)
-                        && array.logical_validity().all_valid(),
-                );
-                stats.set(stat, is_sorted);
-            }
+        let value = match stat {
+            Stat::Min | Stat::Max => array.values().statistics().compute(stat),
+            Stat::IsSorted => Some(Scalar::from(
+                array
+                    .values()
+                    .statistics()
+                    .compute_is_sorted()
+                    .unwrap_or(false)
+                    && array.logical_validity().all_valid(),
+            )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => {
                     let ends = array.ends().into_primitive()?;
                     let bools = array.values().into_bool()?.boolean_buffer();
-                    let mut true_count: u64 = 0;
-                    let mut null_count: u64 = 0;
 
-                    match array.values().logical_validity() {
+                    let true_count = match array.values().logical_validity() {
                         LogicalValidity::AllValid(_) => {
-                            null_count = 0;
-                            true_count = match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                            match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
                                 let mut begin = array.offset() as $P;
                                 ends
                                     .as_slice::<$P>()
@@ -269,36 +259,46 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                                         (len as u64) * (bools.value(index as usize) as u64)
                                     })
                                     .sum()
-                            });
+                            })
                         }
-                        LogicalValidity::AllInvalid(_) => {
-                            null_count = array.len() as u64;
-                            true_count = 0;
-                        }
+                        LogicalValidity::AllInvalid(_) => 0,
                         LogicalValidity::Array(is_valid) => {
                             let is_valid = is_valid.into_bool()?.boolean_buffer();
+                            let mut is_valid = is_valid.set_indices();
+                            match is_valid.next() {
+                                None => array.len() as u64,
+                                Some(valid_index) => {
+                                    let offsetted_len = (array.len() + array.offset()) as u64;
+                                    let mut true_count: u64 = array.len() as u64;
+                                    match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                                        let ends = ends.as_slice::<$P>();
+                                        let begin = if valid_index == 0 {
+                                            0
+                                        } else {
+                                            ends[valid_index - 1]
+                                        };
 
-                            match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
-                                let mut begin = array.offset() as $P;
-                                for (index, end) in ends.as_slice::<$P>().iter().enumerate() {
-                                    let len = *end - begin;
-                                    begin = *end;
-                                    true_count += (len as u64) * (bools.value(index as usize) as u64) * (is_valid.value(index as usize) as u64);
-                                    null_count += (len as u64) * (is_valid.value(index as usize) as u64);
+                                        true_count += bools.value(valid_index as usize) as u64 * (cmp::min(ends[valid_index] as u64, offsetted_len) - begin as u64);
+
+                                        for valid_index in is_valid {
+                                            true_count += bools.value(valid_index as usize) as u64 * (cmp::min(ends[valid_index] as u64, offsetted_len) - ends[valid_index - 1] as u64);
+                                        }
+
+                                        true_count
+                                    })
                                 }
-                            });
+                            }
                         }
                     };
 
-                    stats.set(Stat::TrueCount, true_count);
-                    stats.set(Stat::NullCount, null_count);
+                    Some(Scalar::from(true_count))
                 }
-                DType::Primitive(..) => {}
+                DType::Primitive(..) => None,
                 dtype => vortex_bail!("invalid dtype: {}", dtype),
             },
             Stat::NullCount => {
                 let ends = array.ends().into_primitive()?;
-                let null_count: u64 = match array.values().logical_validity() {
+                let null_count = match array.values().logical_validity() {
                     LogicalValidity::AllValid(_) => 0_u64,
                     LogicalValidity::AllInvalid(_) => array.len() as u64,
                     LogicalValidity::Array(is_valid) => {
@@ -328,9 +328,13 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                         }
                     }
                 };
-                stats.set(stat, null_count);
+                Some(Scalar::from(null_count))
             }
-            _ => {}
+            _ => None,
+        };
+
+        if let Some(value) = value {
+            stats.set(stat, value)
         };
 
         Ok(stats)
