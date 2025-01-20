@@ -254,15 +254,7 @@ impl VarBinViewArray {
 
     /// Number of raw string data buffers held by this array.
     pub fn buffer_count(&self) -> usize {
-        self.metadata().buffer_lens.len()
-    }
-
-    /// Retrieve a binary view at a specific index.
-    ///
-    /// If you will be calling this method many times, it's recommended that you instead
-    /// iterate over the buffer provided by [`Self::views`].
-    pub fn view_at(&self, index: usize) -> VortexResult<BinaryView> {
-        Ok(self.views()[index])
+        self.0.nbuffers() - 1
     }
 
     /// Access to the primitive views buffer.
@@ -280,6 +272,28 @@ impl VarBinViewArray {
         )
     }
 
+    /// Access value bytes at a given index
+    ///
+    /// Will return a bytebuffer pointing to the underlying data without performing a copy
+    #[inline]
+    pub fn bytes_at(&self, index: usize) -> ByteBuffer {
+        let view = self.views()[index];
+        // Expect this to be the common case: strings > 12 bytes.
+        if !view.is_inlined() {
+            let view_ref = view.as_view();
+            self.buffer(view_ref.buffer_index() as usize)
+                .slice(view_ref.to_range())
+        } else {
+            // Return access to the range of bytes around it.
+            let view_byte_start = index * size_of::<BinaryView>() + 4;
+            let view_byte_end = view_byte_start + view.len() as usize;
+            self.0
+                .byte_buffer(0)
+                .vortex_expect("Must have views buffer")
+                .slice_with_alignment(view_byte_start..view_byte_end, Alignment::new(1))
+        }
+    }
+
     /// Access one of the backing data buffers.
     ///
     /// # Panics
@@ -288,9 +302,16 @@ impl VarBinViewArray {
     /// at construction time.
     #[inline]
     pub fn buffer(&self, idx: usize) -> ByteBuffer {
-        self.as_ref()
+        if idx >= self.buffer_count() {
+            vortex_panic!(
+                "{idx} buffer index out of bounds, there are {} buffers",
+                self.buffer_count()
+            );
+        }
+
+        self.0
             .byte_buffer(idx + 1)
-            .vortex_expect(&format!("{idx} is out of bounds"))
+            .vortex_expect("Out of bounds view buffer")
             .clone()
     }
 
@@ -300,9 +321,10 @@ impl VarBinViewArray {
         self.0.byte_buffers().skip(1)
     }
 
+    /// Validity of the array
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
-            self.as_ref()
+            self.0
                 .child(0, &Validity::DTYPE, self.len())
                 .vortex_expect("VarBinViewArray: validity child")
         })
@@ -389,25 +411,6 @@ impl VarBinViewArray {
         builder.extend(iter);
         let array = ArrayData::from_arrow(&builder.finish(), true);
         VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
-    }
-
-    // TODO(aduffy): do we really need to do this with copying?
-    pub fn bytes_at(&self, index: usize) -> VortexResult<Vec<u8>> {
-        let view = self.view_at(index)?;
-        // Expect this to be the common case: strings > 12 bytes.
-        if !view.is_inlined() {
-            let view_ref = view.as_view();
-
-            let start = view_ref.offset() as usize;
-            let stop = (view.len() + view_ref.offset()) as usize;
-            let data_buf = self
-                .buffer(view_ref.buffer_index() as usize)
-                .slice(start..stop);
-            Ok(data_buf.to_vec())
-        } else {
-            // Return access to the range of bytes around it.
-            Ok(view.as_inlined().value().to_vec())
-        }
     }
 }
 

@@ -315,7 +315,7 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_down(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
-            if node.as_any().downcast_ref::<Literal>().is_some() {
+            if node.as_any().is::<Literal>() {
                 self.0.push(node)
             }
             Ok(TraversalOrder::Continue)
@@ -386,7 +386,7 @@ mod tests {
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().downcast_ref::<GetItem>().is_some() {
+            if node.as_any().is::<GetItem>() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
@@ -419,7 +419,7 @@ mod tests {
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().downcast_ref::<GetItem>().is_some() {
+            if node.as_any().is::<GetItem>() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {

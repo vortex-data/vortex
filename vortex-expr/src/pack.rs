@@ -82,19 +82,6 @@ pub fn pack(names: impl Into<FieldNames>, values: Vec<ExprRef>) -> ExprRef {
         .vortex_expect("pack names and values have the same length")
 }
 
-impl PartialEq<dyn Any> for Pack {
-    fn eq(&self, other: &dyn Any) -> bool {
-        other.downcast_ref::<Pack>().is_some_and(|other_pack| {
-            self.names == other_pack.names
-                && self
-                    .values
-                    .iter()
-                    .zip(other_pack.values.iter())
-                    .all(|(x, y)| x.eq(y))
-        })
-    }
-}
-
 impl Display for Pack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("{")?;

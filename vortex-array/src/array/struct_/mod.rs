@@ -90,17 +90,19 @@ impl StructArray {
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayData)]) -> VortexResult<Self> {
-        let names: Vec<FieldName> = items
-            .iter()
-            .map(|(name, _)| FieldName::from(name.as_ref()))
-            .collect();
+        let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
         let fields: Vec<ArrayData> = items.iter().map(|(_, array)| array.clone()).collect();
         let len = fields
             .first()
             .map(|f| f.len())
             .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
 
-        Self::try_new(FieldNames::from(names), fields, len, Validity::NonNullable)
+        Self::try_new(
+            FieldNames::from_iter(names),
+            fields,
+            len,
+            Validity::NonNullable,
+        )
     }
 
     // TODO(aduffy): Add equivalent function to support field masks for nested column access.
