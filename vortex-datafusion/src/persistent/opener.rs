@@ -88,8 +88,6 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, this.object_store.clone())
                         .await?,
                 )
-                // Create larger splits in so that each chunk has more rows
-                .with_split_by(SplitBy::Layout)
                 .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
                 .open(read_at)
                 .await?;
