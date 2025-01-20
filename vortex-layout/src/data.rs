@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -75,17 +75,18 @@ impl LayoutData {
     }
 
     /// Create a new viewed layout from a flatbuffer root message.
-    ///
-    /// SAFETY:
-    ///
-    /// Assumes that flatbuffer has been previously validated
-    pub fn try_new_viewed_unchecked(
+    pub fn try_new_viewed(
         encoding: LayoutEncodingRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
     ) -> VortexResult<Self> {
+        // Validate the buffer contains a layout message at the given location.
+        let opts = VerifierOptions::default();
+        let mut v = Verifier::new(&opts, flatbuffer.as_ref());
+        fb::Layout::run_verifier(&mut v, flatbuffer_loc)?;
+
         // SAFETY: we just verified the buffer contains a valid layout message.
         let fb_layout = unsafe { fb::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) };
         if fb_layout.encoding() != encoding.id().0 {
@@ -96,6 +97,7 @@ impl LayoutData {
             );
         }
 
+        // SAFETY: We have done the validation
         Ok(Self(Inner::Viewed(ViewedLayoutData {
             encoding,
             dtype,
@@ -103,6 +105,27 @@ impl LayoutData {
             flatbuffer_loc,
             ctx,
         })))
+    }
+
+    /// Create a new viewed layout from a flatbuffer root message.
+    ///
+    /// SAFETY:
+    ///
+    /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
+    pub unsafe fn try_new_viewed_unchecked(
+        encoding: LayoutEncodingRef,
+        dtype: DType,
+        flatbuffer: ByteBuffer,
+        flatbuffer_loc: usize,
+        ctx: LayoutContextRef,
+    ) -> Self {
+        Self(Inner::Viewed(ViewedLayoutData {
+            encoding,
+            dtype,
+            flatbuffer,
+            flatbuffer_loc,
+            ctx,
+        }))
     }
 
     /// Returns the [`crate::LayoutEncoding`] for this layout.

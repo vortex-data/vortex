@@ -290,13 +290,16 @@ impl VortexOpenOptions {
                 )
             })?;
 
-        let root_layout = LayoutData::try_new_viewed_unchecked(
-            root_encoding,
-            dtype,
-            bytes.clone(),
-            fb_root_layout._tab.loc(),
-            self.layout_ctx.clone(),
-        )?;
+        // SAFETY: We have validated the fb_root_layout at the beginning of this function
+        let root_layout = unsafe {
+            LayoutData::try_new_viewed_unchecked(
+                root_encoding,
+                dtype,
+                bytes.clone(),
+                fb_root_layout._tab.loc(),
+                self.layout_ctx.clone(),
+            )
+        };
 
         let fb_segments = fb
             .segments()
