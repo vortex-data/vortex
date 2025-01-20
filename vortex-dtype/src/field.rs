@@ -133,9 +133,12 @@ impl FieldPath {
     }
 
     /// Whether the path starts with the given field name
-    /// TODO(joe): handle errors
+    /// TODO(joe): handle asserts better.
     pub fn starts_with_field(&self, field: &Field) -> bool {
-        self.0.first().is_some_and(|f| f == field)
+        assert!(matches!(field, Field::Name(_)));
+        let first = self.0.first();
+        assert!(matches!(first, Some(Field::Name(_))));
+        first.is_some_and(|f| f == field)
     }
 
     /// Steps into the next field in the path
