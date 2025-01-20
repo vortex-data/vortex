@@ -31,7 +31,12 @@ workspace = true
 [dev-dependencies]
 vortex-array = { workspace = true, features = ["test-harness"] }
 criterion = { workspace = true }
+rand = { workspace = true }
 
 [[bench]]
 name = "run_end_filter"
+harness = false
+
+[[bench]]
+name = "run_end_null_count"
 harness = false
