@@ -89,7 +89,7 @@ impl FileOpener for VortexFileOpener {
                         .await?,
                 )
                 // Create larger splits in so that each chunk has more rows
-                .with_split_by(SplitBy::RowCount(2 << 15))
+                .with_split_by(SplitBy::Layout)
                 .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
                 .open(read_at)
                 .await?;

@@ -133,19 +133,18 @@ impl FieldPath {
     }
 
     /// Whether the path starts with the given field name
-    pub fn starts_with_name(&self, name: &str) -> bool {
-        self.0
-            .first()
-            .is_some_and(|f| f == &Field::Name(name.into()))
+    /// TODO(joe): handle errors
+    pub fn starts_with_field(&self, field: &Field) -> bool {
+        self.0.first().is_some_and(|f| f == field)
     }
 
     /// Steps into the next field in the path
-    pub fn step_into(mut self) -> VortexResult<Self> {
+    pub fn step_into(mut self) -> Option<Self> {
         if self.0.is_empty() {
-            return Err(vortex_err!("Cannot step into root path"));
+            return None;
         }
         self.0 = self.0.iter().skip(1).cloned().collect();
-        Ok(self)
+        Some(self)
     }
 }
 

@@ -13,9 +13,9 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::transform::field_mask::field_mask;
+use vortex_dtype::{DType, Field, FieldMask, FieldPath};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
@@ -91,7 +91,8 @@ impl Scan {
     }
 
     /// Compute a mask of field paths referenced by this scan.
-    pub fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldPath>> {
+    pub fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldMask>> {
+        // TODO(joe): simplify this expr once
         let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
         let filter = self
             .filter
@@ -99,12 +100,21 @@ impl Scan {
             .map(|f| simplify_typed(f, scope_dtype))
             .transpose()?;
 
-        let projection_mask = field_mask(&projection, scope_dtype)?;
-        Ok(filter
-            .map(|f| field_mask(&f, scope_dtype))
+        let Some(struct_dtype) = scope_dtype.as_struct() else {
+            vortex_bail!("Expected struct dtype, got {}", scope_dtype);
+        };
+
+        let projection_mask = immediate_scope_access(&projection, struct_dtype)?;
+        let filter_mask = filter
+            .map(|f| immediate_scope_access(&f, struct_dtype))
             .transpose()?
-            .map(|mask| projection_mask.union(&mask).cloned().collect_vec())
-            .unwrap_or_else(|| projection_mask.into_iter().collect_vec()))
+            .unwrap_or_default();
+
+        Ok(projection_mask
+            .union(&filter_mask)
+            .cloned()
+            .map(|c| FieldMask::Prefix(FieldPath::from(Field::Name(c))))
+            .collect_vec())
     }
 }
 

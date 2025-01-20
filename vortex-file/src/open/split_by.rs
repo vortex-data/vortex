@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use itertools::Itertools;
-use vortex_dtype::FieldPath;
+use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutData;
 
@@ -23,7 +23,7 @@ impl SplitBy {
     pub(crate) fn splits(
         &self,
         layout: &LayoutData,
-        field_mask: &[FieldPath],
+        field_mask: &[FieldMask],
     ) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {
             SplitBy::Layout => {
@@ -33,11 +33,12 @@ impl SplitBy {
                 row_splits.insert(layout.row_count());
                 // Register the splits for all the layouts.
                 layout.register_splits(field_mask, 0, &mut row_splits)?;
+
                 row_splits
                     .into_iter()
                     .tuple_windows()
                     .map(|(start, end)| start..end)
-                    .collect::<Vec<_>>()
+                    .collect()
             }
             SplitBy::RowCount(n) => {
                 let row_count = layout.row_count();

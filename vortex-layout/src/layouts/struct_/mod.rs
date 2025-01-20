@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, FieldPath};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::data::LayoutData;
@@ -37,7 +37,7 @@ impl LayoutEncoding for StructLayout {
     fn register_splits(
         &self,
         layout: &LayoutData,
-        field_mask: &[FieldPath],
+        field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
@@ -45,14 +45,25 @@ impl LayoutEncoding for StructLayout {
             vortex_bail!("Mismatched dtype {} for struct layout", layout.dtype());
         };
 
+        if field_mask.iter().any(|mask| mask.matches_all()) {
+            for (idx, field_dtype) in dtype.dtypes().enumerate() {
+                let child = layout.child(idx, field_dtype)?;
+                child.register_splits(&[FieldMask::All], row_offset, splits)?;
+            }
+            return Ok(());
+        }
+
         // Register the splits for each field in the mask
         for path in field_mask {
-            if path.is_root() {
+            // ignores all
+            let Some(field) = path.field() else {
+                // skip all
                 continue;
-            }
+            };
+
             let idx = dtype
-                .find(&path.path()[0])
-                .ok_or_else(|| vortex_err!("Field not found: {}", path))?;
+                .find(field)
+                .ok_or_else(|| vortex_err!("Field not found: {:?}", path))?;
 
             let child = layout.child(idx, dtype.field_dtype(idx)?)?;
             child.register_splits(&[path.clone().step_into()?], row_offset, splits)?;

@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
-use vortex_dtype::FieldPath;
+use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
@@ -42,7 +42,7 @@ impl LayoutEncoding for ChunkedLayout {
     fn register_splits(
         &self,
         layout: &LayoutData,
-        field_mask: &[FieldPath],
+        field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
