@@ -7,7 +7,6 @@ pub use exec::*;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use split_by::*;
-use tokio::runtime::Handle;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -164,7 +163,7 @@ impl VortexOpenOptions {
             .unwrap_or_else(|| {
                 // Default to tokio-specific behavior if its enabled and there's a runtime running.
                 #[cfg(feature = "tokio")]
-                if let Ok(h) = Handle::try_current() {
+                if let Ok(h) = tokio::runtime::Handle::try_current() {
                     return ExecutionMode::TokioRuntime(h);
                 }
 
