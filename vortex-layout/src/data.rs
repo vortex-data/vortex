@@ -106,6 +106,27 @@ impl LayoutData {
         })))
     }
 
+    /// Create a new viewed layout from a flatbuffer root message.
+    ///
+    /// # SAFETY
+    ///
+    /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
+    pub unsafe fn new_viewed_unchecked(
+        encoding: LayoutEncodingRef,
+        dtype: DType,
+        flatbuffer: ByteBuffer,
+        flatbuffer_loc: usize,
+        ctx: LayoutContextRef,
+    ) -> Self {
+        Self(Inner::Viewed(ViewedLayoutData {
+            encoding,
+            dtype,
+            flatbuffer,
+            flatbuffer_loc,
+            ctx,
+        }))
+    }
+
     /// Returns the [`crate::LayoutEncoding`] for this layout.
     pub fn encoding(&self) -> LayoutEncodingRef {
         match &self.0 {
