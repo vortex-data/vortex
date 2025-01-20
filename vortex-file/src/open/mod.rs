@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 pub use exec::*;
 use flatbuffers::root;
+use futures_util::stream::FuturesUnordered;
+use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::ContextRef;
@@ -317,17 +319,25 @@ impl VortexOpenOptions {
         file_layout: &FileLayout,
         segments: &dyn SegmentCache,
     ) -> VortexResult<()> {
-        for (idx, segment) in file_layout.segment_map().iter().enumerate() {
-            if segment.offset < initial_offset {
-                // Skip segments that aren't in the initial read.
-                continue;
-            }
-            let segment_id = SegmentId::from(u32::try_from(idx)?);
-            let offset = usize::try_from(segment.offset - initial_offset)?;
-            let buffer = initial_read.slice(offset..offset + (segment.length as usize));
+        stream::iter(
+            file_layout
+                .segment_map()
+                .iter()
+                .enumerate()
+                .filter(|(_, segment)| segment.offset > initial_offset)
+                .map(|(idx, segment)| async move {
+                    let segment_id = SegmentId::from(u32::try_from(idx)?);
+                    let offset = usize::try_from(segment.offset - initial_offset)?;
+                    let buffer = initial_read
+                        .slice(offset..offset + (segment.length as usize))
+                        .aligned(segment.alignment);
 
-            segments.put(segment_id, buffer).await?;
-        }
-        Ok(())
+                    segments.put(segment_id, buffer).await
+                }),
+        )
+        .collect::<FuturesUnordered<_>>()
+        .await
+        .try_collect::<()>()
+        .await
     }
 }
