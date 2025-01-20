@@ -1,3 +1,4 @@
+use std::cmp;
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
@@ -302,19 +303,29 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     LogicalValidity::AllInvalid(_) => array.len() as u64,
                     LogicalValidity::Array(is_valid) => {
                         let is_valid = is_valid.into_bool()?.boolean_buffer();
-                        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
-                            let mut begin = array.offset() as $P;
-                            ends
-                                .as_slice::<$P>()
-                                .iter()
-                                .enumerate()
-                                .map(|(index, end)| {
-                                    let len = *end - begin;
-                                    begin = *end;
-                                    (len as u64) * ((!is_valid.value(index as usize)) as u64)
+                        let mut is_valid = is_valid.set_indices();
+                        match is_valid.next() {
+                            None => array.len() as u64,
+                            Some(valid_index) => {
+                                let offsetted_len = (array.len() + array.offset()) as u64;
+                                let mut null_count: u64 = array.len() as u64;
+                                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                                    let ends = ends.as_slice::<$P>();
+                                    let begin = if valid_index == 0 {
+                                        0
+                                    } else {
+                                        ends[valid_index - 1]
+                                    };
+                                    null_count -= cmp::min(ends[valid_index] as u64, offsetted_len) - begin as u64;
+
+                                    for valid_index in is_valid {
+                                        null_count -= cmp::min(ends[valid_index] as u64, offsetted_len) - ends[valid_index - 1] as u64;
+                                    }
+
+                                    null_count
                                 })
-                                .sum()
-                        })
+                            }
+                        }
                     }
                 };
                 stats.set(stat, null_count);
