@@ -7,6 +7,7 @@ pub use exec::*;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use split_by::*;
+use tokio::runtime::Handle;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -42,6 +43,7 @@ pub struct VortexOpenOptions {
     execution_mode: Option<ExecutionMode>,
     // TODO(ngates): allow fully configurable I/O driver.
     io_concurrency: usize,
+    exec_concurrency: Option<usize>,
 }
 
 impl VortexOpenOptions {
@@ -56,7 +58,8 @@ impl VortexOpenOptions {
             segment_cache: None,
             execution_mode: None,
             // TODO(ngates): pick some numbers...
-            io_concurrency: 16,
+            io_concurrency: 10,
+            exec_concurrency: None,
         }
     }
 
@@ -111,6 +114,21 @@ impl VortexOpenOptions {
         self.execution_mode = Some(execution_mode);
         self
     }
+
+    /// Configure the number of concurrent I/O requests.
+    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
+        self.io_concurrency = io_concurrency;
+        self
+    }
+
+    /// Override the default split-by concurrency.
+    ///
+    /// It is recommended to use more split-by concurrency than I/O concurrency to ensure there
+    /// are always I/O operations enqueued.
+    pub fn with_exec_concurrency(mut self, exec_concurrency: usize) -> Self {
+        self.exec_concurrency = Some(exec_concurrency);
+        self
+    }
 }
 
 impl VortexOpenOptions {
@@ -143,8 +161,16 @@ impl VortexOpenOptions {
         // Set up the execution driver.
         let exec_driver = self
             .execution_mode
-            .unwrap_or(ExecutionMode::Inline)
-            .into_driver();
+            .unwrap_or_else(|| {
+                // Default to tokio-specific behavior if its enabled and there's a runtime running.
+                #[cfg(feature = "tokio")]
+                if let Ok(h) = Handle::try_current() {
+                    return ExecutionMode::TokioRuntime(h);
+                }
+
+                ExecutionMode::Inline
+            })
+            .into_driver(self.exec_concurrency.unwrap_or(self.io_concurrency * 2));
 
         // Compute the splits of the file.
         let splits = self.split_by.splits(file_layout.root_layout())?.into();

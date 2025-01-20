@@ -23,25 +23,18 @@ pub enum ExecutionMode {
 }
 
 impl ExecutionMode {
-    pub fn into_driver(self) -> Arc<dyn ExecDriver> {
+    pub fn into_driver(self, concurrency: usize) -> Arc<dyn ExecDriver> {
         match self {
-            ExecutionMode::Inline => {
-                // Default to tokio-specific behavior if its enabled and there's a runtime running.
-                #[cfg(feature = "tokio")]
-                match Handle::try_current() {
-                    Ok(h) => Arc::new(TokioDriver(h)),
-                    Err(_) => Arc::new(InlineDriver),
-                }
-
-                #[cfg(not(feature = "tokio"))]
-                Arc::new(InlineDriver)
-            }
+            ExecutionMode::Inline => Arc::new(InlineDriver::with_concurrency(concurrency)),
             #[cfg(feature = "rayon")]
             ExecutionMode::RayonThreadPool(_) => {
                 todo!()
             }
             #[cfg(feature = "tokio")]
-            ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver(handle)),
+            ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver {
+                handle,
+                concurrency,
+            }),
         }
     }
 }
