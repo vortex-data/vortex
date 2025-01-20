@@ -23,6 +23,7 @@ pub fn immediate_scope_accesses<'a>(
     ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)
 }
 
+/// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
 pub fn immediate_scope_access<'a>(
     expr: &'a ExprRef,
     scope_dtype: &'a StructDType,
