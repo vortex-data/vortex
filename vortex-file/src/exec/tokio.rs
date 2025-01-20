@@ -1,3 +1,5 @@
+use std::future::ready;
+
 use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
@@ -13,7 +15,7 @@ pub struct TokioDriver(pub Handle);
 impl ExecDriver for TokioDriver {
     fn drive(
         &self,
-        stream: BoxStream<'static, BoxFuture<'static, VortexResult<ArrayData>>>,
+        stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<ArrayData>>>>,
     ) -> BoxStream<'static, VortexResult<ArrayData>> {
         let handle = self.0.clone();
 
@@ -29,6 +31,7 @@ impl ExecDriver for TokioDriver {
                 Ok(result) => result,
                 Err(e) => Err(vortex_err!("Failed to join Tokio result {}", e)),
             })
+            .filter_map(|r| ready(r.transpose()))
             .boxed()
     }
 }

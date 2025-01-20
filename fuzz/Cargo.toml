@@ -19,11 +19,16 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = { workspace = true }
+arrow-ord = { workspace = true }
 arrow-buffer = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
+vortex-file = { workspace = true }
 vortex-sampling-compressor = { workspace = true, features = ["arbitrary"] }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 
@@ -34,6 +39,13 @@ path = "src/lib.rs"
 [[bin]]
 name = "array_ops"
 path = "fuzz_targets/array_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "file_io"
+path = "fuzz_targets/file_io.rs"
 test = false
 doc = false
 bench = false

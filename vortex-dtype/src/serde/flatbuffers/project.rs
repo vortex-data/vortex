@@ -49,16 +49,14 @@ pub fn project_and_deserialize(
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
     let nullability = fb_struct.nullable().into();
 
-    let (names, dtypes): (Vec<Arc<str>>, Vec<DType>) = projection
+    let struct_dtype = projection
         .iter()
         .map(|f| resolve_field(fb_struct, f))
         .map(|idx| idx.and_then(|i| read_field(fb_struct, i, buffer)))
-        .collect::<VortexResult<Vec<_>>>()?
-        .into_iter()
-        .unzip();
+        .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(DType::Struct(
-        StructDType::new(names.into(), dtypes),
+        StructDType::from_iter(struct_dtype),
         nullability,
     ))
 }

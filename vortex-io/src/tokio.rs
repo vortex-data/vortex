@@ -66,7 +66,9 @@ impl VortexReadAt for TokioFile {
         pos: u64,
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        let mut buffer = BytesMut::zeroed(len.try_into().vortex_unwrap());
+        let len_u = len.try_into().vortex_unwrap();
+        let mut buffer = BytesMut::with_capacity(len_u);
+        unsafe { buffer.set_len(len_u) }
         match self.read_exact_at(&mut buffer, pos) {
             Ok(()) => future::ready(Ok(buffer.freeze())),
             Err(e) => future::ready(Err(e)),

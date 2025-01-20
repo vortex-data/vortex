@@ -6,6 +6,42 @@ on:
   workflow_dispatch:
 
 jobs:
+  io_fuzz:
+    name: 'IO Fuzz'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - name: Install cargo fuzz
+        run: cargo install cargo-fuzz
+      - name: Restore corpus
+        shell: bash
+        run: |
+          aws s3 cp s3://vortex-fuzz-corpus/io_corpus.tar.zst . --endpoint-url https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com
+          tar -xf io_corpus.tar.zst
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: 'us-east-1'
+      - name: Run fuzzing target
+        run: RUST_BACKTRACE=1 cargo fuzz run file_io -- -max_total_time=300
+        continue-on-error: true
+      - name: Archive crash artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzzing-crash-artifacts
+          path: fuzz/artifacts
+      - name: Persist corpus
+        shell: bash
+        run: |
+          tar -acf io_corpus.tar.zst fuzz/corpus/file_io
+          aws s3 cp io_corpus.tar.zst s3://vortex-fuzz-corpus --endpoint-url https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: 'us-east-1'
+
   fuzz:
     name: 'fuzz'
     runs-on: ubuntu-latest

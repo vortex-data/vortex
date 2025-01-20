@@ -191,13 +191,8 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        let scanner = Arc::new(Scanner::new(
-            self.dtype().clone(),
-            simplify_typed(projection, self.dtype())?,
-            filter
-                .map(|f| simplify_typed(f, self.dtype()))
-                .transpose()?,
-        )?);
+        let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
+
         let result_dtype = scanner.result_dtype().clone();
 
         // Set up a segment channel to collect segment requests from the execution stream.

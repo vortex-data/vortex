@@ -1,24 +1,25 @@
+use std::iter;
+
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbinview::VarBinViewArray;
-// use crate::array::BinaryView;
-use crate::validity::ArrayValidity;
+use crate::validity::Validity;
+use crate::IntoArrayVariant;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
         &self,
         f: F,
     ) -> VortexResult<R> {
-        let bytes = (0..self.metadata().buffer_lens.len())
+        let bytes = (0..self.buffer_count())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 
         let views = self.views();
-        let validity = self.logical_validity().to_null_buffer()?;
 
-        match validity {
-            None => {
+        match self.validity() {
+            Validity::NonNullable | Validity::AllValid => {
                 let mut iter = views.iter().map(|view| {
                     if view.is_inlined() {
                         Some(view.as_inlined().value())
@@ -31,8 +32,10 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
                 });
                 Ok(f(&mut iter))
             }
-            Some(validity) => {
-                let mut iter = views.iter().zip(validity.iter()).map(|(view, valid)| {
+            Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, views.len()))),
+            Validity::Array(v) => {
+                let validity_buf = v.into_bool()?.boolean_buffer();
+                let mut iter = views.iter().zip(validity_buf.iter()).map(|(view, valid)| {
                     if valid {
                         if view.is_inlined() {
                             Some(view.as_inlined().value())

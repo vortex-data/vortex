@@ -127,8 +127,8 @@ impl VarBinArray {
     /// Access value bytes child array limited to values that are logically present in
     /// the array unlike [bytes][Self::bytes].
     pub fn sliced_bytes(&self) -> ByteBuffer {
-        let first_offset: usize = self.offset_at(0);
-        let last_offset = self.offset_at(self.offsets().len() - 1);
+        let first_offset: usize = self.offset_at(0).vortex_expect("1st offset");
+        let last_offset = self.offset_at(self.len()).vortex_expect("Last offset");
 
         self.bytes().slice(first_offset..last_offset)
     }
@@ -179,8 +179,15 @@ impl VarBinArray {
         builder.finish(dtype)
     }
 
-    pub fn offset_at(&self, index: usize) -> usize {
-        PrimitiveArray::maybe_from(self.offsets())
+    /// Get value offset at a given index
+    ///
+    /// Note: There's 1 more offsets than the elements in the array, thus last offset is at array length index
+    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
+        if index > self.len() + 1 {
+            vortex_bail!(OutOfBounds: index, 0, self.len() + 1)
+        }
+
+        Ok(PrimitiveArray::maybe_from(self.offsets())
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
                     p.as_slice::<$P>()[index].as_()
@@ -194,12 +201,15 @@ impl VarBinArray {
                     .as_ref()
                     .try_into()
                     .vortex_expect("Failed to convert offset to usize")
-            })
+            }))
     }
 
+    /// Access value bytes at a given index
+    ///
+    /// Will return buffer referncing underlying data without performing a copy
     pub fn bytes_at(&self, index: usize) -> VortexResult<ByteBuffer> {
-        let start = self.offset_at(index);
-        let end = self.offset_at(index + 1);
+        let start = self.offset_at(index)?;
+        let end = self.offset_at(index + 1)?;
 
         Ok(self.bytes().slice(start..end))
     }

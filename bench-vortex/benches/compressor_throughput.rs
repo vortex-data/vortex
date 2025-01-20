@@ -8,7 +8,7 @@ use vortex::array::{ConstantArray, VarBinViewArray};
 use vortex::buffer::Buffer;
 use vortex::compute::{compare, try_cast, Operator};
 use vortex::dtype::PType;
-use vortex::encodings::dict::{dict_encode_varbinview, DictArray};
+use vortex::encodings::dict::dict_encode;
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::alp_rd::ALPRDCompressor;
@@ -106,24 +106,16 @@ fn strings(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(num_values * 8));
 
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
-    let (codes, values) = dict_encode_varbinview(&varbinview_arr);
+    let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
     group.throughput(Throughput::Bytes(varbinview_arr.to_array().nbytes() as u64));
     group.bench_function("dict_decode_varbinview", |b| {
-        b.iter_batched(
-            || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
-            |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
-            BatchSize::SmallInput,
-        );
+        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
     });
 
     let fsst_compressor = fsst_train_compressor(&varbinview_arr.to_array()).unwrap();
     let fsst_array = fsst_compress(&varbinview_arr.to_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
-        b.iter_batched(
-            || fsst_array.clone(),
-            |fsst_arr| black_box(fsst_arr.into_canonical().unwrap()),
-            BatchSize::SmallInput,
-        );
+        b.iter(|| black_box(fsst_array.clone().into_canonical().unwrap()));
     });
 }
 

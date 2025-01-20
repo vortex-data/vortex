@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
+#[cfg(feature = "tokio")]
+use tokio::runtime::Handle;
+
 use crate::exec::inline::InlineDriver;
+#[cfg(feature = "tokio")]
 use crate::exec::tokio::TokioDriver;
 use crate::exec::ExecDriver;
 
@@ -11,20 +15,32 @@ pub enum ExecutionMode {
     /// [`vortex_array::stream::ArrayStream`]. In other words, uses the same runtime.
     Inline,
     /// Spawns the tasks onto a provided Rayon thread pool.
-    // TODO(ngates): feature-flag this dependency.
+    #[cfg(feature = "rayon")]
     RayonThreadPool(Arc<rayon::ThreadPool>),
     /// Spawns the tasks onto a provided Tokio runtime.
-    // TODO(ngates): feature-flag this dependency.
-    TokioRuntime(tokio::runtime::Handle),
+    #[cfg(feature = "tokio")]
+    TokioRuntime(Handle),
 }
 
 impl ExecutionMode {
     pub fn into_driver(self) -> Arc<dyn ExecDriver> {
         match self {
-            ExecutionMode::Inline => Arc::new(InlineDriver),
+            ExecutionMode::Inline => {
+                // Default to tokio-specific behavior if its enabled and there's a runtime running.
+                #[cfg(feature = "tokio")]
+                match Handle::try_current() {
+                    Ok(h) => Arc::new(TokioDriver(h)),
+                    Err(_) => Arc::new(InlineDriver),
+                }
+
+                #[cfg(not(feature = "tokio"))]
+                Arc::new(InlineDriver)
+            }
+            #[cfg(feature = "rayon")]
             ExecutionMode::RayonThreadPool(_) => {
                 todo!()
             }
+            #[cfg(feature = "tokio")]
             ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver(handle)),
         }
     }

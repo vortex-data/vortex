@@ -27,11 +27,11 @@ use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use simplelog::*;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::file::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
@@ -116,26 +116,21 @@ fn vortex_compress_write(
     array: &ArrayData,
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
-    async fn async_write(array: &ArrayData, cursor: &mut Cursor<&mut Vec<u8>>) -> VortexResult<()> {
-        VortexWriteOptions::default()
-            .write(cursor, array.clone().into_array_stream())
-            .await?;
-
-        Ok(())
-    }
-
     let compressed = compressor.compress(array, None)?.into_array();
-    let mut cursor = Cursor::new(buf);
-
-    runtime.block_on(async_write(&compressed, &mut cursor))?;
-
-    Ok(cursor.position())
+    runtime
+        .block_on(async {
+            VortexWriteOptions::default()
+                .write(Cursor::new(buf), compressed.into_array_stream())
+                .await
+        })
+        .map(|c| c.position())
 }
 
 #[inline(never)]
 fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
-    async fn async_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
-        let batches = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+    runtime.block_on(async {
+        VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
+            .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
             .open(buf)
             .await?
             .scan(Scan::all())?
@@ -143,12 +138,8 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
             .await?
             .into_iter()
             .map(|a| a.into_arrow())
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        Ok(batches)
-    }
-
-    runtime.block_on(async_read(buf))
+            .collect::<VortexResult<Vec<_>>>()
+    })
 }
 
 fn vortex_compressed_written_size(
