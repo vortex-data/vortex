@@ -17,6 +17,7 @@ members = [
     "vortex-io",
     "vortex-ipc",
     "vortex-layout",
+    "vortex-mask",
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",

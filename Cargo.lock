@@ -5233,6 +5233,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-mask"
+version = "0.21.1"
+dependencies = [
+ "arrow-buffer",
+ "vortex-error",
+]
+
+[[package]]
 name = "vortex-proto"
 version = "0.21.1"
 dependencies = [
