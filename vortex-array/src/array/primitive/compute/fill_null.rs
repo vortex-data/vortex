@@ -1,14 +1,16 @@
-use vortex_buffer::Buffer;
+use std::ops::Not;
+
+use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, Nullability};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillNullFn;
-use crate::validity::{ArrayValidity, Validity};
+use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
+use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant as _};
 
 impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<ArrayData> {
@@ -17,43 +19,28 @@ impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
             Nullability::Nullable => Validity::AllValid,
         };
 
-        if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.to_array());
-        }
-
-        let array_validity = array.logical_validity();
-        if array_validity.all_valid() {
-            return Ok(array.to_array());
-        }
-
-        if array_validity.all_invalid() {
-            return Ok(ConstantArray::new(fill_value, array.len()).into_array());
-        }
-
-        let nulls = array_validity
-            .to_null_buffer()?
-            .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
-
-        // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
-        match_each_native_ptype!(array.ptype(), |$T| {
-            let as_slice = array.as_slice::<$T>();
-            let fill_value = fill_value
-                .as_primitive()
-                .typed_value::<$T>()
-                .vortex_expect("top-level fill_null ensure non-null fill value");
-            let filled = Buffer::from_iter(
-                as_slice
-                    .iter()
-                    .zip(nulls.into_iter())
-                    .map(|(value, valid)| {
-                        if valid {
-                            *value
-                        } else {
-                            fill_value
-                        }
-                    })
-            );
-            Ok(PrimitiveArray::new(filled, result_validity).into_array())
+        Ok(match array.validity() {
+            Validity::NonNullable | Validity::AllValid => {
+                match_each_native_ptype!(array.ptype(), |$T| {
+                    PrimitiveArray::new::<$T>(array.buffer().clone(), result_validity).into_array()
+                })
+            }
+            Validity::AllInvalid => ConstantArray::new(fill_value, array.len()).into_array(),
+            Validity::Array(is_valid) => {
+                // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
+                let is_invalid = is_valid.into_bool()?.boolean_buffer().not();
+                match_each_native_ptype!(array.ptype(), |$T| {
+                    let mut buffer = BufferMut::copy_from(array.as_slice::<$T>());
+                    let fill_value = fill_value
+                        .as_primitive()
+                        .typed_value::<$T>()
+                        .vortex_expect("top-level fill_null ensure non-null fill value");
+                    for invalid_index in is_invalid.set_indices() {
+                        buffer[invalid_index] = fill_value;
+                    }
+                    PrimitiveArray::new(buffer, result_validity).into_array()
+                })
+            }
         })
     }
 }
