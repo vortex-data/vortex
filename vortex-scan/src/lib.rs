@@ -113,6 +113,9 @@ impl Scanner {
             let truthiness_a = a.truthiness.snapshot().mean();
             let truthiness_b = b.truthiness.snapshot().mean();
 
+            // TODO(ngates): should we add random(mean +- stddev) to the truthiness to shuffle
+            //  expression ordering with similar selectivity?
+
             (has_run_a, truthiness_a)
                 .partial_cmp(&(has_run_b, truthiness_b))
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -128,7 +131,7 @@ impl Scanner {
     ///
     /// The truthiness is computed as `true_count / input.len()`.
     pub fn report_truthiness(&self, expr: &ExprRef, truthiness: f64) -> VortexResult<()> {
-        if truthiness < 0.0 || truthiness > 1.0 {
+        if !(0.0..=1.0).contains(&truthiness) {
             vortex_bail!("truthiness must be in the range [0, 1]");
         }
 
@@ -153,7 +156,7 @@ impl Scanner {
     /// parent scan in order to optimize future range scans.
     pub fn range_scanner(self: Arc<Self>, row_mask: RowMask) -> VortexResult<RangeScanner> {
         Ok(RangeScanner::new(
-            self.clone(),
+            self,
             row_mask.begin(),
             row_mask.filter_mask().clone(),
         ))
