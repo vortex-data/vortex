@@ -2,11 +2,9 @@ use std::fmt::{Display, Write};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::FlatBuffer;
 
 use crate::pvalue::PValue;
 
@@ -31,16 +29,21 @@ pub(crate) enum InnerScalarValue {
     Null,
 }
 
+#[cfg(feature = "flatbuffers")]
 impl ScalarValue {
-    pub fn to_flexbytes(&self) -> FlatBuffer {
+    pub fn to_flexbytes(&self) -> vortex_flatbuffers::FlatBuffer {
+        use serde::Serialize;
+
         let mut ser = flexbuffers::FlexbufferSerializer::new();
         self.0
             .serialize(&mut ser)
             .vortex_expect("Failed to serialize ScalarValue");
-        FlatBuffer::copy_from(ser.view())
+        vortex_flatbuffers::FlatBuffer::copy_from(ser.view())
     }
 
     pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
+        use serde::Deserialize;
+
         Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
             buf,
         )?)?)
