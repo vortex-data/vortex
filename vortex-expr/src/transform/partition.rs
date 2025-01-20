@@ -3,7 +3,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, Field, FieldName, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::transform::immediate_access::{FieldAccesses, ImmediateIdentityAccessesAnalysis};
+use crate::transform::immediate_access::{immediate_scope_accesses, FieldAccesses};
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity};
@@ -82,7 +82,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             _ => vortex_bail!("Expected a struct dtype, got {:?}", dtype),
         };
 
-        let field_accesses = ImmediateIdentityAccessesAnalysis::analyze(&expr, scope_dtype)?;
+        let field_accesses = immediate_scope_accesses(&expr, scope_dtype)?;
 
         let mut splitter = StructFieldExpressionSplitter::new(&field_accesses, scope_dtype);
 

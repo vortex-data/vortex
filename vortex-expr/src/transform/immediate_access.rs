@@ -7,17 +7,24 @@ use vortex_error::VortexResult;
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Identity, Select};
 
-pub(crate) type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
+pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
+
+pub fn immediate_scope_accesses<'a>(
+    expr: &'a ExprRef,
+    scope_dtype: &'a StructDType,
+) -> VortexResult<FieldAccesses<'a>> {
+    ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)
+}
 
 /// For all subexpressions in an expression, find the fields that are accessed directly from the
 /// scope, but not any fields in those fields
 /// e.g. scope = {a: {b: .., c: ..}, d: ..}, expr = ident().a.b + ident().d accesses {a,d} (not b).
-pub(crate) struct ImmediateIdentityAccessesAnalysis<'a> {
+struct ImmediateScopeAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
     scope_dtype: &'a StructDType,
 }
 
-impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
+impl<'a> ImmediateScopeAccessesAnalysis<'a> {
     fn new(scope_dtype: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
@@ -25,10 +32,7 @@ impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
         }
     }
 
-    pub(crate) fn analyze(
-        expr: &'a ExprRef,
-        scope_dtype: &'a StructDType,
-    ) -> VortexResult<FieldAccesses<'a>> {
+    fn analyze(expr: &'a ExprRef, scope_dtype: &'a StructDType) -> VortexResult<FieldAccesses<'a>> {
         let mut analysis = Self::new(scope_dtype);
         expr.accept(&mut analysis)?;
         Ok(analysis.sub_expressions)
@@ -38,7 +42,7 @@ impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
 // This is a very naive, but simple analysis to find the fields that are accessed directly on an
 // identity node. This is combined to provide an over-approximation of the fields that are accessed
 // by an expression.
-impl<'a> NodeVisitor<'a> for ImmediateIdentityAccessesAnalysis<'a> {
+impl<'a> NodeVisitor<'a> for ImmediateScopeAccessesAnalysis<'a> {
     type NodeTy = ExprRef;
 
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
