@@ -35,10 +35,7 @@ mod tests {
 
     #[test]
     fn test_simplify() {
-        let e = get_item(
-            "b",
-            pack(vec!["a".into(), "b".into()], vec![lit(1), lit(2)]),
-        );
+        let e = get_item("b", pack([("a", lit(1)), ("b", lit(2))]));
         let e = simplify(e).unwrap();
         assert_eq!(&e, &lit(2));
     }
