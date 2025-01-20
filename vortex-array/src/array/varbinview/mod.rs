@@ -252,10 +252,9 @@ impl VarBinViewArray {
         Self::try_from_parts(
             dtype,
             array_len,
-<<<<<<< HEAD
             RkyvMetadata(metadata),
-            array_buffers.into(),
-            validity.into_array().into_iter().collect(),
+            Some(array_buffers.into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
         )
     }
@@ -268,13 +267,6 @@ impl VarBinViewArray {
             )
             .0
         }
-=======
-            metadata,
-            Some(array_buffers.into()),
-            validity.into_array().map(|v| [v].into()),
-            StatsSet::default(),
-        )
->>>>>>> develop
     }
 
     /// Number of raw string data buffers held by this array.
