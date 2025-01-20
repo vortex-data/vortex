@@ -69,9 +69,9 @@ impl<'a> StructScalar<'a> {
         st.find_name(name).and_then(|idx| self.field_by_idx(idx))
     }
 
-    pub fn fields(&self) -> impl Iterator<Item = Scalar> {
-        let fields = self.fields?;
-        (0..fields.len()).map(|index| self.field_by_idx(index).vortex_expect("bounds checked"))
+    pub fn fields(&self) -> impl Iterator<Item = Scalar> + '_ {
+        (0..self.fields.map_or(0, |f| f.len()))
+            .map(|index| self.field_by_idx(index).vortex_expect("bounds checked"))
     }
 
     pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {

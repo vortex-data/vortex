@@ -26,6 +26,10 @@ impl ExtensionBuilder {
         }
     }
 
+    pub fn storage_builder_mut(&mut self) -> &mut dyn ArrayBuilder {
+        &mut self.storage
+    }
+
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.storage())
     }

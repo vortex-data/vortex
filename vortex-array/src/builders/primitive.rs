@@ -34,6 +34,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.validity.append(true);
     }
 
+    pub fn append_values(&mut self, value: T, n: usize) {
+        self.values.push_n(value, n);
+        self.validity.append_n_non_nulls(n);
+    }
+
     pub fn append_option(&mut self, value: Option<T>) {
         match value {
             Some(value) => {

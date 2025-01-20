@@ -12,7 +12,6 @@ use crate::builders::{
     ArrayBuilder, ArrayBuilderExt, BinaryBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder,
     StructBuilder, Utf8Builder,
 };
-use crate::iter::Accessor;
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
@@ -120,6 +119,7 @@ impl IntoCanonical for ConstantArray {
                 todo!()
             }
         }
+        Ok(())
     }
 }
 

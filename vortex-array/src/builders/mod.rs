@@ -24,7 +24,6 @@ use vortex_scalar::{
     Utf8Scalar,
 };
 
-use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
 
 pub trait ArrayBuilder: Send {
