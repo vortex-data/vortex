@@ -9,6 +9,7 @@ use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
 use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
+use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
 use crate::{
@@ -22,6 +23,15 @@ impl IntoCanonical for ChunkedArray {
             .logical_validity()
             .into_validity(self.dtype().nullability());
         try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
+    }
+
+    /// Unlike into_canonical, when we're given a builder to write into we ask each chunk to
+    /// append itself to the builder.
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        for chunk in self.chunks() {
+            chunk.into_canonical_builder(builder)?;
+        }
+        Ok(())
     }
 }
 
