@@ -109,16 +109,9 @@ impl SparseArray {
             RkyvMetadata(SparseMetadata {
                 indices_offset,
                 patches: patches_metadata,
-<<<<<<< HEAD
             }),
-            [fill_value_buffer.into_inner()].into(),
-            [patches.indices().clone(), patches.values().clone()].into(),
-=======
-                fill_value: fill_value.into_value(),
-            },
-            None,
+            Some([fill_value_buffer.into_inner()].into()),
             Some([patches.indices().clone(), patches.values().clone()].into()),
->>>>>>> develop
             StatsSet::default(),
         )
     }
