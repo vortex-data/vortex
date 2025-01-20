@@ -25,7 +25,6 @@ futures = { workspace = true, features = ["std"] }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
-async-channel = { workspace = true }
 log = { workspace = true }
 pin-project-lite = { workspace = true }
 rayon = { workspace = true, optional = true }

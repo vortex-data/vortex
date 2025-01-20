@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use async_channel::{bounded, unbounded};
 use async_trait::async_trait;
+use futures::channel::{mpsc, oneshot};
 use futures::Stream;
+use futures_util::SinkExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -16,13 +17,13 @@ use crate::segments::SegmentRequest;
 /// the requests, ultimately resolving them by sending the requested segment back to the caller
 /// via the provided one-shot channel.
 pub(crate) struct SegmentChannel {
-    request_send: async_channel::Sender<SegmentRequest>,
-    request_recv: async_channel::Receiver<SegmentRequest>,
+    request_send: mpsc::UnboundedSender<SegmentRequest>,
+    request_recv: mpsc::UnboundedReceiver<SegmentRequest>,
 }
 
 impl SegmentChannel {
     pub fn new() -> Self {
-        let (send, recv) = unbounded();
+        let (send, recv) = mpsc::unbounded();
         Self {
             request_send: send,
             request_recv: recv,
@@ -40,13 +41,13 @@ impl SegmentChannel {
     }
 }
 
-struct SegmentChannelReader(async_channel::Sender<SegmentRequest>);
+struct SegmentChannelReader(mpsc::UnboundedSender<SegmentRequest>);
 
 #[async_trait]
 impl AsyncSegmentReader for SegmentChannelReader {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         // Set up a channel to send the segment back to the caller.
-        let (send, recv) = bounded(1);
+        let (send, recv) = oneshot::channel();
 
         // TODO(ngates): attempt to resolve the segments from the cache before joining the
         //  request queue.
@@ -59,7 +60,7 @@ impl AsyncSegmentReader for SegmentChannelReader {
             .map_err(|e| vortex_err!("Failed to request segment {} {:?}", id, e))?;
 
         // Await the callback
-        match recv.recv().await {
+        match recv.await {
             Ok(result) => result,
             Err(_canceled) => {
                 // The sender was dropped before returning a result to us

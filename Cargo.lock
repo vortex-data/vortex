@@ -393,18 +393,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-channel"
-version = "2.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89b47800b0be77592da0afd425cc03468052844aff33b84e33cc696f64e77b6a"
-dependencies = [
- "concurrent-queue",
- "event-listener-strategy",
- "futures-core",
- "pin-project-lite",
-]
-
-[[package]]
 name = "async-lock"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5099,7 +5087,6 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
- "async-channel",
  "async-trait",
  "bytes",
  "flatbuffers",
