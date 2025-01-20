@@ -19,6 +19,7 @@ pub enum ExecutionMode {
     TokioRuntime(tokio::runtime::Handle),
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for ExecutionMode {
     fn default() -> Self {
         // Default to tokio-specific behavior if its enabled and there's a runtime running.
