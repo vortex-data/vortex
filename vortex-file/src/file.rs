@@ -14,7 +14,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ident, ExprRef};
@@ -101,7 +101,7 @@ impl Scan {
             .transpose()?;
 
         let Some(struct_dtype) = scope_dtype.as_struct() else {
-            vortex_bail!("Expected struct dtype, got {}", scope_dtype);
+            return Ok(vec![FieldMask::All]);
         };
 
         let projection_mask = immediate_scope_access(&projection, struct_dtype)?;

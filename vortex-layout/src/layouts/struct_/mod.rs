@@ -45,6 +45,7 @@ impl LayoutEncoding for StructLayout {
             vortex_bail!("Mismatched dtype {} for struct layout", layout.dtype());
         };
 
+        // If the field mask contains an `All` fields, then register splits for all fields.
         if field_mask.iter().any(|mask| mask.matches_all()) {
             for (idx, field_dtype) in dtype.dtypes().enumerate() {
                 let child = layout.child(idx, field_dtype)?;
@@ -55,9 +56,8 @@ impl LayoutEncoding for StructLayout {
 
         // Register the splits for each field in the mask
         for path in field_mask {
-            // ignores all
-            let Some(field) = path.field() else {
-                // skip all
+            let Some(field) = path.starting_field()? else {
+                // skip fields not in mask
                 continue;
             };
 

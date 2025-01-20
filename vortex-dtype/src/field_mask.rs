@@ -4,18 +4,20 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::{Field, FieldPath};
 
-// TODO(joe): ..
-#[allow(missing_docs)]
+/// Represents a field mask, which is a projection of fields under a layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldMask {
+    /// Select all fields in the layout
     All,
+    /// Select all with the `FieldPath` prefix
     Prefix(FieldPath),
+    /// Select a field matching exactly the `FieldPath`
     Exact(FieldPath),
 }
 
 // TODO(joe): ..
-#[allow(missing_docs)]
 impl FieldMask {
+    /// Creates a new field mask stepping one level into the layout structure.
     pub fn step_into(self) -> VortexResult<Self> {
         match self {
             FieldMask::All => Ok(FieldMask::All),
@@ -39,13 +41,16 @@ impl FieldMask {
         }
     }
 
-    pub fn field(&self) -> Option<&Field> {
+    /// Returns the first field explicit select mask, if there is one, failing if mask = `All`.
+    pub fn starting_field(&self) -> VortexResult<Option<&Field>> {
         match self {
-            FieldMask::All => None,
-            FieldMask::Prefix(fp) | FieldMask::Exact(fp) => Some(&fp.path()[0]),
+            FieldMask::All => vortex_bail!("Cannot get starting field from All mask"),
+            // We know that fp is non-empty
+            FieldMask::Prefix(fp) | FieldMask::Exact(fp) => Ok(fp.path().get(0)),
         }
     }
 
+    /// True iff all fields are selected (including self).
     pub fn matches_all(&self) -> bool {
         match self {
             FieldMask::All => true,
@@ -54,6 +59,7 @@ impl FieldMask {
         }
     }
 
+    /// True if the mask matches the root field.
     pub fn matches_root(&self) -> bool {
         match self {
             FieldMask::All => true,

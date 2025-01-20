@@ -34,7 +34,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         // The identity returns a field path covering the root.
-        if node.as_any().downcast_ref::<Identity>().is_some() {
+        if node.as_any().is::<Identity>() {
             return Ok(FoldUp::Continue([FieldPath::root()].into()));
         }
 
@@ -48,7 +48,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
             return Ok(FoldUp::Continue(fields));
         }
 
-        if node.as_any().downcast_ref::<Select>().is_some() {
+        if node.as_any().is::<Select>() {
             vortex_bail!("Expression must be simplified")
         }
 

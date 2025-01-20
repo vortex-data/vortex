@@ -178,9 +178,7 @@ mod tests {
 
     #[test]
     fn test_field_path() {
-        let mut path = FieldPath::from_name("A");
-        path.push("B");
-        path.push("C");
+        let path = FieldPath::from_name("A").push("B").push("C");
         assert_eq!(path.to_string(), "$A.$B.$C");
 
         let fields = vec!["A", "B", "C"]

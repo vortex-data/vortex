@@ -58,8 +58,8 @@ impl SplitBy {
 mod test {
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, FieldPath};
     use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
     use vortex_layout::strategies::LayoutWriterExt;
 
@@ -73,7 +73,7 @@ mod test {
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
         let splits = SplitBy::Layout
-            .splits(&layout, &[FieldPath::root()])
+            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
         assert_eq!(splits, vec![0..10]);
     }
@@ -85,7 +85,7 @@ mod test {
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
         let splits = SplitBy::RowCount(3)
-            .splits(&layout, &[FieldPath::root()])
+            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
         assert_eq!(splits, vec![0..3, 3..6, 6..9, 9..10]);
     }
