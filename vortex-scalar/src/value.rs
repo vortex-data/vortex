@@ -4,7 +4,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::pvalue::PValue;
 
@@ -33,6 +33,7 @@ pub(crate) enum InnerScalarValue {
 impl ScalarValue {
     pub fn to_flexbytes(&self) -> vortex_flatbuffers::FlatBuffer {
         use serde::Serialize;
+        use vortex_error::VortexExpect;
 
         let mut ser = flexbuffers::FlexbufferSerializer::new();
         self.0
