@@ -210,7 +210,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             }
         }
 
-        if bexp.lhs().as_any().downcast_ref::<Identity>().is_some() {
+        if bexp.lhs().as_any().is::<Identity>() {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op(),
@@ -218,7 +218,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             );
         };
 
-        if bexp.rhs().as_any().downcast_ref::<Identity>().is_some() {
+        if bexp.rhs().as_any().is::<Identity>() {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op().swap(),

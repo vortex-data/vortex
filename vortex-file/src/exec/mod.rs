@@ -1,4 +1,6 @@
 pub mod inline;
+
+#[cfg(feature = "tokio")]
 pub mod tokio;
 
 use futures_util::future::BoxFuture;

@@ -13,10 +13,9 @@
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef};
-use itertools::Itertools;
 use vortex_datetime_dtype::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use vortex_datetime_dtype::is_temporal_ext_type;
-use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_dtype::{DType, FieldName, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::arrow::{FromArrowType, TryFromArrowType};
@@ -46,20 +45,20 @@ impl TryFromArrowType<&DataType> for PType {
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
         Self::Struct(
-            StructDType::new(
-                value
-                    .fields()
-                    .iter()
-                    .map(|f| f.name().as_str().into())
-                    .collect(),
-                value
-                    .fields()
-                    .iter()
-                    .map(|f| Self::from_arrow(f.as_ref()))
-                    .collect_vec(),
-            ),
+            StructDType::from_arrow(value.fields()),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
         )
+    }
+}
+
+impl FromArrowType<&Fields> for StructDType {
+    fn from_arrow(value: &Fields) -> Self {
+        StructDType::from_iter(value.into_iter().map(|f| {
+            (
+                FieldName::from(f.name().as_str()),
+                DType::from_arrow(f.as_ref()),
+            )
+        }))
     }
 }
 
@@ -88,13 +87,7 @@ impl FromArrowType<&Field> for DType {
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(
-                StructDType::new(
-                    f.iter().map(|f| f.name().as_str().into()).collect(),
-                    f.iter().map(|f| Self::from_arrow(f.as_ref())).collect_vec(),
-                ),
-                nullability,
-            ),
+            DataType::Struct(f) => Struct(StructDType::from_arrow(f), nullability),
             _ => unimplemented!("Arrow data type not yet supported: {:?}", field.data_type()),
         }
     }
@@ -207,10 +200,10 @@ mod test {
 
         assert_eq!(
             infer_data_type(&DType::Struct(
-                StructDType::new(
-                    FieldNames::from(vec![FieldName::from("field_a"), FieldName::from("field_b")]),
-                    vec![DType::Bool(false.into()), DType::Utf8(true.into())],
-                ),
+                StructDType::from_iter([
+                    ("field_a", DType::Bool(false.into())),
+                    ("field_b", DType::Utf8(true.into()))
+                ]),
                 Nullability::NonNullable,
             ))
             .unwrap(),

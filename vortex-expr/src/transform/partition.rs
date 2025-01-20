@@ -105,14 +105,14 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
             }
         } else if let Some(select) = node.as_any().downcast_ref::<Select>() {
             assert!(matches!(select.fields(), SelectField::Include(_)));
-            if select.child().as_any().downcast_ref::<Identity>().is_some() {
+            if select.child().as_any().is::<Identity>() {
                 self.sub_expressions.insert(
                     node,
                     HashSet::from_iter(select.fields().fields().iter().cloned()),
                 );
             }
             return Ok(FoldDown::SkipChildren(()));
-        } else if node.as_any().downcast_ref::<Identity>().is_some() {
+        } else if node.as_any().is::<Identity>() {
             let st_dtype = &self.scope_dtype;
             self.sub_expressions
                 .insert(node, st_dtype.names().iter().cloned().collect());
@@ -256,8 +256,8 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
             // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
             let replaced = node
                 .clone()
-                .transform_with_context(&mut ScopeStepIntoFieldExpr(field_name.clone()), ())?;
-            sub_exprs.push(replaced.result());
+                .transform(&mut ScopeStepIntoFieldExpr(field_name.clone()))?;
+            sub_exprs.push(replaced.result);
 
             let access = get_item(
                 Self::field_idx_name(field_name, idx),
@@ -268,7 +268,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
         };
 
         // If the expression is an identity, then we need to partition it into the fields of the scope.
-        if node.as_any().downcast_ref::<Identity>().is_some() {
+        if node.as_any().is::<Identity>() {
             let field_names = self.scope_dtype.names();
 
             let mut elements = Vec::with_capacity(field_names.len());
@@ -312,21 +312,14 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
 struct ScopeStepIntoFieldExpr(FieldName);
 
-impl FolderMut for ScopeStepIntoFieldExpr {
+impl MutNodeVisitor for ScopeStepIntoFieldExpr {
     type NodeTy = ExprRef;
-    type Out = ExprRef;
-    type Context = ();
 
-    fn visit_up(
-        &mut self,
-        node: Self::NodeTy,
-        _context: (),
-        children: Vec<Self::Out>,
-    ) -> VortexResult<FoldUp<Self::Out>> {
-        if node.as_any().downcast_ref::<Identity>().is_some() {
-            Ok(FoldUp::Continue(pack([(self.0.clone(), ident())])))
+    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
+        if node.as_any().is::<Identity>() {
+            Ok(TransformResult::yes(pack([(self.0.clone(), ident())])))
         } else {
-            Ok(FoldUp::Continue(node.replacing_children(children)))
+            Ok(TransformResult::no(node))
         }
     }
 }
@@ -359,20 +352,17 @@ mod tests {
 
     fn dtype() -> DType {
         DType::Struct(
-            StructDType::new(
-                vec!["a".into(), "b".into(), "c".into()].into(),
-                vec![
+            StructDType::from_iter([
+                (
+                    "a",
                     DType::Struct(
-                        StructDType::new(
-                            vec!["a".into(), "b".into()].into(),
-                            vec![I32.into(), I32.into()],
-                        ),
+                        StructDType::from_iter([("a", I32.into()), ("b", DType::from(I32))]),
                         NonNullable,
                     ),
-                    I32.into(),
-                    I32.into(),
-                ],
-            ),
+                ),
+                ("b", I32.into()),
+                ("c", I32.into()),
+            ]),
             NonNullable,
         )
     }
@@ -389,7 +379,7 @@ mod tests {
 
         let partitioned = split.unwrap();
 
-        assert!(partitioned.root.as_any().downcast_ref::<Pack>().is_some());
+        assert!(partitioned.root.as_any().is::<Pack>());
         // Have a single top level pack with all fields in dtype
         assert_eq!(
             partitioned.partitions.len(),
