@@ -17,15 +17,13 @@ impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
             Nullability::Nullable => Validity::AllValid,
         };
 
-        if array.dtype().nullability() == Nullability::NonNullable
-            && fill_value.dtype().nullability() == Nullability::NonNullable
-        {
+        if array.dtype().nullability() == Nullability::NonNullable {
             return Ok(array.to_array());
         }
 
         let array_validity = array.logical_validity();
         if array_validity.all_valid() {
-            return Ok(array.clone().into_array());
+            return Ok(array.to_array());
         }
 
         if array_validity.all_invalid() {
