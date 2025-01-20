@@ -23,6 +23,7 @@ use crate::array::{
     StructArray, TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
+use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
@@ -414,7 +415,7 @@ pub trait IntoCanonical {
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
 pub trait IntoCanonicalVTable {
-    fn into_canonical(&self, array: ArrayData) -> VortexResult<Canonical>;
+    fn into_canonical(&self, array: ArrayData, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef>;
 
@@ -519,11 +520,30 @@ where
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        // We only care to know when we canonicalize something non-trivial.
-        if !self.is_canonical() && self.len() > 1 {
-            log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
-        }
-        self.encoding().into_canonical(self)
+        let array = if !self.is_canonical() {
+            if self.len() > 1 {
+                // We only care to log when we canonicalize something non-trivial.
+                log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
+            }
+
+            // Set up a builder to canonicalize the array into
+            let mut builder = builder_with_capacity(self.dtype(), self.len());
+            self.encoding().into_canonical(self, &mut builder)?;
+            builder.finish()?
+        } else {
+            self
+        };
+
+        Ok(match array.dtype() {
+            DType::Null => Canonical::Null(NullArray::try_from(array)?),
+            DType::Bool(_) => Canonical::Bool(BoolArray::try_from(array)?),
+            DType::Primitive(..) => Canonical::Primitive(PrimitiveArray::try_from(array)?),
+            DType::Utf8(_) => Canonical::VarBinView(VarBinViewArray::try_from(array)?),
+            DType::Binary(_) => Canonical::VarBinView(VarBinViewArray::try_from(array)?),
+            DType::Struct(..) => Canonical::Struct(StructArray::try_from(array)?),
+            DType::List(..) => Canonical::List(ListArray::try_from(array)?),
+            DType::Extension(_) => Canonical::Extension(ExtensionArray::try_from(array)?),
+        })
     }
 
     fn into_arrow(self) -> VortexResult<ArrayRef>
