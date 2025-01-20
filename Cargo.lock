@@ -5366,6 +5366,7 @@ name = "vortex-scan"
 version = "0.21.1"
 dependencies = [
  "exponential-decay-histogram",
+ "itertools 0.13.0",
  "rstest",
  "vortex-array",
  "vortex-buffer",

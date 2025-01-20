@@ -20,6 +20,7 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
+itertools = "0.13.0"
 
 [dev-dependencies]
 rstest = { workspace = true }

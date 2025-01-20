@@ -11,7 +11,7 @@ use crate::{RowMask, Scanner};
 
 /// The threshold at which we apply a filter expression prior to evaluation. In other words,
 /// we reduce the array over which we need to evaluate the next expression.
-const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.5;
+const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.6;
 
 pub struct RangeScanner {
     scan: Arc<Scanner>,
