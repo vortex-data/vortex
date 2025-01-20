@@ -4,9 +4,9 @@ use rand::distributions::Alphanumeric;
 use rand::seq::SliceRandom as _;
 use rand::{thread_rng, Rng, SeedableRng as _};
 use vortex::aliases::hash_set::HashSet;
-use vortex::array::{ConstantArray, VarBinViewArray};
+use vortex::array::VarBinViewArray;
 use vortex::buffer::Buffer;
-use vortex::compute::{compare, try_cast, Operator};
+use vortex::compute::try_cast;
 use vortex::dtype::PType;
 use vortex::encodings::dict::dict_encode;
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
@@ -18,14 +18,10 @@ use vortex::sampling_compressor::compressors::bitpacked::{
 use vortex::sampling_compressor::compressors::delta::DeltaCompressor;
 use vortex::sampling_compressor::compressors::dict::DictCompressor;
 use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex::sampling_compressor::compressors::roaring_bool::RoaringBoolCompressor;
-use vortex::sampling_compressor::compressors::roaring_int::RoaringIntCompressor;
 use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
-use vortex::sampling_compressor::compressors::runend_bool::RunEndBoolCompressor;
 use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
 use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::scalar::Scalar;
 use vortex::{IntoArrayData as _, IntoCanonical, ToArrayData};
 
 #[global_allocator]
@@ -41,16 +37,6 @@ fn primitive(c: &mut Criterion) {
     let uint_array =
         Buffer::from_iter((0..num_values).map(|_| rng.gen_range(0u32..256))).into_array();
     let int_array = try_cast(uint_array.clone(), PType::I32.into()).unwrap();
-
-    let bool_array = compare(
-        &uint_array,
-        ConstantArray::new(Scalar::from(0u32), uint_array.len()),
-        Operator::Eq,
-    )
-    .unwrap();
-
-    let index_array = Buffer::from_iter((0..num_values).map(|i| (i * 2) as u32 + 42)).into_array();
-
     let float_array = try_cast(uint_array.clone(), PType::F32.into()).unwrap();
 
     let compressors_names_and_arrays = [
@@ -63,9 +49,6 @@ fn primitive(c: &mut Criterion) {
         (&DEFAULT_RUN_END_COMPRESSOR, "runend", &uint_array),
         (&DeltaCompressor, "delta", &uint_array),
         (&DictCompressor, "dict", &uint_array),
-        (&RoaringBoolCompressor, "roaring_bool", &bool_array),
-        (&RoaringIntCompressor, "roaring_int", &index_array),
-        (&RunEndBoolCompressor, "runend_bool", &bool_array),
         (&FoRCompressor, "frame_of_reference", &int_array),
         (&ZigZagCompressor, "zigzag", &int_array),
         (&ALPCompressor, "alp", &float_array),

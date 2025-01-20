@@ -8,11 +8,9 @@ pub use {
 };
 
 pub mod encodings {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub use vortex_roaring as roaring;
     pub use {
         vortex_alp as alp, vortex_bytebool as bytebool, vortex_datetime_parts as datetime_parts,
         vortex_dict as dict, vortex_fastlanes as fastlanes, vortex_fsst as fsst,
-        vortex_runend as runend, vortex_runend_bool as runend_bool, vortex_zigzag as zigzag,
+        vortex_runend as runend, vortex_zigzag as zigzag,
     };
 }

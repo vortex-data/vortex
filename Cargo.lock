@@ -1107,24 +1107,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "croaring"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e4db0840d5e5da1b31604dd5479b5330dc6b8261d23715938c7dd607002149c"
-dependencies = [
- "croaring-sys",
-]
-
-[[package]]
-name = "croaring-sys"
-version = "4.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bc4dd5c267e5305b86d68109e1041605903232cd0f447183ed8f1b7f3d10628"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4857,9 +4839,7 @@ dependencies = [
  "vortex-io",
  "vortex-ipc",
  "vortex-proto",
- "vortex-roaring",
  "vortex-runend",
- "vortex-runend-bool",
  "vortex-sampling-compressor",
  "vortex-scalar",
  "vortex-scan",
@@ -5241,21 +5221,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-roaring"
-version = "0.21.1"
-dependencies = [
- "arrow-buffer",
- "croaring",
- "num-traits",
- "serde",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-scalar",
-]
-
-[[package]]
 name = "vortex-runend"
 version = "0.21.1"
 dependencies = [
@@ -5263,24 +5228,6 @@ dependencies = [
  "criterion",
  "itertools 0.14.0",
  "num-traits",
- "serde",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-scalar",
-]
-
-[[package]]
-name = "vortex-runend-bool"
-version = "0.21.1"
-dependencies = [
- "arrow-buffer",
- "criterion",
- "itertools 0.14.0",
- "num-traits",
- "rand",
- "rstest",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -5311,9 +5258,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
- "vortex-roaring",
  "vortex-runend",
- "vortex-runend-bool",
  "vortex-scalar",
  "vortex-zigzag",
 ]

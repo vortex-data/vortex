@@ -153,9 +153,7 @@ vortex-io = { version = "0.21.1", path = "./vortex-io" }
 vortex-ipc = { version = "0.21.1", path = "./vortex-ipc" }
 vortex-layout = { version = "0.21.1", path = "./vortex-layout" }
 vortex-proto = { version = "0.21.1", path = "./vortex-proto" }
-vortex-roaring = { version = "0.21.1", path = "./encodings/roaring" }
 vortex-runend = { version = "0.21.1", path = "./encodings/runend" }
-vortex-runend-bool = { version = "0.21.1", path = "./encodings/runend-bool" }
 vortex-scalar = { version = "0.21.1", path = "./vortex-scalar", default-features = false }
 vortex-scan = { version = "0.21.1", path = "./vortex-scan", default-features = false }
 vortex-sampling-compressor = { version = "0.21.1", path = "./vortex-sampling-compressor" }
