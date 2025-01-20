@@ -33,7 +33,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn filter(&self, array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
 }

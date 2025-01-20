@@ -42,14 +42,11 @@ impl StatsTable {
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
-        let dtypes = present_stats
-            .iter()
-            .map(|s| s.dtype(column_dtype).as_nullable())
-            .collect();
         DType::Struct(
-            StructDType::new(
-                present_stats.iter().map(|s| s.name().into()).collect(),
-                dtypes,
+            StructDType::from_iter(
+                present_stats
+                    .iter()
+                    .map(|stat| (stat.name(), stat.dtype(column_dtype).as_nullable())),
             ),
             Nullability::NonNullable,
         )

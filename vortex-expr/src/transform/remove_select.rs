@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -36,22 +35,22 @@ impl MutNodeVisitor for RemoveSelectTransform {
                 )
             })?;
 
-            let names = select
-                .fields()
-                .as_include_names(child_dtype.names())
-                .map_err(|e| {
-                    vortex_err!(
-                        "Select fields must be a subset of child fields, however {}",
-                        e
-                    )
-                })?;
+            let expr = pack(
+                select
+                    .fields()
+                    .as_include_names(child_dtype.names())
+                    .map_err(|e| {
+                        e.with_context(format!(
+                            "Select fields {:?} must be a subset of child fields {:?}",
+                            select.fields(),
+                            child_dtype.names()
+                        ))
+                    })?
+                    .iter()
+                    .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
+            );
 
-            let pack_children = names
-                .iter()
-                .map(|name| get_item(name.clone(), child.clone()))
-                .collect_vec();
-
-            Ok(TransformResult::yes(pack(names, pack_children)))
+            Ok(TransformResult::yes(expr))
         } else {
             Ok(TransformResult::no(node))
         }
@@ -79,6 +78,6 @@ mod tests {
         let e = select(["a".into(), "b".into()], ident());
         let e = remove_select(e, dtype).unwrap();
 
-        assert!(e.as_any().downcast_ref::<Pack>().is_some());
+        assert!(e.as_any().is::<Pack>());
     }
 }

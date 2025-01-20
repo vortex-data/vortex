@@ -18,25 +18,14 @@ mod compute;
 
 impl_encoding!("vortex.null", ids::NULL, Null);
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-pub struct NullMetadata;
-
-impl Display for NullMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NullMetadata")
-    }
-}
-
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self::try_from_parts(
             DType::Null,
             len,
             (),
-            [].into(),
-            [].into(),
+            None,
+            None,
             StatsSet::nulls(len, &DType::Null),
         )
         .vortex_expect("NullArray::new should never fail!")

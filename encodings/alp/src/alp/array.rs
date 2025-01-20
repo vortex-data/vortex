@@ -62,8 +62,8 @@ impl ALPArray {
             dtype,
             length,
             SerdeMetadata(ALPMetadata { exponents, patches }),
-            [].into(),
-            children.into(),
+            None,
+            Some(children.into()),
             Default::default(),
         )
     }

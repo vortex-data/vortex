@@ -65,7 +65,7 @@ impl VortexExpr for Like {
         let child = self.child().evaluate(batch)?;
         let pattern = self.pattern().evaluate(&child)?;
         like(
-            &child,
+            child,
             &pattern,
             LikeOptions {
                 negated: self.negated,

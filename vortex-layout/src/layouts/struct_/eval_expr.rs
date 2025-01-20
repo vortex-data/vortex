@@ -85,9 +85,9 @@ mod tests {
                 Nullability::NonNullable,
             ),
             vec![
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
-                Box::new(FlatLayoutWriter::new(I32.into())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
+                Box::new(FlatLayoutWriter::new(I32.into(), Default::default())),
             ],
         )
         .push_all(
@@ -156,10 +156,7 @@ mod tests {
         let (segments, layout) = struct_layout();
 
         let reader = layout.reader(segments, Default::default()).unwrap();
-        let expr = pack(
-            ["a".into(), "b".into()],
-            vec![get_item("a", ident()), get_item("b", ident())],
-        );
+        let expr = pack([("a", get_item("a", ident())), ("b", get_item("b", ident()))]);
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that
             RowMask::new(FilterMask::from_iter([true, true, false]), 0),

@@ -40,7 +40,7 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
-vortex-file = { workspace = true, features = ["object_store"] }
+vortex-file = { workspace = true, features = ["object_store", "tokio"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
 vortex-scan = { workspace = true }
 

@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use num_traits::AsPrimitive;
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -30,9 +30,7 @@ impl ComputeVTable for VarBinViewEncoding {
 
 impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
     fn scalar_at(&self, array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
-        array
-            .bytes_at(index)
-            .map(|bytes| varbin_scalar(ByteBuffer::from(bytes), array.dtype()))
+        Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
     }
 }
 

@@ -69,17 +69,11 @@ mod test {
         assert!(!canonical.is_valid(1));
 
         // First value is inlined (12 bytes)
-        assert!(canonical.view_at(2).unwrap().is_inlined());
-        assert_eq!(
-            canonical.bytes_at(2).unwrap().as_slice(),
-            "123456789012".as_bytes()
-        );
+        assert!(canonical.views()[2].is_inlined());
+        assert_eq!(canonical.bytes_at(2).as_slice(), "123456789012".as_bytes());
 
         // Second value is not inlined (13 bytes)
-        assert!(!canonical.view_at(3).unwrap().is_inlined());
-        assert_eq!(
-            canonical.bytes_at(3).unwrap().as_slice(),
-            "1234567890123".as_bytes()
-        );
+        assert!(!canonical.views()[3].is_inlined());
+        assert_eq!(canonical.bytes_at(3).as_slice(), "1234567890123".as_bytes());
     }
 }

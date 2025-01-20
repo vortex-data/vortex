@@ -85,8 +85,8 @@ impl RunEndArray {
             dtype,
             length,
             SerdeMetadata(metadata),
-            [].into(),
-            vec![ends, values].into(),
+            None,
+            Some(vec![ends, values].into()),
             StatsSet::default(),
         )
     }

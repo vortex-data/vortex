@@ -76,22 +76,13 @@ impl Pack {
     }
 }
 
-pub fn pack(names: impl Into<FieldNames>, values: Vec<ExprRef>) -> ExprRef {
+pub fn pack(elements: impl IntoIterator<Item = (impl Into<FieldName>, ExprRef)>) -> ExprRef {
+    let (names, values): (Vec<_>, Vec<_>) = elements
+        .into_iter()
+        .map(|(name, value)| (name.into(), value))
+        .unzip();
     Pack::try_new_expr(names.into(), values)
         .vortex_expect("pack names and values have the same length")
-}
-
-impl PartialEq<dyn Any> for Pack {
-    fn eq(&self, other: &dyn Any) -> bool {
-        other.downcast_ref::<Pack>().is_some_and(|other_pack| {
-            self.names == other_pack.names
-                && self
-                    .values
-                    .iter()
-                    .zip(other_pack.values.iter())
-                    .all(|(x, y)| x.eq(y))
-        })
-    }
 }
 
 impl Display for Pack {
@@ -143,7 +134,7 @@ mod tests {
     use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-    use crate::{col, Column, Pack, VortexExpr};
+    use crate::{col, Pack, VortexExpr};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -226,10 +217,10 @@ mod tests {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![
-                Column::new_expr("a"),
+                col("a"),
                 Pack::try_new_expr(
                     ["two_one".into(), "two_two".into()].into(),
-                    vec![Column::new_expr("b"), Column::new_expr("b")],
+                    vec![col("b"), col("b")],
                 )
                 .unwrap(),
                 col("a"),

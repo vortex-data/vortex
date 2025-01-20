@@ -59,8 +59,8 @@ impl FoRArray {
             dtype,
             child.len(),
             SerdeMetadata(FoRMetadata { reference, shift }),
-            [].into(),
-            [child].into(),
+            None,
+            Some([child].into()),
             StatsSet::default(),
         )
     }

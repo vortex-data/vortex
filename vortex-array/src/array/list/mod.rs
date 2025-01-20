@@ -95,8 +95,8 @@ impl ListArray {
                 elements_len: element_len,
                 offset_ptype,
             }),
-            [].into(),
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )
     }

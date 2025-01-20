@@ -84,12 +84,3 @@ impl VisitorVTable<ArrayData> for OpaqueEncoding {
         )
     }
 }
-
-#[derive(Debug)]
-pub struct OpaqueMetadata;
-
-impl Display for OpaqueMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OpaqueMetadata")
-    }
-}

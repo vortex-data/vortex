@@ -40,8 +40,8 @@ impl RoaringBoolArray {
             DType::Bool(Nullability::NonNullable),
             length,
             (),
-            [ByteBuffer::from(bitmap.serialize::<Native>())].into(),
-            vec![].into(),
+            Some([ByteBuffer::from(bitmap.serialize::<Native>())].into()),
+            None,
             stats,
         )
     }

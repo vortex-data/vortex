@@ -40,7 +40,7 @@ where
         rhs: &ArrayData,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (array_ref, encoding) = lhs.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }

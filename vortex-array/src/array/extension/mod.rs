@@ -19,17 +19,6 @@ mod compute;
 
 impl_encoding!("vortex.ext", ids::EXTENSION, Extension);
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-pub struct ExtensionMetadata;
-
-impl Display for ExtensionMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
         assert_eq!(
@@ -42,8 +31,8 @@ impl ExtensionArray {
             DType::Extension(ext_dtype),
             storage.len(),
             (),
-            [].into(),
-            [storage].into(),
+            None,
+            Some([storage].into()),
             Default::default(),
         )
         .vortex_expect("Invalid ExtensionArray")

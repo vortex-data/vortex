@@ -18,9 +18,6 @@ mod variants;
 
 impl_encoding!("vortex.constant", ids::CONSTANT, Constant);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConstantMetadata;
-
 impl ConstantArray {
     pub fn new<S>(scalar: S, length: usize) -> Self
     where
@@ -37,8 +34,8 @@ impl ConstantArray {
             dtype,
             length,
             (),
-            [value_buffer.into_inner()].into(),
-            [].into(),
+            Some([value_buffer.into_inner()].into()),
+            None,
             stats,
         )
         .vortex_expect("Failed to create Constant array")

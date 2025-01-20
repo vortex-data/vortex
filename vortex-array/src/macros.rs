@@ -39,8 +39,8 @@ macro_rules! impl_encoding {
                     dtype: vortex_dtype::DType,
                     len: usize,
                     metadata: impl $crate::SerializeMetadata,
-                    buffers: Box<[vortex_buffer::ByteBuffer]>,
-                    children: Box<[$crate::ArrayData]>,
+                    buffers: Option<Box<[vortex_buffer::ByteBuffer]>>,
+                    children: Option<Box<[$crate::ArrayData]>>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
                     Self::try_from($crate::ArrayData::try_new_owned(

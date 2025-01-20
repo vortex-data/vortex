@@ -150,8 +150,8 @@ impl BitPackedArray {
             dtype,
             length,
             RkyvMetadata(metadata),
-            [packed].into(),
-            children.into(),
+            Some([packed].into()),
+            Some(children.into()),
             StatsSet::default(),
         )
     }

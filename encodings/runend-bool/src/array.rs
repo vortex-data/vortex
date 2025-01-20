@@ -113,8 +113,8 @@ impl RunEndBoolArray {
             dtype,
             length,
             SerdeMetadata(metadata),
-            [].into(),
-            children.into(),
+            None,
+            Some(children.into()),
             stats,
         )
     }

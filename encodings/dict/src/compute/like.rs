@@ -7,11 +7,11 @@ use crate::{DictArray, DictEncoding};
 impl LikeFn<DictArray> for DictEncoding {
     fn like(
         &self,
-        array: &DictArray,
+        array: DictArray,
         pattern: &ArrayData,
         options: LikeOptions,
     ) -> VortexResult<ArrayData> {
-        let values = like(&array.values(), pattern, options)?;
+        let values = like(array.values(), pattern, options)?;
         Ok(DictArray::try_new(array.codes(), values)?.into_array())
     }
 }

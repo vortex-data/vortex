@@ -16,7 +16,7 @@ use vortex_scalar::Scalar;
 use crate::field::DisplayFieldName;
 use crate::{
     and, eq, get_item, gt, ident, lit, not, or, BinaryExpr, ExprRef, GetItem, Identity, Literal,
-    Not, Operator, RowFilter, VortexExprExt,
+    Not, Operator, VortexExprExt,
 };
 
 #[derive(Debug, Clone)]
@@ -210,7 +210,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             }
         }
 
-        if bexp.lhs().as_any().downcast_ref::<Identity>().is_some() {
+        if bexp.lhs().as_any().is::<Identity>() {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op(),
@@ -218,28 +218,13 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             );
         };
 
-        if bexp.rhs().as_any().downcast_ref::<Identity>().is_some() {
+        if bexp.rhs().as_any().is::<Identity>() {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op().swap(),
                 bexp.lhs(),
             );
         };
-    }
-
-    if let Some(RowFilter { conjunction }) = expr.as_any().downcast_ref::<RowFilter>() {
-        let (rewritten_conjunction, refses): (Vec<ExprRef>, Vec<Relation<FieldOrIdentity, Stat>>) =
-            conjunction
-                .iter()
-                .map(convert_to_pruning_expression)
-                .unzip();
-
-        let refs = Relation::union(refses.into_iter());
-
-        return (
-            RowFilter::from_conjunction_expr(rewritten_conjunction),
-            refs,
-        );
     }
 
     not_prunable()
@@ -331,20 +316,7 @@ impl<'a> PruningPredicateRewriter<'a> {
                 let replaced_max = self.rewrite_other_exp(Stat::Max);
                 let replaced_min = self.rewrite_other_exp(Stat::Min);
 
-                let column_value_is_single_known_value = eq(min_col.clone(), max_col.clone());
-                let column_value = min_col;
-
-                let other_value_is_single_known_value =
-                    eq(replaced_min.clone(), replaced_max.clone());
-                let other_value = replaced_min;
-
-                Some(and(
-                    and(
-                        column_value_is_single_known_value,
-                        other_value_is_single_known_value,
-                    ),
-                    eq(column_value, other_value),
-                ))
+                Some(and(eq(min_col, replaced_max), eq(max_col, replaced_min)))
             }
             Operator::Gt | Operator::Gte => {
                 let max_col = get_item(self.add_stat_reference(Stat::Max), ident());
@@ -555,18 +527,12 @@ mod tests {
             ])
         );
         let expected_expr = and(
-            and(
-                eq(
-                    get_item_scope(stat_field_name(&column, Stat::Min)),
-                    get_item_scope(stat_field_name(&column, Stat::Max)),
-                ),
-                eq(
-                    get_item_scope(stat_field_name(&other_col, Stat::Min)),
-                    get_item_scope(stat_field_name(&other_col, Stat::Max)),
-                ),
-            ),
             eq(
                 get_item_scope(stat_field_name(&column, Stat::Min)),
+                get_item_scope(stat_field_name(&other_col, Stat::Max)),
+            ),
+            eq(
+                get_item_scope(stat_field_name(&column, Stat::Max)),
                 get_item_scope(stat_field_name(&other_col, Stat::Min)),
             ),
         );

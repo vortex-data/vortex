@@ -82,8 +82,9 @@ impl LayoutWriter for ChunkedLayoutWriter {
         let metadata: Option<Bytes> = match stats_table {
             Some(stats_table) => {
                 // Write the stats array as the final layout.
-                let stats_layout = FlatLayoutWriter::new(stats_table.array().dtype().clone())
-                    .push_one(segments, stats_table.array().clone())?;
+                let stats_layout =
+                    FlatLayoutWriter::new(stats_table.array().dtype().clone(), Default::default())
+                        .push_one(segments, stats_table.array().clone())?;
                 children.push(stats_layout);
 
                 // We store a bit-set of the statistics in the layout metadata so we can infer the

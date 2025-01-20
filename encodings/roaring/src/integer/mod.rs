@@ -67,8 +67,8 @@ impl RoaringIntArray {
             DType::Primitive(ptype, NonNullable),
             length,
             SerdeMetadata(RoaringIntMetadata { ptype }),
-            [ByteBuffer::from(bitmap.serialize::<Portable>())].into(),
-            vec![].into(),
+            Some([ByteBuffer::from(bitmap.serialize::<Portable>())].into()),
+            None,
             stats,
         )
     }

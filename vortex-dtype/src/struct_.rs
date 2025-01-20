@@ -6,7 +6,7 @@ use vortex_error::{
 };
 
 use crate::flatbuffers::ViewedDType;
-use crate::{DType, Field, FieldNames};
+use crate::{DType, Field, FieldName, FieldNames};
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Hash)]
@@ -290,6 +290,20 @@ impl StructDType {
     }
 }
 
+impl<T, V> FromIterator<(T, V)> for StructDType
+where
+    T: Into<FieldName>,
+    V: Into<FieldDType>,
+{
+    fn from_iter<I: IntoIterator<Item = (T, V)>>(iter: I) -> Self {
+        let (names, dtypes): (Vec<_>, Vec<_>) = iter
+            .into_iter()
+            .map(|(name, dtype)| (name.into(), dtype.into()))
+            .unzip();
+        StructDType::from_fields(names.into(), dtypes.into_iter().map(Into::into).collect())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::dtype::DType;
@@ -316,10 +330,7 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructDType::new(
-                vec!["A".into(), "B".into()].into(),
-                vec![a_type.clone(), b_type.clone()],
-            ),
+            StructDType::from_iter([("A", a_type.clone()), ("B", b_type.clone())]),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());

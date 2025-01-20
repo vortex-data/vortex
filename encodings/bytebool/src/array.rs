@@ -9,9 +9,7 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical, SerdeMetadata,
-};
+use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical, SerdeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -53,8 +51,8 @@ impl ByteBoolArray {
             SerdeMetadata(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            [buffer.into_byte_buffer()].into(),
-            validity.into_array().into_iter().collect::<Vec<_>>().into(),
+            Some([buffer.into_byte_buffer()].into()),
+            validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
         )
     }

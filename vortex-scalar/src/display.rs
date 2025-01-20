@@ -21,7 +21,7 @@ impl Display for Scalar {
                     .value()
                 {
                     None => write!(f, "null"),
-                    Some(bs) => write!(f, "{}", bs.as_str()),
+                    Some(bs) => write!(f, "\"{}\"", bs.as_str()),
                 }
             }
             DType::Binary(_) => {
@@ -33,7 +33,7 @@ impl Display for Scalar {
                     Some(buf) => {
                         write!(
                             f,
-                            "{}",
+                            "\"{}\"",
                             buf.as_slice().iter().map(|b| format!("{b:x}")).format(",")
                         )
                     }
@@ -155,7 +155,10 @@ mod tests {
 
     #[test]
     fn display_utf8() {
-        assert_eq!(format!("{}", Scalar::from("Hello World!")), "Hello World!");
+        assert_eq!(
+            format!("{}", Scalar::from("Hello World!")),
+            "\"Hello World!\""
+        );
         assert_eq!(format!("{}", Scalar::null(DType::Utf8(Nullable))), "null");
     }
 
@@ -169,7 +172,7 @@ mod tests {
                     NonNullable
                 )
             ),
-            "48,65,6c,6c,6f,20,57,6f,72,6c,64,21"
+            "\"48,65,6c,6c,6f,20,57,6f,72,6c,64,21\""
         );
         assert_eq!(format!("{}", Scalar::null(DType::Binary(Nullable))), "null");
     }

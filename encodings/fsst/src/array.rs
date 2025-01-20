@@ -102,8 +102,8 @@ impl FSSTArray {
                 codes_nullability,
                 uncompressed_lengths_ptype,
             }),
-            [].into(),
-            children,
+            None,
+            Some(children),
             StatsSet::default(),
         )
     }

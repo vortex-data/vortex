@@ -231,7 +231,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         """
         return self._dataset.to_array(
-            columns=columns, row_filter=filter, indices=encoding.array(indices)
+            columns=columns, row_filter=filter, indices=encoding.array(indices.cast(pa.uint64()))
         ).to_arrow_table()
 
     def to_record_batch_reader(

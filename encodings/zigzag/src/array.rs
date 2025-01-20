@@ -35,8 +35,8 @@ impl ZigZagArray {
             dtype,
             len,
             (),
-            [].into(),
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )
     }

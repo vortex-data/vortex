@@ -143,8 +143,8 @@ impl DeltaArray {
             dtype,
             logical_len,
             RkyvMetadata(metadata),
-            [].into(),
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )?;
 

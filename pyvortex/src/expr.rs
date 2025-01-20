@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{col, lit, BinaryExpr, ExprRef, GetItem, Operator};
+use vortex::expr::{lit, BinaryExpr, ExprRef, GetItem, Operator};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -228,6 +228,21 @@ impl PyExpr {
     }
 }
 
+#[pyfunction]
+pub fn literal<'py>(
+    dtype: &Bound<'py, PyDType>,
+    value: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyExpr>> {
+    scalar(dtype.borrow().unwrap().clone(), value)
+}
+
+#[pyfunction]
+pub fn ident() -> PyExpr {
+    PyExpr {
+        inner: vortex::expr::ident(),
+    }
+}
+
 /// A named column.
 ///
 /// .. seealso::
@@ -247,15 +262,12 @@ impl PyExpr {
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();
     let name: String = name.extract()?;
-    Bound::new(py, PyExpr { inner: col(name) })
-}
-
-#[pyfunction]
-pub fn literal<'py>(
-    dtype: &Bound<'py, PyDType>,
-    value: &Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyExpr>> {
-    scalar(dtype.borrow().unwrap().clone(), value)
+    Bound::new(
+        py,
+        PyExpr {
+            inner: vortex::expr::get_item(name, vortex::expr::ident()),
+        },
+    )
 }
 
 pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {

@@ -82,8 +82,8 @@ impl ChunkedArray {
             dtype,
             length.try_into().vortex_unwrap(),
             RkyvMetadata(ChunkedMetadata { nchunks }),
-            [].into(),
-            children.into(),
+            None,
+            Some(children.into()),
             StatsSet::default(),
         )
     }

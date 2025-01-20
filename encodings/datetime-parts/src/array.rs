@@ -74,8 +74,8 @@ impl DateTimePartsArray {
             dtype,
             length,
             SerdeMetadata(metadata),
-            [].into(),
-            [days, seconds, subsecond].into(),
+            None,
+            Some([days, seconds, subsecond].into()),
             StatsSet::default(),
         )
     }
