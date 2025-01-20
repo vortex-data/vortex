@@ -189,7 +189,7 @@ impl FileFormat for VortexFormat {
                     min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
                     distinct_count: s
                         .get_as::<bool>(Stat::IsConstant)
-                        .and_then(|is_constant| is_constant.then(|| Precision::Exact(1)))
+                        .and_then(|is_constant| is_constant.then_some(Precision::Exact(1)))
                         .unwrap_or(Precision::Absent),
                 }
             })
