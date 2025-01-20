@@ -6,7 +6,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::stats::ArrayStatistics;
+use vortex_array::stats::Stat;
 use vortex_array::IntoArrayData;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
@@ -26,7 +26,7 @@ fn run_end_null_count(c: &mut Criterion) {
                 .collect::<Buffer<_>>()
                 .into_array();
             let run_count = ends.len() - 1;
-            for valid_density in [0.001, 0.01, 0.1, 0.25, 0.5] {
+            for valid_density in [0.01, 0.1, 0.5] {
                 let values = PrimitiveArray::from_option_iter(
                     (0..ends.len()).map(|x| rng.gen_bool(valid_density).then_some(x as u64)),
                 )
@@ -41,7 +41,14 @@ fn run_end_null_count(c: &mut Criterion) {
                         n, run_count, valid_density
                     ),
                     |b| {
-                        b.iter(|| black_box(array.statistics().compute_null_count().unwrap()));
+                        b.iter(|| {
+                            black_box(
+                                array
+                                    .encoding()
+                                    .compute_statistics(&array, Stat::NullCount)
+                                    .unwrap(),
+                            )
+                        });
                     },
                 );
             }
