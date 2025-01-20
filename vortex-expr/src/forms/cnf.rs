@@ -144,7 +144,8 @@ use crate::{lit, BinaryExpr, ExprRef, Operator};
 ///
 pub fn cnf(expr: ExprRef) -> VortexResult<Vec<Vec<ExprRef>>> {
     if expr == lit(true) {
-        return Ok(vec![vec![]]);
+        // True in CNF
+        return Ok(vec![]);
     }
     let nnf = nnf(expr)?;
 
