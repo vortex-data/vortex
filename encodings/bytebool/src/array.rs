@@ -9,7 +9,9 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical, SerdeMetadata};
+use vortex_array::{
+    impl_encoding, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical, SerdeMetadata,
+};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
