@@ -15,6 +15,7 @@ pub use extension::*;
 pub use list::*;
 pub use null::*;
 pub use primitive::*;
+pub use struct_::*;
 pub use utf8::*;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};

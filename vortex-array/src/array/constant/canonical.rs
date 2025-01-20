@@ -9,7 +9,8 @@ use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
 use crate::builders::{
-    ArrayBuilder, BinaryBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder, Utf8Builder,
+    ArrayBuilder, ArrayBuilderExt, BinaryBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder,
+    StructBuilder, Utf8Builder,
 };
 use crate::iter::Accessor;
 use crate::validity::Validity;
@@ -106,10 +107,18 @@ impl IntoCanonical for ConstantArray {
                 }
             }
             DType::Struct(..) => {
-                
+                let builder = builder.as_any().downcast_mut_unchecked::<StructBuilder>();
+                let s = self.scalar().as_struct();
+                for (field_builder, field) in builder.field_builders().zip(s.fields()) {
+                    field_builder.append_scalar(field)?;
+                }
             }
-            DType::List(..) => {}
-            DType::Extension(_) => {}
+            DType::List(..) => {
+                todo!()
+            }
+            DType::Extension(_) => {
+                todo!()
+            }
         }
     }
 }

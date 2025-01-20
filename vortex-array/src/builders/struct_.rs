@@ -38,6 +38,10 @@ impl StructBuilder {
         }
     }
 
+    pub fn field_builders(&mut self) -> impl Iterator<Item = &mut dyn ArrayBuilder> {
+        self.builders.iter_mut()
+    }
+
     pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
         if struct_scalar.dtype() != &DType::Struct(self.struct_dtype.clone(), self.nullability) {
             vortex_bail!(
