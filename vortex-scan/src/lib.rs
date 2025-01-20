@@ -130,6 +130,7 @@ impl Scanner {
     /// of an expression that has been evaluated against an already filtered input.
     ///
     /// The truthiness is computed as `true_count / input.len()`.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn report_truthiness(&self, expr: &ExprRef, truthiness: f64) -> VortexResult<()> {
         if !(0.0..=1.0).contains(&truthiness) {
             vortex_bail!("truthiness must be in the range [0, 1]");
@@ -146,7 +147,7 @@ impl Scanner {
             .ok_or_else(|| vortex_err!("expression not found in filter conjuncts"))?;
 
         // Since our histogram only supports i64, we map our f64 into a 0-1m range.
-        let truthiness = (truthiness * 1_000_000.0) as i64;
+        let truthiness = (truthiness * 1_000_000.0).round() as i64;
         guard[idx].truthiness.update(truthiness);
 
         Ok(())
