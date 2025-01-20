@@ -97,7 +97,6 @@ impl LayoutData {
             );
         }
 
-        // SAFETY: We have done the validation
         Ok(Self(Inner::Viewed(ViewedLayoutData {
             encoding,
             dtype,
@@ -112,7 +111,7 @@ impl LayoutData {
     /// SAFETY:
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
-    pub unsafe fn try_new_viewed_unchecked(
+    pub unsafe fn new_viewed_unchecked(
         encoding: LayoutEncodingRef,
         dtype: DType,
         flatbuffer: ByteBuffer,

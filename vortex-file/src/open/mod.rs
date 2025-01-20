@@ -292,7 +292,7 @@ impl VortexOpenOptions {
 
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
-            LayoutData::try_new_viewed_unchecked(
+            LayoutData::new_viewed_unchecked(
                 root_encoding,
                 dtype,
                 bytes.clone(),
