@@ -22,6 +22,8 @@ mod stats;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::BooleanBuffer;
 
+use crate::builders::{ArrayBuilder, BoolBuilder};
+
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -190,6 +192,14 @@ impl FromIterator<Option<bool>> for BoolArray {
 impl IntoCanonical for BoolArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         Ok(Canonical::Bool(self))
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let builder = builder
+            .as_any()
+            .downcast_mut::<BoolBuilder>()
+            .vortex_expect("Not a BoolBuilder");
+        builder.append_buffer(&self.into_buffer());
     }
 }
 

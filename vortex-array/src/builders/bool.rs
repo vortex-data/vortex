@@ -2,6 +2,7 @@ use std::any::Any;
 
 use arrow_array::builder::{ArrayBuilder as _, BooleanBuilder as ArrowBooleanBuilder};
 use arrow_array::Array;
+use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -41,6 +42,11 @@ impl BoolBuilder {
             Some(value) => self.append_value(value),
             None => self.append_null(),
         }
+    }
+
+    pub fn append_buffer(&mut self, buffer: &BooleanBuffer) {
+        // TODO(ngates): copy the bytes if possible? e.g. bit-offset == 0
+        self.inner.extend(buffer);
     }
 }
 

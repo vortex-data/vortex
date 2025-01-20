@@ -67,6 +67,20 @@ pub enum Canonical {
 }
 
 impl Canonical {
+    /// Create a new canonical array from an ArrayData. Fails if the array is not canonical.
+    pub fn try_new(array: ArrayData) -> VortexResult<Self> {
+        Ok(match array.dtype() {
+            DType::Null => Canonical::Null(NullArray::try_from(array)?),
+            DType::Bool(_) => Canonical::Bool(BoolArray::try_from(array)?),
+            DType::Primitive(..) => Canonical::Primitive(PrimitiveArray::try_from(array)?),
+            DType::Utf8(_) => Canonical::VarBinView(VarBinViewArray::try_from(array)?),
+            DType::Binary(_) => Canonical::VarBinView(VarBinViewArray::try_from(array)?),
+            DType::Struct(..) => Canonical::Struct(StructArray::try_from(array)?),
+            DType::List(..) => Canonical::List(ListArray::try_from(array)?),
+            DType::Extension(_) => Canonical::Extension(ExtensionArray::try_from(array)?),
+        })
+    }
+
     /// Convert a canonical array into its equivalent [ArrayRef](Arrow array).
     ///
     /// Scalar arrays such as Bool and Primitive canonical arrays should convert with
@@ -395,7 +409,13 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
 ///
 /// The DType of the array will be unchanged by canonicalization.
 pub trait IntoCanonical {
-    fn into_canonical(self) -> VortexResult<Canonical>;
+    fn into_canonical(self) -> VortexResult<Canonical> {
+        let mut builder = builder_with_capacity(self.dtype(), self.len());
+        self.into_canonical_builder(&mut builder)?;
+        Canonical::try_new(builder.finish()?)
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     fn into_arrow(self) -> VortexResult<ArrayRef>
     where
@@ -520,7 +540,7 @@ where
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let array = if !self.is_canonical() {
+        if !self.is_canonical() {
             if self.len() > 1 {
                 // We only care to log when we canonicalize something non-trivial.
                 log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
@@ -528,22 +548,15 @@ impl IntoCanonical for ArrayData {
 
             // Set up a builder to canonicalize the array into
             let mut builder = builder_with_capacity(self.dtype(), self.len());
-            self.encoding().into_canonical(self, &mut builder)?;
-            builder.finish()?
-        } else {
-            self
-        };
+            self.into_canonical_builder(&mut builder)?;
+            return Canonical::try_new(builder.finish()?);
+        }
 
-        Ok(match array.dtype() {
-            DType::Null => Canonical::Null(NullArray::try_from(array)?),
-            DType::Bool(_) => Canonical::Bool(BoolArray::try_from(array)?),
-            DType::Primitive(..) => Canonical::Primitive(PrimitiveArray::try_from(array)?),
-            DType::Utf8(_) => Canonical::VarBinView(VarBinViewArray::try_from(array)?),
-            DType::Binary(_) => Canonical::VarBinView(VarBinViewArray::try_from(array)?),
-            DType::Struct(..) => Canonical::Struct(StructArray::try_from(array)?),
-            DType::List(..) => Canonical::List(ListArray::try_from(array)?),
-            DType::Extension(_) => Canonical::Extension(ExtensionArray::try_from(array)?),
-        })
+        Canonical::try_new(self)
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        self.encoding().into_canonical(self, builder)
     }
 
     fn into_arrow(self) -> VortexResult<ArrayRef>
