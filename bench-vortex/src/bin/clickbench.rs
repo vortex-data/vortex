@@ -16,9 +16,13 @@ use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
+use mimalloc::MiMalloc;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use vortex::error::vortex_panic;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

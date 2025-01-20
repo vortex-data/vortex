@@ -11,8 +11,12 @@ use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
+use mimalloc::MiMalloc;
 use tokio::runtime::Builder;
 use vortex::aliases::hash_map::HashMap;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
