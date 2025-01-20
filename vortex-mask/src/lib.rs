@@ -3,7 +3,6 @@ mod eq;
 mod intersect_by_rank;
 
 use std::cmp::Ordering;
-use std::ops::BitAnd;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
