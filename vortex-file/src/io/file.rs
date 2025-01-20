@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::Stream;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
@@ -37,13 +36,13 @@ struct FileSegmentRequest {
     /// The segment location.
     pub(crate) location: Segment,
     /// The callback channel
-    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+    callback: async_channel::Sender<VortexResult<ByteBuffer>>,
 }
 
 impl FileSegmentRequest {
     fn resolve(self, buffer: VortexResult<ByteBuffer>) {
         self.callback
-            .send(buffer)
+            .send_blocking(buffer)
             .map_err(|_| vortex_err!("send failed"))
             .vortex_expect("send failed");
     }
@@ -70,7 +69,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
                 let Some(location) = segment_map.get(*request.id as usize) else {
                     request
                         .callback
-                        .send(Err(vortex_err!("segment not found")))
+                        .send_blocking(Err(vortex_err!("segment not found")))
                         .map_err(|_| vortex_err!("send failed"))
                         .vortex_expect("send failed");
                     return None;

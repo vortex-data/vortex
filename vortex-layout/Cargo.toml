@@ -15,7 +15,7 @@ categories.workspace = true
 
 [dependencies]
 arrow-buffer = { workspace = true }
-async-once-cell = "0.5.4"
+async-once-cell = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
