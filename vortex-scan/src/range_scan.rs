@@ -58,13 +58,14 @@ pub enum NextOp {
 // `evaluate(row_mask, expr)` API.
 impl RangeScanner {
     pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
-        let state = if !scan.rev_filter.is_empty() {
+        let conjuncts = scan.conjuncts();
+        let state = if !conjuncts.is_empty() {
             // If we have a filter expression, then for now we evaluate it against all rows
             // of the range.
             // TODO(ngates): we should decide based on mask.true_count() whether to include the
             //  current mask or not. But note that the resulting expression would need to be
             //  aligned and intersected with the given mask.
-            State::FilterEval((FilterMask::new_true(mask.len()), scan.rev_filter.to_vec()))
+            State::FilterEval((FilterMask::new_true(mask.len()), conjuncts))
         } else {
             // If there is no filter expression, then we immediately perform a mask + project.
             State::Project((mask.clone(), scan.projection().clone()))
@@ -105,14 +106,21 @@ impl RangeScanner {
         const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.2;
         match self.state {
             State::FilterEval((eval_mask, mut conjuncts_rev)) => {
-                // conjuncts are non-empty here
-                conjuncts_rev.pop();
+                // Pop off the conjunct that we just executed.
+                let expr = conjuncts_rev
+                    .pop()
+                    .vortex_expect("conjuncts should be non-empty");
 
                 let result = fill_null(result, false.into())?;
-
-                // Intersect the result of the filter expression with our initial row mask.
                 let mask = FilterMask::try_from(result)?;
 
+                // If we ran the expression over the full mask, then we can report truthiness
+                // to the scan.
+                if eval_mask.true_count() == eval_mask.len() {
+                    self.scan.report_truthiness(&expr, mask.selectivity())?;
+                }
+
+                // Intersect the result of the filter expression with our initial row mask.
                 // We passed a full mask to the eval function so we must bit intersect instead
                 // of set-bit intersection if we massed a non-full mask to the evaluator.
                 let mask = if self.mask.len() == eval_mask.true_count() {

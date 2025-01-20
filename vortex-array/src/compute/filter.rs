@@ -370,6 +370,9 @@ impl FilterMask {
     }
 
     /// Return the selectivity of the full mask.
+    ///
+    // TODO(ngates): selectivity is actually the inverse of this. Higher selectivity implies
+    //  lower true-count... This is what I'm now calling "truthiness".
     #[inline]
     pub fn selectivity(&self) -> f64 {
         self.0.selectivity

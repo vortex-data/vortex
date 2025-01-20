@@ -1,13 +1,14 @@
 mod range_scan;
 mod row_mask;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
+use exponential_decay_histogram::ExponentialDecayHistogram;
 pub use range_scan::*;
 pub use row_mask::*;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{lit, or, ExprRef};
@@ -25,13 +26,19 @@ use vortex_expr::{lit, or, ExprRef};
 /// the second filter over the reduced set of rows.
 #[derive(Debug, Clone)]
 pub struct Scanner {
+    /// The projection expression.
     projection: ExprRef,
-    rev_filter: Box<[ExprRef]>,
+    /// The DType of the result of the projection expression.
     projection_dtype: DType,
-    // A sorted list of row indices to include in the scan. We store row indices since they may
-    // produce a very sparse RowMask.
-    // take_indices: Vec<u64>,
-    // statistics: RwLock<Statistics>
+    /// We maintain a histogram of selectivity for each filter expression.
+    conjuncts: Arc<RwLock<Vec<Conjunct>>>,
+}
+
+/// A single conjunct in a filter expression.
+#[derive(Debug)]
+struct Conjunct {
+    expr: ExprRef,
+    truthiness: ExponentialDecayHistogram,
 }
 
 impl Scanner {
@@ -48,26 +55,31 @@ impl Scanner {
 
         let filter = filter.map(|f| simplify_typed(f, dtype)).transpose()?;
 
-        let conjuncts: Box<[ExprRef]> = if let Some(filter) = filter {
+        let conjuncts: Arc<RwLock<Vec<Conjunct>>> = if let Some(filter) = filter {
             let conjuncts = cnf(filter)?;
-            conjuncts
-                .into_iter()
-                .map(|disjunction| {
-                    disjunction
-                        .into_iter()
-                        .reduce(or)
-                        .unwrap_or_else(|| lit(false))
-                })
-                // Reverse the conjuncts so we can pop over the final value each time without a shuffle
-                .rev()
-                .collect()
+            RwLock::new(
+                conjuncts
+                    .into_iter()
+                    .map(|disjunction| {
+                        disjunction
+                            .into_iter()
+                            .reduce(or)
+                            .unwrap_or_else(|| lit(false))
+                    })
+                    .map(|expr| Conjunct {
+                        expr,
+                        truthiness: ExponentialDecayHistogram::new(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .into()
         } else {
-            Box::new([])
+            RwLock::new(vec![]).into()
         };
 
         Ok(Self {
             projection,
-            rev_filter: conjuncts,
+            conjuncts,
             projection_dtype: result_dtype,
         })
     }
@@ -82,11 +94,66 @@ impl Scanner {
         &self.projection_dtype
     }
 
+    /// Returns the conjuncts of the filter expression.
+    pub fn conjuncts(&self) -> Vec<ExprRef> {
+        let mut guard = self
+            .conjuncts
+            .write()
+            .map_err(|_| vortex_err!("lock poisoned"))
+            .vortex_expect("lock poisoned");
+
+        // We decide the order of the conjuncts.
+        guard.sort_by(|a, b| {
+            // First, we run any expression that hasn't yet had selectivity reported
+            let has_run_a = a.truthiness.snapshot().count() > 0;
+            let has_run_b = b.truthiness.snapshot().count() > 0;
+
+            // Then, we order by the most selective expressions first. As in, those that return
+            // the lowest number of true values, via an exponential decay histogram.
+            let truthiness_a = a.truthiness.snapshot().mean();
+            let truthiness_b = b.truthiness.snapshot().mean();
+
+            (has_run_a, truthiness_a)
+                .partial_cmp(&(has_run_b, truthiness_b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        guard.iter().map(|c| c.expr.clone()).collect::<Vec<_>>()
+    }
+
+    /// Report the selectivity of an expression.
+    ///
+    /// The expression MUST have been evaluated against the full input. Do not report selectivity
+    /// of an expression that has been evaluated against an already filtered input.
+    ///
+    /// The truthiness is computed as `true_count / input.len()`.
+    pub fn report_truthiness(&self, expr: &ExprRef, truthiness: f64) -> VortexResult<()> {
+        if truthiness < 0.0 || truthiness > 1.0 {
+            vortex_bail!("truthiness must be in the range [0, 1]");
+        }
+
+        let mut guard = self
+            .conjuncts
+            .write()
+            .map_err(|_| vortex_err!("lock poisoned"))?;
+
+        let idx = guard
+            .iter()
+            .position(|c| &c.expr == expr)
+            .ok_or_else(|| vortex_err!("expression not found in filter conjuncts"))?;
+
+        // Since our histogram only supports i64, we map our f64 into a 0-1m range.
+        let truthiness = (truthiness * 1_000_000.0) as i64;
+        guard[idx].truthiness.update(truthiness);
+
+        Ok(())
+    }
+
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
     /// parent scan in order to optimize future range scans.
     pub fn range_scanner(self: Arc<Self>, row_mask: RowMask) -> VortexResult<RangeScanner> {
         Ok(RangeScanner::new(
-            self,
+            self.clone(),
             row_mask.begin(),
             row_mask.filter_mask().clone(),
         ))

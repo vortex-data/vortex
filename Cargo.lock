@@ -1745,6 +1745,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exponential-decay-histogram"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6e3cf07ea0090a7c89e580018f6abae6e6b77d2002b288a6e3d473ada20aff3"
+dependencies = [
+ "ordered-float 4.6.0",
+ "rand",
+]
+
+[[package]]
 name = "fastlanes"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3097,6 +3107,15 @@ name = "ordered-float"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "ordered-float"
+version = "4.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
 dependencies = [
  "num-traits",
 ]
@@ -4470,7 +4489,7 @@ checksum = "7e54bc85fc7faa8bc175c4bab5b92ba8d9a3ce893d0e9f42cc455c8ab16a9e09"
 dependencies = [
  "byteorder",
  "integer-encoding",
- "ordered-float",
+ "ordered-float 2.10.1",
 ]
 
 [[package]]
@@ -5346,6 +5365,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.21.1"
 dependencies = [
+ "exponential-decay-histogram",
  "rstest",
  "vortex-array",
  "vortex-buffer",
