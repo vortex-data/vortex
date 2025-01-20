@@ -108,7 +108,7 @@ impl LayoutData {
 
     /// Create a new viewed layout from a flatbuffer root message.
     ///
-    /// SAFETY:
+    /// # SAFETY
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
