@@ -36,9 +36,13 @@ impl ArrayParts {
     /// Creates a new [`ArrayParts`] from an [`OwnedArray`] flatbuffer.
     pub fn new(row_count: usize, array: OwnedArray, buffers: Vec<ByteBuffer>) -> Self {
         println!(
-            "CREATE array: row_count = {row_count} array = {} buffers = {:?}",
+            "CREATE array: row_count = {row_count} array = {} buffers = {:?} (sums = {:?})",
             array.as_fb().encoding(),
-            buffers.iter().map(|b| b.len()).collect::<Vec<_>>()
+            buffers.iter().map(|b| b.len()).collect::<Vec<_>>(),
+            buffers
+                .iter()
+                .map(|b| b.iter().map(|x| *x as u64).sum::<u64>())
+                .collect::<Vec<_>>(),
         );
         Self {
             row_count,
