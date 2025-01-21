@@ -1,3 +1,5 @@
+#![feature(substr_range)]
+
 //! A contiguously serialized Vortex array.
 //!
 //! See [message] and [footer] for the flatbuffer specifications.
@@ -157,6 +159,8 @@ pub mod layout;
 #[doc = include_str!("../flatbuffers/vortex-serde/message.fbs")]
 /// ```
 pub mod message;
+
+pub mod owned;
 
 use flatbuffers::{root, FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset};
 use vortex_buffer::{ByteBuffer, ConstByteBuffer};

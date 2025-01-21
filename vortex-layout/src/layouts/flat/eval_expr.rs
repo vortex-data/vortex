@@ -1,12 +1,13 @@
 use async_trait::async_trait;
-use flatbuffers::root;
 use futures::future::try_join_all;
 use vortex_array::compute::{filter, slice};
 use vortex_array::parts::ArrayParts;
 use vortex_array::ArrayData;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_flatbuffers::{array as fba, FlatBuffer};
+use vortex_flatbuffers::owned::array::OwnedArray;
+use vortex_flatbuffers::owned::Owned;
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
@@ -37,15 +38,12 @@ impl ExprEvaluator for FlatReader {
                 .ok_or_else(|| vortex_err!("Flat message missing"))?,
         )?;
 
+        let array = OwnedArray::try_new(flatbuffer)?;
+
         let row_count = usize::try_from(self.layout().row_count())
             .vortex_expect("FlatLayout row count does not fit within usize");
 
-        let array_parts = ArrayParts::new(
-            row_count,
-            root::<fba::Array>(flatbuffer.as_ref()).vortex_expect("Invalid fba::Array flatbuffer"),
-            flatbuffer.clone(),
-            buffers,
-        );
+        let array_parts = ArrayParts::new(row_count, array, buffers);
 
         // Decode into an ArrayData.
         let array = array_parts.decode(self.ctx(), self.dtype().clone())?;

@@ -1,11 +1,10 @@
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use flatbuffers::Follow;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
-use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::owned::array::OwnedArray;
 
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
@@ -18,8 +17,7 @@ pub(super) struct ViewedArrayData {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) flatbuffer: FlatBuffer,
-    pub(super) flatbuffer_loc: usize,
+    pub(super) array: OwnedArray,
     pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: ContextRef,
     #[cfg(feature = "canonical_counter")]
@@ -39,11 +37,11 @@ impl Debug for ViewedArrayData {
 
 impl ViewedArrayData {
     pub fn flatbuffer(&self) -> fb::Array {
-        unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
+        self.array.as_fb()
     }
 
     pub fn metadata_bytes(&self) -> Option<&[u8]> {
-        self.flatbuffer().metadata().map(|m| m.bytes())
+        self.array.as_fb().metadata().map(|m| m.bytes())
     }
 
     // TODO(ngates): should we separate self and DType lifetimes? Should DType be cloned?
@@ -51,7 +49,9 @@ impl ViewedArrayData {
         let child = self
             .array_child(idx)
             .ok_or_else(|| vortex_err!("ArrayView: array_child({idx}) not found"))?;
-        let flatbuffer_loc = child._tab.loc();
+        let owned_child = self
+            .array
+            .owned_child::<fb::Array, OwnedArray>(child._tab.buf())?;
 
         let encoding = self
             .ctx
@@ -71,8 +71,7 @@ impl ViewedArrayData {
             dtype: dtype.clone(),
             len,
             metadata,
-            flatbuffer: self.flatbuffer.clone(),
-            flatbuffer_loc,
+            array: owned_child,
             buffers: self.buffers.clone(),
             ctx: self.ctx.clone(),
             #[cfg(feature = "canonical_counter")]

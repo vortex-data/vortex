@@ -8,7 +8,7 @@ use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
-use vortex_flatbuffers::FlatBuffer;
+use vortex_flatbuffers::owned::array::OwnedArray;
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -79,39 +79,31 @@ impl ArrayData {
         })))
     }
 
-    pub fn try_new_viewed<F>(
+    pub fn try_new_viewed(
         ctx: ContextRef,
         dtype: DType,
         len: usize,
-        flatbuffer: FlatBuffer,
-        flatbuffer_init: F,
+        array: OwnedArray,
         buffers: Vec<ByteBuffer>,
-    ) -> VortexResult<Self>
-    where
-        F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
-    {
-        let array = flatbuffer_init(flatbuffer.as_ref())?;
-        let flatbuffer_loc = array._tab.loc();
-
-        let encoding = ctx.lookup_encoding(array.encoding()).ok_or_else(
+    ) -> VortexResult<Self> {
+        let encoding = ctx.lookup_encoding(array.as_fb().encoding()).ok_or_else(
             || {
                 let pretty_known_encodings = ctx.encodings()
                     .format_with("\n", |e, f| f(&format_args!("- {}", e.id())));
-                vortex_err!(InvalidSerde: "Unknown encoding with ID {:#02x}. Known encodings:\n{pretty_known_encodings}", array.encoding())
+                vortex_err!(InvalidSerde: "Unknown encoding with ID {:#02x}. Known encodings:\n{pretty_known_encodings}", array.as_fb().encoding())
             },
         )?;
 
         // Parse the array metadata
-        let metadata = encoding.load_metadata(array.metadata().map(|v| v.bytes()))?;
+        let metadata = encoding.load_metadata(array.as_fb().metadata().map(|v| v.bytes()))?;
 
         let view = ViewedArrayData {
             encoding,
             dtype,
             len,
             metadata,
-            flatbuffer,
-            flatbuffer_loc,
             buffers: buffers.into(),
+            array,
             ctx,
             #[cfg(feature = "canonical_counter")]
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),

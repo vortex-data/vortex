@@ -5118,7 +5118,9 @@ name = "vortex-flatbuffers"
 version = "0.22.1"
 dependencies = [
  "flatbuffers",
+ "paste",
  "vortex-buffer",
+ "vortex-error",
 ]
 
 [[package]]

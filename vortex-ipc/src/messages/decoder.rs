@@ -1,14 +1,16 @@
 use std::fmt::Debug;
 
 use bytes::Buf;
-use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
 use vortex_array::parts::ArrayParts;
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_flatbuffers::array::Array;
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
-use vortex_flatbuffers::{message as fb, FlatBuffer};
+use vortex_flatbuffers::owned::array::OwnedArray;
+use vortex_flatbuffers::owned::message::OwnedMessage;
+use vortex_flatbuffers::owned::Owned;
 
 use crate::ALIGNMENT;
 
@@ -34,7 +36,7 @@ enum State {
 }
 
 struct ReadingArray {
-    header: FlatBuffer,
+    header: OwnedMessage,
     buffers_length: usize,
 }
 
@@ -81,7 +83,7 @@ impl MessageDecoder {
     /// this number of bytes otherwise it will be given the same `NeedMore` response.
     pub fn read_next<B: AlignedBuf>(&mut self, bytes: &mut B) -> VortexResult<PollRead> {
         loop {
-            match &self.state {
+            match &mut self.state {
                 State::Length => {
                     if bytes.remaining() < 4 {
                         return Ok(PollRead::NeedMore(4));
@@ -96,14 +98,16 @@ impl MessageDecoder {
                     }
 
                     let msg_bytes = bytes.copy_to_const_aligned(*msg_length);
-                    let msg = root::<fb::Message>(msg_bytes.as_ref())?;
-                    if msg.version() != MessageVersion::V0 {
-                        vortex_bail!("Unsupported message version {:?}", msg.version());
+                    let msg: OwnedMessage = OwnedMessage::try_new(msg_bytes.clone())?;
+                    let msg_fb = msg.as_fb();
+                    if msg_fb.version() != MessageVersion::V0 {
+                        vortex_bail!("Unsupported message version {:?}", msg_fb);
                     }
 
-                    match msg.header_type() {
+                    match msg_fb.header_type() {
                         MessageHeader::ArrayMessage => {
                             let array_msg = msg
+                                .as_fb()
                                 .header_as_array_message()
                                 .vortex_expect("array message header");
                             let buffers_length: u64 = array_msg
@@ -118,12 +122,12 @@ impl MessageDecoder {
                             })?;
 
                             self.state = State::Array(ReadingArray {
-                                header: msg_bytes,
+                                header: msg,
                                 buffers_length,
                             });
                         }
                         MessageHeader::Buffer => {
-                            let buffer = msg.header_as_buffer().vortex_expect("buffer header");
+                            let buffer = msg_fb.header_as_buffer().vortex_expect("buffer header");
                             let length = usize::try_from(buffer.length())
                                 .vortex_expect("Buffer length is too large for usize");
                             let length_with_padding = length + buffer.padding() as usize;
@@ -135,15 +139,18 @@ impl MessageDecoder {
                             });
                         }
                         MessageHeader::DType => {
-                            let msg_dtype = msg.header_as_dtype().vortex_expect("dtype header");
-                            let dtype = DType::try_from_view(msg_dtype, msg_bytes.clone())?;
+                            let msg_dtype = msg_fb.header_as_dtype().vortex_expect("dtype header");
+                            let dtype = DType::try_from_view(msg_dtype, msg_bytes)?;
 
                             // Nothing else to read, so we reset the state to Length
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));
                         }
                         _ => {
-                            vortex_bail!("Unsupported message header type {:?}", msg.header_type());
+                            vortex_bail!(
+                                "Unsupported message header type {:?}",
+                                msg_fb.header_type()
+                            );
                         }
                     }
                 }
@@ -161,7 +168,7 @@ impl MessageDecoder {
 
                     // Then use the buffer-requested alignment for the result.
                     let msg = DecoderMessage::Buffer(buffer.aligned(*alignment));
-                    bytes.advance(length_with_padding - length);
+                    bytes.advance(*length_with_padding - *length);
 
                     // Nothing else to read, so we reset the state to Length
                     self.state = Default::default();
@@ -175,8 +182,7 @@ impl MessageDecoder {
                         return Ok(PollRead::NeedMore(*buffers_length));
                     }
 
-                    // SAFETY: we've already validated the header
-                    let msg = unsafe { root_unchecked::<fb::Message>(header.as_ref()) };
+                    let msg = header.as_fb();
                     let array_msg = msg
                         .header_as_array_message()
                         .vortex_expect("array message header");
@@ -205,12 +211,10 @@ impl MessageDecoder {
                     let row_count = usize::try_from(array_msg.row_count())
                         .map_err(|_| vortex_err!("row count is too large for usize"))?;
 
-                    let msg = DecoderMessage::Array(ArrayParts::new(
-                        row_count,
-                        array,
-                        header.clone(),
-                        buffers,
-                    ));
+                    let array_owned = header.owned_child::<Array, OwnedArray>(array._tab.buf())?;
+
+                    let msg =
+                        DecoderMessage::Array(ArrayParts::new(row_count, array_owned, buffers));
 
                     self.state = Default::default();
                     return Ok(PollRead::Some(msg));
