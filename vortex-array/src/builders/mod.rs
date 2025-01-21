@@ -173,6 +173,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
     fn as_binary_mut(&mut self) -> &mut BinaryBuilder {
         self.as_any_mut()
             .downcast_mut::<BinaryBuilder>()
+            .ok_or_else(|| vortex_err!("Builder is not a BinaryBuilder"))
             .vortex_expect("Builder is not a BinaryBuilder")
     }
 

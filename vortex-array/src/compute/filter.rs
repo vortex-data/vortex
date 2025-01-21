@@ -12,7 +12,7 @@ use crate::arrow::FromArrowArray;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::stats::{ArrayStatistics, Stat};
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
 /// If the filter selects more than this fraction of rows, iterate over slices instead of indices.
 ///

@@ -1,34 +1,62 @@
-use arrow_array::ArrayRef;
-use arrow_schema::DataType;
+use futures_util::future::always_ready;
+use futures_util::FutureExt;
+use itertools::Itertools;
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
-use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt};
-use crate::IntoCanonical;
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, ViewBuilder, ViewDType};
+use crate::compute::try_cast;
+use crate::validity::ArrayValidity;
+use crate::{ArrayDType, ArrayLen, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        let _builder = builder.as_binary_mut();
-        todo!()
-    }
-
-    fn into_arrow(self) -> VortexResult<ArrayRef> {
-        // Specialized implementation of `into_arrow` for VarBin since it has a direct
-        // Arrow representation.
-        varbin_to_arrow(&self)
-    }
-
-    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
-        let array_ref = self.into_arrow()?;
-
-        Ok(if array_ref.data_type() != data_type {
-            arrow_cast::cast(array_ref.as_ref(), data_type)?
-        } else {
-            array_ref
-        })
+        match self.dtype() {
+            DType::Utf8(_) => into_canonical_builder(self, builder.as_utf8_mut()),
+            DType::Binary(_) => into_canonical_builder(self, builder.as_binary_mut()),
+            _ => unreachable!(),
+        }
     }
 }
+
+fn into_canonical_builder<V: ViewDType>(
+    array: VarBinArray,
+    builder: &mut ViewBuilder<V>,
+) -> VortexResult<()> {
+    let buffer_idx = builder.append_buffer(array.bytes());
+
+    let offsets =
+        try_cast(array.offsets(), &DType::Primitive(PType::U32, NonNullable))?.into_primitive()?;
+    let validity = array.logical_validity().to_null_buffer()?;
+
+    offsets.as_slice::<u32>()
+        .iter()
+        .tuple_windows()
+        .map(|(start, end)| {
+            if validity.map_or()
+        })
+
+    todo!()
+}
+
+//
+// fn into_arrow(self) -> VortexResult<ArrayRef> {
+//     // Specialized implementation of `into_arrow` for VarBin since it has a direct
+//     // Arrow representation.
+//     varbin_to_arrow(&self)
+// }
+//
+// fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
+//     let array_ref = self.into_arrow()?;
+//
+//     Ok(if array_ref.data_type() != data_type {
+//         arrow_cast::cast(array_ref.as_ref(), data_type)?
+//     } else {
+//         array_ref
+//     })
+// }
 
 #[cfg(test)]
 mod test {

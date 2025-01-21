@@ -410,22 +410,6 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
 /// The DType of the array will be unchanged by canonicalization.
 pub trait IntoCanonical {
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
-
-    fn into_arrow(self) -> VortexResult<ArrayRef>
-    where
-        Self: Sized,
-    {
-        // self.into_canonical()?.into_arrow()
-        todo!()
-    }
-
-    fn into_arrow_with_data_type(self, _data_type: &DataType) -> VortexResult<ArrayRef>
-    where
-        Self: Sized,
-    {
-        // self.into_canonical()?.into_arrow_with_data_type(data_type)
-        todo!()
-    }
 }
 
 /// Encoding VTable for canonicalizing an array.
@@ -436,21 +420,6 @@ pub trait IntoCanonicalVTable {
         array: ArrayData,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()>;
-
-    fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef>;
-
-    fn into_arrow_with_data_type(
-        &self,
-        array: ArrayData,
-        data_type: &DataType,
-    ) -> VortexResult<ArrayRef> {
-        let arrow_array = self.into_arrow(array)?;
-        if arrow_array.data_type() != data_type {
-            Ok(cast(&arrow_array, data_type)?)
-        } else {
-            Ok(arrow_array)
-        }
-    }
 }
 
 /// Implement the [IntoCanonicalVTable] for all encodings with arrays implementing [IntoCanonical].
@@ -470,18 +439,6 @@ where
         // FIXME(ngates): stats?
         // canonical.inherit_statistics(data.statistics());
         Ok(())
-    }
-
-    fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef> {
-        E::Array::try_from(array)?.into_arrow()
-    }
-
-    fn into_arrow_with_data_type(
-        &self,
-        array: ArrayData,
-        data_type: &DataType,
-    ) -> VortexResult<ArrayRef> {
-        E::Array::try_from(array)?.into_arrow_with_data_type(data_type)
     }
 }
 
@@ -555,6 +512,21 @@ impl ArrayData {
     pub fn into_extension(self) -> VortexResult<ExtensionArray> {
         self.into_canonical()?.into_extension()
     }
+
+    pub fn into_arrow(self) -> VortexResult<ArrayRef>
+    where
+        Self: Sized,
+    {
+        // TODO(ngates): match on VarBin?
+        self.into_canonical()?.into_arrow()
+    }
+
+    pub fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef>
+    where
+        Self: Sized,
+    {
+        self.into_canonical()?.into_arrow_with_data_type(data_type)
+    }
 }
 
 /// IntoCanonical implementation for Array.
@@ -564,17 +536,6 @@ impl ArrayData {
 impl IntoCanonical for ArrayData {
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.encoding().into_canonical_builder(self, builder)
-    }
-
-    fn into_arrow(self) -> VortexResult<ArrayRef>
-    where
-        Self: Sized,
-    {
-        self.encoding().into_arrow(self)
-    }
-
-    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
-        self.encoding().into_arrow_with_data_type(self, data_type)
     }
 }
 
@@ -642,7 +603,7 @@ mod test {
 
     use crate::array::{SparseArray, StructArray};
     use crate::arrow::{infer_data_type, FromArrowArray};
-    use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+    use crate::{ArrayDType, ArrayData, IntoArrayData};
 
     #[test]
     fn test_canonicalize_nested_struct() {
@@ -674,6 +635,7 @@ mod test {
 
         let data_type = infer_data_type(nested_struct_array.dtype()).unwrap();
         let arrow_struct = nested_struct_array
+            .into_array()
             .into_arrow_with_data_type(&data_type)
             .unwrap()
             .as_any()

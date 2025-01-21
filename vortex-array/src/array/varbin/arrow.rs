@@ -11,6 +11,7 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ToArrayData};
 
 /// Convert the array to Arrow variable length binary array type.
+#[allow(dead_code)]
 pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayRef> {
     let offsets = varbin_array
         .offsets()

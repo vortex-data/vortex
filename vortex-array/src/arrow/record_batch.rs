@@ -6,7 +6,7 @@ use vortex_error::{vortex_err, VortexError, VortexResult};
 use crate::array::StructArray;
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData, IntoCanonical};
+use crate::{ArrayData, IntoArrayData};
 
 impl TryFrom<RecordBatch> for ArrayData {
     type Error = VortexError;
