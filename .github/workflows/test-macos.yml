@@ -11,12 +11,12 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/cleanup
-            - uses: ./.github/actions/setup-rust
-              with:
-                target: aarch64-apple-darwin
-            - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
-              with:
-                sync: false # Don't need to build the project
+            # - uses: ./.github/actions/setup-rust
+            #   with:
+            #     target: aarch64-apple-darwin
+            # - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+            #   with:
+            #     sync: false # Don't need to build the project
             - name: rust-toolchain
               shell: bash
               run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
@@ -30,6 +30,7 @@ jobs:
                 working-directory: pyvortex
                 target: aarch64
                 args: --release --interpreter python3.10
+                rustup-components: "cargo, rustc, rust-std"
               env:
                 MATURIN_PEP517_USE_BASE_PYTHON: "true"
                 # Keep this constant to avoid pyo3 invalidating itself
