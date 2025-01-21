@@ -21,6 +21,7 @@ impl ExprEvaluator for FlatReader {
         row_mask: RowMask,
         expr: ExprRef,
     ) -> VortexResult<ArrayData> {
+        println!("evaluate_expr {expr:?}");
         assert!(row_mask.true_count() > 0);
 
         // Fetch all the array buffers.
