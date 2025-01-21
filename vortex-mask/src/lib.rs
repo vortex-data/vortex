@@ -6,6 +6,7 @@ use std::cmp::Ordering;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use itertools::Itertools;
 use vortex_error::vortex_panic;
 
 /// If the mask selects more than this fraction of rows, iterate over slices instead of indices.
@@ -31,7 +32,7 @@ struct Inner {
     // Pre-computed values.
     len: usize,
     true_count: usize,
-    selectivity: f64,
+    selectivity: f64, // i.e., fraction of values that are true
 }
 
 impl Inner {
@@ -51,6 +52,7 @@ impl Inner {
                 // TODO(ngates): for dense indices, we can do better by collecting into u64s.
                 buf.append_n(self.len, false);
                 indices.iter().for_each(|idx| buf.set_bit(*idx, true));
+                debug_assert_eq!(buf.len(), self.len);
                 return BooleanBuffer::from(buf);
             }
 
@@ -85,12 +87,16 @@ impl Inner {
             if let Some(buffer) = self.buffer.get() {
                 let mut indices = Vec::with_capacity(self.true_count);
                 indices.extend(buffer.set_indices());
+                debug_assert!(indices.is_sorted());
+                assert_eq!(indices.len(), self.true_count);
                 return indices;
             }
 
             if let Some(slices) = self.slices.get() {
                 let mut indices = Vec::with_capacity(self.true_count);
                 indices.extend(slices.iter().flat_map(|(start, end)| *start..*end));
+                debug_assert!(indices.is_sorted());
+                assert_eq!(indices.len(), self.true_count);
                 return indices;
             }
 
@@ -99,6 +105,7 @@ impl Inner {
     }
 
     /// Constructs a slices vector from one of the other representations.
+    #[allow(clippy::cast_possible_truncation)]
     fn slices(&self) -> &[(usize, usize)] {
         self.slices.get_or_init(|| {
             if self.true_count == self.len {
@@ -110,7 +117,10 @@ impl Inner {
             }
 
             if let Some(indices) = self.indices.get() {
-                let mut slices = Vec::with_capacity(self.true_count); // Upper bound
+                // Expected number of contiguous slices assuming a uniform distribution of true values.
+                let expected_num_slices =
+                    (self.selectivity * (self.len - self.true_count + 1) as f64).round() as usize;
+                let mut slices = Vec::with_capacity(expected_num_slices);
                 let mut iter = indices.iter().copied();
 
                 // Handle empty input
@@ -200,7 +210,11 @@ impl Mask {
     /// Create a new [`Mask`] from a [`Vec<usize>`].
     pub fn from_indices(len: usize, vec: Vec<usize>) -> Self {
         let true_count = vec.len();
-        assert!(vec.iter().all(|&idx| idx < len));
+        assert!(vec.is_sorted(), "Mask indices must be sorted");
+        assert!(
+            vec.last().is_none_or(|&idx| idx < len),
+            "Mask indices must be in bounds (len={len})"
+        );
         Self(Arc::new(Inner {
             buffer: Default::default(),
             indices: OnceLock::from(vec),
@@ -214,7 +228,14 @@ impl Mask {
     /// Create a new [`Mask`] from a [`Vec<(usize, usize)>`] where each range
     /// represents a contiguous range of true values.
     pub fn from_slices(len: usize, vec: Vec<(usize, usize)>) -> Self {
-        assert!(vec.iter().all(|&(b, e)| b < e && e <= len));
+        Self::check_slices(len, &vec);
+        Self::from_slices_unchecked(len, vec)
+    }
+
+    fn from_slices_unchecked(len: usize, vec: Vec<(usize, usize)>) -> Self {
+        #[cfg(debug_assertions)]
+        Self::check_slices(len, &vec);
+
         let true_count = vec.iter().map(|(b, e)| e - b).sum();
         Self(Arc::new(Inner {
             buffer: Default::default(),
@@ -224,6 +245,25 @@ impl Mask {
             true_count,
             selectivity: true_count as f64 / len as f64,
         }))
+    }
+
+    #[inline(always)]
+    fn check_slices(len: usize, vec: &[(usize, usize)]) {
+        assert!(vec.iter().all(|&(b, e)| b < e && e <= len));
+        for (first, second) in vec.iter().tuple_windows() {
+            assert!(
+                first.0 < second.0,
+                "Slices must be sorted, got {:?} and {:?}",
+                first,
+                second
+            );
+            assert!(
+                first.1 <= second.0,
+                "Slices must be non-overlapping, got {:?} and {:?}",
+                first,
+                second
+            );
+        }
     }
 
     /// Create a new [`Mask`] from the intersection of two indices slices.
@@ -254,7 +294,7 @@ impl Mask {
     }
 
     #[inline]
-    // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
+    // There is no good definition of is_empty, does it mean len == 0 or true_count == 0?
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len
@@ -328,7 +368,8 @@ impl Mask {
             let indices = indices
                 .iter()
                 .copied()
-                .filter(|&idx| offset <= idx && idx < end)
+                .skip_while(|idx| *idx < offset)
+                .take_while(|idx| *idx < end)
                 .map(|idx| idx - offset)
                 .collect();
             return Self::from_indices(length, indices);
@@ -338,10 +379,11 @@ impl Mask {
             let slices = slices
                 .iter()
                 .copied()
-                .filter(|(s, e)| *s < end && *e > offset)
+                .skip_while(|(_, e)| *e <= offset)
+                .take_while(|(s, _)| *s < end)
                 .map(|(s, e)| (s.max(offset), e.min(end)))
                 .collect();
-            return Self::from_slices(length, slices);
+            return Self::from_slices_unchecked(length, slices);
         }
 
         vortex_panic!("No mask representation found")

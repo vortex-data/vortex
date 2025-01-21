@@ -1,10 +1,24 @@
 use crate::Mask;
 
 impl Mask {
-    /// take the intersection of the `mask` with the set of true values in `self`.
+    /// Take the intersection of the `mask` with the set of true values in `self`.
     ///
     /// We are more interested in low selectivity `self` (as indices) with a boolean buffer mask,
     /// so we don't optimize for other cases, yet.
+    ///
+    /// # Examples
+    ///
+    /// Keep the third and fifth set values from mask `m1`:
+    /// ```
+    /// use vortex_mask::Mask;
+    ///
+    /// let m1 = Mask::from_iter([true, false, false, true, true, true, false, true]);
+    /// let m2 = Mask::from_iter([false, false, true, false, true]);
+    /// assert_eq!(
+    ///     m1.intersect_by_rank(&m2),
+    ///     Mask::from_iter([false, false, false, false, true, false, false, true])
+    /// );
+    /// ```
     pub fn intersect_by_rank(&self, mask: &Mask) -> Mask {
         assert_eq!(self.true_count(), mask.len());
 

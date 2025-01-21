@@ -5217,6 +5217,7 @@ name = "vortex-mask"
 version = "0.22.1"
 dependencies = [
  "arrow-buffer",
+ "itertools 0.14.0",
  "vortex-error",
 ]
 
