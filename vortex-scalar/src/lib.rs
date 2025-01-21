@@ -115,7 +115,7 @@ impl Scalar {
             if target.is_nullable() {
                 return Ok(Scalar::new(target.clone(), self.value.clone()));
             } else {
-                vortex_bail!("Can't cast null scalar to non-nullable type")
+                vortex_bail!("Can't cast null scalar to non-nullable type {}", target)
             }
         }
 
