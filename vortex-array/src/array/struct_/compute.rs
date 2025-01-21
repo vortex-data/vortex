@@ -259,7 +259,7 @@ mod tests {
             &DType::Struct(
                 StructDType::new(
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
-                    vec![tu8.clone(), tu8.clone(), tu8.clone()],
+                    vec![tu8.clone(), tu8.clone(), tu8],
                 ),
                 Nullability::NonNullable,
             ),
