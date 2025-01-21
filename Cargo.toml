@@ -27,7 +27,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.21.1"
+version = "0.22.0"
 homepage = "https://github.com/spiraldb/vortex"
 repository = "https://github.com/spiraldb/vortex"
 authors = ["Vortex Authors <hello@vortex.dev>"]
@@ -135,31 +135,31 @@ uuid = "1.8.0"
 wasm-bindgen-futures = "0.4"
 
 # BEGIN crates published by this project
-vortex = { version = "0.21.1", path = "./vortex" }
-vortex-alp = { version = "0.21.1", path = "./encodings/alp" }
-vortex-array = { version = "0.21.1", path = "./vortex-array" }
-vortex-buffer = { version = "0.21.1", path = "./vortex-buffer" }
-vortex-bytebool = { version = "0.21.1", path = "./encodings/bytebool" }
-vortex-datafusion = { version = "0.21.1", path = "./vortex-datafusion" }
-vortex-datetime-dtype = { version = "0.21.1", path = "./vortex-datetime-dtype" }
-vortex-datetime-parts = { version = "0.21.1", path = "./encodings/datetime-parts" }
-vortex-dict = { version = "0.21.1", path = "./encodings/dict" }
-vortex-dtype = { version = "0.21.1", path = "./vortex-dtype", default-features = false }
-vortex-error = { version = "0.21.1", path = "./vortex-error" }
-vortex-expr = { version = "0.21.1", path = "./vortex-expr" }
-vortex-fastlanes = { version = "0.21.1", path = "./encodings/fastlanes" }
-vortex-file = { version = "0.21.1", path = "./vortex-file", default-features = false }
-vortex-flatbuffers = { version = "0.21.1", path = "./vortex-flatbuffers" }
-vortex-fsst = { version = "0.21.1", path = "./encodings/fsst" }
-vortex-io = { version = "0.21.1", path = "./vortex-io" }
-vortex-ipc = { version = "0.21.1", path = "./vortex-ipc" }
-vortex-layout = { version = "0.21.1", path = "./vortex-layout" }
-vortex-proto = { version = "0.21.1", path = "./vortex-proto" }
-vortex-runend = { version = "0.21.1", path = "./encodings/runend" }
-vortex-scalar = { version = "0.21.1", path = "./vortex-scalar", default-features = false }
-vortex-scan = { version = "0.21.1", path = "./vortex-scan", default-features = false }
-vortex-sampling-compressor = { version = "0.21.1", path = "./vortex-sampling-compressor" }
-vortex-zigzag = { version = "0.21.1", path = "./encodings/zigzag" }
+vortex = { version = "0.22.0", path = "./vortex" }
+vortex-alp = { version = "0.22.0", path = "./encodings/alp" }
+vortex-array = { version = "0.22.0", path = "./vortex-array" }
+vortex-buffer = { version = "0.22.0", path = "./vortex-buffer" }
+vortex-bytebool = { version = "0.22.0", path = "./encodings/bytebool" }
+vortex-datafusion = { version = "0.22.0", path = "./vortex-datafusion" }
+vortex-datetime-dtype = { version = "0.22.0", path = "./vortex-datetime-dtype" }
+vortex-datetime-parts = { version = "0.22.0", path = "./encodings/datetime-parts" }
+vortex-dict = { version = "0.22.0", path = "./encodings/dict" }
+vortex-dtype = { version = "0.22.0", path = "./vortex-dtype", default-features = false }
+vortex-error = { version = "0.22.0", path = "./vortex-error" }
+vortex-expr = { version = "0.22.0", path = "./vortex-expr" }
+vortex-fastlanes = { version = "0.22.0", path = "./encodings/fastlanes" }
+vortex-file = { version = "0.22.0", path = "./vortex-file", default-features = false }
+vortex-flatbuffers = { version = "0.22.0", path = "./vortex-flatbuffers" }
+vortex-fsst = { version = "0.22.0", path = "./encodings/fsst" }
+vortex-io = { version = "0.22.0", path = "./vortex-io" }
+vortex-ipc = { version = "0.22.0", path = "./vortex-ipc" }
+vortex-layout = { version = "0.22.0", path = "./vortex-layout" }
+vortex-proto = { version = "0.22.0", path = "./vortex-proto" }
+vortex-runend = { version = "0.22.0", path = "./encodings/runend" }
+vortex-scalar = { version = "0.22.0", path = "./vortex-scalar", default-features = false }
+vortex-scan = { version = "0.22.0", path = "./vortex-scan", default-features = false }
+vortex-sampling-compressor = { version = "0.22.0", path = "./vortex-sampling-compressor" }
+vortex-zigzag = { version = "0.22.0", path = "./encodings/zigzag" }
 # END crates published by this project
 
 worker = "0.5.0"
