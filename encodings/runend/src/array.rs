@@ -243,8 +243,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
             )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => Some(Scalar::from(array.true_count()?)),
-                DType::Primitive(..) => None,
-                dtype => vortex_bail!("invalid dtype: {}", dtype),
+                _ => None,
             },
             Stat::NullCount => Some(Scalar::from(array.null_count()?)),
             _ => None,
@@ -290,7 +289,6 @@ impl RunEndArray {
                         let mut true_count: u64 = 0;
                         match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
                             let ends = ends.as_slice::<$P>();
-                            println!("{} {} {} {:?}", offsetted_len, true_count, valid_index, ends);
                             let begin = if valid_index == 0 {
                                 0
                             } else {
@@ -301,7 +299,6 @@ impl RunEndArray {
                             true_count += bools.value(valid_index as usize) as u64 * (end - begin as u64);
 
                             for valid_index in is_valid {
-                                println!("{} {} {}", offsetted_len, true_count, valid_index);
                                 let end = cmp::min(ends[valid_index] as u64, offsetted_len);
                                 true_count += bools.value(valid_index as usize) as u64 * (end - ends[valid_index - 1] as u64);
                             }
