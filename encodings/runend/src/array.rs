@@ -250,8 +250,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
         let mut stats = StatsSet::default();
         if let Some(value) = maybe_stat {
             stats.set(stat, value)
-        };
-
+        }
         Ok(stats)
     }
 }
