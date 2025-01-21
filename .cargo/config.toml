@@ -2,15 +2,21 @@
 # See https://stackoverflow.com/a/77382609
 [target.aarch64-apple-darwin]
 rustflags = [
-    "-C", "link-arg=-undefined",
-    "-C", "link-arg=dynamic_lookup",
-    "-C", "target-cpu=native",
+    "-C",
+    "link-arg=-undefined",
+    "-C",
+    "link-arg=dynamic_lookup",
+    "-C",
+    # "target-cpu=native",
 ]
 [target.x86_64-apple-darwin]
 rustflags = [
-    "-C", "link-arg=-undefined",
-    "-C", "link-arg=dynamic_lookup",
-    "-C", "target-cpu=native",
+    "-C",
+    "link-arg=-undefined",
+    "-C",
+    "link-arg=dynamic_lookup",
+    "-C",
+    # "target-cpu=native",
 ]
 
 [alias]
