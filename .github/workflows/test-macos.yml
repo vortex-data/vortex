@@ -20,6 +20,7 @@ jobs:
               shell: bash
               run: |
                 brew install cffi maturin
+                cd pyvortex/
                 maturin build --target aarch64-apple-darwin --release --interpreter python3.10
             # - name: Build wheels - aarch64
             #   uses: PyO3/maturin-action@v1
