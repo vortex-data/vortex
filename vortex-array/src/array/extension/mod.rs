@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::builders::{ArrayBuilder, ExtensionBuilder};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
@@ -83,9 +83,7 @@ impl IntoCanonical for ExtensionArray {
     }
 
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        let builder = builder
-            .as_any()
-            .downcast_mut_unchecked::<ExtensionBuilder>();
+        let builder = builder.as_extension_mut();
         self.storage()
             .into_canonical_builder(builder.storage_builder_mut())
     }

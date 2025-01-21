@@ -1,15 +1,13 @@
-mod binary;
 mod bool;
 mod extension;
 mod list;
 mod null;
 mod primitive;
 mod struct_;
-mod utf8;
+mod view;
 
 use std::any::Any;
 
-pub use binary::*;
 pub use bool::*;
 pub use extension::*;
 pub use list::*;
@@ -17,7 +15,7 @@ pub use null::*;
 use num_traits::PrimInt;
 pub use primitive::*;
 pub use struct_::*;
-pub use utf8::*;
+pub use view::*;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{
@@ -199,3 +197,33 @@ pub trait ArrayBuilderExt: ArrayBuilder {
 }
 
 impl<T: ?Sized + ArrayBuilder> ArrayBuilderExt for T {}
+
+impl ArrayBuilder for Box<dyn ArrayBuilder> {
+    fn as_any(&self) -> &dyn Any {
+        self.as_ref().as_any()
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self.as_mut().as_any_mut()
+    }
+
+    fn dtype(&self) -> &DType {
+        self.as_ref().dtype()
+    }
+
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.as_mut().append_zeros(n)
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.as_mut().append_nulls(n)
+    }
+
+    fn finish(&mut self) -> VortexResult<ArrayData> {
+        self.as_mut().finish()
+    }
+}

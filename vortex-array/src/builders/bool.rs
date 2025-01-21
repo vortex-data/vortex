@@ -46,7 +46,8 @@ impl BoolBuilder {
 
     pub fn append_buffer(&mut self, buffer: &BooleanBuffer) {
         // TODO(ngates): copy the bytes if possible? e.g. bit-offset == 0
-        self.inner.extend(buffer);
+        // FIXME(ngates): validity
+        self.inner.extend(buffer.iter().map(Some));
     }
 }
 

@@ -12,6 +12,7 @@ use crate::{ArrayData, IntoArrayData};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
+    // TODO(ngates): use NullBufferBuilder
     validity: BoolBuilder,
     struct_dtype: StructDType,
     nullability: Nullability,
@@ -38,7 +39,7 @@ impl StructBuilder {
         }
     }
 
-    pub fn field_builders(&mut self) -> impl Iterator<Item = &mut dyn ArrayBuilder> {
+    pub fn field_builders(&mut self) -> impl Iterator<Item = &mut Box<dyn ArrayBuilder>> {
         self.builders.iter_mut()
     }
 
@@ -51,14 +52,10 @@ impl StructBuilder {
             )
         }
 
-        if let Some(fields) = struct_scalar.fields() {
-            for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
-                builder.append_scalar(&field)?;
-            }
-            self.validity.append_value(true);
-        } else {
-            self.append_null()
+        for (builder, field) in self.builders.iter_mut().zip_eq(struct_scalar.fields()) {
+            builder.append_scalar(&field)?;
         }
+        self.validity.append_value(true);
 
         Ok(())
     }

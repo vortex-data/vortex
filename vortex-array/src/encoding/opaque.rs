@@ -5,6 +5,7 @@ use std::sync::Arc;
 use arrow_array::ArrayRef;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
+use crate::builders::ArrayBuilder;
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
 use crate::stats::StatisticsVTable;
@@ -13,8 +14,7 @@ use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    ArrayData, ArrayMetadata, Canonical, IntoCanonicalVTable, MetadataVTable,
-    TrySerializeArrayMetadata,
+    ArrayData, ArrayMetadata, IntoCanonicalVTable, MetadataVTable, TrySerializeArrayMetadata,
 };
 
 /// An encoding of an array that we cannot interpret.
@@ -43,7 +43,11 @@ impl EncodingVTable for OpaqueEncoding {
 }
 
 impl IntoCanonicalVTable for OpaqueEncoding {
-    fn into_canonical(&self, _array: ArrayData) -> VortexResult<Canonical> {
+    fn into_canonical(
+        &self,
+        _array: ArrayData,
+        _builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
             self.0

@@ -8,10 +8,7 @@ use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
-use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, BinaryBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder,
-    StructBuilder, Utf8Builder,
-};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
@@ -69,12 +66,9 @@ impl IntoCanonical for ConstantArray {
 
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         match self.dtype() {
-            DType::Null => builder
-                .as_any()
-                .downcast_mut_unchecked::<NullBuilder>()
-                .append_nulls(self.len()),
+            DType::Null => builder.as_null_mut().append_nulls(self.len()),
             DType::Bool(_) => {
-                let builder = builder.as_any().downcast_mut_unchecked::<BoolBuilder>();
+                let builder = builder.as_bool_mut();
                 match self.scalar().as_bool().value() {
                     None => builder.append_nulls(self.len()),
                     Some(b) => builder.append_values(b, self.len()),
@@ -82,9 +76,7 @@ impl IntoCanonical for ConstantArray {
             }
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(ptype, |$P| {
-                    let builder = builder
-                        .as_any()
-                        .downcast_mut_unchecked::<PrimitiveBuilder<$P>>();
+                    let builder = builder.as_primitive_mut::<$P>();
                     match self.scalar().as_primitive().typed_value::<$P>() {
                         None => builder.append_nulls(self.len()),
                         Some(v) => builder.append_values(v, self.len()),
@@ -92,24 +84,24 @@ impl IntoCanonical for ConstantArray {
                 })
             }
             DType::Utf8(_) => {
-                let builder = builder.as_any().downcast_mut_unchecked::<Utf8Builder>();
+                let builder = builder.as_utf8_mut();
                 match self.scalar().as_utf8().value() {
                     None => builder.append_nulls(self.len()),
                     Some(v) => builder.append_values(v, self.len()),
                 }
             }
             DType::Binary(_) => {
-                let builder = builder.as_any().downcast_mut_unchecked::<BinaryBuilder>();
+                let builder = builder.as_binary_mut();
                 match self.scalar().as_binary().value() {
                     None => builder.append_nulls(self.len()),
                     Some(v) => builder.append_values(v, self.len()),
                 }
             }
             DType::Struct(..) => {
-                let builder = builder.as_any().downcast_mut_unchecked::<StructBuilder>();
+                let builder = builder.as_struct_mut();
                 let s = self.scalar().as_struct();
                 for (field_builder, field) in builder.field_builders().zip(s.fields()) {
-                    field_builder.append_scalar(field)?;
+                    field_builder.append_scalar(&field)?;
                 }
             }
             DType::List(..) => {

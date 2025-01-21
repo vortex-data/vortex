@@ -8,7 +8,7 @@ use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::builders::{ArrayBuilder, ArrayBuilderExt};
+use crate::builders::ArrayBuilder;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -321,7 +321,7 @@ impl IntoCanonical for PrimitiveArray {
         Ok(Canonical::Primitive(self))
     }
 
-    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn into_canonical_builder(self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         todo!()
     }
 }

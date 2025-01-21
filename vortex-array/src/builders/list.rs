@@ -49,10 +49,7 @@ where
     }
 
     pub fn elements_mut(&mut self) -> &mut dyn ArrayBuilder {
-        self.value_builder
-            .as_any_mut()
-            .downcast_mut()
-            .vortex_expect("Invalid list elements")
+        &mut self.value_builder
     }
 
     pub fn offsets_mut(&mut self) -> &mut PrimitiveBuilder<O> {

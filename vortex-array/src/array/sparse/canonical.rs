@@ -32,7 +32,7 @@ impl IntoCanonical for SparseArray {
         }
     }
 
-    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn into_canonical_builder(self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         // Ideally we can set_len, and then update individual values?
         todo!()
     }

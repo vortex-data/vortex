@@ -16,6 +16,7 @@ use vortex_error::{
 };
 
 use crate::arrow::FromArrowArray;
+use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
@@ -444,6 +445,46 @@ impl IntoCanonical for VarBinViewArray {
         Ok(Canonical::VarBinView(VarBinViewArray::try_from(
             vortex_array,
         )?))
+    }
+
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        match self.dtype() {
+            DType::Utf8(_) => {
+                let builder = builder.as_utf8_mut();
+                // So we can push completed buffers into the VarBinView array.
+                // And then append our pre-made views into the builder.
+                self.buffers()
+                    .map(|b| builder.append_buffer(b))
+                    .collect_vec();
+                assert_eq!(
+                    builder.current_buffer_idx(),
+                    0,
+                    "TODO(ngates): support appending to builder by rewriting views"
+                );
+                self.views()
+                    .iter()
+                    .for_each(|v| unsafe { builder.push_view_unchecked(v.clone()) });
+                Ok(())
+            }
+            DType::Binary(_) => {
+                let builder = builder.as_binary_mut();
+                // So we can push completed buffers into the VarBinView array.
+                // And then append our pre-made views into the builder.
+                self.buffers()
+                    .map(|b| builder.append_buffer(b))
+                    .collect_vec();
+                assert_eq!(
+                    builder.current_buffer_idx(),
+                    0,
+                    "TODO(ngates): support appending to builder by rewriting views"
+                );
+                self.views()
+                    .iter()
+                    .for_each(|v| unsafe { builder.push_view_unchecked(v.clone()) });
+                Ok(())
+            }
+            _ => vortex_panic!("expected utf8 or binary, got {}", self.dtype()),
+        }
     }
 }
 

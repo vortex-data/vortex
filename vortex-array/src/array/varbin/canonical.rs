@@ -25,7 +25,7 @@ impl IntoCanonical for VarBinArray {
     }
 
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        let builder = builder.as_binary_mut();
+        let _builder = builder.as_binary_mut();
         todo!()
     }
 

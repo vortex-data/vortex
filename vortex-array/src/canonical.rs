@@ -459,12 +459,13 @@ where
     E::Array: IntoCanonical,
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
-    fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
+    fn into_canonical(&self, data: ArrayData, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         #[cfg(feature = "canonical_counter")]
         data.inc_canonical_counter();
-        let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
-        canonical.inherit_statistics(data.statistics());
-        Ok(canonical)
+        E::Array::try_from(data.clone())?.into_canonical_builder(builder)?;
+        // FIXME(ngates): stats?
+        // canonical.inherit_statistics(data.statistics());
+        Ok(())
     }
 
     fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef> {
