@@ -2,6 +2,7 @@
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+
 use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
 use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
