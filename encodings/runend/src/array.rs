@@ -248,8 +248,8 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
         };
 
         let mut stats = StatsSet::default();
-        if let Some(value) = maybe_stat {
-            stats.set(stat, value)
+        if let Some(stat_value) = maybe_stat {
+            stats.set(stat, stat_value);
         }
         Ok(stats)
     }
@@ -283,22 +283,23 @@ impl RunEndArray {
                 match is_valid.next() {
                     None => self.len() as u64,
                     Some(valid_index) => {
-                        let offsetted_len = (self.len() + self.offset()) as u64;
                         let mut true_count: u64 = 0;
                         match_each_unsigned_integer_ptype!(ends.ptype(), |$P| {
+                            let offsetted_begin = <$P>::try_from(self.offset())?;
+                            let offsetted_len = <$P>::try_from(self.len() + self.offset())?;
                             let ends = ends.as_slice::<$P>();
                             let begin = if valid_index == 0 {
-                                0
+                                offsetted_begin
                             } else {
                                 ends[valid_index - 1]
                             };
 
-                            let end = cmp::min(ends[valid_index] as u64, offsetted_len);
-                            true_count += bools.value(valid_index as usize) as u64 * (end - begin as u64);
+                            let end = cmp::min(ends[valid_index], offsetted_len);
+                            true_count += bools.value(valid_index as usize) as u64 * (end - begin) as u64;
 
                             for valid_index in is_valid {
-                                let end = cmp::min(ends[valid_index] as u64, offsetted_len);
-                                true_count += bools.value(valid_index as usize) as u64 * (end - ends[valid_index - 1] as u64);
+                                let end = cmp::min(ends[valid_index], offsetted_len);
+                                true_count += bools.value(valid_index as usize) as u64 * (end - ends[valid_index - 1]) as u64;
                             }
 
                             true_count
