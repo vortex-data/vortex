@@ -6,6 +6,7 @@ use rand::{Rng, SeedableRng as _};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{mask, FilterMask};
 use vortex_array::IntoArrayData as _;
+use vortex_buffer::buffer;
 use vortex_dict::DictArray;
 
 fn filter_mask(len: usize, fraction_masked: f64, rng: &mut StdRng) -> FilterMask {
