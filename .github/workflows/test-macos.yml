@@ -22,7 +22,7 @@ jobs:
               run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
             - name: Disable SCCACHE Config  # Doesn't work with cross-compilation
               shell: bash
-              run: echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+              run: unset RUSTC_WRAPPER
             - name: Build wheels - aarch64
               uses: PyO3/maturin-action@v1
               with:
