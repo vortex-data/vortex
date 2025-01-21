@@ -114,7 +114,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 };
                 VortexResult::Ok(Partition {
                     name,
-                    expr: simplify_typed(expr, field_dtype)?,
+                    expr: simplify_typed(expr, &field_dtype)?,
                 })
             })
             .try_collect()?;
@@ -131,7 +131,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             .transform(&mut ReplaceAccessesWithChild(remove_accesses))?;
 
         Ok(PartitionedExpr {
-            root: simplify_typed(split.result, dtype.clone())?,
+            root: simplify_typed(split.result, dtype)?,
             partitions: partitions.into_boxed_slice(),
         })
     }
@@ -376,7 +376,7 @@ mod tests {
             get_item("b", get_item("a", ident())),
             select(vec!["a".into(), "b".into()], ident()),
         );
-        let expr = simplify_typed(expr, dtype.clone()).unwrap();
+        let expr = simplify_typed(expr, &dtype).unwrap();
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b

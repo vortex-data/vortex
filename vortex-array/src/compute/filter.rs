@@ -5,15 +5,13 @@ use std::sync::{Arc, OnceLock};
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
-};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 
 use crate::array::ConstantArray;
 use crate::arrow::FromArrowArray;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::stats::ArrayStatistics;
+use crate::stats::{ArrayStatistics, Stat};
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical};
 
 /// If the filter selects more than this fraction of rows, iterate over slices instead of indices.
@@ -567,16 +565,14 @@ impl TryFrom<ArrayData> for FilterMask {
             );
         }
 
-        let true_count = array
-            .statistics()
-            .compute_true_count()
-            .ok_or_else(|| vortex_err!("Failed to compute true count for boolean array"))?;
-
-        if true_count == 0 {
-            return Ok(Self::new_false(array.len()));
-        }
-        if true_count == array.len() {
-            return Ok(Self::new_true(array.len()));
+        if let Some(true_count) = array.statistics().get_as_cast::<u64>(Stat::TrueCount) {
+            let len = array.len();
+            if true_count == 0 {
+                return Ok(Self::new_false(len));
+            }
+            if true_count == len as u64 {
+                return Ok(Self::new_true(len));
+            }
         }
 
         // TODO(ngates): should we have a `to_filter_mask` compute function where encodings

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use futures::channel::oneshot;
 use futures::Stream;
-use futures_util::future::try_join_all;
-use futures_util::{stream, StreamExt};
+use futures_util::stream::FuturesUnordered;
+use futures_util::{stream, StreamExt, TryStreamExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -213,7 +213,9 @@ async fn evaluate<R: VortexReadAt>(
     }
 
     // Populate the cache
-    try_join_all(cache_futures).await?;
+    FuturesUnordered::from_iter(cache_futures)
+        .try_collect::<()>()
+        .await?;
 
     Ok(())
 }

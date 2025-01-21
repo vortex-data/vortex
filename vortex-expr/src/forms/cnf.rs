@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use super::nnf::nnf;
 use crate::traversal::{Node as _, NodeVisitor, TraversalOrder};
-use crate::{BinaryExpr, ExprRef, Operator};
+use crate::{lit, BinaryExpr, ExprRef, Operator};
 
 /// Return an equivalent expression in Conjunctive Normal Form (CNF).
 ///
@@ -143,6 +143,10 @@ use crate::{BinaryExpr, ExprRef, Operator};
 /// ```
 ///
 pub fn cnf(expr: ExprRef) -> VortexResult<Vec<Vec<ExprRef>>> {
+    if expr == lit(true) {
+        // True in CNF
+        return Ok(vec![]);
+    }
     let nnf = nnf(expr)?;
 
     let mut visitor = CNFVisitor::default();
