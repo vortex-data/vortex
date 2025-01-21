@@ -15,7 +15,7 @@ jobs:
             - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
             - name: rust-toolchain
               shell: bash
-              run: echo "RUST_VERSION=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+              run: echo "RUST_VERSION=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_ENV
             - name: Build
               shell: bash
               run: |
