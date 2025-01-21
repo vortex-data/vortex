@@ -6,7 +6,7 @@ rustflags = [
     "link-arg=-undefined",
     "-C",
     "link-arg=dynamic_lookup",
-    "-C",
+    # "-C",
     # "target-cpu=native",
 ]
 [target.x86_64-apple-darwin]
@@ -15,7 +15,7 @@ rustflags = [
     "link-arg=-undefined",
     "-C",
     "link-arg=dynamic_lookup",
-    "-C",
+    # "-C",
     # "target-cpu=native",
 ]
 
