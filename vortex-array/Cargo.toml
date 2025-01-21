@@ -73,7 +73,6 @@ criterion = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
 
-
 [[bench]]
 name = "search_sorted"
 harness = false
