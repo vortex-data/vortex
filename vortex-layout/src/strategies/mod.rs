@@ -6,9 +6,9 @@
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
-mod struct_of_chunks;
+mod strategy;
 
-pub use struct_of_chunks::*;
+pub use strategy::*;
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
