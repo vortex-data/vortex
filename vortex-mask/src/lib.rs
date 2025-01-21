@@ -32,7 +32,8 @@ struct Inner {
     // Pre-computed values.
     len: usize,
     true_count: usize,
-    selectivity: f64, // i.e., fraction of values that are true
+    // i.e., the fraction of values that are true
+    selectivity: f64,
 }
 
 impl Inner {
