@@ -16,17 +16,15 @@ jobs:
             - name: rust-toolchain
               shell: bash
               run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
-            # - name: Build wheels - x86_64
+            - name: Build
+              shell: bash
+              run: |
+                brew install cffi maturin
+                maturin build --target aarch64-apple-darwin --release --interpreter python3.10
+            # - name: Build wheels - aarch64
             #   uses: PyO3/maturin-action@v1
             #   with:
             #     rust-toolchain: ${{ steps.rust-toolchain.version }}
             #     working-directory: pyvortex
-            #     target: x86_64
-            #     args: --release --interpreter python3.10 --sdist
-            - name: Build wheels - aarch64
-              uses: PyO3/maturin-action@v1
-              with:
-                rust-toolchain: ${{ steps.rust-toolchain.version }}
-                working-directory: pyvortex
-                target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
-                args: --release --interpreter python3.10
+            #     target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
+            #     args: --release --interpreter python3.10
