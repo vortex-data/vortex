@@ -8,18 +8,18 @@ use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl CastFn<VarBinArray> for VarBinEncoding {
     fn cast(&self, array: &VarBinArray, dtype: &DType) -> VortexResult<ArrayData> {
-        match dtype {
-            DType::Utf8(nullability) => {
-                let validity = array.validity().with_nullability(*nullability)?;
-                VarBinArray::try_new(
-                    array.offsets(),
-                    array.bytes(),
-                    array.dtype().with_nullability(*nullability),
-                    validity,
-                )
-                .map(IntoArrayData::into_array)
-            }
-            _ => vortex_bail!("cannot cast {} to {}", array.dtype(), dtype),
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         }
+
+        let new_nullability = dtype.nullability();
+        let validity = array.validity().with_nullability(new_nullability)?;
+        VarBinArray::try_new(
+            array.offsets(),
+            array.bytes(),
+            array.dtype().with_nullability(new_nullability),
+            validity,
+        )
+        .map(IntoArrayData::into_array)
     }
 }

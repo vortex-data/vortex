@@ -127,19 +127,19 @@ fn take_views_unchecked<I: AsPrimitive<usize>>(
 
 impl CastFn<VarBinViewArray> for VarBinViewEncoding {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayData> {
-        match dtype {
-            DType::Utf8(nullability) => {
-                let validity = array.validity().with_nullability(*nullability)?;
-                VarBinViewArray::try_new(
-                    array.views(),
-                    array.buffers().collect(),
-                    array.dtype().with_nullability(*nullability),
-                    validity,
-                )
-                .map(IntoArrayData::into_array)
-            }
-            _ => vortex_bail!("cannot cast {} to {}", array.dtype(), dtype),
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         }
+
+        let new_nullability = dtype.nullability();
+        let validity = array.validity().with_nullability(new_nullability)?;
+        VarBinViewArray::try_new(
+            array.views(),
+            array.buffers().collect(),
+            array.dtype().with_nullability(new_nullability),
+            validity,
+        )
+        .map(IntoArrayData::into_array)
     }
 }
 
