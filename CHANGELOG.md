@@ -7,6 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-mask` - [0.22.1](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.22.0...vortex-mask-v0.22.1) - 2025-01-21
+
+### Added
+- add vortex-mask crate (#2019)
+
+### Fixed
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-scan` - [0.22.1](https://github.com/spiraldb/vortex/compare/vortex-scan-v0.22.0...vortex-scan-v0.22.1) - 2025-01-21
+
+### Fixed
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- Split by layout chunks of fields used in query ([#2022](https://github.com/spiraldb/vortex/pull/2022))
+- Filter empty from scan batches ([#1996](https://github.com/spiraldb/vortex/pull/1996))
+- Some simplifications to pruning and exprs ([#1990](https://github.com/spiraldb/vortex/pull/1990))
+- Split conjunct into scanner and apply one by one ([#1963](https://github.com/spiraldb/vortex/pull/1963))
+- Added a ScanBuilder & dont evaluate a project with an empty `row_mask` in scan ([#1960](https://github.com/spiraldb/vortex/pull/1960))
+- Fix clickbench ([#1956](https://github.com/spiraldb/vortex/pull/1956))
+- FilterMask Optimizations ([#1950](https://github.com/spiraldb/vortex/pull/1950))
+- Add take implementation ([#1955](https://github.com/spiraldb/vortex/pull/1955))
+- assorted cleanups (#1953)
+- Cutover to Vortex Layouts ([#1899](https://github.com/spiraldb/vortex/pull/1899))
+- I/O Driver ([#1897](https://github.com/spiraldb/vortex/pull/1897))
+- Scaffolding for layout stats ([#1885](https://github.com/spiraldb/vortex/pull/1885))
+- Async Layouts ([#1866](https://github.com/spiraldb/vortex/pull/1866))
+- Fix vortex-dtype feature dependency ([#1853](https://github.com/spiraldb/vortex/pull/1853))
+- Vortex Layouts - scanner ([#1849](https://github.com/spiraldb/vortex/pull/1849))
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-layout` - [0.22.1](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.22.0...vortex-layout-v0.22.1) - 2025-01-21
+
+### Added
+- StructDType `from_iter` (#2003)
+- Unify `LazyDType` into `StructDType` (#1826)
+- new expression builders (#1829)
+
+### Fixed
+- don't eval expr on empty chunk mask (#1998)
+- comments (#1923)
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- Use FuturesUnordered when order of try_join_all is not relevant ([#2026](https://github.com/spiraldb/vortex/pull/2026))
+- Split by layout chunks of fields used in query ([#2022](https://github.com/spiraldb/vortex/pull/2022))
+- Avoid double validation of file layout flatbuffers ([#2014](https://github.com/spiraldb/vortex/pull/2014))
+- Nicer pack expr convenience function ([#2002](https://github.com/spiraldb/vortex/pull/2002))
+- Add a split by constant to the datafusion opener ([#1995](https://github.com/spiraldb/vortex/pull/1995))
+- Filter empty from scan batches ([#1996](https://github.com/spiraldb/vortex/pull/1996))
+- Cache pruning mask ([#1994](https://github.com/spiraldb/vortex/pull/1994))
+- Only persist certain stats when serializing arrays in FlatLayout ([#1984](https://github.com/spiraldb/vortex/pull/1984))
+- Use prune with get item, not column ([#1976](https://github.com/spiraldb/vortex/pull/1976))
+- Gourmet changes (#1972)
+- Vortex Layouts DataFusion Statistics ([#1967](https://github.com/spiraldb/vortex/pull/1967))
+- Fix clickbench ([#1956](https://github.com/spiraldb/vortex/pull/1956))
+- FilterMask Optimizations ([#1950](https://github.com/spiraldb/vortex/pull/1950))
+- Check partition count in expression partition logic ([#1944](https://github.com/spiraldb/vortex/pull/1944))
+- Only construct StructReader field_lookup when there's more than 80 fields (#1945)
+- Cache partitioned expressions in StructLayoutReader ([#1947](https://github.com/spiraldb/vortex/pull/1947))
+- Cutover to Vortex Layouts ([#1899](https://github.com/spiraldb/vortex/pull/1899))
+- nit in layouts/chunked/reader.rs (#1926)
+- Remove field from struct layout ([#1919](https://github.com/spiraldb/vortex/pull/1919))
+- Vortex Layouts - Some Cleanup ([#1917](https://github.com/spiraldb/vortex/pull/1917))
+- Remove Field from vortex-expr, replace with FieldName ([#1915](https://github.com/spiraldb/vortex/pull/1915))
+- Vortex Layouts - Drivers ([#1914](https://github.com/spiraldb/vortex/pull/1914))
+- Fix the ident splitting into expr partition ([#1913](https://github.com/spiraldb/vortex/pull/1913))
+- Struct layout eval with sub-expression slicing and push down ([#1893](https://github.com/spiraldb/vortex/pull/1893))
+- I/O Driver ([#1897](https://github.com/spiraldb/vortex/pull/1897))
+- Scaffolding for layout stats ([#1885](https://github.com/spiraldb/vortex/pull/1885))
+- Segment Alignment ([#1883](https://github.com/spiraldb/vortex/pull/1883))
+- Use flatbuffers::follow instead of init_from_table ([#1878](https://github.com/spiraldb/vortex/pull/1878))
+- Async Layouts ([#1866](https://github.com/spiraldb/vortex/pull/1866))
+- Const-alignment for flatbuffers ([#1868](https://github.com/spiraldb/vortex/pull/1868))
+- Add SplitBy to VortexOpenOptions ([#1858](https://github.com/spiraldb/vortex/pull/1858))
+- Vortex Layouts - scanner ([#1849](https://github.com/spiraldb/vortex/pull/1849))
+- Struct `field` renamed to `maybe_null_field` ([#1846](https://github.com/spiraldb/vortex/pull/1846))
+- Vortex Layouts File V2 ([#1830](https://github.com/spiraldb/vortex/pull/1830))
+- Arc layout scan ([#1825](https://github.com/spiraldb/vortex/pull/1825))
+- Vortex Layouts - chunk pruning ([#1824](https://github.com/spiraldb/vortex/pull/1824))
+- Vortex Layouts - Chunked ([#1819](https://github.com/spiraldb/vortex/pull/1819))
+- Vortex Layouts - Chunked ([#1814](https://github.com/spiraldb/vortex/pull/1814))
+- Initial Vortex Layouts ([#1805](https://github.com/spiraldb/vortex/pull/1805))
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-error` - [0.22.1](https://github.com/spiraldb/vortex/compare/vortex-error-v0.22.0...vortex-error-v0.22.1) - 2025-01-21
+
+### Other
+- update Cargo.toml dependencies
+
 ## `vortex-mask` - [0.22.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.21.1...vortex-mask-v0.22.0) - 2025-01-21
 
 ### Added
