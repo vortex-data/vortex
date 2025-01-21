@@ -114,10 +114,13 @@ impl RunEndArray {
                             } else {
                                 ends[valid_index - 1]
                             };
-                            null_count -= cmp::min(ends[valid_index] as u64, offsetted_len) - begin as u64;
+
+                            let end = cmp::min(ends[valid_index] as u64, offsetted_len);
+                            null_count -= end - begin as u64;
 
                             for valid_index in is_valid {
-                                null_count -= cmp::min(ends[valid_index] as u64, offsetted_len) - ends[valid_index - 1] as u64;
+                                let end = cmp::min(ends[valid_index] as u64, offsetted_len);
+                                null_count -= end - ends[valid_index - 1] as u64;
                             }
 
                             null_count
