@@ -1,12 +1,13 @@
-use itertools::Itertools;
+use std::iter;
+
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
-use crate::validity::ArrayValidity;
+use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::IntoArrayVariant;
+use crate::{ArrayLen, IntoArrayVariant};
 
 impl ArrayAccessor<[u8]> for VarBinArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
@@ -14,9 +15,8 @@ impl ArrayAccessor<[u8]> for VarBinArray {
         F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
     {
         let offsets = self.offsets().into_primitive()?;
-        let validity = self.logical_validity().to_null_buffer()?;
+        let validity = self.validity();
 
-        // TODO(ngates): what happens if bytes is much larger than sliced_bytes?
         let bytes = self.bytes();
         let bytes = bytes.as_slice();
 
@@ -24,21 +24,21 @@ impl ArrayAccessor<[u8]> for VarBinArray {
             let offsets = offsets.as_slice::<$T>();
 
             match validity {
-                None => {
+                Validity::NonNullable | Validity::AllValid => {
                     let mut iter = offsets
-                        .iter()
-                        .tuple_windows()
-                        .map(|(start, end)| Some(&bytes[*start as usize..*end as usize]));
+                        .windows(2)
+                        .map(|w| Some(&bytes[w[0] as usize..w[1] as usize]));
                     Ok(f(&mut iter))
                 }
-                Some(validity) => {
+                Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
+                Validity::Array(v) => {
+                    let validity_buf = v.into_bool()?.boolean_buffer();
                     let mut iter = offsets
-                        .iter()
-                        .tuple_windows()
-                        .zip(validity.iter())
-                        .map(|((start, end), valid)| {
+                        .windows(2)
+                        .zip(validity_buf.iter())
+                        .map(|(w, valid)| {
                             if valid {
-                                Some(&bytes[*start as usize..*end as usize])
+                                Some(&bytes[w[0] as usize..w[1] as usize])
                             } else {
                                 None
                             }

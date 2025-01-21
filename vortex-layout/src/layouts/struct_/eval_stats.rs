@@ -5,7 +5,7 @@ use futures::future::{ready, try_join_all};
 use futures::FutureExt;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::{Field, FieldPath};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::StatsEvaluator;
@@ -30,7 +30,10 @@ impl StatsEvaluator for StructReader {
                 else {
                     vortex_bail!("Field not found: {}", path);
                 };
-                let child_path = path.clone().step_into()?;
+                let child_path = path
+                    .clone()
+                    .step_into()
+                    .ok_or_else(|| vortex_err!("cannot step into path"))?;
                 futures.push(
                     self.child(&field)?
                         .evaluate_stats([child_path].into(), stats.clone()),

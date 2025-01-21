@@ -73,6 +73,6 @@ pub trait LayoutStrategy: Send + Sync {
 /// Implement the [`LayoutStrategy`] trait for the [`FlatLayout`] for easy use.
 impl LayoutStrategy for FlatLayout {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(dtype.clone()).boxed())
+        Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
     }
 }

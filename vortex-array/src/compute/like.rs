@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
@@ -8,7 +8,7 @@ use crate::{ArrayDType, ArrayData};
 pub trait LikeFn<Array> {
     fn like(
         &self,
-        array: &Array,
+        array: Array,
         pattern: &ArrayData,
         options: LikeOptions,
     ) -> VortexResult<ArrayData>;
@@ -17,16 +17,21 @@ pub trait LikeFn<Array> {
 impl<E: Encoding> LikeFn<ArrayData> for E
 where
     E: LikeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
     fn like(
         &self,
-        array: &ArrayData,
+        array: ArrayData,
         pattern: &ArrayData,
         options: LikeOptions,
     ) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
-        LikeFn::like(encoding, array_ref, pattern, options)
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let array = <E::Array as TryFrom<ArrayData>>::try_from(array)?;
+        LikeFn::like(encoding, array, pattern, options)
     }
 }
 
@@ -43,7 +48,7 @@ pub struct LikeOptions {
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
 pub fn like(
-    array: &ArrayData,
+    array: ArrayData,
     pattern: &ArrayData,
     options: LikeOptions,
 ) -> VortexResult<ArrayData> {
@@ -53,45 +58,46 @@ pub fn like(
     if !matches!(pattern.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 pattern, got {}", array.dtype());
     }
+    let expected_dtype =
+        DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into());
+    let array_encoding = array.encoding().id();
 
-    if let Some(f) = array.encoding().like_fn() {
-        let result = f.like(array, pattern, options)?;
-        check_like_result(&result, array, pattern);
-        return Ok(result);
-    }
+    let result = if let Some(f) = array.encoding().like_fn() {
+        f.like(array, pattern, options)
+    } else {
+        // Otherwise, we canonicalize into a UTF8 array.
+        log::debug!(
+            "No like implementation found for encoding {}",
+            array.encoding().id(),
+        );
+        arrow_like(array, pattern, options)
+    }?;
 
-    // Otherwise, we canonicalize into a UTF8 array.
-    log::debug!(
-        "No like implementation found for encoding {}",
-        array.encoding().id(),
-    );
-    arrow_like(array, pattern, options)
-}
-
-fn check_like_result(result: &ArrayData, array: &ArrayData, pattern: &ArrayData) {
     debug_assert_eq!(
         result.len(),
-        array.len(),
+        pattern.len(),
         "Like length mismatch {}",
-        array.encoding().id()
+        array_encoding
     );
     debug_assert_eq!(
         result.dtype(),
-        &DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into()),
+        &expected_dtype,
         "Like dtype mismatch {}",
-        array.encoding().id()
+        array_encoding
     );
+
+    Ok(result)
 }
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: &ArrayData,
+    array: ArrayData,
     pattern: &ArrayData,
     options: LikeOptions,
 ) -> VortexResult<ArrayData> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
-    let lhs = unsafe { Datum::try_new(array.clone())? };
+    let lhs = unsafe { Datum::try_new(array)? };
     let rhs = unsafe { Datum::try_new(pattern.clone())? };
 
     let result = match (options.negated, options.case_insensitive) {
@@ -101,7 +107,5 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    let result = from_arrow_array_with_len(&result, len, nullable)?;
-    check_like_result(&result, array, pattern);
-    Ok(result)
+    from_arrow_array_with_len(&result, len, nullable)
 }

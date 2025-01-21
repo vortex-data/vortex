@@ -14,8 +14,8 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{and, get_item, ident, lit, pack, ExprRef, Identity};
-use vortex_file::v2::{ExecutionMode, Scan, VortexOpenOptions};
+use vortex_expr::{and, ident, lit, select, ExprRef};
+use vortex_file::{ExecutionMode, Scan, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
@@ -52,29 +52,20 @@ impl VortexFileOpener {
                     .reduce(and)
                     .unwrap_or_else(|| lit(true));
 
-                simplify_typed(expr, dtype)
+                simplify_typed(expr, &dtype)
             })
             .transpose()?;
 
         let projection = projection
             .as_ref()
-            .map(|fields| {
-                pack(
-                    fields.clone(),
-                    fields
-                        .iter()
-                        .map(|f| get_item(f.clone(), ident()))
-                        .collect(),
-                )
-            })
-            .unwrap_or_else(|| Identity::new_expr());
+            .map(|fields| select(fields.clone(), ident()))
+            .unwrap_or_else(|| ident());
 
         Ok(Self {
             ctx,
             object_store,
             projection,
             filter,
-            // arrow_schema,
             file_layout_cache,
         })
     }

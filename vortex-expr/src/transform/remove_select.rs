@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -7,28 +6,24 @@ use crate::{get_item, pack, ExprRef, Select};
 
 /// Select is a useful expression, however it can be defined in terms of get_item & pack,
 /// once the expression type is known, this simplifications pass removes the select expression.
-pub fn remove_select(e: ExprRef, scope_dt: DType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveSelectTransform::new(scope_dt);
+pub fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
+    let mut transform = RemoveSelectTransform {
+        scope_dtype: scope_dt,
+    };
     e.transform(&mut transform).map(|e| e.result)
 }
 
-struct RemoveSelectTransform {
-    ident_dtype: DType,
+struct RemoveSelectTransform<'a> {
+    scope_dtype: &'a DType,
 }
 
-impl RemoveSelectTransform {
-    fn new(ident_dtype: DType) -> Self {
-        Self { ident_dtype }
-    }
-}
-
-impl MutNodeVisitor for RemoveSelectTransform {
+impl MutNodeVisitor for RemoveSelectTransform<'_> {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
             let child = select.child();
-            let child_dtype = child.return_dtype(&self.ident_dtype)?;
+            let child_dtype = child.return_dtype(self.scope_dtype)?;
             let child_dtype = child_dtype.as_struct().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",
@@ -36,22 +31,22 @@ impl MutNodeVisitor for RemoveSelectTransform {
                 )
             })?;
 
-            let names = select
-                .fields()
-                .as_include_names(child_dtype.names())
-                .map_err(|e| {
-                    vortex_err!(
-                        "Select fields must be a subset of child fields, however {}",
-                        e
-                    )
-                })?;
+            let expr = pack(
+                select
+                    .fields()
+                    .as_include_names(child_dtype.names())
+                    .map_err(|e| {
+                        e.with_context(format!(
+                            "Select fields {:?} must be a subset of child fields {:?}",
+                            select.fields(),
+                            child_dtype.names()
+                        ))
+                    })?
+                    .iter()
+                    .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
+            );
 
-            let pack_children = names
-                .iter()
-                .map(|name| get_item(name.clone(), child.clone()))
-                .collect_vec();
-
-            Ok(TransformResult::yes(pack(names, pack_children)))
+            Ok(TransformResult::yes(expr))
         } else {
             Ok(TransformResult::no(node))
         }
@@ -77,8 +72,8 @@ mod tests {
             NonNullable,
         );
         let e = select(["a".into(), "b".into()], ident());
-        let e = remove_select(e, dtype).unwrap();
+        let e = remove_select(e, &dtype).unwrap();
 
-        assert!(e.as_any().downcast_ref::<Pack>().is_some());
+        assert!(e.as_any().is::<Pack>());
     }
 }

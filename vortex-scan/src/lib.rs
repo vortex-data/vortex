@@ -9,6 +9,7 @@ use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::forms::cnf::cnf;
+use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{lit, or, ExprRef};
 
 /// Represents a scan operation to read data from a set of rows, with an optional filter expression,
@@ -24,8 +25,6 @@ use vortex_expr::{lit, or, ExprRef};
 /// the second filter over the reduced set of rows.
 #[derive(Debug, Clone)]
 pub struct Scanner {
-    #[allow(dead_code)]
-    dtype: DType,
     projection: ExprRef,
     rev_filter: Box<[ExprRef]>,
     projection_dtype: DType,
@@ -38,6 +37,9 @@ pub struct Scanner {
 impl Scanner {
     /// Create a new scan with the given projection and optional filter.
     pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> VortexResult<Self> {
+        let projection = simplify_typed(projection, &dtype)?;
+        let filter = filter.map(|f| simplify_typed(f, &dtype)).transpose()?;
+
         // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
         //  Where FieldMask ~= Vec<FieldPath>
         let result_dtype = projection
@@ -63,7 +65,6 @@ impl Scanner {
         };
 
         Ok(Self {
-            dtype,
             projection,
             rev_filter: conjuncts,
             projection_dtype: result_dtype,

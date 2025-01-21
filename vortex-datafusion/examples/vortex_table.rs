@@ -15,7 +15,7 @@ use vortex_array::IntoArrayData;
 use vortex_buffer::buffer;
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_error::vortex_err;
-use vortex_file::VortexFileWriter;
+use vortex_file::VortexWriteOptions;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,9 +48,9 @@ async fn main() -> anyhow::Result<()> {
         .open(&filepath)
         .await?;
 
-    let writer = VortexFileWriter::new(f);
-    let writer = writer.write_array_columns(st.into_array()).await?;
-    writer.finalize().await?;
+    VortexWriteOptions::default()
+        .write(f, st.into_array().into_array_stream())
+        .await?;
 
     let ctx = SessionContext::new();
 

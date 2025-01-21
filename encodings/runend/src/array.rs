@@ -85,7 +85,8 @@ impl RunEndArray {
             dtype,
             length,
             metadata,
-            vec![ends, values].into(),
+            None,
+            Some(vec![ends, values].into()),
             StatsSet::default(),
         )
     }

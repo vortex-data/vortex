@@ -96,7 +96,8 @@ impl SparseArray {
                 patches: patches_metadata,
                 fill_value: fill_value.into_value(),
             },
-            [patches.indices().clone(), patches.values().clone()].into(),
+            None,
+            Some([patches.indices().clone(), patches.values().clone()].into()),
             StatsSet::default(),
         )
     }

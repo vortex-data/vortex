@@ -1,15 +1,14 @@
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use futures::StreamExt;
 use vortex_array::arrow::infer_schema;
+use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayData;
 use vortex_error::{VortexError, VortexResult};
-use vortex_io::VortexReadAt;
-
-use super::VortexReadArrayStream;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))
@@ -25,28 +24,27 @@ pub trait AsyncRuntime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output;
 }
 
+#[cfg(feature = "tokio")]
 impl AsyncRuntime for tokio::runtime::Runtime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
         self.block_on(fut)
     }
 }
 
-pub struct VortexRecordBatchReader<'a, R, AR> {
-    stream: VortexReadArrayStream<R>,
+pub struct VortexRecordBatchReader<'a, S, AR> {
+    stream: Pin<Box<S>>,
     arrow_schema: SchemaRef,
     runtime: &'a AR,
 }
 
-impl<'a, R, AR> VortexRecordBatchReader<'a, R, AR>
+impl<'a, S, AR> VortexRecordBatchReader<'a, S, AR>
 where
-    R: VortexReadAt + Unpin + 'static,
+    S: ArrayStream,
     AR: AsyncRuntime,
 {
-    pub fn try_new(
-        stream: VortexReadArrayStream<R>,
-        runtime: &'a AR,
-    ) -> VortexResult<VortexRecordBatchReader<'a, R, AR>> {
+    pub fn try_new(stream: S, runtime: &'a AR) -> VortexResult<Self> {
         let arrow_schema = Arc::new(infer_schema(stream.dtype())?);
+        let stream = Box::pin(stream);
         Ok(VortexRecordBatchReader {
             stream,
             arrow_schema,
@@ -55,9 +53,9 @@ where
     }
 }
 
-impl<R, AR> Iterator for VortexRecordBatchReader<'_, R, AR>
+impl<S, AR> Iterator for VortexRecordBatchReader<'_, S, AR>
 where
-    R: VortexReadAt + Unpin + 'static,
+    S: ArrayStream,
     AR: AsyncRuntime,
 {
     type Item = Result<RecordBatch, ArrowError>;
@@ -68,16 +66,12 @@ where
     }
 }
 
-impl<R, AR> RecordBatchReader for VortexRecordBatchReader<'_, R, AR>
+impl<S, AR> RecordBatchReader for VortexRecordBatchReader<'_, S, AR>
 where
-    R: VortexReadAt + Unpin + 'static,
+    S: ArrayStream,
     AR: AsyncRuntime,
 {
     fn schema(&self) -> SchemaRef {
         self.arrow_schema.clone()
-    }
-
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>, ArrowError> {
-        self.next().transpose()
     }
 }

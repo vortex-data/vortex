@@ -32,7 +32,8 @@ impl NullArray {
             DType::Null,
             len,
             NullMetadata,
-            [].into(),
+            None,
+            None,
             StatsSet::nulls(len, &DType::Null),
         )
         .vortex_expect("NullArray::new should never fail!")

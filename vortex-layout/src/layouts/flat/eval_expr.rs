@@ -20,6 +20,8 @@ impl ExprEvaluator for FlatReader {
         row_mask: RowMask,
         expr: ExprRef,
     ) -> VortexResult<ArrayData> {
+        assert!(row_mask.true_count() > 0);
+
         // Fetch all the array buffers.
         let mut buffers = try_join_all(
             self.layout()
@@ -90,7 +92,7 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 
@@ -115,7 +117,7 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 
@@ -141,7 +143,7 @@ mod test {
         block_on(async {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout = FlatLayoutWriter::new(array.dtype().clone())
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
                 .push_one(&mut segments, array.to_array())
                 .unwrap();
 

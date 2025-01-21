@@ -39,7 +39,8 @@ impl ExtensionArray {
             DType::Extension(ext_dtype),
             storage.len(),
             ExtensionMetadata,
-            [storage].into(),
+            None,
+            Some([storage].into()),
             Default::default(),
         )
         .vortex_expect("Invalid ExtensionArray")

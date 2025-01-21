@@ -54,7 +54,8 @@ impl FoRArray {
             dtype,
             child.len(),
             FoRMetadata { reference, shift },
-            [child].into(),
+            None,
+            Some([child].into()),
             StatsSet::default(),
         )
     }

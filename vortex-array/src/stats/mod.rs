@@ -25,6 +25,19 @@ mod statsset;
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
+/// Stats to keep when serializing arrays to layouts
+pub const STATS_TO_WRITE: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::TrueCount,
+    Stat::NullCount,
+    Stat::RunCount,
+    Stat::IsConstant,
+    Stat::IsSorted,
+    Stat::IsStrictSorted,
+    Stat::UncompressedSizeInBytes,
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Stat {
@@ -206,7 +219,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }
 }

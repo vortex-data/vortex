@@ -30,7 +30,7 @@ where
 {
     fn is_valid(&self, array: &ArrayData, index: usize) -> bool {
         let (array_ref, encoding) = array
-            .downcast_array_ref::<E>()
+            .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
 
         ValidityVTable::is_valid(encoding, array_ref, index)
@@ -38,7 +38,7 @@ where
 
     fn logical_validity(&self, array: &ArrayData) -> LogicalValidity {
         let (array_ref, encoding) = array
-            .downcast_array_ref::<E>()
+            .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         ValidityVTable::logical_validity(encoding, array_ref)
     }

@@ -1,14 +1,9 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{
-    PrimitiveArray, PrimitiveEncoding, VarBinArray, VarBinEncoding, VarBinViewArray,
-    VarBinViewEncoding,
-};
+use vortex_array::array::{PrimitiveEncoding, VarBinEncoding, VarBinViewEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dict::{
-    dict_encode_primitive, dict_encode_varbin, dict_encode_varbinview, DictArray, DictEncoding,
-};
+use vortex_dict::{dict_encode, DictArray, DictEncoding};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -54,18 +49,9 @@ impl EncodingCompressor for DictCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let (codes, values) = if let Some(p) = PrimitiveArray::maybe_from(array) {
-            let (codes, values) = dict_encode_primitive(&p);
-            (codes.into_array(), values.into_array())
-        } else if let Some(vb) = VarBinArray::maybe_from(array) {
-            let (codes, values) = dict_encode_varbin(&vb);
-            (codes.into_array(), values.into_array())
-        } else if let Some(vb) = VarBinViewArray::maybe_from(array) {
-            let (codes, values) = dict_encode_varbinview(&vb);
-            (codes.into_array(), values.into_array())
-        } else {
-            unreachable!("This array kind should have been filtered out");
-        };
+        let dict = dict_encode(array)?;
+        let codes = dict.codes();
+        let values = dict.values();
 
         let (codes, values) = (
             ctx.auxiliary("codes").excluding(self).compress(

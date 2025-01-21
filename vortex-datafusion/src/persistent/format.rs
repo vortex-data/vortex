@@ -23,8 +23,7 @@ use vortex_array::stats::Stat;
 use vortex_array::ContextRef;
 use vortex_dtype::FieldPath;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_file::v2::VortexOpenOptions;
-use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
@@ -188,7 +187,10 @@ impl FileFormat for VortexFormat {
                         .unwrap_or(Precision::Absent),
                     max_value: max.map(Precision::Exact).unwrap_or(Precision::Absent),
                     min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
-                    distinct_count: Precision::Absent,
+                    distinct_count: s
+                        .get_as::<bool>(Stat::IsConstant)
+                        .and_then(|is_constant| is_constant.then_some(Precision::Exact(1)))
+                        .unwrap_or(Precision::Absent),
                 }
             })
             .collect::<Vec<_>>();

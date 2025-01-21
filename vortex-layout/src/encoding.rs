@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
+use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::segments::AsyncSegmentReader;
@@ -43,6 +44,7 @@ pub trait LayoutEncoding: Debug + Send + Sync {
     fn register_splits(
         &self,
         layout: &LayoutData,
+        field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;

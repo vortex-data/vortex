@@ -136,19 +136,17 @@ pub mod ids {
 
     // bundled extensions
     pub const ALP: u16 = 17;
-    pub const BYTE_BOOL: u16 = 18;
-    pub const DATE_TIME_PARTS: u16 = 19;
-    pub const DICT: u16 = 20;
-    pub const FL_BITPACKED: u16 = 21;
-    pub const FL_DELTA: u16 = 22;
-    pub const FL_FOR: u16 = 23;
-    pub const FSST: u16 = 24;
-    pub const ROARING_BOOL: u16 = 25;
-    pub const ROARING_INT: u16 = 26;
+    pub const ALP_RD: u16 = 18;
+    pub const BYTE_BOOL: u16 = 19;
+    pub const DATE_TIME_PARTS: u16 = 20;
+    pub const DICT: u16 = 21;
+    pub const FL_BITPACKED: u16 = 22;
+    pub const FL_DELTA: u16 = 23;
+    pub const FL_FOR: u16 = 24;
+    pub const FL_RLE: u16 = 25;
+    pub const FSST: u16 = 26;
     pub const RUN_END: u16 = 27;
-    pub const RUN_END_BOOL: u16 = 28;
-    pub const ZIGZAG: u16 = 29;
-    pub const ALP_RD: u16 = 30;
+    pub const ZIGZAG: u16 = 28;
 }
 
 #[cfg(test)]
@@ -178,19 +176,21 @@ mod tests {
             ids::RESERVED_15,
             ids::RESERVED_16,
             ids::ALP,
+            ids::ALP_RD,
             ids::BYTE_BOOL,
             ids::DATE_TIME_PARTS,
             ids::DICT,
             ids::FL_BITPACKED,
             ids::FL_DELTA,
             ids::FL_FOR,
+            ids::FL_RLE,
             ids::FSST,
-            ids::ROARING_BOOL,
-            ids::ROARING_INT,
             ids::RUN_END,
-            ids::RUN_END_BOOL,
             ids::ZIGZAG,
         ];
+
+        // make sure we didn't forget any ids
+        assert_eq!(all_ids.len(), ids::ZIGZAG as usize + 1);
 
         let mut ids_set = HashSet::with_capacity(all_ids.len());
         ids_set.extend(all_ids);

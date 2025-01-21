@@ -34,6 +34,10 @@ impl GetItem {
     }
 }
 
+pub fn col(field: impl Into<FieldName>) -> ExprRef {
+    GetItem::new_expr(field, ident())
+}
+
 pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItem::new_expr(field, child)
 }
