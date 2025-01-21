@@ -36,7 +36,7 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
-vortex-scalar = { workspace = true }
+vortex-scalar = { path = "../vortex-scalar" }
 
 [lints]
 workspace = true
