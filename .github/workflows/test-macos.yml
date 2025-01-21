@@ -7,29 +7,22 @@ on:
 
 jobs:
     build-arm: 
-        runs-on: macos-14
+        runs-on: macos-13-xlarge
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/cleanup
             - uses: ./.github/actions/setup-rust
-            # - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+            - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
             - name: rust-toolchain
               shell: bash
-              run: echo "RUST_VERSION=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_ENV
-            - name: Build
+              run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+            - name: Disable SCCACHE Config  # Doesn't work with cross-compilation
               shell: bash
-              run: |
-                echo "Setting toolchain to $RUST_VERSION"
-                rustup override set $RUST_VERSION
-                rustup component add llvm-tools-preview || true
-                brew install cffi maturin
-                echo "Building"
-                cd pyvortex/
-                maturin build --target aarch64-apple-darwin --release --interpreter python3.10
-            # - name: Build wheels - aarch64
-            #   uses: PyO3/maturin-action@v1
-            #   with:
-            #     rust-toolchain: ${{ steps.rust-toolchain.version }}
-            #     working-directory: pyvortex
-            #     target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
-            #     args: --release --interpreter python3.10
+              run: echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+            - name: Build wheels - x86_64
+              uses: PyO3/maturin-action@v1
+              with:
+                rust-toolchain: ${{ steps.rust-toolchain.version }}
+                working-directory: pyvortex
+                target: aarch64
+                args: --release --interpreter python3.10
