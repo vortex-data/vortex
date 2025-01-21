@@ -143,7 +143,7 @@ impl VortexOpenOptions {
         // Set up the execution driver.
         let exec_driver = self
             .execution_mode
-            .unwrap_or(ExecutionMode::Inline)
+            .unwrap_or(ExecutionMode::Default)
             .into_driver();
 
         // Compute the splits of the file.

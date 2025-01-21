@@ -10,7 +10,12 @@ use crate::exec::ExecDriver;
 
 /// The [`ExecutionMode`] describes how the CPU-bound layout evaluation tasks are executed.
 /// Typically, there is one task per file split (row-group).
+#[derive(Default)]
 pub enum ExecutionMode {
+    #[default]
+    /// Default execution mode, defaults to [`ExecutionMode::TokioRuntime`] if there's a runtime available,
+    /// otherwise `ExecutionMode::Inline`.
+    Default,
     /// Executes the tasks inline as part of polling the returned
     /// [`vortex_array::stream::ArrayStream`]. In other words, uses the same runtime.
     Inline,
@@ -25,7 +30,7 @@ pub enum ExecutionMode {
 impl ExecutionMode {
     pub fn into_driver(self) -> Arc<dyn ExecDriver> {
         match self {
-            ExecutionMode::Inline => {
+            ExecutionMode::Default => {
                 // Default to tokio-specific behavior if its enabled and there's a runtime running.
                 #[cfg(feature = "tokio")]
                 match Handle::try_current() {
@@ -36,6 +41,7 @@ impl ExecutionMode {
                 #[cfg(not(feature = "tokio"))]
                 Arc::new(InlineDriver)
             }
+            ExecutionMode::Inline => Arc::new(InlineDriver),
             #[cfg(feature = "rayon")]
             ExecutionMode::RayonThreadPool(_) => {
                 todo!()
