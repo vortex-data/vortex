@@ -19,6 +19,8 @@ jobs:
             - name: Build
               shell: bash
               run: |
+                rustup override set ${{ steps.rust-toolchain.version }}
+                rustup component add llvm-tools-preview || true
                 brew install cffi maturin
                 cd pyvortex/
                 maturin build --target aarch64-apple-darwin --release --interpreter python3.10
