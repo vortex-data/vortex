@@ -229,8 +229,6 @@ impl VisitorVTable<RunEndArray> for RunEndEncoding {
 
 impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = StatsSet::default();
-
         let maybe_stat = match stat {
             Stat::Min | Stat::Max => array.values().statistics().compute(stat),
             Stat::IsSorted => Some(Scalar::from(
@@ -249,6 +247,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
             _ => None,
         };
 
+        let mut stats = StatsSet::default();
         if let Some(value) = maybe_stat {
             stats.set(stat, value)
         };
