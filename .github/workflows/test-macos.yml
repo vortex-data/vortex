@@ -7,7 +7,7 @@ on:
 
 jobs:
     build-arm: 
-        runs-on: macos-13-xlarge
+        runs-on: macos-13
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/cleanup
@@ -19,7 +19,7 @@ jobs:
             - name: Disable SCCACHE Config  # Doesn't work with cross-compilation
               shell: bash
               run: echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
-            - name: Build wheels - x86_64
+            - name: Build wheels - aarch64
               uses: PyO3/maturin-action@v1
               with:
                 rust-toolchain: ${{ steps.rust-toolchain.version }}
