@@ -74,7 +74,7 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::compute::try_cast;
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn cast_u32_u8() {

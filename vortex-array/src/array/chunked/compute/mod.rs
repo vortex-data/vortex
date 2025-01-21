@@ -79,7 +79,7 @@ mod test {
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::try_cast;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_cast_chunked() {

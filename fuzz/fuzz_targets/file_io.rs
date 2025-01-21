@@ -8,7 +8,7 @@ use futures_util::TryStreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 

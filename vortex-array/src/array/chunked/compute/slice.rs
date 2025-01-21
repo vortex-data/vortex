@@ -48,7 +48,7 @@ mod tests {
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

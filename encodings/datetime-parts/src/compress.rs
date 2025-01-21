@@ -1,6 +1,6 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::{ArrayDType as _, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType as _, ArrayData, ArrayLen, IntoArrayData};
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};
@@ -27,7 +27,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
         &temporal_values,
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
     )?
-    .into_primitive()?;
+        .into_primitive()?;
 
     let divisor = match array.temporal_metadata().time_unit() {
         TimeUnit::Ns => 1_000_000_000,
@@ -74,7 +74,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData as _, IntoArrayVariant as _};
+    use vortex_array::{IntoArrayData as _ as _};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 
@@ -94,7 +94,7 @@ mod tests {
             ],
             validity.clone(),
         )
-        .into_array();
+            .into_array();
         let temporal_array =
             TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
         let TemporalParts {

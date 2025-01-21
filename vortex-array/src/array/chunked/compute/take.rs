@@ -10,7 +10,7 @@ use crate::compute::{
     scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast, SearchSortedSide, TakeFn,
 };
 use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
 impl TakeFn<ChunkedArray> for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
@@ -126,7 +126,7 @@ mod test {
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::take;
-    use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayDType, ArrayLen, IntoArrayData};
 
     #[test]
     fn test_take() {

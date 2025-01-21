@@ -59,7 +59,7 @@ mod tests {
     use futures::executor::block_on;
     use vortex_array::array::StructArray;
     use vortex_array::compute::FilterMask;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, Nullability, StructDType};

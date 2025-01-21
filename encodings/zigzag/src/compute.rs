@@ -99,7 +99,7 @@ mod tests {
         filter, scalar_at, search_sorted, take, SearchResult, SearchSortedSide,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;

@@ -12,7 +12,6 @@ pub use bool::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;
-use num_traits::PrimInt;
 pub use primitive::*;
 pub use struct_::*;
 pub use view::*;
@@ -183,9 +182,12 @@ pub trait ArrayBuilderExt: ArrayBuilder {
             .vortex_expect("Builder is not a StructBuilder")
     }
 
-    fn as_list_mut<O: PrimInt + NativePType>(&mut self) -> &mut ListBuilder<O> {
+    // NOTE(ngates): although the ListBuilder supports multiple offset types, the "canonical"
+    //  list builder always produces u64 offsets. This isn't ideal... but not sure what else to
+    //  for for now.
+    fn as_list_mut(&mut self) -> &mut ListBuilder<u64> {
         self.as_any_mut()
-            .downcast_mut::<ListBuilder<O>>()
+            .downcast_mut::<ListBuilder<u64>>()
             .vortex_expect("Builder is not a ListBuilder")
     }
 

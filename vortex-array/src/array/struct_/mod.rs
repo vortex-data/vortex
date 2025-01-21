@@ -11,9 +11,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{StructArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 mod compute;
 
@@ -177,11 +175,6 @@ impl StructArrayTrait for StructArray {
 }
 
 impl IntoCanonical for StructArray {
-    /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self))
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let builder = builder.as_struct_mut();
         builder

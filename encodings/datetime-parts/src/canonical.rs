@@ -1,7 +1,7 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
 use vortex_array::{
-    ArrayDType, Canonical, IntoArrayData as _, IntoArrayVariant as _, IntoCanonical,
+    ArrayDType, Canonical, IntoArrayData as _ IntoCanonical,
 };
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
@@ -101,7 +101,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData as _, IntoArrayVariant};
+    use vortex_array::{IntoArrayData as _};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 

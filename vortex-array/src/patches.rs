@@ -16,7 +16,7 @@ use crate::compute::{
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchesMetadata {
@@ -392,7 +392,7 @@ mod test {
     use crate::compute::{FilterMask, SearchResult, SearchSortedSide};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_filter() {

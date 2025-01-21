@@ -12,7 +12,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::variants::{NullArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayLen, IntoCanonical};
 
 mod compute;
 
@@ -42,10 +42,6 @@ impl NullArray {
 }
 
 impl IntoCanonical for NullArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(self))
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         builder.append_nulls(self.len());
         Ok(())

@@ -1,5 +1,5 @@
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::{ArrayLen, IntoArrayVariant};
+use vortex_array::ArrayLen;
 use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};

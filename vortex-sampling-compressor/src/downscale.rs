@@ -2,7 +2,7 @@ use vortex_array::array::{PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::EncodingVTable;
 use vortex_array::stats::{ArrayStatistics, Stat};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_err, VortexResult};
 

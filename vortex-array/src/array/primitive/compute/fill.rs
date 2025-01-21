@@ -65,7 +65,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::fill_forward;
     use crate::validity::{ArrayValidity, Validity};
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn leading_none() {

@@ -9,7 +9,7 @@ use crate::array::VarBinEncoding;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {

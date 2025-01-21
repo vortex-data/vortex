@@ -15,7 +15,7 @@ use crate::compute::{filter, scalar_at, slice, take, FilterMask};
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 pub trait ValidityVTable<Array> {
     // TODO(ngates): can we implement this based on logical validity? Or is that too expensive?

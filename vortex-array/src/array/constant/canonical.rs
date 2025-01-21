@@ -1,69 +1,15 @@
 use arrow_array::builder::make_view;
-use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
+use vortex_error::VortexResult;
 
 use crate::array::constant::ConstantArray;
-use crate::array::primitive::PrimitiveArray;
-use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
+use crate::array::{BinaryView, VarBinViewArray};
 use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::validity::Validity;
-use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayLen, IntoCanonical};
 
 impl IntoCanonical for ConstantArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let scalar = &self.scalar();
-
-        let validity = match self.dtype().nullability() {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => match scalar.is_null() {
-                true => Validity::AllInvalid,
-                false => Validity::AllValid,
-            },
-        };
-
-        Ok(match self.dtype() {
-            DType::Null => Canonical::Null(NullArray::new(self.len())),
-            DType::Bool(..) => Canonical::Bool(BoolArray::try_new(
-                if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
-                    BooleanBuffer::new_set(self.len())
-                } else {
-                    BooleanBuffer::new_unset(self.len())
-                },
-                validity,
-            )?),
-            DType::Primitive(ptype, ..) => {
-                match_each_native_ptype!(ptype, |$P| {
-                    Canonical::Primitive(PrimitiveArray::new(
-                        Buffer::full($P::try_from(scalar).unwrap_or_else(|_| $P::default()), self.len()),
-                        validity,
-                    ))
-                })
-            }
-            DType::Utf8(_) => {
-                let value = Utf8Scalar::try_from(scalar)?.value();
-                let const_value = value.as_ref().map(|v| v.as_bytes());
-                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
-            }
-            DType::Binary(_) => {
-                let value = BinaryScalar::try_from(scalar)?.value();
-                let const_value = value.as_ref().map(|v| v.as_slice());
-                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
-            }
-            DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
-            DType::List(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
-            DType::Extension(ext_dtype) => {
-                let s = ExtScalar::try_from(scalar)?;
-
-                let storage_scalar = s.storage();
-                let storage_array = ConstantArray::new(storage_scalar, self.len()).into_array();
-                ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
-            }
-        })
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         match self.dtype() {
             DType::Null => builder.as_null_mut().append_nulls(self.len()),
@@ -99,8 +45,8 @@ impl IntoCanonical for ConstantArray {
             }
             DType::Struct(..) => {
                 let builder = builder.as_struct_mut();
-                let s = self.scalar().as_struct();
-                for (field_builder, field) in builder.field_builders().zip(s.fields()) {
+                let s = self.scalar();
+                for (field_builder, field) in builder.field_builders().zip(s.as_struct().fields()) {
                     field_builder.append_scalar(&field)?;
                 }
             }
@@ -115,6 +61,7 @@ impl IntoCanonical for ConstantArray {
     }
 }
 
+#[allow(dead_code)]
 fn canonical_byte_view(
     scalar_bytes: Option<&[u8]>,
     dtype: &DType,
@@ -162,12 +109,17 @@ mod tests {
     use crate::array::ConstantArray;
     use crate::compute::scalar_at;
     use crate::stats::{ArrayStatistics as _, StatsSet};
-    use crate::{ArrayLen, IntoArrayData as _, IntoCanonical};
+    use crate::{ArrayLen, IntoArrayData as _};
 
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.into_canonical().unwrap().into_null().unwrap();
+        let actual = const_null
+            .into_array()
+            .into_canonical()
+            .unwrap()
+            .into_null()
+            .unwrap();
         assert_eq!(actual.len(), 42);
         assert_eq!(scalar_at(actual, 33).unwrap(), Scalar::null(DType::Null));
     }
@@ -178,6 +130,7 @@ mod tests {
 
         // Check all values correct.
         let canonical = const_array
+            .into_array()
             .into_canonical()
             .unwrap()
             .into_varbinview()

@@ -18,7 +18,7 @@ use vortex::file::{Scan, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
-use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex::{ArrayData, IntoArrayData};
 
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;

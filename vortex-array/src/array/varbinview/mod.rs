@@ -22,7 +22,7 @@ use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
 
 mod accessor;
 mod compute;
@@ -437,16 +437,6 @@ where
 impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
 impl IntoCanonical for VarBinViewArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let arrow_self = varbinview_as_arrow(&self);
-        let vortex_array = ArrayData::from_arrow(arrow_self, nullable);
-
-        Ok(Canonical::VarBinView(VarBinViewArray::try_from(
-            vortex_array,
-        )?))
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         match self.dtype() {
             DType::Utf8(_) => {
@@ -575,7 +565,7 @@ mod test {
 
     use crate::array::varbinview::{BinaryView, VarBinViewArray};
     use crate::compute::{scalar_at, slice};
-    use crate::{ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+    use crate::{ArrayLen, Canonical, IntoArrayData};
 
     #[test]
     pub fn varbin_view() {
@@ -611,7 +601,7 @@ mod test {
     pub fn flatten_array() {
         let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
 
-        let flattened = binary_arr.into_canonical().unwrap();
+        let flattened = binary_arr.into_array().into_canonical().unwrap();
         assert!(matches!(flattened, Canonical::VarBinView(_)));
 
         let var_bin = flattened.into_varbinview().unwrap().into_array();

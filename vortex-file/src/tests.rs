@@ -15,8 +15,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, Context, ContextRef, IntoArrayData, IntoArrayVariant,
-    ToArrayData,
+    ArrayDType, ArrayData, ArrayLen, Context, ContextRef, IntoArrayData, ToArrayData,
 };
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;

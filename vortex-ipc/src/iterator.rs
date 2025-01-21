@@ -154,7 +154,7 @@ mod test {
 
     use vortex_array::array::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayDType, ToArrayData};
 
     use super::*;
 

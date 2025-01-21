@@ -33,7 +33,6 @@ mod tests {
 
     use super::*;
     use crate::compute::slice;
-    use crate::IntoArrayVariant;
 
     #[test]
     fn test_slice() {

@@ -80,7 +80,7 @@ mod test {
     use crate::array::constant::ConstantArray;
     use crate::array::BoolArray;
     use crate::compute::{and, or, scalar_at};
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData};
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()

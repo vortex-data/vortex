@@ -5,7 +5,7 @@ use vortex_array::compute::{
     scalar_at, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide,
 };
 use vortex_array::validity::ArrayValidity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_scalar::Scalar;

@@ -222,7 +222,7 @@ mod test {
     use crate::array::ConstantArray;
     use crate::compute::{scalar_at, slice, try_cast};
     use crate::validity::ArrayValidity;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData};
 
     fn nullable_fill() -> Scalar {
         Scalar::null(DType::Primitive(PType::I32, Nullable))

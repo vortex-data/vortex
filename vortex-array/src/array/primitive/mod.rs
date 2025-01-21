@@ -16,7 +16,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{impl_encoding, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 mod compute;
 mod patch;
@@ -317,10 +317,6 @@ impl<T: NativePType> IntoArrayData for BufferMut<T> {
 }
 
 impl IntoCanonical for PrimitiveArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(self))
-    }
-
     fn into_canonical_builder(self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         todo!()
     }

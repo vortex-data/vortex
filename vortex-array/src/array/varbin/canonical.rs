@@ -1,29 +1,13 @@
 use arrow_array::ArrayRef;
 use arrow_schema::DataType;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
-use crate::array::VarBinViewArray;
-use crate::arrow::FromArrowArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt};
-use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
+use crate::IntoCanonical;
 
 impl IntoCanonical for VarBinArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let array_ref = varbin_to_arrow(&self)?;
-        let array = match self.dtype() {
-            DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
-            DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
-
-            _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
-        };
-
-        VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let _builder = builder.as_binary_mut();
         todo!()
@@ -53,7 +37,7 @@ mod test {
 
     use crate::array::varbin::builder::VarBinBuilder;
     use crate::validity::ArrayValidity;
-    use crate::{ArrayDType, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayData};
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]
@@ -68,7 +52,12 @@ mod test {
         varbin.push_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.into_canonical().unwrap().into_varbinview().unwrap();
+        let canonical = varbin
+            .into_array()
+            .into_canonical()
+            .unwrap()
+            .into_varbinview()
+            .unwrap();
         assert_eq!(canonical.dtype(), &dtype);
 
         assert!(!canonical.is_valid(0));

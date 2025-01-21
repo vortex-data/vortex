@@ -3,7 +3,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use vortex_array::array::VarBinArray;
 use vortex_array::compute::take;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 

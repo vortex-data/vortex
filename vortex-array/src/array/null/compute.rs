@@ -6,7 +6,7 @@ use crate::array::null::NullArray;
 use crate::array::NullEncoding;
 use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, ArrayLen, IntoArrayData};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

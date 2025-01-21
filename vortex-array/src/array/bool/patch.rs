@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::array::BoolArray;
 use crate::patches::Patches;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
+use crate::{ArrayLen, ToArrayData};
 
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
@@ -41,7 +41,6 @@ mod tests {
 
     use crate::array::BoolArray;
     use crate::compute::slice;
-    use crate::IntoArrayVariant;
 
     #[test]
     fn patch_sliced_bools() {

@@ -3,7 +3,7 @@ use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
@@ -130,7 +130,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayLen, IntoArrayVariant};
+    use vortex_array::ArrayLen;
     use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;

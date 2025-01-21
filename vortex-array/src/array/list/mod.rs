@@ -9,7 +9,7 @@ use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, DType, PType};
+use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 #[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
@@ -18,14 +18,14 @@ use crate::array::PrimitiveArray;
 use crate::builders::ArrayBuilderExt;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
-use crate::compute::{scalar_at, slice};
+use crate::compute::{scalar_at, slice, try_cast};
 use crate::encoding::ids;
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
@@ -172,20 +172,16 @@ impl VisitorVTable<ListArray> for ListEncoding {
 }
 
 impl IntoCanonical for ListArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self))
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        // FIXME(ngates): validity
-        let offset_ptype = self.metadata().offset_ptype;
-        match_each_integer_ptype!(offset_ptype, |$O| {
-            let mut builder = builder.as_list_mut::<$O>();
-            self.elements()
-                .into_canonical_builder(builder.elements_mut())?;
-            self.offsets().into_canonical_builder(builder.offsets_mut())?;
-        });
-        Ok(())
+        let builder = builder.as_list_mut();
+        self.elements()
+            .into_canonical_builder(builder.elements_mut())?;
+
+        let offsets = try_cast(
+            &self.offsets(),
+            &DType::Primitive(PType::U64, Nullability::Nullable),
+        )?;
+        offsets.into_canonical_builder(builder.offsets_mut())
     }
 }
 

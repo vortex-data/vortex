@@ -5,7 +5,7 @@ use std::ops::{BitAnd, RangeBounds};
 use vortex_array::array::{BooleanBuffer, PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
@@ -319,7 +319,7 @@ mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::IntoArrayData;
     use vortex_buffer::{buffer, Buffer};
     use vortex_error::VortexUnwrap;
 

@@ -189,7 +189,7 @@ mod tests {
     use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::compute::{filter, FilterMask};
     use vortex_array::variants::StructArrayTrait;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::IntoArrayData;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::U64;
     use vortex_dtype::{DType, StructDType};

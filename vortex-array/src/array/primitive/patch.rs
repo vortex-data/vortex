@@ -6,7 +6,7 @@ use crate::array::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayLen, IntoArrayVariant};
+use crate::ArrayLen;
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
@@ -54,7 +54,6 @@ mod tests {
     use super::*;
     use crate::compute::slice;
     use crate::validity::Validity;
-    use crate::IntoArrayVariant;
 
     #[test]
     fn patch_sliced() {

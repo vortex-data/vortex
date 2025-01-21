@@ -1,43 +1,43 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
 use vortex_buffer::buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{NativePType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
-use crate::array::{BoolArray, ConstantArray};
+use crate::array::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
+use crate::{Canonical, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let resolved_patches = self.resolved_patches()?;
-        if resolved_patches.num_patches() == 0 {
-            return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
-        }
-
-        if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
-        } else {
-            let ptype = PType::try_from(resolved_patches.values().dtype())?;
-            match_each_native_ptype!(ptype, |$P| {
-                canonicalize_sparse_primitives::<$P>(
-                    resolved_patches,
-                    &self.fill_scalar(),
-                )
-            })
-        }
-    }
+    // fn into_canonical(self) -> VortexResult<Canonical> {
+    //     let resolved_patches = self.resolved_patches()?;
+    //     if resolved_patches.num_patches() == 0 {
+    //         return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
+    //     }
+    //
+    //     if matches!(self.dtype(), DType::Bool(_)) {
+    //         canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
+    //     } else {
+    //         let ptype = PType::try_from(resolved_patches.values().dtype())?;
+    //         match_each_native_ptype!(ptype, |$P| {
+    //             canonicalize_sparse_primitives::<$P>(
+    //                 resolved_patches,
+    //                 &self.fill_scalar(),
+    //             )
+    //         })
+    //     }
+    // }
 
     fn into_canonical_builder(self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         // Ideally we can set_len, and then update individual values?
         todo!()
     }
 }
-
+#[allow(dead_code)]
 fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
@@ -63,7 +63,7 @@ fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexRes
 
     bools.patch(patches).map(Canonical::Bool)
 }
-
+#[allow(dead_code)]
 fn canonicalize_sparse_primitives<
     T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError> + ArrowNativeType,
 >(
@@ -100,7 +100,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayData};
 
     #[rstest]
     #[case(Some(true))]
@@ -114,7 +114,12 @@ mod test {
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
 
-        let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
+        let flat_bools = sparse_bools
+            .into_array()
+            .into_canonical()
+            .unwrap()
+            .into_bool()
+            .unwrap();
         let expected = bool_array_from_nullable_vec(
             vec![
                 Some(true),
@@ -177,6 +182,7 @@ mod test {
         );
 
         let flat_ints = sparse_ints
+            .into_array()
             .into_canonical()
             .unwrap()
             .into_primitive()

@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, Canonical};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {

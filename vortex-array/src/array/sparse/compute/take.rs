@@ -28,7 +28,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::compute::{scalar_at, slice, take};
     use crate::validity::Validity;
-    use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, ArrayLen, IntoArrayData};
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying

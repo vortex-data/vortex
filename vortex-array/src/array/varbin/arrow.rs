@@ -8,7 +8,7 @@ use crate::array::VarBinArray;
 use crate::compute::try_cast;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, IntoArrayVariant, ToArrayData};
+use crate::{ArrayDType, ToArrayData};
 
 /// Convert the array to Arrow variable length binary array type.
 pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayRef> {

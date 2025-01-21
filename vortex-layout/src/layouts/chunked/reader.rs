@@ -4,7 +4,7 @@ use arrow_buffer::BooleanBuffer;
 use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
-use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_array::ContextRef;
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};

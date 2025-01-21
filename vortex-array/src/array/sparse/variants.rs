@@ -130,7 +130,7 @@ mod tests {
 
     use crate::array::{BoolArray, SparseArray};
     use crate::compute::invert;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn invert_bools_non_null_fill() {

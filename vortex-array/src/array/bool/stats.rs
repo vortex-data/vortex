@@ -9,7 +9,7 @@ use crate::array::{BoolArray, BoolEncoding};
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
-use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
+use crate::{ArrayDType, ArrayLen};
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {

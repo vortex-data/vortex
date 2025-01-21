@@ -20,7 +20,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
 mod canonical;
 mod compute;
@@ -160,6 +160,7 @@ impl ChunkedArray {
             {
                 new_chunks.push(
                     ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                        .into_array()
                         .into_canonical()?
                         .into(),
                 );
@@ -181,6 +182,7 @@ impl ChunkedArray {
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
                 ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                    .into_array()
                     .into_canonical()?
                     .into(),
             );
@@ -242,7 +244,7 @@ mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

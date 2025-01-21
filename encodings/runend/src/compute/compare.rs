@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compress::runend_decode_bools;

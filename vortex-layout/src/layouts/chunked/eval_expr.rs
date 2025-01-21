@@ -86,7 +86,7 @@ mod test {
 
     use futures::executor::block_on;
     use vortex_array::array::{BoolArray, ChunkedArray, ConstantArray};
-    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayLen, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};

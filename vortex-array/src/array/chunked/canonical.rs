@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
@@ -12,19 +13,9 @@ use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::{
-    ArrayDType, ArrayData, ArrayLen, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
-};
+use crate::{ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 impl IntoCanonical for ChunkedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let validity = self
-            .logical_validity()
-            .into_validity(self.dtype().nullability());
-        try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
-    }
-
     /// Unlike into_canonical, when we're given a builder to write into we ask each chunk to
     /// append itself to the builder.
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
@@ -291,7 +282,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use crate::{ArrayDType, ArrayLen, IntoArrayData, ToArrayData};
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])
@@ -379,7 +370,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().into_list().unwrap();
+        let canon_values = chunked_list.unwrap().into_array().into_list().unwrap();
 
         assert_eq!(
             scalar_at(l1, 0).unwrap(),

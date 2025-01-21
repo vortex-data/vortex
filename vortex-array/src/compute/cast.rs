@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 pub trait CastFn<Array> {
     fn cast(&self, array: &Array, dtype: &DType) -> VortexResult<ArrayData>;

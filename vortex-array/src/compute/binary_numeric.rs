@@ -200,7 +200,7 @@ pub mod test_harness {
 
     use crate::array::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{ArrayDType as _, ArrayData, IntoArrayData as _, IntoCanonical as _};
+    use crate::{ArrayDType, ArrayData, IntoArrayData};
 
     #[allow(clippy::unwrap_used)]
     fn to_vec_of_scalar(array: &ArrayData) -> Vec<Scalar> {
@@ -297,7 +297,7 @@ mod test {
 
     use crate::array::PrimitiveArray;
     use crate::compute::{scalar_at, sub_scalar};
-    use crate::{ArrayLen as _, IntoArrayData, IntoCanonical};
+    use crate::{ArrayLen as _, IntoArrayData};
 
     #[test]
     fn test_scalar_subtract_unsigned() {

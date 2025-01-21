@@ -291,7 +291,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoCanonical};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 

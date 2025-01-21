@@ -48,7 +48,7 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::compute::{filter, FilterMask};
-    use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
+    use crate::{ArrayLen, ToArrayData};
 
     #[test]
     fn filter_run_variant_mixed_test() {

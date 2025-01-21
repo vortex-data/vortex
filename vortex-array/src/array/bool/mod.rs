@@ -13,7 +13,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{impl_encoding, ArrayLen, IntoArrayData, IntoCanonical};
 
 pub mod compute;
 mod patch;
@@ -190,10 +190,6 @@ impl FromIterator<Option<bool>> for BoolArray {
 }
 
 impl IntoCanonical for BoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(self))
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         // FIXME(ngates): validity
         let builder = builder.as_bool_mut();
@@ -229,7 +225,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayLen, IntoArrayData};
 
     #[test]
     fn bool_array() {
@@ -293,7 +289,7 @@ mod tests {
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(patches).unwrap();
-        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
+        let (values, offset) = arr.into_array().into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.as_slice(), &[238, 15]);
 
@@ -319,7 +315,7 @@ mod tests {
         let arr = arr.patch(patches).unwrap();
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
-        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
+        let (values, offset) = arr.into_array().into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.as_slice(), &[254, 127]);
     }

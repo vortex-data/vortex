@@ -5,7 +5,7 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexExpect;

@@ -12,7 +12,7 @@ use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 
-pub trait ViewDType: Send + Sync {
+pub trait ViewDType: 'static + Send + Sync {
     type RefType: ?Sized;
 
     fn as_bytes(value: &Self::RefType) -> &[u8];
@@ -81,7 +81,8 @@ impl<V: ViewDType> ViewBuilder<V> {
 
     /// Append a value to the builder.
     pub fn append_value<S: AsRef<V::RefType>>(&mut self, value: S) {
-        self.views.push(self.create_view(value.as_ref()));
+        let view = self.create_view(value.as_ref());
+        self.views.push(view);
         self.validity.append_non_null();
     }
 
@@ -101,7 +102,6 @@ impl<V: ViewDType> ViewBuilder<V> {
     /// Push a value onto the in-progress buffer, returning its buffer idx and offset.
     fn create_view(&mut self, value: &V::RefType) -> BinaryView {
         let value = V::as_bytes(value);
-        assert!(value.len() > 12, "Value must be inlined");
         let len = u32::try_from(value.len()).vortex_expect("Value length must be <= u32");
         if len <= 12 {
             BinaryView::new_inlined(value)
@@ -116,7 +116,7 @@ impl<V: ViewDType> ViewBuilder<V> {
                 u32::try_from(self.in_progress.len()).vortex_expect("Buffer length must be <= u32");
             self.in_progress.extend_from_slice(value);
 
-            let prefix = [0; 4];
+            let mut prefix = [0; 4];
             prefix.copy_from_slice(&value[0..4]);
 
             BinaryView::new_view(len, prefix, self.current_buffer_idx(), offset)

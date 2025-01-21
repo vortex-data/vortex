@@ -16,7 +16,7 @@ use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, IntoArrayVariant};
+use crate::ArrayDType;
 
 trait PStatsType: NativePType + Into<Scalar> + BitWidth {}
 

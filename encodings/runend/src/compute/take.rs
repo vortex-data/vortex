@@ -1,7 +1,7 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 

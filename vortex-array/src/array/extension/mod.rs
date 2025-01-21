@@ -13,7 +13,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::{ExtensionArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
 
 mod compute;
 
@@ -78,10 +78,6 @@ impl ExtensionArrayTrait for ExtensionArray {
 }
 
 impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
-    }
-
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let builder = builder.as_extension_mut();
         self.storage()

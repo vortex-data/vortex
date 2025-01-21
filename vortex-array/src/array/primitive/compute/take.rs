@@ -7,7 +7,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData};
 
 impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]

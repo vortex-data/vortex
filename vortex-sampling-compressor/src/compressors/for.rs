@@ -4,7 +4,7 @@ use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::{trailing_zeros, ArrayStatistics};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_fastlanes::{for_compress, FoRArray, FoREncoding};

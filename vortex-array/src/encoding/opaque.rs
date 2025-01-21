@@ -43,7 +43,7 @@ impl EncodingVTable for OpaqueEncoding {
 }
 
 impl IntoCanonicalVTable for OpaqueEncoding {
-    fn into_canonical(
+    fn into_canonical_builder(
         &self,
         _array: ArrayData,
         _builder: &mut dyn ArrayBuilder,

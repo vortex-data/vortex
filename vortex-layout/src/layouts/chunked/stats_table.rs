@@ -6,7 +6,7 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderEx
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{ArrayStatistics as _, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 

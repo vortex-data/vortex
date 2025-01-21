@@ -34,7 +34,7 @@ mod tests {
 
     use crate::array::{BoolArray, ChunkedArray};
     use crate::compute::{binary_boolean, BinaryOperator};
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_bin_bool_chunked() {

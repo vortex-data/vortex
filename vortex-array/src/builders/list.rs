@@ -2,7 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use num_traits::{AsPrimitive, PrimInt};
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{ListScalar, Scalar};
 
@@ -54,6 +54,10 @@ where
 
     pub fn offsets_mut(&mut self) -> &mut PrimitiveBuilder<O> {
         &mut self.offset_builder
+    }
+
+    pub fn offsets_ptype(&self) -> PType {
+        O::PTYPE
     }
 
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
@@ -147,7 +151,6 @@ mod tests {
 
     use crate::builders::list::ListBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::IntoArrayVariant;
 
     #[test]
     fn test_empty() {
