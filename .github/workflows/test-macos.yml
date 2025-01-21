@@ -30,7 +30,7 @@ jobs:
                 working-directory: pyvortex
                 target: aarch64
                 args: --release --interpreter python3.10
-                rustup-components: "cargo, rustc, rust-std"
+                rustup-components: "cargo rustc rust-std"
               env:
                 MATURIN_PEP517_USE_BASE_PYTHON: "true"
                 # Keep this constant to avoid pyo3 invalidating itself
