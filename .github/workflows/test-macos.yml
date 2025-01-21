@@ -8,8 +8,6 @@ on:
 jobs:
     build-arm: 
         runs-on: macos-13
-        env:
-            MACOSX_DEPLOYMENT_TARGET: 13.0
         steps:
             - uses: actions/checkout@v4
             - uses: ./.github/actions/cleanup
