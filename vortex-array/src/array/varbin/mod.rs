@@ -190,6 +190,7 @@ impl VarBinArray {
         Ok(PrimitiveArray::maybe_from(self.offsets())
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
+                    println!("using offset ptype {}", $P::PTYPE);
                     p.as_slice::<$P>()[index].as_()
                 })
             })

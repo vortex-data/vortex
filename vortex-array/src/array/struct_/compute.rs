@@ -35,7 +35,9 @@ impl ScalarAtFn<StructArray> for StructEncoding {
             array.dtype().clone(),
             array
                 .children()
-                .map(|field| scalar_at(&field, index))
+                .enumerate()
+                .inspect(|(idx, _)| println!("scalar @ for field {idx}"))
+                .map(|(_, field)| scalar_at(&field, index))
                 .try_collect()?,
         ))
     }

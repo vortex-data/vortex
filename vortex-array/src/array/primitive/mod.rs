@@ -199,6 +199,7 @@ impl PrimitiveArray {
         }
         let length = self.len();
         let raw_slice = self.byte_buffer().as_slice();
+        println!("raw_slice.len() = {} ptype = {}", raw_slice.len(), T::PTYPE);
         debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }

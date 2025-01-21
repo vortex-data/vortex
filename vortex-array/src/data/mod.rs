@@ -96,6 +96,7 @@ impl ArrayData {
 
         // Parse the array metadata
         let metadata = encoding.load_metadata(array.as_fb().metadata().map(|v| v.bytes()))?;
+        println!("metadata = {:?}", metadata);
 
         let view = ViewedArrayData {
             encoding,
