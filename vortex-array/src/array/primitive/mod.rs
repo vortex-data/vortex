@@ -103,14 +103,6 @@ impl PrimitiveArray {
         Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
-    fn metadata(&self) -> PrimitiveMetadata {
-        // SAFETY: metadata is validated in ValidateVTable
-        unsafe {
-            RkyvMetadata::<PrimitiveMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes())
-                .0
-        }
-    }
-
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
@@ -265,9 +257,6 @@ impl ValidateVTable<PrimitiveArray> for PrimitiveEncoding {
                 vortex_bail!("PrimitiveArray: buffer is not aligned to {}", stringify!($T));
             }
         });
-
-        // Validate the metadata bytes
-        RkyvMetadata::<PrimitiveMetadata>::deserialize(array.as_ref().metadata_bytes())?;
 
         Ok(())
     }

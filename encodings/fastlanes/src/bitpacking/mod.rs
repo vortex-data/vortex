@@ -161,14 +161,6 @@ impl BitPackedArray {
         )
     }
 
-    fn metadata(&self) -> BitPackedMetadata {
-        // SAFETY: metadata is validated in ValidateVTable
-        unsafe {
-            RkyvMetadata::<BitPackedMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes())
-                .0
-        }
-    }
-
     #[inline]
     pub fn packed(&self) -> &ByteBuffer {
         self.as_ref()
@@ -288,13 +280,7 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
 
 impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
-impl ValidateVTable<BitPackedArray> for BitPackedEncoding {
-    fn validate(&self, array: &BitPackedArray) -> VortexResult<()> {
-        // Validate the metadata
-        RkyvMetadata::<BitPackedMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<BitPackedArray> for BitPackedEncoding {}
 
 impl VariantsVTable<BitPackedArray> for BitPackedEncoding {
     fn as_primitive_array<'a>(

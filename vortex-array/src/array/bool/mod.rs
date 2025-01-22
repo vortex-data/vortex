@@ -49,14 +49,6 @@ impl Display for BoolMetadata {
 }
 
 impl BoolArray {
-    /// Access the array's metadata
-    fn metadata(&self) -> BoolMetadata {
-        // SAFETY: BoolMetadata is validated in ValidateVTable::validate
-        unsafe {
-            RkyvMetadata::<BoolMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     /// Access internal array buffer
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
@@ -172,9 +164,6 @@ impl ValidateVTable<BoolArray> for BoolEncoding {
                 array.as_ref().nbuffers()
             );
         }
-
-        // Now we validate the metadata
-        RkyvMetadata::<BoolMetadata>::deserialize(array.as_ref().metadata_bytes())?;
 
         Ok(())
     }

@@ -10,8 +10,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -68,12 +68,6 @@ impl ALPArray {
         } else {
             vortex_bail!("ALP can only encode primitive arrays");
         }
-    }
-
-    fn metadata(&self) -> ALPMetadata {
-        SerdeMetadata::<ALPMetadata>::deserialize(self.as_ref().metadata_bytes())
-            .vortex_expect("ALPMetadata metadata")
-            .0
     }
 
     pub fn encoded(&self) -> ArrayData {

@@ -13,7 +13,7 @@ use crate::{DeserializeMetadata, SerializeMetadata};
 pub fn check_metadata<T>(name: &str, metadata: T)
 where
     T: SerializeMetadata,
-    T: for<'m> DeserializeMetadata<'m>,
+    T: DeserializeMetadata,
 {
     let mut mint = Mint::new("goldenfiles/");
     if let Some(meta) = metadata

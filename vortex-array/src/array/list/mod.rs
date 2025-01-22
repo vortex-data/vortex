@@ -101,13 +101,6 @@ impl ListArray {
         )
     }
 
-    fn metadata(&self) -> ListMetadata {
-        // SAFETY: metadata is validated in ValidateVTable
-        unsafe {
-            RkyvMetadata::<ListMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
@@ -173,12 +166,7 @@ impl VariantsVTable<ListArray> for ListEncoding {
     }
 }
 
-impl ValidateVTable<ListArray> for ListEncoding {
-    fn validate(&self, array: &ListArray) -> VortexResult<()> {
-        RkyvMetadata::<ListMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<ListArray> for ListEncoding {}
 
 impl VisitorVTable<ListArray> for ListEncoding {
     fn accept(&self, array: &ListArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

@@ -250,16 +250,6 @@ impl VarBinViewArray {
         )
     }
 
-    fn metadata(&self) -> VarBinViewMetadata {
-        // SAFETY: metadata is validated in the ValidateVTable
-        unsafe {
-            RkyvMetadata::<VarBinViewMetadata>::deserialize_unchecked(
-                self.as_ref().metadata_bytes(),
-            )
-            .0
-        }
-    }
-
     /// Number of raw string data buffers held by this array.
     pub fn nbuffers(&self) -> usize {
         self.0.nbuffers() - 1
@@ -441,12 +431,7 @@ where
     builder.finish()
 }
 
-impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {
-    fn validate(&self, array: &VarBinViewArray) -> VortexResult<()> {
-        RkyvMetadata::<VarBinViewMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
 impl IntoCanonical for VarBinViewArray {
     fn into_canonical(self) -> VortexResult<Canonical> {

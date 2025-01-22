@@ -57,7 +57,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
         )?;
         self.indent(|i| {
             write!(i.fmt, "{}metadata: ", i.indent)?;
-            array.encoding().metadata_display(array, i.fmt)?;
+            array.encoding().display_metadata(array, i.fmt)?;
             writeln!(i.fmt)
         })?;
 

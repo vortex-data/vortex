@@ -11,7 +11,7 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{ArrayData, Canonical, EmptyMetadata, IntoCanonicalVTable};
+use crate::{ArrayData, Canonical, EmptyMetadata, IntoCanonicalVTable, MetadataVTable};
 
 /// An encoding of an array that we cannot interpret.
 ///
@@ -28,6 +28,16 @@ pub struct OpaqueEncoding(pub u16);
 
 impl VariantsVTable<ArrayData> for OpaqueEncoding {}
 
+impl MetadataVTable<ArrayData> for OpaqueEncoding {
+    fn validate_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<()> {
+        Ok(())
+    }
+
+    fn display_metadata(&self, _array: &ArrayData, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OpaqueMetadata")
+    }
+}
+
 impl EncodingVTable for OpaqueEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new("vortex.opaque", self.0)
@@ -35,10 +45,6 @@ impl EncodingVTable for OpaqueEncoding {
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn metadata_display(&self, _array: &ArrayData, f: &mut Formatter<'_>) -> std::fmt::Result {
-        EmptyMetadata.fmt(f)
     }
 }
 

@@ -42,13 +42,6 @@ impl Display for StructMetadata {
 }
 
 impl StructArray {
-    fn metadata(&self) -> StructMetadata {
-        // SAFETY: StructMetadata is validated in the ValidateVTable
-        unsafe {
-            RkyvMetadata::<StructMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
@@ -159,12 +152,7 @@ impl StructArray {
     }
 }
 
-impl ValidateVTable<StructArray> for StructEncoding {
-    fn validate(&self, array: &StructArray) -> VortexResult<()> {
-        RkyvMetadata::<StructMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<StructArray> for StructEncoding {}
 
 impl VariantsVTable<StructArray> for StructEncoding {
     fn as_struct_array<'a>(&self, array: &'a StructArray) -> Option<&'a dyn StructArrayTrait> {

@@ -136,7 +136,9 @@ impl ArrayData {
             array.dtype()
         );
 
-        // Invoke the encoding's validate function to ensure that we pass basic checks.
+        // First, we validate the metadata.
+        array.encoding().validate_metadata(array.metadata_bytes())?;
+        // Then perform additional custom validation
         // This is called for both Owned and Viewed array data since there are public functions
         // for constructing an ArrayData, e.g. `try_new_owned`.
         array.encoding().validate(&array)?;

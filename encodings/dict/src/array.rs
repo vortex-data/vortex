@@ -11,8 +11,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoArrayVariant, IntoCanonical, SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -42,12 +42,6 @@ impl DictArray {
             Some([codes, values].into()),
             StatsSet::default(),
         )
-    }
-
-    fn metadata(&self) -> DictMetadata {
-        SerdeMetadata::<DictMetadata>::deserialize(self.as_ref().metadata_bytes())
-            .vortex_expect("DictMetadata metadata")
-            .0
     }
 
     #[inline]

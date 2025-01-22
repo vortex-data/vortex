@@ -108,13 +108,6 @@ impl ChunkedArray {
             .child(idx + 1, self.as_ref().dtype(), chunk_end - chunk_start)
     }
 
-    fn metadata(&self) -> ChunkedMetadata {
-        // SAFETY: metadata is validated in ValidateVTable
-        unsafe {
-            RkyvMetadata::<ChunkedMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     pub fn nchunks(&self) -> usize {
         self.metadata().nchunks
     }
@@ -210,12 +203,7 @@ impl ChunkedArray {
     }
 }
 
-impl ValidateVTable<ChunkedArray> for ChunkedEncoding {
-    fn validate(&self, array: &ChunkedArray) -> VortexResult<()> {
-        RkyvMetadata::<ChunkedMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
 
 impl FromIterator<ArrayData> for ChunkedArray {
     fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {

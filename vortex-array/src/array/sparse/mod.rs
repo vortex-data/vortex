@@ -121,13 +121,6 @@ impl SparseArray {
         )
     }
 
-    fn metadata(&self) -> SparseMetadata {
-        // SAFETY: The metadata is checked in ValidateVTable
-        unsafe {
-            RkyvMetadata::<SparseMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     #[inline]
     pub fn indices_offset(&self) -> usize {
         self.metadata().indices_offset
@@ -167,12 +160,7 @@ impl SparseArray {
     }
 }
 
-impl ValidateVTable<SparseArray> for SparseEncoding {
-    fn validate(&self, array: &SparseArray) -> VortexResult<()> {
-        RkyvMetadata::<SparseMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<SparseArray> for SparseEncoding {}
 
 impl VisitorVTable<SparseArray> for SparseEncoding {
     fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

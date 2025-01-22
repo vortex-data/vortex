@@ -100,13 +100,6 @@ impl VarBinArray {
         )
     }
 
-    fn metadata(&self) -> VarBinMetadata {
-        // SAFETY: metadata is validated in the ValidateVTable
-        unsafe {
-            RkyvMetadata::<VarBinMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     #[inline]
     pub fn offsets(&self) -> ArrayData {
         self.as_ref()
@@ -243,12 +236,7 @@ impl VarBinArray {
     }
 }
 
-impl ValidateVTable<VarBinArray> for VarBinEncoding {
-    fn validate(&self, array: &VarBinArray) -> VortexResult<()> {
-        RkyvMetadata::<VarBinMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<VarBinArray> for VarBinEncoding {}
 
 impl From<Vec<&[u8]>> for VarBinArray {
     fn from(value: Vec<&[u8]>) -> Self {

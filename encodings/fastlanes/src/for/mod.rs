@@ -9,8 +9,7 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -62,12 +61,6 @@ impl FoRArray {
             Some([child].into()),
             StatsSet::default(),
         )
-    }
-
-    fn metadata(&self) -> FoRMetadata {
-        SerdeMetadata::deserialize(self.as_ref().metadata_bytes())
-            .vortex_expect("FoRMetadata metadata")
-            .0
     }
 
     #[inline]

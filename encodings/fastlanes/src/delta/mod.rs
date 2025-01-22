@@ -169,13 +169,6 @@ impl DeltaArray {
         Ok(delta)
     }
 
-    fn metadata(&self) -> DeltaMetadata {
-        // SAFETY: metadata is validated in ValidateVTable
-        unsafe {
-            RkyvMetadata::<DeltaMetadata>::deserialize_unchecked(self.as_ref().metadata_bytes()).0
-        }
-    }
-
     #[inline]
     pub fn bases(&self) -> ArrayData {
         self.as_ref()
@@ -229,13 +222,8 @@ impl DeltaArray {
     }
 }
 
-impl ValidateVTable<DeltaArray> for DeltaEncoding {
-    fn validate(&self, array: &DeltaArray) -> VortexResult<()> {
-        // Validate the metadata
-        RkyvMetadata::<DeltaMetadata>::deserialize(array.as_ref().metadata_bytes())?;
-        Ok(())
-    }
-}
+impl ValidateVTable<DeltaArray> for DeltaEncoding {}
+
 impl VariantsVTable<DeltaArray> for DeltaEncoding {
     fn as_primitive_array<'a>(&self, array: &'a DeltaArray) -> Option<&'a dyn PrimitiveArrayTrait> {
         Some(array)

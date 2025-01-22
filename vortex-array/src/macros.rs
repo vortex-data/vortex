@@ -3,8 +3,8 @@
 use std::fmt::{Display, Formatter};
 
 use crate::array::StructMetadata;
-use crate::encoding::{ArrayEncodingRef, EncodingRef};
-use crate::{ArrayData, ToArrayData};
+use crate::encoding::{ArrayEncodingRef, Encoding, EncodingRef};
+use crate::{ArrayData, ArrayMetadata, ToArrayData};
 
 impl<A: AsRef<ArrayData>> ToArrayData for A {
     fn to_array(&self) -> ArrayData {
@@ -36,8 +36,8 @@ macro_rules! impl_encoding {
                 }
             }
 
+            #[allow(dead_code)]
             impl [<$Name Array>] {
-                #[allow(dead_code)]
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,
                     len: usize,
@@ -57,6 +57,13 @@ macro_rules! impl_encoding {
                             children,
                             stats
                     )?)
+                }
+
+                fn metadata(&self) -> <$Metadata as $crate::DeserializeMetadata>::Output {
+                    use $crate::DeserializeMetadata;
+
+                    // SAFETY: Metadata is validated during construction of ArrayData.
+                    unsafe { <$Metadata as DeserializeMetadata>::deserialize_unchecked(self.0.metadata_bytes()) }
                 }
 
                 /// Optionally downcast an [`ArrayData`](crate::ArrayData) instance to a specific encoding.
@@ -121,16 +128,6 @@ macro_rules! impl_encoding {
 
                 fn as_any(&self) -> &dyn std::any::Any {
                     self
-                }
-
-                fn metadata_display(&self, array: &$crate::ArrayData, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    use std::fmt::Display;
-                    use $crate::DeserializeMetadata;
-
-                    match <$Metadata as DeserializeMetadata>::deserialize(array.metadata_bytes()) {
-                        Ok(metadata) => metadata.fmt(f),
-                        Err(_) => write!(f, "Error deserializing metadata"),
-                    }
                 }
             }
         }
