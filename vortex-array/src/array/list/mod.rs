@@ -30,7 +30,7 @@ use crate::{
     RkyvMetadata,
 };
 
-impl_encoding!("vortex.list", ids::LIST, List);
+impl_encoding!("vortex.list", ids::LIST, List, RkyvMetadata<ListMetadata>);
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,

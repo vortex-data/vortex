@@ -23,7 +23,12 @@ mod canonical;
 mod compute;
 mod variants;
 
-impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
+impl_encoding!(
+    "vortex.sparse",
+    ids::SPARSE,
+    Sparse,
+    RkyvMetadata<SparseMetadata>
+);
 
 #[derive(
     Debug,

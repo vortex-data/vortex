@@ -33,7 +33,12 @@ mod compute;
 mod stats;
 mod variants;
 
-impl_encoding!("vortex.chunked", ids::CHUNKED, Chunked);
+impl_encoding!(
+    "vortex.chunked",
+    ids::CHUNKED,
+    Chunked,
+    RkyvMetadata<ChunkedMetadata>
+);
 
 #[derive(
     Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,

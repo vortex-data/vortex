@@ -12,18 +12,18 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::variants::{NullArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayLen, Canonical, EmptyMetadata, IntoCanonical};
 
 mod compute;
 
-impl_encoding!("vortex.null", ids::NULL, Null);
+impl_encoding!("vortex.null", ids::NULL, Null, EmptyMetadata);
 
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self::try_from_parts(
             DType::Null,
             len,
-            (),
+            EmptyMetadata,
             None,
             None,
             StatsSet::nulls(len, &DType::Null),

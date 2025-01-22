@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
+use vortex_flatbuffers::dtype::Primitive;
 
 use crate::encoding::ids;
 use crate::iter::Accessor;
@@ -25,7 +26,12 @@ mod compute;
 mod patch;
 mod stats;
 
-impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
+impl_encoding!(
+    "vortex.primitive",
+    ids::PRIMITIVE,
+    Primitive,
+    RkyvMetadata<PrimitiveMetadata>
+);
 
 #[derive(
     Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,

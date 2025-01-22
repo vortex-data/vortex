@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::num::IntErrorKind::Empty;
 
 use serde::{Deserialize, Serialize};
 use vortex_error::{VortexExpect, VortexResult};
@@ -10,13 +11,13 @@ use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayLen};
+use crate::{impl_encoding, ArrayDType, ArrayLen, EmptyMetadata};
 
 mod canonical;
 mod compute;
 mod variants;
 
-impl_encoding!("vortex.constant", ids::CONSTANT, Constant);
+impl_encoding!("vortex.constant", ids::CONSTANT, Constant, EmptyMetadata);
 
 impl ConstantArray {
     pub fn new<S>(scalar: S, length: usize) -> Self
@@ -33,7 +34,7 @@ impl ConstantArray {
         Self::try_from_parts(
             dtype,
             length,
-            (),
+            EmptyMetadata,
             Some([value_buffer.into_inner()].into()),
             None,
             stats,

@@ -24,7 +24,7 @@ mod stats;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::BooleanBuffer;
 
-impl_encoding!("vortex.bool", ids::BOOL, Bool);
+impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
 
 #[derive(
     Clone,

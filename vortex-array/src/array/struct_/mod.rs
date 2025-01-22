@@ -20,7 +20,12 @@ use crate::{
 
 mod compute;
 
-impl_encoding!("vortex.struct", ids::STRUCT, Struct);
+impl_encoding!(
+    "vortex.struct",
+    ids::STRUCT,
+    Struct,
+    RkyvMetadata<StructMetadata>
+);
 
 #[derive(
     Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,

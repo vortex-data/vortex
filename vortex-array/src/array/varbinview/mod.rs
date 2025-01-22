@@ -210,7 +210,12 @@ impl Display for VarBinViewMetadata {
     }
 }
 
-impl_encoding!("vortex.varbinview", ids::VAR_BIN_VIEW, VarBinView);
+impl_encoding!(
+    "vortex.varbinview",
+    ids::VAR_BIN_VIEW,
+    VarBinView,
+    RkyvMetadata<VarBinViewMetadata>
+);
 
 impl VarBinViewArray {
     pub fn try_new(

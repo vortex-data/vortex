@@ -15,7 +15,7 @@ impl<A: AsRef<ArrayData>> ToArrayData for A {
 /// 3. New metadata type that implements `ArrayMetadata`.
 #[macro_export]
 macro_rules! impl_encoding {
-    ($id:literal, $code:expr, $Name:ident) => {
+    ($id:literal, $code:expr, $Name:ident, $Metadata:ty) => {
         $crate::paste::paste! {
             #[derive(std::fmt::Debug, Clone)]
             #[repr(transparent)]
@@ -38,11 +38,13 @@ macro_rules! impl_encoding {
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,
                     len: usize,
-                    metadata: impl $crate::SerializeMetadata,
+                    metadata: $Metadata,
                     buffers: Option<Box<[vortex_buffer::ByteBuffer]>>,
                     children: Option<Box<[$crate::ArrayData]>>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
+                    use crate::metadata::SerializeMetadata;
+
                     Self::try_from($crate::ArrayData::try_new_owned(
                             &[<$Name Encoding>],
                             dtype,
@@ -105,6 +107,7 @@ macro_rules! impl_encoding {
             impl $crate::encoding::Encoding for [<$Name Encoding>] {
                 const ID: $crate::encoding::EncodingId = $crate::encoding::EncodingId::new($id, $code);
                 type Array = [<$Name Array>];
+                type Metadata = $Metadata;
             }
 
             impl $crate::encoding::EncodingVTable for [<$Name Encoding>] {

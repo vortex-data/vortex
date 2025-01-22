@@ -1,6 +1,8 @@
+use std::fmt::{Display, Formatter};
+
 use flexbuffers::FlexbufferSerializer;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 pub trait SerializeMetadata {
     fn serialize(&self) -> VortexResult<Option<ByteBuffer>>;
@@ -27,6 +29,29 @@ where
     unsafe fn deserialize_unchecked(metadata: Option<&'m [u8]>) -> Self {
         Self::deserialize(metadata)
             .vortex_expect("Metadata should have been validated before calling this method")
+    }
+}
+
+pub struct EmptyMetadata;
+
+impl SerializeMetadata for EmptyMetadata {
+    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+        Ok(None)
+    }
+}
+
+impl DeserializeMetadata<'_> for EmptyMetadata {
+    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self> {
+        if metadata.is_some() {
+            vortex_bail!("EmptyMetadata should not have metadata bytes")
+        }
+        Ok(EmptyMetadata)
+    }
+}
+
+impl Display for EmptyMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EmptyMetadata")
     }
 }
 
@@ -68,6 +93,15 @@ where
             metadata.ok_or_else(|| vortex_err!("Missing expected metadata"))?,
         )
         .map(RkyvMetadata)
+    }
+}
+
+impl<M> Display for RkyvMetadata<M>
+where
+    M: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

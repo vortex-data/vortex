@@ -32,7 +32,12 @@ mod compute;
 mod stats;
 mod variants;
 
-impl_encoding!("vortex.varbin", ids::VAR_BIN, VarBin);
+impl_encoding!(
+    "vortex.varbin",
+    ids::VAR_BIN,
+    VarBin,
+    RkyvMetadata<VarBinMetadata>
+);
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
