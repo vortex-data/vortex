@@ -1,6 +1,6 @@
 use fsst::Symbol;
 use vortex_array::array::ConstantArray;
-use vortex_array::compute::{compare, CompareFn, Operator};
+use vortex_array::compute::{compare, compare_with_selection, CompareFn, FilterMask, Operator};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
@@ -28,6 +28,33 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
                 lhs,
                 &ConstantArray::new(constant, lhs.len()),
                 operator == Operator::Eq,
+            )
+            .map(Some),
+            // Otherwise, fall back to the default comparison behavior.
+            _ => Ok(None),
+        }
+    }
+
+    fn compare_with_selection(
+        &self,
+        lhs: &FSSTArray,
+        rhs: &ArrayData,
+        operator: Operator,
+        selection: &FilterMask,
+    ) -> VortexResult<Option<ArrayData>> {
+        match (rhs.as_constant(), operator) {
+            (Some(constant), _) if constant.is_null() => {
+                // All comparisons to null must return null
+                Ok(Some(
+                    ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
+                        .into_array(),
+                ))
+            }
+            (Some(constant), Operator::Eq | Operator::NotEq) => compare_fsst_constant_selection(
+                lhs,
+                &ConstantArray::new(constant, lhs.len()),
+                operator == Operator::Eq,
+                selection,
             )
             .map(Some),
             // Otherwise, fall back to the default comparison behavior.
@@ -80,6 +107,56 @@ fn compare_fsst_constant(
         left.codes(),
         rhs,
         if equal { Operator::Eq } else { Operator::NotEq },
+    )
+}
+
+/// Specialized compare function implementation used when performing equals or not equals against
+/// a constant.
+fn compare_fsst_constant_selection(
+    left: &FSSTArray,
+    right: &ConstantArray,
+    equal: bool,
+    selection: &FilterMask,
+) -> VortexResult<ArrayData> {
+    let symbols = left.symbols().into_primitive()?;
+    let symbols_u64 = symbols.as_slice::<u64>();
+
+    let symbol_lens = left.symbol_lengths().into_primitive()?;
+    let symbol_lens_u8 = symbol_lens.as_slice::<u8>();
+
+    let mut compressor = fsst::CompressorBuilder::new();
+
+    for (symbol, symbol_len) in symbols_u64.iter().zip(symbol_lens_u8.iter()) {
+        compressor.insert(Symbol::from_slice(&symbol.to_le_bytes()), *symbol_len as _);
+    }
+    let compressor = compressor.build();
+
+    let encoded_scalar = match left.dtype() {
+        DType::Utf8(_) => {
+            let value = right
+                .scalar()
+                .as_utf8()
+                .value()
+                .vortex_expect("Expected non-null scalar");
+            ByteBuffer::from(compressor.compress(value.as_bytes()))
+        }
+        DType::Binary(_) => {
+            let value = right
+                .scalar()
+                .as_binary()
+                .value()
+                .vortex_expect("Expected non-null scalar");
+            ByteBuffer::from(compressor.compress(value.as_slice()))
+        }
+        _ => unreachable!("FSSTArray can only have string or binary data type"),
+    };
+
+    let rhs = ConstantArray::new(encoded_scalar, left.len());
+    compare_with_selection(
+        left.codes(),
+        rhs,
+        if equal { Operator::Eq } else { Operator::NotEq },
+        selection,
     )
 }
 

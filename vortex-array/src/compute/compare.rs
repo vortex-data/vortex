@@ -7,6 +7,8 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
+use crate::compute::selection::SelectionArray;
+use crate::compute::FilterMask;
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
@@ -79,6 +81,22 @@ pub trait CompareFn<Array> {
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>>;
+
+    fn compare_with_selection(
+        &self,
+        lhs: &Array,
+        rhs: &ArrayData,
+        operator: Operator,
+        selection: &FilterMask,
+    ) -> VortexResult<Option<ArrayData>> {
+        if let Some(result) = self.compare(lhs, rhs, operator)? {
+            Ok(Some(
+                SelectionArray::new(result, selection.clone()).into_array(),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl<E: Encoding> CompareFn<ArrayData> for E
@@ -146,6 +164,85 @@ pub fn compare(
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
+        .transpose()?
+    {
+        check_compare_result(&result, left, right);
+        return Ok(result);
+    }
+
+    // Only log missing compare implementation if there's possibly better one than arrow,
+    // i.e. lhs isn't arrow or rhs isn't arrow or constant
+    if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
+        log::debug!(
+            "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
+            right.encoding().id(),
+            left.encoding().id(),
+            operator.swap(),
+        );
+    }
+
+    // Fallback to arrow on canonical types
+    let result = arrow_compare(left, right, operator)?;
+    check_compare_result(&result, left, right);
+    Ok(result)
+}
+
+pub fn compare_with_selection(
+    left: impl AsRef<ArrayData>,
+    right: impl AsRef<ArrayData>,
+    operator: Operator,
+    selection: &FilterMask,
+) -> VortexResult<ArrayData> {
+    let left = left.as_ref();
+    let right = right.as_ref();
+
+    if left.len() != right.len() {
+        vortex_bail!("Compare operations only support arrays of the same length");
+    }
+    if !left.dtype().eq_ignore_nullability(right.dtype()) {
+        vortex_bail!("Compare operations only support arrays of the same type");
+    }
+
+    if left.dtype().is_struct() {
+        vortex_bail!(
+            "Compare does not support arrays with Strcut DType, got: {} and {}",
+            left.dtype(),
+            right.dtype()
+        )
+    }
+
+    let result_dtype =
+        DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into());
+
+    if left.is_empty() {
+        return Ok(Canonical::empty(&result_dtype)?.into_array());
+    }
+
+    // Always try to put constants on the right-hand side so encodings can optimise themselves.
+    if left.is_constant() && !right.is_constant() {
+        return compare(right, left, operator.swap());
+    }
+
+    if let Some(result) = left
+        .encoding()
+        .compare_fn()
+        .and_then(|f| {
+            f.compare_with_selection(left, right, operator, selection)
+                .transpose()
+        })
+        .transpose()?
+    {
+        check_compare_result(&result, left, right);
+        return Ok(result);
+    }
+
+    if let Some(result) = right
+        .encoding()
+        .compare_fn()
+        .and_then(|f| {
+            f.compare_with_selection(right, left, operator.swap(), selection)
+                .transpose()
+        })
         .transpose()?
     {
         check_compare_result(&result, left, right);

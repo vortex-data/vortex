@@ -15,7 +15,7 @@ pub use boolean::{
     and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
 };
 pub use cast::{try_cast, CastFn};
-pub use compare::{compare, scalar_cmp, CompareFn, Operator};
+pub use compare::{compare, compare_with_selection, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
 pub use fill_null::{fill_null, FillNullFn};
 pub use filter::{filter, FilterFn, FilterIter, FilterMask};
@@ -39,6 +39,7 @@ mod invert;
 mod like;
 mod scalar_at;
 mod search_sorted;
+mod selection;
 mod slice;
 mod take;
 
