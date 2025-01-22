@@ -117,6 +117,7 @@ pyo3 = { version = ">= 0.22", features = ["extension-module", "abi3-py310"] }
 pyo3-log = ">= 0.11"
 rancor = "0.1.0"
 rand = "0.8.5"
+rand_distr = "0.4"
 rayon = "1.10.0"
 regex = "1.11.0"
 reqwest = { version = "0.12.0", features = ["blocking"] }
@@ -168,7 +169,6 @@ vortex-zigzag = { version = "0.22.1", path = "./encodings/zigzag" }
 worker = "0.5.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
-zipf = "7"
 
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"

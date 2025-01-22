@@ -12,13 +12,13 @@ use object_store::{
 };
 use rand::prelude::Distribution as _;
 use rand::thread_rng;
+use rand_distr::LogNormal;
 use reqwest::Url;
-use zipf::ZipfDistribution;
 
 #[derive(Debug)]
 pub struct SlowObjectStore {
     inner: Arc<dyn ObjectStore>,
-    zipf: ZipfDistribution,
+    distribution: LogNormal<f32>,
     rate_limiter: Arc<DefaultDirectRateLimiter>,
 }
 
@@ -54,7 +54,7 @@ impl SlowObjectStore {
     pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             inner: object_store,
-            zipf: ZipfDistribution::new(1000, 1.4).unwrap(),
+            distribution: LogNormal::new(4.7, 0.5).unwrap(), //p50 ~ 100, p95 ~ 250 and p100 ~ 600
             rate_limiter: Arc::new(DefaultDirectRateLimiter::direct(Quota::per_second(
                 (2_u32 << 30).try_into().unwrap(), // 1GB/s
             ))),
@@ -62,12 +62,12 @@ impl SlowObjectStore {
     }
 
     /// Injects an artificial sleep of somewhere between 30ms to a full second.
-    /// max wait is 1sec, but p95 is around 200ms (roughly the same as AnyBlob paper).
+    // wait times will p50 ~ 100ms, p95 ~ 250ms and p100 ~ 600ms.
     ///
     /// We always wait at least 30ms, which seems to be the rough baseline for object store access.
     async fn wait(&self) {
-        let duration = self.zipf.sample(&mut thread_rng()) + 30;
-        tokio::time::sleep(Duration::from_millis(duration as u64)).await;
+        let duration = self.distribution.sample(&mut thread_rng()) as u64;
+        tokio::time::sleep(Duration::from_millis(duration.clamp(30, 1_000))).await;
     }
 }
 
