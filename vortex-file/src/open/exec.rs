@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-#[cfg(feature = "tokio")]
-use tokio::runtime::Handle;
-
 use crate::exec::inline::InlineDriver;
 #[cfg(feature = "tokio")]
 use crate::exec::tokio::TokioDriver;
@@ -19,29 +16,35 @@ pub enum ExecutionMode {
     RayonThreadPool(Arc<rayon::ThreadPool>),
     /// Spawns the tasks onto a provided Tokio runtime.
     #[cfg(feature = "tokio")]
-    TokioRuntime(Handle),
+    TokioRuntime(tokio::runtime::Handle),
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for ExecutionMode {
+    fn default() -> Self {
+        // Default to tokio-specific behavior if its enabled and there's a runtime running.
+        #[cfg(feature = "tokio")]
+        if let Ok(h) = tokio::runtime::Handle::try_current() {
+            return ExecutionMode::TokioRuntime(h);
+        }
+
+        ExecutionMode::Inline
+    }
 }
 
 impl ExecutionMode {
-    pub fn into_driver(self) -> Arc<dyn ExecDriver> {
+    pub fn into_driver(self, concurrency: usize) -> Arc<dyn ExecDriver> {
         match self {
-            ExecutionMode::Inline => {
-                // Default to tokio-specific behavior if its enabled and there's a runtime running.
-                #[cfg(feature = "tokio")]
-                match Handle::try_current() {
-                    Ok(h) => Arc::new(TokioDriver(h)),
-                    Err(_) => Arc::new(InlineDriver),
-                }
-
-                #[cfg(not(feature = "tokio"))]
-                Arc::new(InlineDriver)
-            }
+            ExecutionMode::Inline => Arc::new(InlineDriver::with_concurrency(concurrency)),
             #[cfg(feature = "rayon")]
             ExecutionMode::RayonThreadPool(_) => {
                 todo!()
             }
             #[cfg(feature = "tokio")]
-            ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver(handle)),
+            ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver {
+                handle,
+                concurrency,
+            }),
         }
     }
 }

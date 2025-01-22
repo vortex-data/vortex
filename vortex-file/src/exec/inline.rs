@@ -1,13 +1,23 @@
+use std::future::ready;
+
 use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
-use futures_util::{FutureExt, StreamExt};
+use futures_util::StreamExt;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
 use crate::exec::ExecDriver;
 
 /// An [`ExecDriver`] implementation that awaits the futures inline using the caller's runtime.
-pub struct InlineDriver;
+pub struct InlineDriver {
+    concurrency: usize,
+}
+
+impl InlineDriver {
+    pub fn with_concurrency(concurrency: usize) -> Self {
+        Self { concurrency }
+    }
+}
 
 impl ExecDriver for InlineDriver {
     fn drive(
@@ -15,7 +25,8 @@ impl ExecDriver for InlineDriver {
         stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<ArrayData>>>>,
     ) -> BoxStream<'static, VortexResult<ArrayData>> {
         stream
-            .filter_map(|future| future.map(|result| result.transpose()))
+            .buffered(self.concurrency)
+            .filter_map(|result| ready(result.transpose()))
             .boxed()
     }
 }

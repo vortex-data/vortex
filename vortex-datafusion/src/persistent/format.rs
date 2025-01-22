@@ -187,7 +187,10 @@ impl FileFormat for VortexFormat {
                         .unwrap_or(Precision::Absent),
                     max_value: max.map(Precision::Exact).unwrap_or(Precision::Absent),
                     min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
-                    distinct_count: Precision::Absent,
+                    distinct_count: s
+                        .get_as::<bool>(Stat::IsConstant)
+                        .and_then(|is_constant| is_constant.then_some(Precision::Exact(1)))
+                        .unwrap_or(Precision::Absent),
                 }
             })
             .collect::<Vec<_>>();

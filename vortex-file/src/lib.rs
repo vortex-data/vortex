@@ -98,7 +98,6 @@ pub mod io;
 mod open;
 pub mod read;
 pub mod segments;
-mod strategy;
 #[cfg(test)]
 mod tests;
 mod writer;

@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use itertools::Itertools;
+use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutData;
 
@@ -19,7 +20,11 @@ pub enum SplitBy {
 
 impl SplitBy {
     /// Compute the splits for the given layout.
-    pub(crate) fn splits(&self, layout: &LayoutData) -> VortexResult<Vec<Range<u64>>> {
+    pub(crate) fn splits(
+        &self,
+        layout: &LayoutData,
+        field_mask: &[FieldMask],
+    ) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {
             SplitBy::Layout => {
                 let mut row_splits = BTreeSet::<u64>::new();
@@ -27,12 +32,13 @@ impl SplitBy {
                 row_splits.insert(0);
                 row_splits.insert(layout.row_count());
                 // Register the splits for all the layouts.
-                layout.register_splits(0, &mut row_splits)?;
+                layout.register_splits(field_mask, 0, &mut row_splits)?;
+
                 row_splits
                     .into_iter()
                     .tuple_windows()
                     .map(|(start, end)| start..end)
-                    .collect::<Vec<_>>()
+                    .collect()
             }
             SplitBy::RowCount(n) => {
                 let row_count = layout.row_count();
@@ -52,8 +58,8 @@ impl SplitBy {
 mod test {
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, FieldPath};
     use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
     use vortex_layout::strategies::LayoutWriterExt;
 
@@ -66,7 +72,9 @@ mod test {
         let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
-        let splits = SplitBy::Layout.splits(&layout).unwrap();
+        let splits = SplitBy::Layout
+            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
+            .unwrap();
         assert_eq!(splits, vec![0..10]);
     }
 
@@ -76,7 +84,9 @@ mod test {
         let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
-        let splits = SplitBy::RowCount(3).splits(&layout).unwrap();
+        let splits = SplitBy::RowCount(3)
+            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
+            .unwrap();
         assert_eq!(splits, vec![0..3, 3..6, 6..9, 9..10]);
     }
 }

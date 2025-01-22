@@ -15,7 +15,7 @@ use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{and, ident, lit, select, ExprRef};
-use vortex_file::{ExecutionMode, Scan, SplitBy, VortexOpenOptions};
+use vortex_file::{ExecutionMode, Scan, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
@@ -52,7 +52,7 @@ impl VortexFileOpener {
                     .reduce(and)
                     .unwrap_or_else(|| lit(true));
 
-                simplify_typed(expr, dtype)
+                simplify_typed(expr, &dtype)
             })
             .transpose()?;
 
@@ -88,8 +88,6 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, this.object_store.clone())
                         .await?,
                 )
-                // Create larger splits in so that each chunk has more rows
-                .with_split_by(SplitBy::RowCount(2 << 15))
                 .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
                 .open(read_at)
                 .await?;

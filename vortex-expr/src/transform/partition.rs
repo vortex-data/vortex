@@ -1,14 +1,12 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{DType, Field, FieldName, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
+use crate::transform::immediate_access::{immediate_scope_accesses, FieldAccesses};
 use crate::transform::simplify_typed::simplify_typed;
-use crate::traversal::{
-    FoldDown, FoldUp, Folder, FolderMut, MutNodeVisitor, Node, TransformResult,
-};
-use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
+use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
+use crate::{get_item, ident, pack, ExprRef, GetItem, Identity};
 
 /// Partition an expression over the fields of the scope.
 ///
@@ -58,99 +56,15 @@ pub struct Partition {
     pub expr: ExprRef,
 }
 
-type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
-
-// For all subexpressions in an expression, find the fields that are accessed directly from the scope.
-struct ImmediateIdentityAccessesAnalysis<'a> {
-    sub_expressions: FieldAccesses<'a>,
-    scope_dtype: &'a StructDType,
-}
-
-impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
-    fn new(scope_dtype: &'a StructDType) -> Self {
-        Self {
-            sub_expressions: HashMap::new(),
-            scope_dtype,
-        }
-    }
-}
-
-// This is a very naive, but simple analysis to find the fields that are accessed directly on an
-// identity node. This is combined to provide an over-approximation of the fields that are accessed
-// by an expression.
-// TODO(ngates): rewrite to use Visitor not Folder
-impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
-    type NodeTy = ExprRef;
-    type Out = ();
-    type Context = ();
-
-    fn visit_down(
-        &mut self,
-        node: &'a Self::NodeTy,
-        _context: (),
-    ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
-        // TODO(joe): Resolve idx -> name for Field, this should be done as a separate,
-        // previous (not impl, yet), pass
-        if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
-            if get_item
-                .child()
-                .as_any()
-                .downcast_ref::<Identity>()
-                .is_some()
-            {
-                self.sub_expressions
-                    .insert(node, HashSet::from_iter(vec![get_item.field().clone()]));
-
-                return Ok(FoldDown::SkipChildren(()));
-            }
-        } else if let Some(select) = node.as_any().downcast_ref::<Select>() {
-            assert!(matches!(select.fields(), SelectField::Include(_)));
-            if select.child().as_any().is::<Identity>() {
-                self.sub_expressions.insert(
-                    node,
-                    HashSet::from_iter(select.fields().fields().iter().cloned()),
-                );
-            }
-            return Ok(FoldDown::SkipChildren(()));
-        } else if node.as_any().is::<Identity>() {
-            let st_dtype = &self.scope_dtype;
-            self.sub_expressions
-                .insert(node, st_dtype.names().iter().cloned().collect());
-        }
-
-        Ok(FoldDown::Continue(()))
-    }
-
-    fn visit_up(
-        &mut self,
-        node: &'a ExprRef,
-        _context: (),
-        _children: Vec<()>,
-    ) -> VortexResult<FoldUp<()>> {
-        let accesses = node
-            .children()
-            .iter()
-            .filter_map(|c| self.sub_expressions.get(c).cloned())
-            .collect_vec();
-
-        let node_accesses = self.sub_expressions.entry(node).or_default();
-        accesses
-            .into_iter()
-            .for_each(|fields| node_accesses.extend(fields.iter().cloned()));
-
-        Ok(FoldUp::Continue(()))
-    }
-}
-
 #[derive(Debug)]
 struct StructFieldExpressionSplitter<'a> {
     sub_expressions: HashMap<FieldName, Vec<ExprRef>>,
-    accesses: FieldAccesses<'a>,
+    accesses: &'a FieldAccesses<'a>,
     scope_dtype: &'a StructDType,
 }
 
 impl<'a> StructFieldExpressionSplitter<'a> {
-    fn new(accesses: FieldAccesses<'a>, scope_dtype: &'a StructDType) -> Self {
+    fn new(accesses: &'a FieldAccesses<'a>, scope_dtype: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
@@ -168,16 +82,9 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             _ => vortex_bail!("Expected a struct dtype, got {:?}", dtype),
         };
 
-        let mut expr_top_level_ref = ImmediateIdentityAccessesAnalysis::new(scope_dtype);
-        expr.accept_with_context(&mut expr_top_level_ref, ())?;
+        let field_accesses = immediate_scope_accesses(&expr, scope_dtype)?;
 
-        let expression_accesses = expr_top_level_ref
-            .sub_expressions
-            .get(&expr)
-            .map(|ac| ac.len());
-
-        let mut splitter =
-            StructFieldExpressionSplitter::new(expr_top_level_ref.sub_expressions, scope_dtype);
+        let mut splitter = StructFieldExpressionSplitter::new(&field_accesses, scope_dtype);
 
         let split = expr.clone().transform_with_context(&mut splitter, ())?;
 
@@ -207,23 +114,24 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 };
                 VortexResult::Ok(Partition {
                     name,
-                    expr: simplify_typed(expr, field_dtype)?,
+                    expr: simplify_typed(expr, &field_dtype)?,
                 })
             })
             .try_collect()?;
 
+        let expression_access_counts = field_accesses.get(&expr).map(|ac| ac.len());
         // Ensure that there are not more accesses than partitions, we missed something
-        assert!(expression_accesses.unwrap_or(0) <= partitions.len());
+        assert!(expression_access_counts.unwrap_or(0) <= partitions.len());
         // Ensure that there are as many partitions as there are accesses/fields in the scope,
         // this will affect performance, not correctness.
-        debug_assert_eq!(expression_accesses.unwrap_or(0), partitions.len());
+        debug_assert_eq!(expression_access_counts.unwrap_or(0), partitions.len());
 
         let split = split
             .result()
             .transform(&mut ReplaceAccessesWithChild(remove_accesses))?;
 
         Ok(PartitionedExpr {
-            root: simplify_typed(split.result, dtype.clone())?,
+            root: simplify_typed(split.result, dtype)?,
             partitions: partitions.into_boxed_slice(),
         })
     }
@@ -468,7 +376,7 @@ mod tests {
             get_item("b", get_item("a", ident())),
             select(vec!["a".into(), "b".into()], ident()),
         );
-        let expr = simplify_typed(expr, dtype.clone()).unwrap();
+        let expr = simplify_typed(expr, &dtype).unwrap();
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b

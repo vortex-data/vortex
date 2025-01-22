@@ -1,7 +1,7 @@
 use vortex_buffer::BufferString;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
 
 use crate::value::ScalarValue;
 use crate::{InnerScalarValue, Scalar};
@@ -21,8 +21,19 @@ impl<'a> Utf8Scalar<'a> {
         self.value.as_ref().cloned()
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        if !matches!(dtype, DType::Utf8(..)) {
+            vortex_bail!("Can't cast utf8 to {}", dtype)
+        }
+        Ok(Scalar::new(
+            dtype.clone(),
+            ScalarValue(InnerScalarValue::BufferString(
+                self.value
+                    .as_ref()
+                    .vortex_expect("nullness handled in Scalar::cast")
+                    .clone(),
+            )),
+        ))
     }
 }
 

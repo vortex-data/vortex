@@ -32,8 +32,6 @@ impl StatsSet {
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
         let mut stats = Self::new_unchecked(vec![
-            (Stat::Min, Scalar::null(dtype.clone())),
-            (Stat::Max, Scalar::null(dtype.clone())),
             (Stat::RunCount, 1.into()),
             (Stat::NullCount, len.into()),
         ]);
@@ -85,8 +83,10 @@ impl StatsSet {
             stats.set(Stat::TrueCount, true_count);
         }
 
-        stats.set(Stat::Min, scalar.clone());
-        stats.set(Stat::Max, scalar.clone());
+        if !scalar.is_null() {
+            stats.set(Stat::Min, scalar.clone());
+            stats.set(Stat::Max, scalar.clone());
+        }
 
         stats
     }

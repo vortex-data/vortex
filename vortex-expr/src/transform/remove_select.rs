@@ -6,28 +6,24 @@ use crate::{get_item, pack, ExprRef, Select};
 
 /// Select is a useful expression, however it can be defined in terms of get_item & pack,
 /// once the expression type is known, this simplifications pass removes the select expression.
-pub fn remove_select(e: ExprRef, scope_dt: DType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveSelectTransform::new(scope_dt);
+pub fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
+    let mut transform = RemoveSelectTransform {
+        scope_dtype: scope_dt,
+    };
     e.transform(&mut transform).map(|e| e.result)
 }
 
-struct RemoveSelectTransform {
-    ident_dtype: DType,
+struct RemoveSelectTransform<'a> {
+    scope_dtype: &'a DType,
 }
 
-impl RemoveSelectTransform {
-    fn new(ident_dtype: DType) -> Self {
-        Self { ident_dtype }
-    }
-}
-
-impl MutNodeVisitor for RemoveSelectTransform {
+impl MutNodeVisitor for RemoveSelectTransform<'_> {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
             let child = select.child();
-            let child_dtype = child.return_dtype(&self.ident_dtype)?;
+            let child_dtype = child.return_dtype(self.scope_dtype)?;
             let child_dtype = child_dtype.as_struct().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",
@@ -76,7 +72,7 @@ mod tests {
             NonNullable,
         );
         let e = select(["a".into(), "b".into()], ident());
-        let e = remove_select(e, dtype).unwrap();
+        let e = remove_select(e, &dtype).unwrap();
 
         assert!(e.as_any().is::<Pack>());
     }

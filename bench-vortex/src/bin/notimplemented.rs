@@ -20,9 +20,7 @@ use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::encodings::dict::DictArray;
 use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
-use vortex::encodings::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend_bool::RunEndBoolArray;
 use vortex::encodings::zigzag::ZigZagArray;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
@@ -118,16 +116,7 @@ fn enc_impls() -> Vec<ArrayData> {
         .into_array(),
         NullArray::new(10).into_array(),
         buffer![0, 1].into_array(),
-        RoaringBoolArray::try_new(Bitmap::from([0u32, 10, 20]), 30)
-            .unwrap()
-            .into_array(),
-        RoaringIntArray::try_new(Bitmap::from([5u32, 6, 8]), PType::U32)
-            .unwrap()
-            .into_array(),
         RunEndArray::try_new(buffer![5u32, 8].into_array(), buffer![0, 1].into_array())
-            .unwrap()
-            .into_array(),
-        RunEndBoolArray::try_new(buffer![5u32, 8].into_array(), true, Validity::NonNullable)
             .unwrap()
             .into_array(),
         SparseArray::try_new(

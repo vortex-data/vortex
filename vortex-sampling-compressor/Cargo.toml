@@ -32,13 +32,7 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-runend = { workspace = true }
-vortex-runend-bool = { workspace = true }
 vortex-zigzag = { workspace = true }
-
-# vortex-roaring cannot build on wasm32 due to dependency on croaring.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-vortex-roaring = { workspace = true }
-
 
 [dev-dependencies]
 chrono = { workspace = true }

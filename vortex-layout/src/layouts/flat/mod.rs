@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
+use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::encoding::{LayoutEncoding, LayoutId};
@@ -35,10 +36,16 @@ impl LayoutEncoding for FlatLayout {
     fn register_splits(
         &self,
         layout: &LayoutData,
+        field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_offset + layout.row_count());
+        for path in field_mask {
+            if path.matches_root() {
+                splits.insert(row_offset + layout.row_count());
+                break;
+            }
+        }
         Ok(())
     }
 }

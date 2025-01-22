@@ -1,11 +1,12 @@
 use std::any::type_name;
 use std::fmt::{Debug, Display};
 
-use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, NumCast};
+use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+    VortexUnwrap,
 };
 
 use crate::pvalue::PValue;
@@ -67,17 +68,19 @@ impl<'a> PrimitiveScalar<'a> {
         self.pvalue.map(|pv| pv.as_primitive::<T>().vortex_unwrap())
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let ptype = PType::try_from(dtype)?;
-        match_each_native_ptype!(ptype, |$Q| {
-            match_each_native_ptype!(self.ptype(), |$T| {
-                Ok(Scalar::primitive::<$Q>(
-                    <$Q as NumCast>::from(self.typed_value::<$T>().expect("Invalid value"))
-                        .ok_or_else(|| vortex_err!("Can't cast {} scalar {} to {}", self.ptype, self.typed_value::<$T>().expect("Invalid value"), dtype))?,
-                    dtype.nullability(),
-                ))
-            })
-        })
+        let pvalue = self
+            .pvalue
+            .vortex_expect("nullness handled in Scalar::cast");
+        Ok(match_each_native_ptype!(ptype, |$Q| {
+            Scalar::primitive(
+                pvalue
+                    .as_primitive::<$Q>()
+                    .map_err(|err| vortex_err!("Can't cast {} scalar {} to {} (cause: {})", self.ptype, pvalue, dtype, err))?,
+                dtype.nullability()
+            )
+        }))
     }
 
     /// Attempt to extract the primitive value as the given type.

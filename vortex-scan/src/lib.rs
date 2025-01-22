@@ -37,7 +37,8 @@ pub struct Scanner {
 impl Scanner {
     /// Create a new scan with the given projection and optional filter.
     pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> VortexResult<Self> {
-        let projection = simplify_typed(projection, dtype.clone())?;
+        let projection = simplify_typed(projection, &dtype)?;
+        let filter = filter.map(|f| simplify_typed(f, &dtype)).transpose()?;
 
         // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
         //  Where FieldMask ~= Vec<FieldPath>
@@ -45,8 +46,6 @@ impl Scanner {
             .evaluate(&Canonical::empty(&dtype)?.into_array())?
             .dtype()
             .clone();
-
-        let filter = filter.map(|f| simplify_typed(f, dtype)).transpose()?;
 
         let conjuncts: Box<[ExprRef]> = if let Some(filter) = filter {
             let conjuncts = cnf(filter)?;
