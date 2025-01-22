@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use datafusion::execution::object_store::{DefaultObjectStoreRegistry, ObjectStoreRegistry};
 use futures::stream::BoxStream;
-use governor::{DefaultDirectRateLimiter, Jitter, Quota};
+use governor::{DefaultDirectRateLimiter, Quota};
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMultipartOpts,
