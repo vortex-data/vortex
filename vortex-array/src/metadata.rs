@@ -99,7 +99,7 @@ where
     }
 }
 
-#[allow(clippy::use-debug)]
+#[allow(clippy::use_debug)]
 impl<M> Display for RkyvMetadata<M>
 where
     M: Debug,
@@ -135,7 +135,7 @@ where
     }
 }
 
-#[allow(clippy::use-debug)]
+#[allow(clippy::use_debug)]
 impl<M> Display for SerdeMetadata<M>
 where
     M: Debug,
