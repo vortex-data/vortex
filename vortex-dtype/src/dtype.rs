@@ -43,7 +43,7 @@ pub enum DType {
 const_assert_eq!(size_of::<DType>(), 16);
 
 #[cfg(target_arch = "wasm32")]
-const_assert_eq!(size_of::<DType>(), 12);
+const_assert_eq!(size_of::<DType>(), 8);
 
 impl DType {
     /// The default DType for bytes
