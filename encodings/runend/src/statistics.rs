@@ -2,7 +2,6 @@ use std::cmp;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::array::PrimitiveArray;
 use vortex_array::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity as _, LogicalValidity};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -46,27 +45,23 @@ impl RunEndArray {
         let ends = self.ends().into_primitive()?;
         let values = self.values().into_bool()?.boolean_buffer();
 
-        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count::<$P>(ends, values))
+        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count(ends.as_slice::<$P>(), values))
     }
 
-    fn typed_true_count<P: NativePType>(
+    fn typed_true_count<P: NativePType + Into<u64>>(
         &self,
-        decompressed_ends: PrimitiveArray,
+        decompressed_ends: &[P],
         decompressed_values: BooleanBuffer,
-    ) -> VortexResult<u64>
-    where
-        u64: From<P>,
-        u64: From<bool>,
-    {
+    ) -> VortexResult<u64> {
         Ok(match self.values().logical_validity() {
             LogicalValidity::AllValid(_) => {
                 let mut begin = u64::try_from(self.offset()).vortex_expect("usize fits in u64");
                 decompressed_ends
-                    .as_slice::<P>()
                     .iter()
+                    .copied()
                     .zip_eq(&decompressed_values)
                     .map(|(end, bool_value)| {
-                        let end = u64::from(*end);
+                        let end: u64 = end.into();
                         let len = end - begin;
                         begin = end;
                         len * u64::from(bool_value)
@@ -81,29 +76,23 @@ impl RunEndArray {
                     None => self.len() as u64,
                     Some(valid_index) => {
                         let mut true_count: u64 = 0;
-                        let offsetted_begin = u64::try_from(self.offset())
-                            .ok()
-                            .vortex_expect("usize fits in u64");
-                        let offsetted_len = u64::try_from(self.len() + self.offset())
-                            .ok()
-                            .vortex_expect("usize fits in u64");
-                        let decompressed_ends = decompressed_ends.as_slice::<P>();
+                        let offsetted_begin = self.offset() as u64;
+                        let offsetted_len = (self.len() + self.offset()) as u64;
+                        let valid_end: u64 = decompressed_ends[valid_index].into();
                         let begin = if valid_index == 0 {
                             offsetted_begin
                         } else {
-                            u64::from(decompressed_ends[valid_index - 1])
+                            valid_end
                         };
 
-                        let end =
-                            cmp::min(u64::from(decompressed_ends[valid_index]), offsetted_len);
-                        true_count +=
-                            u64::from(decompressed_values.value(valid_index)) * (end - begin);
+                        let end = cmp::min(valid_end, offsetted_len);
+                        true_count += decompressed_values.value(valid_index) as u64 * (end - begin);
 
                         for valid_index in is_valid {
-                            let end =
-                                cmp::min(u64::from(decompressed_ends[valid_index]), offsetted_len);
-                            true_count += u64::from(decompressed_values.value(valid_index))
-                                * (end - u64::from(decompressed_ends[valid_index - 1]));
+                            let valid_end: u64 = decompressed_ends[valid_index].into();
+                            let end = cmp::min(valid_end, offsetted_len);
+                            true_count +=
+                                decompressed_values.value(valid_index) as u64 * (end - valid_end);
                         }
 
                         true_count
@@ -116,46 +105,39 @@ impl RunEndArray {
     fn null_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
         let null_count = match self.values().logical_validity() {
-            LogicalValidity::AllValid(_) => 0_u64,
+            LogicalValidity::AllValid(_) => 0u64,
             LogicalValidity::AllInvalid(_) => self.len() as u64,
             LogicalValidity::Array(is_valid) => {
                 let is_valid = is_valid.into_bool()?.boolean_buffer();
-                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity::<$P>(ends, is_valid))
+                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), is_valid))
             }
         };
         Ok(null_count)
     }
 
-    fn null_count_with_array_validity<P: NativePType>(
+    fn null_count_with_array_validity<P: NativePType + Into<u64>>(
         &self,
-        decompressed_ends: PrimitiveArray,
+        decompressed_ends: &[P],
         is_valid: BooleanBuffer,
-    ) -> u64
-    where
-        u64: From<P>,
-        u64: TryFrom<usize>,
-    {
+    ) -> u64 {
         let mut is_valid = is_valid.set_indices();
         match is_valid.next() {
-            None => u64::try_from(self.len())
-                .ok()
-                .vortex_expect("usize fits in u64"),
+            None => self.len() as u64,
             Some(valid_index) => {
                 let offsetted_len = (self.len() + self.offset()) as u64;
                 let mut null_count: u64 = self.len() as u64;
-                let decompressed_ends = decompressed_ends.as_slice::<P>();
                 let begin = if valid_index == 0 {
                     0
                 } else {
-                    u64::from(decompressed_ends[valid_index - 1])
+                    decompressed_ends[valid_index - 1].into()
                 };
 
-                let end = cmp::min(u64::from(decompressed_ends[valid_index]), offsetted_len);
+                let end = cmp::min(decompressed_ends[valid_index].into(), offsetted_len);
                 null_count -= end - begin;
 
                 for valid_index in is_valid {
-                    let end = cmp::min(u64::from(decompressed_ends[valid_index]), offsetted_len);
-                    null_count -= end - u64::from(decompressed_ends[valid_index - 1]);
+                    let end = cmp::min(decompressed_ends[valid_index].into(), offsetted_len);
+                    null_count -= end - decompressed_ends[valid_index - 1].into();
                 }
 
                 null_count
