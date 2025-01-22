@@ -6,7 +6,7 @@ use vortex_array::compute::{
     scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
 };
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::stats::{ArrayStatistics, StatsSet};
 use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
@@ -18,7 +18,6 @@ use vortex_array::{
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
 
@@ -221,29 +220,6 @@ impl VisitorVTable<RunEndArray> for RunEndEncoding {
     fn accept(&self, array: &RunEndArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("ends", &array.ends())?;
         visitor.visit_child("values", &array.values())
-    }
-}
-
-impl StatisticsVTable<RunEndArray> for RunEndEncoding {
-    fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
-        let maybe_stat = match stat {
-            Stat::Min | Stat::Max => array.values().statistics().compute(stat),
-            Stat::IsSorted => Some(Scalar::from(
-                array
-                    .values()
-                    .statistics()
-                    .compute_is_sorted()
-                    .unwrap_or(false)
-                    && array.logical_validity().all_valid(),
-            )),
-            _ => None,
-        };
-
-        let mut stats = StatsSet::default();
-        if let Some(stat_value) = maybe_stat {
-            stats.set(stat, stat_value);
-        }
-        Ok(stats)
     }
 }
 
