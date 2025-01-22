@@ -82,7 +82,7 @@ dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 fastlanes = "0.1.5"
 flatbuffers = "24.3.25"
-flexbuffers = "24.0.0"
+flexbuffers = "25.0.0"
 flume = "0.11"
 fsst-rs = "0.4.1"
 futures = { version = "0.3", default-features = false }
