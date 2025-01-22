@@ -51,8 +51,12 @@ impl<'b> flatbuffers::Push for Segment {
     type Output = Segment;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = ::core::slice::from_raw_parts(self as *const Segment as *const u8, Self::size());
+        let src = ::core::slice::from_raw_parts(self as *const Segment as *const u8, <Self as flatbuffers::Push>::size());
         dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> flatbuffers::PushAlignment {
+        flatbuffers::PushAlignment::new(8)
     }
 }
 
