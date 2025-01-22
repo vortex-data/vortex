@@ -12,7 +12,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
         &self,
         f: F,
     ) -> VortexResult<R> {
-        let bytes = (0..self.buffer_count())
+        let bytes = (0..self.nbuffers())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 
