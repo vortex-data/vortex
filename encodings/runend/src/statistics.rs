@@ -45,7 +45,7 @@ impl RunEndArray {
         let ends = self.ends().into_primitive()?;
         let values = self.values().into_bool()?.boolean_buffer();
 
-        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count::<$P>(ends.as_slice::<$P>(), values))
+        match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count(ends.as_slice::<$P>(), values))
     }
 
     fn typed_true_count<P: NativePType + Into<u64>>(
@@ -109,7 +109,7 @@ impl RunEndArray {
             LogicalValidity::AllInvalid(_) => self.len() as u64,
             LogicalValidity::Array(is_valid) => {
                 let is_valid = is_valid.into_bool()?.boolean_buffer();
-                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity::<$P>(ends.as_slice::<$P>(), is_valid))
+                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), is_valid))
             }
         };
         Ok(null_count)
