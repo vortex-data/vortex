@@ -78,14 +78,13 @@ impl RunEndArray {
                         let mut true_count: u64 = 0;
                         let offsetted_begin = self.offset() as u64;
                         let offsetted_len = (self.len() + self.offset()) as u64;
-                        let valid_end: u64 = decompressed_ends[valid_index].into();
                         let begin = if valid_index == 0 {
                             offsetted_begin
                         } else {
-                            valid_end
+                            decompressed_ends[valid_index - 1].into()
                         };
 
-                        let end = cmp::min(valid_end, offsetted_len);
+                        let end = cmp::min(decompressed_ends[valid_index].into(), offsetted_len);
                         true_count += decompressed_values.value(valid_index) as u64 * (end - begin);
 
                         for valid_index in is_valid {
