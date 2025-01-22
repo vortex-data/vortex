@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
@@ -17,18 +17,12 @@ use vortex_array::{
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
-impl_encoding!("vortex.dict", ids::DICT, Dict);
+impl_encoding!("vortex.dict", ids::DICT, Dict, SerdeMetadata<DictMetadata>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictMetadata {
     codes_ptype: PType,
     values_len: usize, // TODO(ngates): make this a u32
-}
-
-impl Display for DictMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl DictArray {

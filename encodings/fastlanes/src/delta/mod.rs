@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::array::PrimitiveArray;
@@ -19,7 +19,12 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.delta", ids::FL_DELTA, Delta);
+impl_encoding!(
+    "fastlanes.delta",
+    ids::FL_DELTA,
+    Delta,
+    RkyvMetadata<DeltaMetadata>
+);
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]
@@ -27,12 +32,6 @@ pub struct DeltaMetadata {
     validity: ValidityMetadata,
     deltas_len: u64,
     offset: u16, // must be <1024
-}
-
-impl Display for DeltaMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 /// A FastLanes-style delta-encoded array of primitive values.

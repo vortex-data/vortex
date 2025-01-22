@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
@@ -16,17 +16,16 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
-impl_encoding!("vortex.bytebool", ids::BYTE_BOOL, ByteBool);
+impl_encoding!(
+    "vortex.bytebool",
+    ids::BYTE_BOOL,
+    ByteBool,
+    SerdeMetadata<ByteBoolMetadata>
+);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ByteBoolMetadata {
     validity: ValidityMetadata,
-}
-
-impl Display for ByteBoolMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl ByteBoolArray {

@@ -87,6 +87,8 @@ pub trait EncodingVTable:
     fn id(&self) -> EncodingId;
 
     fn as_any(&self) -> &dyn Any;
+
+    fn metadata_display(&self, array: &ArrayData, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {

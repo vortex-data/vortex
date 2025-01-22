@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -17,7 +17,12 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::alp_rd::alp_rd_decode;
 
-impl_encoding!("vortex.alprd", ids::ALP_RD, ALPRD);
+impl_encoding!(
+    "vortex.alprd",
+    ids::ALP_RD,
+    ALPRD,
+    SerdeMetadata<ALPRDMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPRDMetadata {
@@ -26,12 +31,6 @@ pub struct ALPRDMetadata {
     dict: [u16; 8],
     left_parts_ptype: PType,
     patches: Option<PatchesMetadata>,
-}
-
-impl Display for ALPRDMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl ALPRDArray {

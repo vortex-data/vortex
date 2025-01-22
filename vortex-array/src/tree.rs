@@ -56,13 +56,9 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             100f64 * nbytes as f64 / total_size as f64
         )?;
         self.indent(|i| {
-            writeln!(
-                i.fmt,
-                "{}metadata: {}",
-                i.indent,
-                // TODO(ngates): add a MetadataVTable to encoding so we can extract a displayable
-                array.metadata_bytes().map_or(0, |b| b.len())
-            )
+            write!(i.fmt, "{}metadata: ", i.indent)?;
+            array.encoding().metadata_display(array, i.fmt)?;
+            writeln!(i.fmt)
         })?;
 
         let old_total_size = self.total_size;

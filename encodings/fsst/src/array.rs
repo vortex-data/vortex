@@ -1,5 +1,3 @@
-use std::fmt::{Debug, Display};
-
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBinArray, VarBinEncoding};
@@ -16,7 +14,7 @@ use vortex_array::{
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-impl_encoding!("vortex.fsst", ids::FSST, FSST);
+impl_encoding!("vortex.fsst", ids::FSST, FSST, SerdeMetadata<FSSTMetadata>);
 
 static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
@@ -26,12 +24,6 @@ pub struct FSSTMetadata {
     symbols_len: usize,
     codes_nullability: Nullability,
     uncompressed_lengths_ptype: PType,
-}
-
-impl Display for FSSTMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl FSSTArray {

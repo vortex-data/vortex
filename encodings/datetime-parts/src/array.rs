@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
@@ -16,7 +16,12 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
-impl_encoding!("vortex.datetimeparts", ids::DATE_TIME_PARTS, DateTimeParts);
+impl_encoding!(
+    "vortex.datetimeparts",
+    ids::DATE_TIME_PARTS,
+    DateTimeParts,
+    SerdeMetadata<DateTimePartsMetadata>
+);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DateTimePartsMetadata {
@@ -25,12 +30,6 @@ pub struct DateTimePartsMetadata {
     days_ptype: PType,
     seconds_ptype: PType,
     subseconds_ptype: PType,
-}
-
-impl Display for DateTimePartsMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl DateTimePartsArray {

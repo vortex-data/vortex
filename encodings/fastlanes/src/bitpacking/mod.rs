@@ -21,7 +21,12 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.bitpacked", ids::FL_BITPACKED, BitPacked);
+impl_encoding!(
+    "fastlanes.bitpacked",
+    ids::FL_BITPACKED,
+    BitPacked,
+    RkyvMetadata<BitPackedMetadata>
+);
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]

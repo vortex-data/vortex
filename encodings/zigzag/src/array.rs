@@ -6,7 +6,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoArrayVariant,
+    IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -16,7 +17,7 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
 
-impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag);
+impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag, EmptyMetadata);
 
 impl ZigZagArray {
     pub fn try_new(encoded: ArrayData) -> VortexResult<Self> {
@@ -34,7 +35,7 @@ impl ZigZagArray {
         Self::try_from_parts(
             dtype,
             len,
-            (),
+            EmptyMetadata,
             None,
             Some(children.into()),
             StatsSet::default(),

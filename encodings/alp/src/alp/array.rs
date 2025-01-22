@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -18,18 +18,12 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::alp::{alp_encode, decompress, Exponents};
 
-impl_encoding!("vortex.alp", ids::ALP, ALP);
+impl_encoding!("vortex.alp", ids::ALP, ALP, SerdeMetadata<ALPMetadata>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
     pub(crate) exponents: Exponents,
     pub(crate) patches: Option<PatchesMetadata>,
-}
-
-impl Display for ALPMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl ALPArray {

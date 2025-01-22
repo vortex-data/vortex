@@ -1,8 +1,10 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use flexbuffers::FlexbufferSerializer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+
+pub trait ArrayMetadata: SerializeMetadata + for<'m> DeserializeMetadata<'m> + Display {}
 
 pub trait SerializeMetadata {
     fn serialize(&self) -> VortexResult<Option<ByteBuffer>>;
@@ -33,6 +35,7 @@ where
 }
 
 pub struct EmptyMetadata;
+impl ArrayMetadata for EmptyMetadata {}
 
 impl SerializeMetadata for EmptyMetadata {
     fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
@@ -98,10 +101,10 @@ where
 
 impl<M> Display for RkyvMetadata<M>
 where
-    M: Display,
+    M: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:?}", self.0)
     }
 }
 
@@ -128,6 +131,15 @@ where
         Ok(SerdeMetadata(M::deserialize(
             flexbuffers::Reader::get_root(bytes)?,
         )?))
+    }
+}
+
+impl<M> Display for SerdeMetadata<M>
+where
+    M: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
     }
 }
 

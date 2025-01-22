@@ -1,5 +1,8 @@
 //! The core Vortex macro to create new encodings and array types.
 
+use std::fmt::{Display, Formatter};
+
+use crate::array::StructMetadata;
 use crate::encoding::{ArrayEncodingRef, EncodingRef};
 use crate::{ArrayData, ToArrayData};
 
@@ -43,7 +46,7 @@ macro_rules! impl_encoding {
                     children: Option<Box<[$crate::ArrayData]>>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
-                    use crate::metadata::SerializeMetadata;
+                    use $crate::SerializeMetadata;
 
                     Self::try_from($crate::ArrayData::try_new_owned(
                             &[<$Name Encoding>],
@@ -118,6 +121,16 @@ macro_rules! impl_encoding {
 
                 fn as_any(&self) -> &dyn std::any::Any {
                     self
+                }
+
+                fn metadata_display(&self, array: &$crate::ArrayData, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    use std::fmt::Display;
+                    use $crate::DeserializeMetadata;
+
+                    match <$Metadata as DeserializeMetadata>::deserialize(array.metadata_bytes()) {
+                        Ok(metadata) => metadata.fmt(f),
+                        Err(_) => write!(f, "Error deserializing metadata"),
+                    }
                 }
             }
         }

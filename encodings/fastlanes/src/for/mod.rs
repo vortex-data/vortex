@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,12 @@ use vortex_scalar::{PValue, Scalar};
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.for", ids::FL_FOR, FoR);
+impl_encoding!(
+    "fastlanes.for",
+    ids::FL_FOR,
+    FoR,
+    SerdeMetadata<FoRMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
@@ -27,12 +32,6 @@ pub struct FoRMetadata {
     reference: PValue,
     // TODO(ngates): move shift into BitPackedArray and then ForMetadata is 64 bits of PValue.
     shift: u8,
-}
-
-impl Display for FoRMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl FoRArray {

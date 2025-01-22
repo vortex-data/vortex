@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -22,19 +22,18 @@ use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
 
-impl_encoding!("vortex.runend", ids::RUN_END, RunEnd);
+impl_encoding!(
+    "vortex.runend",
+    ids::RUN_END,
+    RunEnd,
+    SerdeMetadata<RunEndMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunEndMetadata {
     ends_ptype: PType,
     num_runs: usize,
     offset: usize,
-}
-
-impl Display for RunEndMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl RunEndArray {
