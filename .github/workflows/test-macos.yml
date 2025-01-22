@@ -21,4 +21,3 @@ jobs:
                 working-directory: pyvortex
                 target: aarch64-apple-darwin
                 args: --release --interpreter python3.10
-                rustup-components: "cargo rustc rust-std"
