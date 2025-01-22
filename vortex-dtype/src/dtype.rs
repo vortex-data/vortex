@@ -42,6 +42,9 @@ pub enum DType {
 #[cfg(not(target_arch = "wasm32"))]
 const_assert_eq!(size_of::<DType>(), 16);
 
+#[cfg(target_arch = "wasm32")]
+const_assert_eq!(size_of::<DType>(), 12);
+
 impl DType {
     /// The default DType for bytes
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
