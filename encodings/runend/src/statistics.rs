@@ -127,7 +127,7 @@ impl RunEndArray {
                 let offsetted_len = (self.len() + self.offset()) as u64;
                 let mut null_count: u64 = self.len() as u64;
                 let begin = if valid_index == 0 {
-                    0u64
+                    0
                 } else {
                     decompressed_ends[valid_index - 1].into()
                 };
