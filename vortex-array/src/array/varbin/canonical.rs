@@ -1,15 +1,14 @@
-use futures_util::future::always_ready;
-use futures_util::FutureExt;
 use itertools::Itertools;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
 use crate::array::varbin::VarBinArray;
+use crate::array::BinaryView;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, ViewBuilder, ViewDType};
 use crate::compute::try_cast;
 use crate::validity::ArrayValidity;
-use crate::{ArrayDType, ArrayLen, IntoCanonical};
+use crate::{ArrayDType, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
     fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
@@ -25,20 +24,34 @@ fn into_canonical_builder<V: ViewDType>(
     array: VarBinArray,
     builder: &mut ViewBuilder<V>,
 ) -> VortexResult<()> {
-    let buffer_idx = builder.append_buffer(array.bytes());
+    // Append the entire buffer to the builder
+    // TODO(ngates): this only works if we don't care about duplicate values.
+    let buffer = array.bytes();
+    let buffer_idx = builder.append_buffer(buffer.clone());
 
+    // Then create views from the offsets
     let offsets =
         try_cast(array.offsets(), &DType::Primitive(PType::U32, NonNullable))?.into_primitive()?;
     let validity = array.logical_validity().to_null_buffer()?;
 
-    offsets.as_slice::<u32>()
+    offsets
+        .as_slice::<u32>()
         .iter()
         .tuple_windows()
-        .map(|(start, end)| {
-            if validity.map_or()
-        })
+        .enumerate()
+        .for_each(|(idx, (start, end))| {
+            if validity.as_ref().map_or(true, |v| v.is_valid(idx)) {
+                let len = *end - *start;
+                let mut prefix = [0u8; 4];
+                prefix.copy_from_slice(&buffer[*start as usize..][..len.min(4) as usize]);
+                let view = BinaryView::new_view(len, prefix, buffer_idx, *start);
+                unsafe { builder.push_view_unchecked(view) };
+            } else {
+                builder.append_null();
+            }
+        });
 
-    todo!()
+    Ok(())
 }
 
 //

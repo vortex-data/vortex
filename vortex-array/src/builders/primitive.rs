@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use arrow_buffer::NullBufferBuilder;
+use arrow_buffer::{NullBuffer, NullBufferBuilder};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
@@ -46,6 +46,15 @@ impl<T: NativePType> PrimitiveBuilder<T> {
                 self.validity.append(true);
             }
             None => self.append_null(),
+        }
+    }
+
+    pub fn append_parts(&mut self, values: &[T], validity: Option<NullBuffer>) {
+        self.values.extend_from_slice(values);
+        // TODO(ngates): we need faster byte-level appends
+        match validity {
+            None => self.validity.append_n_non_nulls(values.len()),
+            Some(v) => v.iter().for_each(|v| self.validity.append(v)),
         }
     }
 }

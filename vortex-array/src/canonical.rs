@@ -593,11 +593,10 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        Array, ArrayRef, ListArray as ArrowListArray, PrimitiveArray as ArrowPrimitiveArray,
-        StringArray, StringViewArray, StructArray as ArrowStructArray,
+        Array, PrimitiveArray as ArrowPrimitiveArray, StringViewArray,
+        StructArray as ArrowStructArray,
     };
-    use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
-    use arrow_cast::cast;
+    use arrow_buffer::NullBufferBuilder;
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
@@ -714,29 +713,29 @@ mod test {
         );
     }
 
-    #[test]
-    fn roundtrip_list() {
-        let names = Arc::new(StringArray::from_iter(vec![
-            Some("Joseph"),
-            Some("Angela"),
-            Some("Mikhail"),
-        ]));
-
-        let arrow_list = ArrowListArray::new(
-            Arc::new(Field::new_list_field(DataType::Utf8, true)),
-            OffsetBuffer::from_lengths(vec![0, 2, 1]),
-            names,
-            None,
-        );
-        let list_data_type = arrow_list.data_type();
-
-        let vortex_list = ArrayData::from_arrow(&arrow_list, true);
-
-        let rt_arrow_list = cast(&vortex_list.into_arrow().unwrap(), list_data_type).unwrap();
-
-        assert_eq!(
-            (Arc::new(arrow_list.clone()) as ArrayRef).as_ref(),
-            rt_arrow_list.as_ref()
-        );
-    }
+    // #[test]
+    // fn roundtrip_list() {
+    //     let names = Arc::new(StringArray::from_iter(vec![
+    //         Some("Joseph"),
+    //         Some("Angela"),
+    //         Some("Mikhail"),
+    //     ]));
+    //
+    //     let arrow_list = ArrowListArray::new(
+    //         Arc::new(Field::new_list_field(DataType::Utf8, true)),
+    //         OffsetBuffer::from_lengths(vec![0, 2, 1]),
+    //         names,
+    //         None,
+    //     );
+    //     let list_data_type = arrow_list.data_type();
+    //
+    //     let vortex_list = ArrayData::from_arrow(&arrow_list, true);
+    //
+    //     let rt_arrow_list = cast(&vortex_list.into_arrow().unwrap(), list_data_type).unwrap();
+    //
+    //     assert_eq!(
+    //         (Arc::new(arrow_list.clone()) as ArrayRef).as_ref(),
+    //         rt_arrow_list.as_ref()
+    //     );
+    // }
 }

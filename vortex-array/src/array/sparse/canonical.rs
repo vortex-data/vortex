@@ -1,7 +1,7 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
 use vortex_buffer::buffer;
-use vortex_dtype::{NativePType, Nullability};
-use vortex_error::{VortexError, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
@@ -10,7 +10,7 @@ use crate::array::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Canonical, IntoCanonical};
+use crate::{ArrayDType, Canonical, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
     // fn into_canonical(self) -> VortexResult<Canonical> {
@@ -33,7 +33,17 @@ impl IntoCanonical for SparseArray {
     // }
 
     fn into_canonical_builder(self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        // Ideally we can set_len, and then update individual values?
+        // TODO(ngates): ideally we can set_len, and then update individual values?
+        match self.dtype() {
+            DType::Null => vortex_bail!("SparseArray cannot store nulls"),
+            DType::Bool(_) => {}
+            DType::Primitive(..) => {}
+            DType::Utf8(_) => {}
+            DType::Binary(_) => {}
+            DType::Struct(..) => {}
+            DType::List(..) => {}
+            DType::Extension(_) => {}
+        }
         todo!()
     }
 }

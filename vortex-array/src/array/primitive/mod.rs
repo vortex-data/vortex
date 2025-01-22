@@ -8,7 +8,7 @@ use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::builders::ArrayBuilder;
+use crate::builders::{ArrayBuilder, ArrayBuilderExt};
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -317,8 +317,13 @@ impl<T: NativePType> IntoArrayData for BufferMut<T> {
 }
 
 impl IntoCanonical for PrimitiveArray {
-    fn into_canonical_builder(self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        todo!()
+    fn into_canonical_builder(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let null_buffer = self.logical_validity().to_null_buffer()?;
+        match_each_native_ptype!(self.ptype(), |$P| {
+            let builder = builder.as_primitive_mut::<$P>();
+            builder.append_parts(self.as_slice(), null_buffer);
+        });
+        Ok(())
     }
 }
 
