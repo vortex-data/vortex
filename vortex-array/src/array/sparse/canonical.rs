@@ -36,15 +36,28 @@ impl IntoCanonical for SparseArray {
         // TODO(ngates): ideally we can set_len, and then update individual values?
         match self.dtype() {
             DType::Null => vortex_bail!("SparseArray cannot store nulls"),
-            DType::Bool(_) => {}
-            DType::Primitive(..) => {}
-            DType::Utf8(_) => {}
-            DType::Binary(_) => {}
-            DType::Struct(..) => {}
-            DType::List(..) => {}
-            DType::Extension(_) => {}
+            DType::Bool(_) => {
+                todo!("bools")
+            }
+            DType::Primitive(..) => {
+                todo!("primitives")
+            }
+            DType::Utf8(_) => {
+                todo!("UTF8s")
+            }
+            DType::Binary(_) => {
+                todo!("binaries")
+            }
+            DType::Struct(..) => {
+                todo!("structs")
+            }
+            DType::List(..) => {
+                todo!("lists")
+            }
+            DType::Extension(_) => {
+                todo!("extensions")
+            }
         }
-        todo!()
     }
 }
 #[allow(dead_code)]
