@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::encoding::EncodingRef;
 use crate::stats::StatsSet;
-use crate::{ArrayDType, ArrayData};
+use crate::{ArrayDType, ArrayData, MetadataBytes};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Debug)]
@@ -14,7 +14,7 @@ pub(super) struct OwnedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) metadata: Option<u64>,
+    pub(super) metadata: MetadataBytes,
     pub(super) buffers: Option<Box<[ByteBuffer]>>,
     pub(super) children: Option<Box<[ArrayData]>>,
     pub(super) stats_set: RwLock<StatsSet>,

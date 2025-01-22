@@ -3,7 +3,7 @@ use std::fmt::{Debug, Formatter};
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_flatbuffers::{
     array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt,
@@ -128,7 +128,7 @@ impl WriteFlatBuffer for ArrayPartsFlatBuffer<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let encoding = self.array.encoding().id().code();
-        let metadata = self.array.metadata_bytes();
+        let metadata = u64::from_le_bytes(self.array.metadata_bytes());
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())

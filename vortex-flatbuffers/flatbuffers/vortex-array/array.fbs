@@ -2,7 +2,7 @@ include "vortex-scalar/scalar.fbs";
 
 table Array {
     encoding: uint16;
-    metadata: uint64 = null;
+    metadata: uint64; // We store as a u64 to guarantee 8-byte alignment.
     children: [Array];
     buffers: [uint16];
     stats: ArrayStats;

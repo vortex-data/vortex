@@ -21,7 +21,7 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ChildrenCollector, ContextRef,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ChildrenCollector, ContextRef, MetadataBytes,
     NamedChildrenCollector,
 };
 
@@ -60,7 +60,7 @@ impl ArrayData {
         encoding: EncodingRef,
         dtype: DType,
         len: usize,
-        metadata: Option<u64>,
+        metadata: MetadataBytes,
         buffers: Option<Box<[ByteBuffer]>>,
         children: Option<Box<[ArrayData]>>,
         statistics: StatsSet,
@@ -276,11 +276,11 @@ impl ArrayData {
         offsets
     }
 
-    /// Returns the u64 Array metadata.
-    pub fn metadata_bytes(&self) -> Option<u64> {
+    /// Returns the Array metadata bytes with 8-byte aligned.
+    pub fn metadata_bytes(&self) -> MetadataBytes {
         match &self.0 {
             InnerArrayData::Owned(d) => d.metadata,
-            InnerArrayData::Viewed(v) => v.flatbuffer().metadata(),
+            InnerArrayData::Viewed(v) => v.flatbuffer().metadata().to_le_bytes(),
         }
     }
 

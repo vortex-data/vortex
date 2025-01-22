@@ -43,7 +43,7 @@ impl<'a> Array<'a> {
     args: &'args ArrayArgs<'args>
   ) -> flatbuffers::WIPOffset<Array<'bldr>> {
     let mut builder = ArrayBuilder::new(_fbb);
-    if let Some(x) = args.metadata { builder.add_metadata(x); }
+    builder.add_metadata(args.metadata);
     if let Some(x) = args.stats { builder.add_stats(x); }
     if let Some(x) = args.buffers { builder.add_buffers(x); }
     if let Some(x) = args.children { builder.add_children(x); }
@@ -60,11 +60,11 @@ impl<'a> Array<'a> {
     unsafe { self._tab.get::<u16>(Array::VT_ENCODING, Some(0)).unwrap()}
   }
   #[inline]
-  pub fn metadata(&self) -> Option<u64> {
+  pub fn metadata(&self) -> u64 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Array::VT_METADATA, None)}
+    unsafe { self._tab.get::<u64>(Array::VT_METADATA, Some(0)).unwrap()}
   }
   #[inline]
   pub fn children(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Array<'a>>>> {
@@ -107,7 +107,7 @@ impl flatbuffers::Verifiable for Array<'_> {
 }
 pub struct ArrayArgs<'a> {
     pub encoding: u16,
-    pub metadata: Option<u64>,
+    pub metadata: u64,
     pub children: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Array<'a>>>>>,
     pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u16>>>,
     pub stats: Option<flatbuffers::WIPOffset<ArrayStats<'a>>>,
@@ -117,7 +117,7 @@ impl<'a> Default for ArrayArgs<'a> {
   fn default() -> Self {
     ArrayArgs {
       encoding: 0,
-      metadata: None,
+      metadata: 0,
       children: None,
       buffers: None,
       stats: None,
@@ -136,7 +136,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayBuilder<'a, 'b, A> {
   }
   #[inline]
   pub fn add_metadata(&mut self, metadata: u64) {
-    self.fbb_.push_slot_always::<u64>(Array::VT_METADATA, metadata);
+    self.fbb_.push_slot::<u64>(Array::VT_METADATA, metadata, 0);
   }
   #[inline]
   pub fn add_children(&mut self, children: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Array<'b >>>>) {

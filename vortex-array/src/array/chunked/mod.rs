@@ -109,6 +109,7 @@ impl ChunkedArray {
     }
 
     pub fn nchunks(&self) -> usize {
+        println!("ChunkedArray: meta: {}", self.metadata());
         self.metadata().nchunks
     }
 
