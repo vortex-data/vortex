@@ -61,13 +61,24 @@ impl SlowObjectStore {
         }
     }
 
+    fn wait_time(&self) -> Duration {
+        let duration = (self.distribution.sample(&mut thread_rng()) as u64).clamp(30, 1_000);
+        Duration::from_millis(duration)
+    }
+
     /// Injects an artificial sleep of somewhere between 30ms to a full second.
     // wait times will p50 ~ 100ms, p95 ~ 250ms and p100 ~ 600ms.
     ///
     /// We always wait at least 30ms, which seems to be the rough baseline for object store access.
     async fn wait(&self) {
-        let duration = self.distribution.sample(&mut thread_rng()) as u64;
-        tokio::time::sleep(Duration::from_millis(duration.clamp(30, 1_000))).await;
+        tokio::time::sleep(self.wait_time()).await;
+    }
+
+    async fn wait_with_size(&self, size: usize) {
+        let base_wait_time = self.wait_time();
+        let additional_ms = size.div_ceil(65536) as u64; // 64KB, roughly median throughput on S3
+        let total_time = base_wait_time + Duration::from_millis(additional_ms);
+        tokio::time::sleep(total_time).await;
     }
 }
 
@@ -100,11 +111,11 @@ impl ObjectStore for SlowObjectStore {
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> OSResult<GetResult> {
         // Ideally, we would tune `wait` here for the actual if it exists in options.range
-        self.wait().await;
         let r = self.inner.get_opts(location, options).await?;
-        let size = r.meta.size as u32;
+
+        self.wait_with_size(r.meta.size).await;
         self.rate_limiter
-            .until_n_ready(size.try_into().unwrap())
+            .until_n_ready((r.meta.size as u32).try_into().unwrap())
             .await
             .unwrap();
 
