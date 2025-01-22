@@ -299,7 +299,7 @@ dependencies = [
  "arrow-cast",
  "arrow-data",
  "arrow-schema",
- "flatbuffers",
+ "flatbuffers 24.12.23",
  "lz4_flex",
 ]
 
@@ -1791,6 +1791,16 @@ name = "flatbuffers"
 version = "24.12.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f1baf0dbf96932ec9a3038d57900329c015b0bfb7b63d904f3bc27e2b02a096"
+dependencies = [
+ "bitflags 1.3.2",
+ "rustc_version",
+]
+
+[[package]]
+name = "flatbuffers"
+version = "25.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "744fff4a025a51bc620d8427474693aa2af4534a3b3610aabfb07a3968dacaa9"
 dependencies = [
  "bitflags 1.3.2",
  "rustc_version",
@@ -4996,7 +5006,7 @@ dependencies = [
  "backtrace",
  "criterion",
  "enum-iterator",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "flexbuffers",
  "futures-util",
  "getrandom",
@@ -5130,7 +5140,7 @@ name = "vortex-dtype"
 version = "0.22.1"
 dependencies = [
  "arbitrary",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "half",
  "itertools 0.14.0",
  "num-traits",
@@ -5151,7 +5161,7 @@ version = "0.22.1"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "flexbuffers",
  "jiff",
  "object_store",
@@ -5211,7 +5221,7 @@ dependencies = [
  "arrow-schema",
  "async-trait",
  "bytes",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "futures",
  "futures-executor",
  "futures-util",
@@ -5239,7 +5249,7 @@ dependencies = [
 name = "vortex-flatbuffers"
 version = "0.22.1"
 dependencies = [
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "vortex-buffer",
 ]
 
@@ -5301,7 +5311,7 @@ name = "vortex-ipc"
 version = "0.22.1"
 dependencies = [
  "bytes",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "futures-util",
  "itertools 0.14.0",
  "pin-project-lite",
@@ -5321,7 +5331,7 @@ dependencies = [
  "async-once-cell",
  "async-trait",
  "bytes",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "futures",
  "itertools 0.14.0",
  "vortex-array",
@@ -5401,7 +5411,7 @@ dependencies = [
  "arbitrary",
  "arrow-array",
  "datafusion-common",
- "flatbuffers",
+ "flatbuffers 25.1.21",
  "flexbuffers",
  "itertools 0.14.0",
  "num-traits",

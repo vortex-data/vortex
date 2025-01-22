@@ -91,7 +91,7 @@ impl MessageEncoder {
                             &fb::BufferArgs {
                                 length: buffer.len() as u64,
                                 padding,
-                                alignment: buffer.alignment().into(),
+                                alignment_: buffer.alignment().into(),
                             },
                         ));
                         buffers.push(buffer.clone().into_inner());
@@ -126,7 +126,7 @@ impl MessageEncoder {
                         length: buffer.len() as u64,
                         padding,
                         // Buffer messages have no minimum alignment, the reader decides.
-                        alignment: 0,
+                        alignment_: 0,
                     },
                 )
                 .as_union_value()
