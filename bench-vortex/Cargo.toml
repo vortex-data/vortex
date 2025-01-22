@@ -38,6 +38,7 @@ datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 enum-iterator = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
+governor = { workspace = true }
 homedir = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }

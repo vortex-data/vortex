@@ -4,6 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use datafusion::execution::object_store::{DefaultObjectStoreRegistry, ObjectStoreRegistry};
 use futures::stream::BoxStream;
+use governor::{DefaultDirectRateLimiter, Jitter, Quota};
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMultipartOpts,
@@ -18,6 +19,7 @@ use zipf::ZipfDistribution;
 pub struct SlowObjectStore {
     inner: Arc<dyn ObjectStore>,
     zipf: ZipfDistribution,
+    rate_limiter: Arc<DefaultDirectRateLimiter>,
 }
 
 #[derive(Debug)]
@@ -53,6 +55,9 @@ impl SlowObjectStore {
         Self {
             inner: object_store,
             zipf: ZipfDistribution::new(1000, 1.4).unwrap(),
+            rate_limiter: Arc::new(DefaultDirectRateLimiter::direct(Quota::per_second(
+                (2_u32 << 30).try_into().unwrap(), // 1GB/s
+            ))),
         }
     }
 
@@ -96,7 +101,14 @@ impl ObjectStore for SlowObjectStore {
     async fn get_opts(&self, location: &Path, options: GetOptions) -> OSResult<GetResult> {
         // Ideally, we would tune `wait` here for the actual if it exists in options.range
         self.wait().await;
-        self.inner.get_opts(location, options).await
+        let r = self.inner.get_opts(location, options).await?;
+        let size = r.meta.size as u32;
+        self.rate_limiter
+            .until_n_ready(size.try_into().unwrap())
+            .await
+            .unwrap();
+
+        Ok(r)
     }
 
     async fn delete(&self, location: &Path) -> OSResult<()> {
