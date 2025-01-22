@@ -199,10 +199,10 @@ mod tests {
 
     fn dtype() -> DType {
         DType::Struct(
-            StructDType::new(
+            Arc::new(StructDType::new(
                 vec!["a".into(), "b".into(), "c".into()].into(),
                 vec![U64.into(), U64.into(), U64.into()],
-            ),
+            )),
             NonNullable,
         )
     }

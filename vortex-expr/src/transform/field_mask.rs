@@ -60,6 +60,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
 #[cfg(test)]
 mod test {
     use std::iter;
+    use std::sync::Arc;
 
     use itertools::Itertools;
     use vortex_dtype::Nullability::NonNullable;
@@ -70,12 +71,12 @@ mod test {
 
     fn dtype() -> DType {
         DType::Struct(
-            StructDType::new(
+            Arc::new(StructDType::new(
                 ["A".into(), "B".into(), "C".into()].into(),
                 iter::repeat(DType::Primitive(PType::I32, NonNullable))
                     .take(3)
                     .collect(),
-            ),
+            )),
             NonNullable,
         )
     }

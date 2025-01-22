@@ -219,6 +219,8 @@ impl InnerScalarValue {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use vortex_dtype::{DType, Nullability, PType, StructDType};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};
@@ -273,10 +275,10 @@ mod test {
 
         fn tstruct(left: &DType, right: &DType) -> DType {
             DType::Struct(
-                StructDType::new(
+                Arc::new(StructDType::new(
                     vec!["left".into(), "right".into()].into(),
                     vec![left.clone(), right.clone()],
-                ),
+                )),
                 Nullability::NonNullable,
             )
         }
@@ -315,7 +317,7 @@ mod test {
             .is_instance_of(&DType::Binary(Nullability::Nullable)));
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
-                StructDType::new([].into(), [].into()),
+                Arc::new(StructDType::new([].into(), [].into())),
                 Nullability::Nullable,
             ))
         );

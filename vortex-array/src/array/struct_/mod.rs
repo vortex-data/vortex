@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use rkyv::from_bytes;
 use serde::{Deserialize, Serialize};
@@ -90,7 +91,7 @@ impl StructArray {
         }
 
         Self::try_from_parts(
-            DType::Struct(StructDType::new(names, field_dtypes), nullability),
+            DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability),
             length,
             RkyvMetadata(StructMetadata {
                 validity: validity_metadata,

@@ -78,10 +78,10 @@ mod tests {
 
         let layout = StructLayoutWriter::new(
             DType::Struct(
-                StructDType::new(
+                Arc::new(StructDType::new(
                     vec!["a".into(), "b".into(), "c".into()].into(),
                     vec![I32.into(), I32.into(), I32.into()],
-                ),
+                )),
                 Nullability::NonNullable,
             ),
             vec![

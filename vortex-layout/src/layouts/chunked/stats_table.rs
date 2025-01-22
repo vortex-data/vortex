@@ -43,11 +43,9 @@ impl StatsTable {
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         DType::Struct(
-            StructDType::from_iter(
-                present_stats
-                    .iter()
-                    .map(|stat| (stat.name(), stat.dtype(column_dtype).as_nullable())),
-            ),
+            Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
+                (stat.name(), stat.dtype(column_dtype).as_nullable())
+            }))),
             Nullability::NonNullable,
         )
     }

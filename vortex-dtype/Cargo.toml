@@ -19,6 +19,7 @@ path = "src/lib.rs"
 bench = false
 
 [dependencies]
+static_assertions = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 half = { workspace = true, features = ["num-traits"] }
