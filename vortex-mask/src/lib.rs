@@ -170,7 +170,7 @@ impl Inner {
 }
 
 impl Mask {
-    /// Create a new FilterMask where all values are set.
+    /// Create a new Mask where all values are set.
     pub fn new_true(length: usize) -> Self {
         Self(Arc::new(Inner {
             buffer: Default::default(),
@@ -182,7 +182,7 @@ impl Mask {
         }))
     }
 
-    /// Create a new FilterMask where no values are set.
+    /// Create a new Mask where no values are set.
     pub fn new_false(length: usize) -> Self {
         Self(Arc::new(Inner {
             buffer: Default::default(),
@@ -342,11 +342,11 @@ impl Mask {
     /// Returns the best iterator based on a selectivity threshold.
     ///
     /// Currently, this threshold is fixed at 0.8 based on Arrow Rust.
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> MaskIter {
         if self.selectivity() > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            Iter::Slices(self.slices())
+            MaskIter::Slices(self.slices())
         } else {
-            Iter::Indices(self.indices())
+            MaskIter::Indices(self.indices())
         }
     }
 
@@ -391,7 +391,7 @@ impl Mask {
     }
 }
 
-pub enum Iter<'a> {
+pub enum MaskIter<'a> {
     /// Slice of pre-cached indices of a mask.
     Indices(&'a [usize]),
     /// Slice of pre-cached slices of a mask.

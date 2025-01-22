@@ -2,25 +2,26 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use vortex_array::compute::{fill_null, FilterMask};
+use vortex_array::compute::fill_null;
 use vortex_array::ArrayData;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
 use crate::{RowMask, Scanner};
 
 pub struct RangeScanner {
     scan: Arc<Scanner>,
     row_range: Range<u64>,
-    mask: FilterMask,
+    mask: Mask,
     state: State,
 }
 
 enum State {
     // First we run the filter expression over the full row range.
-    FilterEval((FilterMask, Vec<ExprRef>)),
+    FilterEval((Mask, Vec<ExprRef>)),
     // Then we project the selected rows.
-    Project((FilterMask, ExprRef)),
+    Project((Mask, ExprRef)),
     // And then we're done.
     Ready(Option<ArrayData>),
 }
@@ -30,7 +31,7 @@ pub enum NextOp {
     Ready(Option<ArrayData>),
     /// The next expression to evaluate.
     /// The caller **must** first apply the mask before evaluating the expression.
-    Eval((Range<u64>, FilterMask, ExprRef)),
+    Eval((Range<u64>, Mask, ExprRef)),
 }
 
 /// We implement the range scan via polling for the next operation to perform, and then posting
@@ -57,14 +58,14 @@ pub enum NextOp {
 // identical to the filter API and there's no point having both. Hence, a single
 // `evaluate(row_mask, expr)` API.
 impl RangeScanner {
-    pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
+    pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: Mask) -> Self {
         let state = if !scan.rev_filter.is_empty() {
             // If we have a filter expression, then for now we evaluate it against all rows
             // of the range.
             // TODO(ngates): we should decide based on mask.true_count() whether to include the
             //  current mask or not. But note that the resulting expression would need to be
             //  aligned and intersected with the given mask.
-            State::FilterEval((FilterMask::new_true(mask.len()), scan.rev_filter.to_vec()))
+            State::FilterEval((Mask::new_true(mask.len()), scan.rev_filter.to_vec()))
         } else {
             // If there is no filter expression, then we immediately perform a mask + project.
             State::Project((mask.clone(), scan.projection().clone()))
@@ -81,7 +82,7 @@ impl RangeScanner {
     /// Check for the next operation to perform.
     /// Returns `Poll::Ready` when the scan is complete.
     ///
-    // FIXME(ngates): currently we have to clone the FilterMask to return it. Doing this
+    // FIXME(ngates): currently we have to clone the Mask to return it. Doing this
     //  forces the eager evaluation of the iterators.
     fn next(&self) -> NextOp {
         match &self.state {
@@ -111,7 +112,7 @@ impl RangeScanner {
                 let result = fill_null(result, false.into())?;
 
                 // Intersect the result of the filter expression with our initial row mask.
-                let mask = FilterMask::try_from(result)?;
+                let mask = Mask::try_from(result)?;
 
                 // We passed a full mask to the eval function so we must bit intersect instead
                 // of set-bit intersection if we massed a non-full mask to the evaluator.
@@ -130,7 +131,7 @@ impl RangeScanner {
                     let mask = if self.mask.selectivity() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
                         self.mask.clone()
                     } else {
-                        FilterMask::new_true(self.mask.len())
+                        Mask::new_true(self.mask.len())
                     };
                     // conjuncts_rev is again non-empty, so we can put it into FilterEval
                     self.state = State::FilterEval((mask, conjuncts_rev))
@@ -187,13 +188,14 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
-    use vortex_array::compute::{filter, FilterMask};
+    use vortex_array::compute::filter;
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::U64;
     use vortex_dtype::{DType, StructDType};
     use vortex_expr::{and, get_item, gt, ident, lit};
+    use vortex_mask::Mask;
 
     use crate::{RangeScanner, Scanner};
 
@@ -221,7 +223,7 @@ mod tests {
             .unwrap(),
         );
         let len = 1000;
-        let range = RangeScanner::new(scan, 0, FilterMask::new_true(len));
+        let range = RangeScanner::new(scan, 0, Mask::new_true(len));
 
         let res = range
             .evaluate(|mask, expr| {
@@ -277,7 +279,7 @@ mod tests {
             .unwrap(),
         );
         let len = 1000;
-        let range = RangeScanner::new(scan, 0, FilterMask::new_true(len));
+        let range = RangeScanner::new(scan, 0, Mask::new_true(len));
 
         let res = range
             .evaluate(|mask, expr| {

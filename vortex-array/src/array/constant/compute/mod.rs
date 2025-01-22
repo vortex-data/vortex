@@ -5,13 +5,14 @@ mod invert;
 mod search_sorted;
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn,
-    ScalarAtFn, SearchSortedFn, SliceFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn,
+    SearchSortedFn, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -72,7 +73,7 @@ impl SliceFn<ConstantArray> for ConstantEncoding {
 }
 
 impl FilterFn<ConstantArray> for ConstantEncoding {
-    fn filter(&self, array: &ConstantArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(array.scalar(), mask.true_count()).into_array())
     }
 }

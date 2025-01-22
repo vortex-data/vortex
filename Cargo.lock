@@ -4965,6 +4965,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-io",
  "vortex-ipc",
+ "vortex-mask",
  "vortex-proto",
  "vortex-runend",
  "vortex-sampling-compressor",
@@ -4987,6 +4988,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5030,6 +5032,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5116,6 +5119,7 @@ dependencies = [
  "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5132,6 +5136,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5209,6 +5214,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5241,6 +5247,7 @@ dependencies = [
  "vortex-io",
  "vortex-ipc",
  "vortex-layout",
+ "vortex-mask",
  "vortex-scalar",
  "vortex-scan",
 ]
@@ -5264,6 +5271,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5282,6 +5290,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-file",
+ "vortex-mask",
  "vortex-sampling-compressor",
  "vortex-scalar",
 ]
@@ -5340,6 +5349,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-flatbuffers",
+ "vortex-mask",
  "vortex-scalar",
  "vortex-scan",
 ]
@@ -5375,6 +5385,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
 ]
 
@@ -5439,6 +5450,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
+ "vortex-mask",
 ]
 
 [[package]]
@@ -5450,6 +5462,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
  "zigzag",
 ]

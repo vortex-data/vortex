@@ -1,19 +1,20 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
+use vortex_array::compute::{filter, FilterFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
+use vortex_mask::{Mask, MaskIter};
 
 use super::chunked_indices;
 use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
-    fn filter(&self, array: &BitPackedArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayData> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
@@ -31,7 +32,7 @@ impl FilterFn<BitPackedArray> for BitPackedEncoding {
 /// dictates the final `PType` of the result.
 fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
-    mask: &FilterMask,
+    mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
     let validity = array.validity().filter(mask)?;
 
@@ -48,12 +49,10 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     }
 
     let values: Buffer<T> = match mask.iter() {
-        FilterIter::Indices(indices) => {
+        MaskIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
         }
-        FilterIter::Slices(slices) => {
-            filter_slices(array, mask.true_count(), slices.iter().copied())
-        }
+        MaskIter::Slices(slices) => filter_slices(array, mask.true_count(), slices.iter().copied()),
     };
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
@@ -128,10 +127,11 @@ fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
 #[cfg(test)]
 mod test {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::{filter, slice, FilterMask};
+    use vortex_array::compute::{filter, slice};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayLen, IntoArrayVariant};
     use vortex_buffer::Buffer;
+    use vortex_mask::Mask;
 
     use crate::BitPackedArray;
 
@@ -141,7 +141,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let mask = FilterMask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
+        let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
         let primitive_result = filter(bitpacked.as_ref(), &mask)
             .unwrap()
@@ -158,7 +158,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
-        let mask = FilterMask::from_indices(sliced.len(), vec![1919, 1921]);
+        let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
         let primitive_result = filter(&sliced, &mask).unwrap().into_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
@@ -171,7 +171,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            &FilterMask::from_indices(4096, (0..1024).collect()),
+            &Mask::from_indices(4096, (0..1024).collect()),
         )
         .unwrap();
         assert_eq!(
@@ -187,7 +187,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            &FilterMask::from_indices(values.len(), (0..250).collect()),
+            &Mask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()
         .into_primitive()

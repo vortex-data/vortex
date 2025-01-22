@@ -6,13 +6,14 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
-    take, FilterMask, SearchResult, SearchSortedSide,
+    take, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
@@ -206,12 +207,12 @@ impl Patches {
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
-    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Option<Self>> {
+    pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
         if mask.true_count() == 0 {
             return Ok(None);
         }
 
-        // TODO(ngates): add functions to operate with FilterMask directly
+        // TODO(ngates): add functions to operate with Mask directly
         let buffer = mask.boolean_buffer();
         let mut coordinate_indices = BufferMut::<u64>::empty();
         let mut value_indices = BufferMut::<u64>::empty();
@@ -399,9 +400,10 @@ impl Patches {
 mod test {
     use rstest::{fixture, rstest};
     use vortex_buffer::buffer;
+    use vortex_mask::Mask;
 
     use crate::array::PrimitiveArray;
-    use crate::compute::{FilterMask, SearchResult, SearchSortedSide};
+    use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;
     use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
@@ -415,7 +417,7 @@ mod test {
         );
 
         let filtered = patches
-            .filter(&FilterMask::from_indices(100, vec![10, 20, 30]))
+            .filter(&Mask::from_indices(100, vec![10, 20, 30]))
             .unwrap()
             .unwrap();
 

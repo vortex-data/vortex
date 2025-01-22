@@ -11,9 +11,10 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::{filter, scalar_at, slice, take, FilterMask};
+use crate::compute::{filter, scalar_at, slice, take};
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
@@ -238,7 +239,7 @@ impl Validity {
         }
     }
 
-    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Self> {
+    pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
         //  if we happen to be NonNullable, AllValid, or AllInvalid.
         match self {

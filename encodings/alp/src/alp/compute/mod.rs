@@ -1,10 +1,10 @@
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
@@ -79,7 +79,7 @@ impl SliceFn<ALPArray> for ALPEncoding {
 }
 
 impl FilterFn<ALPArray> for ALPEncoding {
-    fn filter(&self, array: &ALPArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayData> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))

@@ -233,11 +233,12 @@ mod test {
     use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
+    use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
     use crate::array::PrimitiveArray;
-    use crate::compute::{filter, scalar_at, FilterMask};
+    use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
 
@@ -319,7 +320,7 @@ mod test {
 
         let filtered = filter(
             &list,
-            &FilterMask::from(BooleanBuffer::from(vec![false, true, true])),
+            &Mask::from(BooleanBuffer::from(vec![false, true, true])),
         );
 
         assert!(filtered.is_ok())

@@ -18,7 +18,7 @@ pub use cast::{try_cast, CastFn};
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
 pub use fill_null::{fill_null, FillNullFn};
-pub use filter::{filter, FilterFn, FilterIter, FilterMask};
+pub use filter::{filter, FilterFn};
 pub use invert::{invert, InvertFn};
 pub use like::{like, LikeFn, LikeOptions};
 pub use scalar_at::{scalar_at, ScalarAtFn};

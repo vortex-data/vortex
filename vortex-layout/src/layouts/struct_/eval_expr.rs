@@ -58,12 +58,12 @@ mod tests {
 
     use futures::executor::block_on;
     use vortex_array::array::StructArray;
-    use vortex_array::compute::FilterMask;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, Nullability, StructDType};
     use vortex_expr::{get_item, gt, ident, pack};
+    use vortex_mask::Mask;
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -133,7 +133,7 @@ mod tests {
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that
-            RowMask::new(FilterMask::from_iter([true, true, false]), 0),
+            RowMask::new(Mask::from_iter([true, true, false]), 0),
             expr,
         ))
         .unwrap();
@@ -159,7 +159,7 @@ mod tests {
         let expr = pack([("a", get_item("a", ident())), ("b", get_item("b", ident()))]);
         let result = block_on(reader.evaluate_expr(
             // Take rows 0 and 1, skip row 2, and anything after that
-            RowMask::new(FilterMask::from_iter([true, true, false]), 0),
+            RowMask::new(Mask::from_iter([true, true, false]), 0),
             expr,
         ))
         .unwrap();

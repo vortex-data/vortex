@@ -27,6 +27,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
+vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-scan = { workspace = true }
 

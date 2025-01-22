@@ -38,6 +38,7 @@ vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
