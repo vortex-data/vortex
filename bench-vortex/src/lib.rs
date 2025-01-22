@@ -31,6 +31,7 @@ use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
 use crate::taxi_data::taxi_data_parquet;
 
+pub mod blob;
 pub mod clickbench;
 pub mod data_downloads;
 pub mod display;

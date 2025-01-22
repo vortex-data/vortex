@@ -18,11 +18,11 @@ readme = "README.md"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = { workspace = true }
-arrow-ord = { workspace = true }
 arrow-buffer = { workspace = true }
+arrow-ord = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
+libfuzzer-sys = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-buffer = { workspace = true }

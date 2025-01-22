@@ -165,6 +165,7 @@ vortex-zigzag = { version = "0.22.1", path = "./encodings/zigzag" }
 worker = "0.5.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
+zipf = "7"
 
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"

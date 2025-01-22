@@ -476,6 +476,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "arrow-select",
+ "async-trait",
  "bytes",
  "bzip2",
  "clap",
@@ -507,6 +508,7 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "xshell",
+ "zipf",
 ]
 
 [[package]]
@@ -5953,6 +5955,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70b40401a28d86ce16a330b863b86fd7dbee4d7c940587ab09ab8c019f9e3fdf"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "zipf"
+version = "7.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "390e51da0ed8cc3ade001d15fa5ba6f966b99c858fb466ec6b06d1682f1f94dd"
+dependencies = [
+ "rand",
 ]
 
 [[package]]
