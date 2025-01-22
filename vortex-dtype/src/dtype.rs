@@ -39,6 +39,7 @@ pub enum DType {
     Extension(Arc<ExtDType>),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const_assert_eq!(size_of::<DType>(), 16);
 
 impl DType {
