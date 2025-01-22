@@ -7,7 +7,7 @@ use vortex_array::validity::{ArrayValidity as _, LogicalValidity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType as _, ArrayLen as _, IntoArrayVariant as _};
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
@@ -55,7 +55,7 @@ impl RunEndArray {
     ) -> VortexResult<u64> {
         Ok(match self.values().logical_validity() {
             LogicalValidity::AllValid(_) => {
-                let mut begin = u64::try_from(self.offset()).vortex_expect("usize fits in u64");
+                let mut begin = self.offset() as u64;
                 decompressed_ends
                     .iter()
                     .copied()
