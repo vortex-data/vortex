@@ -60,7 +60,7 @@ impl ArrayData {
         encoding: EncodingRef,
         dtype: DType,
         len: usize,
-        metadata: Option<ByteBuffer>,
+        metadata: Option<u64>,
         buffers: Option<Box<[ByteBuffer]>>,
         children: Option<Box<[ArrayData]>>,
         statistics: StatsSet,
@@ -276,10 +276,11 @@ impl ArrayData {
         offsets
     }
 
-    pub fn metadata_bytes(&self) -> Option<&[u8]> {
+    /// Returns the u64 Array metadata.
+    pub fn metadata_bytes(&self) -> Option<u64> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.metadata.as_ref().map(|b| b.as_slice()),
-            InnerArrayData::Viewed(v) => v.flatbuffer().metadata().map(|m| m.bytes()),
+            InnerArrayData::Owned(d) => d.metadata.clone(),
+            InnerArrayData::Viewed(v) => v.flatbuffer().metadata(),
         }
     }
 

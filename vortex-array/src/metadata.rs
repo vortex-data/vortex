@@ -2,19 +2,20 @@ use std::fmt::{Debug, Display, Formatter};
 
 use flexbuffers::FlexbufferSerializer;
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::{ToBytes, TryFromBytes};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::{metadata, ArrayData};
 
 pub trait ArrayMetadata: SerializeMetadata + DeserializeMetadata + Display {}
 
 pub trait SerializeMetadata {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>>;
+    fn serialize(&self) -> VortexResult<Option<u64>>;
 }
 
 impl SerializeMetadata for () {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+    fn serialize(&self) -> VortexResult<Option<u64>> {
         Ok(None)
     }
 }
@@ -25,7 +26,7 @@ where
 {
     type Output;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output>;
+    fn deserialize(metadata: Option<u64>) -> VortexResult<Self::Output>;
 
     /// Deserialize metadata without validation.
     ///
@@ -33,23 +34,23 @@ where
     ///
     /// Those who use this API must be sure to have invoked deserialize at least once before
     /// calling this method.
-    unsafe fn deserialize_unchecked(metadata: Option<&[u8]>) -> Self::Output {
+    unsafe fn deserialize_unchecked(metadata: Option<u64>) -> Self::Output {
         Self::deserialize(metadata)
             .vortex_expect("Metadata should have been validated before calling this method")
     }
 
     /// Format metadata for display.
-    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn format(metadata: Option<u64>, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
 pub trait MetadataVTable<Array> {
-    fn validate_metadata(&self, metadata: Option<&[u8]>) -> VortexResult<()>;
+    fn validate_metadata(&self, metadata: Option<u64>) -> VortexResult<()>;
 
     fn display_metadata(&self, array: &Array, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
 impl<E: Encoding> MetadataVTable<ArrayData> for E {
-    fn validate_metadata(&self, metadata: Option<&[u8]>) -> VortexResult<()> {
+    fn validate_metadata(&self, metadata: Option<u64>) -> VortexResult<()> {
         E::Metadata::deserialize(metadata).map(|_| ())
     }
 
@@ -62,7 +63,7 @@ pub struct EmptyMetadata;
 impl ArrayMetadata for EmptyMetadata {}
 
 impl SerializeMetadata for EmptyMetadata {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+    fn serialize(&self) -> VortexResult<Option<u64>> {
         Ok(None)
     }
 }
@@ -70,14 +71,14 @@ impl SerializeMetadata for EmptyMetadata {
 impl DeserializeMetadata for EmptyMetadata {
     type Output = EmptyMetadata;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
+    fn deserialize(metadata: Option<u64>) -> VortexResult<Self::Output> {
         if metadata.is_some() {
             vortex_bail!("EmptyMetadata should not have metadata bytes")
         }
         Ok(EmptyMetadata)
     }
 
-    fn format(_metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn format(_metadata: Option<u64>, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("EmptyMetadata")
     }
 }
@@ -101,12 +102,18 @@ where
         >,
     >,
 {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+    fn serialize(&self) -> VortexResult<Option<u64>> {
         let buf = rkyv::to_bytes::<VortexError>(&self.0)?;
+        if buf.len() > 8 {
+            vortex_bail!("Metadata exceeds 8 bytes")
+        }
+
         if buf.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(ByteBuffer::from(buf)))
+            let mut metadata: [u8; 8] = [0; 8];
+            metadata.copy_from_slice(&buf.as_slice()[..buf.len().min(8)]);
+            Ok(Some(u64::try_from_le_bytes(&metadata[..])?))
         }
     }
 }
@@ -124,14 +131,16 @@ where
 {
     type Output = M;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
+    fn deserialize(metadata: Option<u64>) -> VortexResult<Self::Output> {
         rkyv::from_bytes::<M, VortexError>(
-            metadata.ok_or_else(|| vortex_err!("Missing expected metadata"))?,
+            &metadata
+                .ok_or_else(|| vortex_err!("Missing expected metadata"))?
+                .to_le_bytes()[..],
         )
     }
 
     #[allow(clippy::use_debug)]
-    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn format(metadata: Option<u64>, f: &mut Formatter<'_>) -> std::fmt::Result {
         match Self::deserialize(metadata) {
             Ok(m) => write!(f, "{:?}", m),
             Err(_) => write!(f, "Failed to deserialize metadata"),
@@ -145,10 +154,14 @@ impl<M> SerializeMetadata for SerdeMetadata<M>
 where
     M: serde::Serialize,
 {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+    fn serialize(&self) -> VortexResult<Option<u64>> {
         let mut ser = FlexbufferSerializer::new();
         serde::Serialize::serialize(&self.0, &mut ser)?;
-        Ok(Some(ser.take_buffer().into()))
+        let buf = ser.take_buffer();
+        if buf.len() > 8 {
+            vortex_bail!("Metadata exceeds 8 bytes")
+        }
+        Ok(Some(u64::try_from_le_bytes(&buf[..])?))
     }
 }
 
@@ -159,14 +172,16 @@ where
 {
     type Output = M;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
+    fn deserialize(metadata: Option<u64>) -> VortexResult<Self::Output> {
         let bytes =
             metadata.ok_or_else(|| vortex_err!("Serde metadata requires metadata bytes"))?;
-        Ok(M::deserialize(flexbuffers::Reader::get_root(bytes)?)?)
+        Ok(M::deserialize(flexbuffers::Reader::get_root(
+            &bytes.to_le_bytes()[..],
+        )?)?)
     }
 
     #[allow(clippy::use_debug)]
-    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn format(metadata: Option<u64>, f: &mut Formatter<'_>) -> std::fmt::Result {
         match Self::deserialize(metadata) {
             Ok(m) => write!(f, "{:?}", m),
             Err(_) => write!(f, "Failed to deserialize metadata"),

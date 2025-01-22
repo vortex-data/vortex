@@ -29,7 +29,7 @@ pub struct OpaqueEncoding(pub u16);
 impl VariantsVTable<ArrayData> for OpaqueEncoding {}
 
 impl MetadataVTable<ArrayData> for OpaqueEncoding {
-    fn validate_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<()> {
+    fn validate_metadata(&self, _metadata: Option<u64>) -> VortexResult<()> {
         Ok(())
     }
 

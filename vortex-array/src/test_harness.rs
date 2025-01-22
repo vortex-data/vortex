@@ -2,6 +2,7 @@ use std::io::Write;
 
 use goldenfile::differs::binary_diff;
 use goldenfile::Mint;
+use vortex_dtype::ToBytes;
 use vortex_error::VortexExpect;
 
 use crate::{DeserializeMetadata, SerializeMetadata};
@@ -23,6 +24,6 @@ where
         let mut f = mint
             .new_goldenfile_with_differ(name, Box::new(binary_diff))
             .unwrap();
-        f.write_all(&meta).unwrap();
+        f.write_all(&meta.to_le_bytes()[..]).unwrap();
     }
 }

@@ -14,7 +14,7 @@ pub(super) struct OwnedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) metadata: Option<ByteBuffer>,
+    pub(super) metadata: Option<u64>,
     pub(super) buffers: Option<Box<[ByteBuffer]>>,
     pub(super) children: Option<Box<[ArrayData]>>,
     pub(super) stats_set: RwLock<StatsSet>,
