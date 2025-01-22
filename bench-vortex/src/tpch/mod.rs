@@ -24,7 +24,9 @@ use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
+use crate::{
+    get_session_with_cache, idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE,
+};
 
 pub mod dbgen;
 mod execute;
@@ -40,8 +42,9 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
 pub async fn load_datasets<P: AsRef<Path>>(
     base_dir: P,
     format: Format,
+    emulate_object_store: bool,
 ) -> anyhow::Result<SessionContext> {
-    let context = SessionContext::new();
+    let context = get_session_with_cache(emulate_object_store);
     let base_dir = base_dir.as_ref();
 
     let customer = base_dir.join("customer.tbl");

@@ -33,6 +33,8 @@ struct Args {
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
+    #[arg(long, default_value = "false")]
+    emulate_object_store: bool,
 }
 
 fn main() -> ExitCode {
@@ -62,6 +64,7 @@ fn main() -> ExitCode {
         args.warmup,
         args.only_vortex,
         args.display_format,
+        args.emulate_object_store,
     ))
 }
 
@@ -72,6 +75,7 @@ async fn bench_main(
     warmup: bool,
     only_vortex: bool,
     display_format: DisplayFormat,
+    emulate_object_store: bool,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
     // setup_logger(LevelFilter::Trace);
@@ -101,7 +105,7 @@ async fn bench_main(
     let ctxs = try_join_all(
         formats
             .iter()
-            .map(|format| load_datasets(&data_dir, *format)),
+            .map(|format| load_datasets(&data_dir, *format, emulate_object_store)),
     )
     .await
     .unwrap();

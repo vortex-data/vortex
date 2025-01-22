@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use datafusion::execution::object_store::{DefaultObjectStoreRegistry, ObjectStoreRegistry};
 use futures::stream::BoxStream;
 use object_store::path::Path;
 use object_store::{
@@ -10,12 +11,41 @@ use object_store::{
 };
 use rand::prelude::Distribution as _;
 use rand::thread_rng;
+use reqwest::Url;
 use zipf::ZipfDistribution;
 
 #[derive(Debug)]
 pub struct SlowObjectStore {
     inner: Arc<dyn ObjectStore>,
     zipf: ZipfDistribution,
+}
+
+#[derive(Debug)]
+pub struct SlowObjectStoreRegistry {
+    pub inner: Arc<dyn ObjectStoreRegistry>,
+}
+
+impl Default for SlowObjectStoreRegistry {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(DefaultObjectStoreRegistry::default()) as _,
+        }
+    }
+}
+
+impl ObjectStoreRegistry for SlowObjectStoreRegistry {
+    fn register_store(
+        &self,
+        url: &Url,
+        store: Arc<dyn ObjectStore>,
+    ) -> Option<Arc<dyn ObjectStore>> {
+        self.inner.register_store(url, store)
+    }
+
+    fn get_store(&self, url: &Url) -> datafusion_common::Result<Arc<dyn ObjectStore>> {
+        let store = self.inner.get_store(url)?;
+        Ok(Arc::new(SlowObjectStore::new(store)))
+    }
 }
 
 impl SlowObjectStore {
@@ -26,7 +56,7 @@ impl SlowObjectStore {
         }
     }
 
-    /// Injects an artificial wait of somewhere between 20ms to a full second.
+    /// Injects an artificial sleep of somewhere between 30ms to a full second.
     /// max wait is 1sec, but p95 is around 200ms (roughly the same as AnyBlob paper).
     ///
     /// We always wait at least 30ms, which seems to be the rough baseline for object store access.
@@ -64,6 +94,7 @@ impl ObjectStore for SlowObjectStore {
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> OSResult<GetResult> {
+        // Ideally, we would tune `wait` here for the actual if it exists in options.range
         self.wait().await;
         self.inner.get_opts(location, options).await
     }
@@ -78,7 +109,8 @@ impl ObjectStore for SlowObjectStore {
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> OSResult<ListResult> {
-        self.wait().await;
+        // This just makes listing super slow and its not really the part we're interested in
+        // self.wait().await;
         self.inner.list_with_delimiter(prefix).await
     }
 
