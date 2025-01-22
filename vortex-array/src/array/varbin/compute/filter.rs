@@ -1,3 +1,4 @@
+#![allow(unused, dead_code)]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
@@ -6,14 +7,15 @@ use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
-use crate::compute::{FilterFn, FilterMask};
+use crate::compute::{FilterFn, FilterMask, SelectionArray};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &FilterMask) -> VortexResult<ArrayData> {
-        filter_select_var_bin(array, mask).map(|a| a.into_array())
+        // filter_select_var_bin(array, mask).map(|a| a.into_array())
+        Ok(SelectionArray::new(array.clone().into_array(), mask.clone()).into_array())
     }
 }
 

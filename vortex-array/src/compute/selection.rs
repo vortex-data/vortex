@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::compute::{ComputeVTable, FilterMask};
+use crate::compute::{
+    compare_with_selection, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
+};
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
@@ -13,7 +15,7 @@ use crate::variants::{
     Utf8ArrayTrait, VariantsVTable,
 };
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
 impl_encoding!("lol.selection", 10_000u16, Selection);
 
@@ -67,6 +69,10 @@ impl SelectionArray {
             self.metadata().mask.clone().unwrap().len(),
         )
     }
+
+    pub fn mask(&self) -> FilterMask {
+        self.metadata().clone().mask.unwrap()
+    }
 }
 
 impl IntoCanonical for SelectionArray {
@@ -89,7 +95,37 @@ impl ValidityVTable<SelectionArray> for SelectionEncoding {
 
 impl ValidateVTable<SelectionArray> for SelectionEncoding {}
 
-impl ComputeVTable for SelectionEncoding {}
+impl ComputeVTable for SelectionEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+}
+
+impl CompareFn<SelectionArray> for SelectionEncoding {
+    fn compare(
+        &self,
+        lhs: &SelectionArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
+        // Delegate to the underlying encoding
+        compare_with_selection(&lhs.backing()?, rhs, operator, &lhs.mask()).map(Some)
+    }
+}
+
+impl FilterFn<SelectionArray> for SelectionEncoding {
+    fn filter(&self, array: &SelectionArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+        // Filter will bitand the masks.
+        Ok(
+            SelectionArray::new(array.backing()?, array.mask().intersect_by_rank(mask))
+                .into_array(),
+        )
+    }
+}
 
 impl VisitorVTable<SelectionArray> for SelectionEncoding {
     fn accept(&self, _array: &SelectionArray, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

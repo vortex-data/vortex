@@ -23,6 +23,7 @@ pub use invert::{invert, InvertFn};
 pub use like::{like, LikeFn, LikeOptions};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
+pub use selection::*;
 pub use slice::{slice, SliceFn};
 pub use take::{take, TakeFn};
 

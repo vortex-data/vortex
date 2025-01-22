@@ -220,7 +220,7 @@ pub fn compare_with_selection(
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
     if left.is_constant() && !right.is_constant() {
-        return compare(right, left, operator.swap());
+        return compare_with_selection(right, left, operator.swap(), selection);
     }
 
     if let Some(result) = left
