@@ -74,6 +74,7 @@ impl SlowObjectStore {
         tokio::time::sleep(self.wait_time()).await;
     }
 
+    /// Same as `Self::wait`, but with additional wait time according to the size of the response.
     async fn wait_with_size(&self, size: usize) {
         let base_wait_time = self.wait_time();
         let additional_ms = size.div_ceil(65536) as u64; // 64KB, roughly median throughput on S3
