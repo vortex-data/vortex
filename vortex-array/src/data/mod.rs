@@ -279,7 +279,7 @@ impl ArrayData {
     /// Returns the u64 Array metadata.
     pub fn metadata_bytes(&self) -> Option<u64> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.metadata.clone(),
+            InnerArrayData::Owned(d) => d.metadata,
             InnerArrayData::Viewed(v) => v.flatbuffer().metadata(),
         }
     }
