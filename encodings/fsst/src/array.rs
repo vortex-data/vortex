@@ -1,5 +1,3 @@
-use std::fmt::{Debug, Display};
-
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBinArray, VarBinEncoding};
@@ -9,11 +7,11 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-impl_encoding!("vortex.fsst", ids::FSST, FSST);
+impl_encoding!("vortex.fsst", ids::FSST, FSST, SerdeMetadata<FSSTMetadata>);
 
 static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
@@ -23,12 +21,6 @@ pub struct FSSTMetadata {
     symbols_len: usize,
     codes_nullability: Nullability,
     uncompressed_lengths_ptype: PType,
-}
-
-impl Display for FSSTMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl FSSTArray {
@@ -94,11 +86,11 @@ impl FSSTArray {
         Self::try_from_parts(
             dtype,
             len,
-            FSSTMetadata {
+            SerdeMetadata(FSSTMetadata {
                 symbols_len,
                 codes_nullability,
                 uncompressed_lengths_ptype,
-            },
+            }),
             None,
             Some(children),
             StatsSet::default(),
@@ -230,6 +222,7 @@ impl ValidateVTable<FSSTArray> for FSSTEncoding {}
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::{Nullability, PType};
 
     use crate::FSSTMetadata;
@@ -239,11 +232,11 @@ mod test {
     fn test_fsst_metadata() {
         check_metadata(
             "fsst.metadata",
-            FSSTMetadata {
+            SerdeMetadata(FSSTMetadata {
                 symbols_len: usize::MAX,
                 codes_nullability: Nullability::Nullable,
                 uncompressed_lengths_ptype: PType::U64,
-            },
+            }),
         );
     }
 }

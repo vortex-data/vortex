@@ -18,7 +18,19 @@ use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(C)]
 pub struct PatchesMetadata {
     len: usize,
     indices_ptype: PType,

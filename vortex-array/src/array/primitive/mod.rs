@@ -3,10 +3,12 @@ use std::ptr;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
+use rkyv::to_bytes;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
+use vortex_flatbuffers::dtype::Primitive;
 
 use crate::encoding::ids;
 use crate::iter::Accessor;
@@ -15,15 +17,26 @@ use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
+};
 
 mod compute;
 mod patch;
 mod stats;
 
-impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
+impl_encoding!(
+    "vortex.primitive",
+    ids::PRIMITIVE,
+    Primitive,
+    RkyvMetadata<PrimitiveMetadata>
+);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
+#[repr(C)]
 pub struct PrimitiveMetadata {
     pub(crate) validity: ValidityMetadata,
 }
@@ -38,12 +51,13 @@ impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         let len = buffer.len();
+
         Self::try_from_parts(
             DType::from(T::PTYPE).with_nullability(validity.nullability()),
             len,
-            PrimitiveMetadata {
+            RkyvMetadata(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
-            },
+            }),
             Some([buffer.into_byte_buffer()].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),

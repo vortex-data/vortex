@@ -29,6 +29,28 @@ pub(crate) enum InnerScalarValue {
     Null,
 }
 
+#[cfg(feature = "flatbuffers")]
+impl ScalarValue {
+    pub fn to_flexbytes(&self) -> vortex_flatbuffers::FlatBuffer {
+        use serde::Serialize;
+        use vortex_error::VortexExpect;
+
+        let mut ser = flexbuffers::FlexbufferSerializer::new();
+        self.0
+            .serialize(&mut ser)
+            .vortex_expect("Failed to serialize ScalarValue");
+        vortex_flatbuffers::FlatBuffer::copy_from(ser.view())
+    }
+
+    pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
+        use serde::Deserialize;
+
+        Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
+            buf,
+        )?)?)
+    }
+}
+
 fn to_hex(slice: &[u8]) -> Result<String, std::fmt::Error> {
     let mut output = String::new();
     for byte in slice {

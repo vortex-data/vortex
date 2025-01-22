@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,9 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, SerdeMetadata,
+};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar};
@@ -16,18 +18,19 @@ use vortex_scalar::{PValue, Scalar};
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.for", ids::FL_FOR, FoR);
+impl_encoding!(
+    "fastlanes.for",
+    ids::FL_FOR,
+    FoR,
+    SerdeMetadata<FoRMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(C)]
 pub struct FoRMetadata {
     reference: PValue,
+    // TODO(ngates): move shift into BitPackedArray and then ForMetadata is 64 bits of PValue.
     shift: u8,
-}
-
-impl Display for FoRMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl FoRArray {
@@ -53,7 +56,7 @@ impl FoRArray {
         Self::try_from_parts(
             dtype,
             child.len(),
-            FoRMetadata { reference, shift },
+            SerdeMetadata(FoRMetadata { reference, shift }),
             None,
             Some([child].into()),
             StatsSet::default(),
@@ -124,6 +127,7 @@ impl PrimitiveArrayTrait for FoRArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_scalar::PValue;
 
     use crate::FoRMetadata;
@@ -133,10 +137,10 @@ mod test {
     fn test_for_metadata() {
         check_metadata(
             "for.metadata",
-            FoRMetadata {
+            SerdeMetadata(FoRMetadata {
                 reference: PValue::I64(i64::MAX),
                 shift: u8::MAX,
-            },
+            }),
         );
     }
 }

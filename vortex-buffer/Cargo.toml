@@ -14,13 +14,16 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
+default = ["rkyv"]
 arrow = ["dep:arrow-buffer"]
+rkyv = ["dep:rkyv"]
 warn-copy = ["dep:log"]
 
 [dependencies]
 arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
 log = { workspace = true, optional = true }
+rkyv = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 
 [lints]

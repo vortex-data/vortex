@@ -1,7 +1,6 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 pub use compress::*;
-use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
@@ -11,6 +10,7 @@ use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
@@ -19,19 +19,19 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.delta", ids::FL_DELTA, Delta);
+impl_encoding!(
+    "fastlanes.delta",
+    ids::FL_DELTA,
+    Delta,
+    RkyvMetadata<DeltaMetadata>
+);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
 pub struct DeltaMetadata {
     validity: ValidityMetadata,
     deltas_len: u64,
     offset: u16, // must be <1024
-}
-
-impl Display for DeltaMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 /// A FastLanes-style delta-encoded array of primitive values.
@@ -141,7 +141,7 @@ impl DeltaArray {
         let delta = Self::try_from_parts(
             dtype,
             logical_len,
-            metadata,
+            RkyvMetadata(metadata),
             None,
             Some(children.into()),
             StatsSet::default(),
@@ -261,6 +261,7 @@ impl StatisticsVTable<DeltaArray> for DeltaEncoding {}
 mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
+    use vortex_array::RkyvMetadata;
 
     use crate::DeltaMetadata;
 
@@ -269,11 +270,11 @@ mod test {
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            DeltaMetadata {
+            RkyvMetadata(DeltaMetadata {
                 offset: u16::MAX,
                 validity: ValidityMetadata::AllValid,
                 deltas_len: u64::MAX,
-            },
+            }),
         );
     }
 }

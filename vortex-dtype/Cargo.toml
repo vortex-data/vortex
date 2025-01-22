@@ -25,6 +25,7 @@ half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true, optional = true }
+rkyv = { workspace = true, optional = true, features = ["bytecheck"] }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }

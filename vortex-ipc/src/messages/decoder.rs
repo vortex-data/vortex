@@ -263,12 +263,9 @@ mod test {
 
     #[test]
     fn array_no_buffers() {
-        // Constant arrays have no buffers
+        // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20).into_array();
-        assert!(
-            array.byte_buffer(0).is_none(),
-            "Array should have no buffers"
-        );
+        assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
         write_and_read(array);
     }
 }

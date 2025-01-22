@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::encoding::EncodingRef;
 use crate::stats::StatsSet;
-use crate::{ArrayDType, ArrayData, ArrayMetadata};
+use crate::{ArrayDType, ArrayData};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Debug)]
@@ -14,7 +14,7 @@ pub(super) struct OwnedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) metadata: Arc<dyn ArrayMetadata>,
+    pub(super) metadata: Option<ByteBuffer>,
     pub(super) buffers: Option<Box<[ByteBuffer]>>,
     pub(super) children: Option<Box<[ArrayData]>>,
     pub(super) stats_set: RwLock<StatsSet>,
@@ -23,10 +23,6 @@ pub(super) struct OwnedArrayData {
 }
 
 impl OwnedArrayData {
-    pub fn metadata(&self) -> &Arc<dyn ArrayMetadata> {
-        &self.metadata
-    }
-
     pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
         self.buffers.as_ref().and_then(|b| b.get(index))
     }

@@ -131,8 +131,7 @@ impl WriteFlatBuffer for ArrayPartsFlatBuffer<'_> {
         let metadata = self
             .array
             .metadata_bytes()
-            .vortex_expect("IPCArray is missing metadata during serialization");
-        let metadata = Some(fbb.create_vector(metadata.as_ref()));
+            .map(|bytes| fbb.create_vector(bytes));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())

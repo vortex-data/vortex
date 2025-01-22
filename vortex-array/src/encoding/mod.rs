@@ -10,7 +10,9 @@ use crate::validate::ValidateVTable;
 use crate::validity::ValidityVTable;
 use crate::variants::VariantsVTable;
 use crate::visitor::VisitorVTable;
-use crate::{ArrayData, ArrayMetadata, IntoCanonicalVTable, MetadataVTable};
+use crate::{
+    ArrayData, DeserializeMetadata, IntoCanonicalVTable, MetadataVTable, SerializeMetadata,
+};
 
 pub mod opaque;
 
@@ -65,7 +67,7 @@ pub trait Encoding: 'static {
     const ID: EncodingId;
 
     type Array;
-    type Metadata: ArrayMetadata;
+    type Metadata: SerializeMetadata + DeserializeMetadata;
 }
 
 pub type EncodingRef = &'static dyn EncodingVTable;
@@ -77,8 +79,8 @@ pub trait EncodingVTable:
     + Send
     + Debug
     + IntoCanonicalVTable
-    + MetadataVTable
     + ComputeVTable
+    + MetadataVTable<ArrayData>
     + StatisticsVTable<ArrayData>
     + ValidateVTable<ArrayData>
     + ValidityVTable<ArrayData>

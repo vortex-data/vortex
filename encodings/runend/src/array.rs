@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -13,7 +13,7 @@ use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -22,19 +22,18 @@ use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
 
-impl_encoding!("vortex.runend", ids::RUN_END, RunEnd);
+impl_encoding!(
+    "vortex.runend",
+    ids::RUN_END,
+    RunEnd,
+    SerdeMetadata<RunEndMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunEndMetadata {
     ends_ptype: PType,
     num_runs: usize,
     offset: usize,
-}
-
-impl Display for RunEndMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl RunEndArray {
@@ -84,7 +83,7 @@ impl RunEndArray {
         Self::try_from_parts(
             dtype,
             length,
-            metadata,
+            SerdeMetadata(metadata),
             None,
             Some(vec![ends, values].into()),
             StatsSet::default(),
@@ -252,7 +251,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, SerdeMetadata};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -263,11 +262,11 @@ mod tests {
     fn test_runend_metadata() {
         check_metadata(
             "runend.metadata",
-            RunEndMetadata {
+            SerdeMetadata(RunEndMetadata {
                 offset: usize::MAX,
                 ends_ptype: PType::U64,
                 num_runs: usize::MAX,
-            },
+            }),
         );
     }
 

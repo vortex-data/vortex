@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
@@ -12,23 +12,17 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
-impl_encoding!("vortex.dict", ids::DICT, Dict);
+impl_encoding!("vortex.dict", ids::DICT, Dict, SerdeMetadata<DictMetadata>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictMetadata {
     codes_ptype: PType,
-    values_len: usize,
-}
-
-impl Display for DictMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
+    values_len: usize, // TODO(ngates): make this a u32
 }
 
 impl DictArray {
@@ -39,11 +33,11 @@ impl DictArray {
         Self::try_from_parts(
             values.dtype().clone(),
             codes.len(),
-            DictMetadata {
+            SerdeMetadata(DictMetadata {
                 codes_ptype: PType::try_from(codes.dtype())
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
-            },
+            }),
             None,
             Some([codes, values].into()),
             StatsSet::default(),
@@ -126,6 +120,7 @@ impl VisitorVTable<DictArray> for DictEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::DictMetadata;
@@ -135,10 +130,10 @@ mod test {
     fn test_dict_metadata() {
         check_metadata(
             "dict.metadata",
-            DictMetadata {
+            SerdeMetadata(DictMetadata {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
-            },
+            }),
         );
     }
 }

@@ -46,12 +46,13 @@ num_enum = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
+rkyv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }
 vortex-datetime-dtype = { workspace = true }
-vortex-dtype = { workspace = true, features = ["serde"] }
-vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }
+vortex-dtype = { workspace = true, features = ["rkyv", "serde"] }
+vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers", "rancor"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-scalar = { workspace = true, features = [
     "flatbuffers",

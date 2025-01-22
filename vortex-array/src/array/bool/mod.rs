@@ -2,10 +2,9 @@ use std::fmt::{Debug, Display};
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
@@ -13,7 +12,10 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
+};
 
 pub mod compute;
 mod patch;
@@ -22,9 +24,19 @@ mod stats;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::BooleanBuffer;
 
-impl_encoding!("vortex.bool", ids::BOOL, Bool);
+impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(C)]
 pub struct BoolMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) first_byte_bit_offset: u8,
@@ -120,10 +132,10 @@ impl BoolArray {
         Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
-            BoolMetadata {
+            RkyvMetadata(BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
-            },
+            }),
             Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
@@ -152,6 +164,7 @@ impl ValidateVTable<BoolArray> for BoolEncoding {
                 array.as_ref().nbuffers()
             );
         }
+
         Ok(())
     }
 }

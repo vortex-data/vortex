@@ -246,4 +246,5 @@ jobs:
           cargo xtask generate-proto
       - name: "Make sure no files changed after regenerating"
         run: |
+          git status --porcelain
           test -z "$(git status --porcelain)"
