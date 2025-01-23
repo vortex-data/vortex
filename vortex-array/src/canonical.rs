@@ -17,13 +17,14 @@ use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_mask::Mask;
 
 use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
     StructArray, TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
-use crate::compute::{filter, try_cast, FilterMask};
+use crate::compute::{filter, try_cast};
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
@@ -410,7 +411,7 @@ pub trait IntoCanonical {
         self.into_canonical()?.into_arrow_with_data_type(data_type)
     }
 
-    fn into_canonical_with_mask(self, mask: &FilterMask) -> VortexResult<Canonical>
+    fn into_canonical_with_mask(self, mask: &Mask) -> VortexResult<Canonical>
     where
         Self: Sized,
         Self: AsRef<ArrayData>,

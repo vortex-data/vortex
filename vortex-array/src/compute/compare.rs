@@ -4,10 +4,11 @@ use std::fmt::{Display, Formatter};
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::{filter, FilterMask};
+use crate::compute::filter;
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
@@ -86,7 +87,7 @@ pub trait CompareFn<Array> {
         _lhs: &Array,
         _rhs: &ArrayData,
         _operator: Operator,
-        _selection: &FilterMask,
+        _selection: &Mask,
     ) -> VortexResult<Option<ArrayData>> {
         Ok(None)
     }
@@ -190,7 +191,7 @@ pub fn compare_with_selection(
     left: impl AsRef<ArrayData>,
     right: impl AsRef<ArrayData>,
     operator: Operator,
-    selection: &FilterMask,
+    selection: &Mask,
 ) -> VortexResult<ArrayData> {
     let left = left.as_ref();
     let right = right.as_ref();

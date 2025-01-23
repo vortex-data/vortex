@@ -1,9 +1,10 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::{compare, CompareFn, FilterMask, Operator, SelectionArray};
+use crate::compute::{compare, CompareFn, Operator, SelectionArray};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData};
@@ -26,7 +27,7 @@ impl CompareFn<PrimitiveArray> for PrimitiveEncoding {
         lhs: &PrimitiveArray,
         rhs: &ArrayData,
         operator: Operator,
-        selection: &FilterMask,
+        selection: &Mask,
     ) -> VortexResult<Option<ArrayData>> {
         if let Some(rhs_scalar) = rhs.as_constant() {
             if selection.selectivity() <= SELECTIVITIY_THRESHOLD {
@@ -64,7 +65,7 @@ fn compare_primitive_constant_selection<T: NativePType>(
     rhs: T,
     cmp_fn: fn(T, T) -> bool,
     validity: Validity,
-    selection: &FilterMask,
+    selection: &Mask,
 ) -> VortexResult<Option<ArrayData>> {
     // iterate the mask
     let bools = selection

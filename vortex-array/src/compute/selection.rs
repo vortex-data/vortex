@@ -3,9 +3,10 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::compute::{
-    compare_with_selection, filter, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
+    compare_with_selection, filter, CompareFn, ComputeVTable, FilterFn, Operator,
 };
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
@@ -15,15 +16,22 @@ use crate::variants::{
     StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
 };
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical, SerdeMetadata,
+};
 
-impl_encoding!("lol.selection", 10_000u16, Selection);
+impl_encoding!(
+    "lol.selection",
+    10_000u16,
+    Selection,
+    SerdeMetadata<SelectionMetadata>
+);
 
 // No need for the selection metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionMetadata {
     #[serde(skip_serializing, skip_deserializing)]
-    mask: Option<FilterMask>,
+    mask: Option<Mask>,
     #[serde(skip_serializing, skip_deserializing)]
     dtype: Option<DType>,
 }
@@ -41,7 +49,7 @@ impl Display for SelectionMetadata {
 }
 
 impl SelectionArray {
-    pub fn new(data: ArrayData, mask: FilterMask) -> Self {
+    pub fn new(data: ArrayData, mask: Mask) -> Self {
         assert_eq!(
             mask.len(),
             data.len(),
@@ -51,10 +59,10 @@ impl SelectionArray {
         Self::try_from_parts(
             data.dtype().clone(),
             mask.true_count(),
-            SelectionMetadata {
+            SerdeMetadata(SelectionMetadata {
                 mask: Some(mask),
                 dtype: Some(data.dtype().clone()),
-            },
+            }),
             None,
             Some([data].into()),
             StatsSet::default(),
@@ -70,7 +78,7 @@ impl SelectionArray {
         )
     }
 
-    pub fn mask(&self) -> FilterMask {
+    pub fn mask(&self) -> Mask {
         self.metadata().clone().mask.unwrap()
     }
 }
@@ -80,7 +88,7 @@ impl IntoCanonical for SelectionArray {
         self.backing()?.into_canonical_with_mask(&self.mask())
     }
 
-    fn into_canonical_with_mask(self, mask: &FilterMask) -> VortexResult<Canonical> {
+    fn into_canonical_with_mask(self, mask: &Mask) -> VortexResult<Canonical> {
         filter(self.as_ref(), mask)?.into_canonical()
     }
 }
@@ -129,7 +137,7 @@ impl CompareFn<SelectionArray> for SelectionEncoding {
 }
 
 impl FilterFn<SelectionArray> for SelectionEncoding {
-    fn filter(&self, array: &SelectionArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &SelectionArray, mask: &Mask) -> VortexResult<ArrayData> {
         // Filter will bitand the masks.
         Ok(
             SelectionArray::new(array.backing()?, array.mask().intersect_by_rank(mask))
