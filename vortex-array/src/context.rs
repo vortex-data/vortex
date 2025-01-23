@@ -5,6 +5,7 @@ use crate::array::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
+use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 
 /// A mapping between an encoding's ID to an [`EncodingRef`], used to have a shared view of all available encoding schemes.
@@ -32,8 +33,17 @@ impl Context {
         self.encodings.values().cloned()
     }
 
-    pub fn lookup_encoding(&self, encoding_code: u16) -> Option<EncodingRef> {
-        self.encodings.get(&encoding_code).cloned()
+    pub fn lookup_encoding(&self, encoding_code: u16) -> EncodingRef {
+        self.encodings
+            .get(&encoding_code)
+            .cloned()
+            .unwrap_or_else(|| {
+                // We must return an EncodingRef, which requires a static reference.
+                // OpaqueEncoding however must be created dynamically, since we do not know ahead
+                // of time which of the ~65,000 unknown code IDs we will end up seeing. Thus, we
+                // allocate (and leak) 2 bytes of memory to create a new encoding.
+                Box::leak(Box::new(OpaqueEncoding(encoding_code)))
+            })
     }
 }
 
