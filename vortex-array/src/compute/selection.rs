@@ -77,8 +77,11 @@ impl SelectionArray {
 
 impl IntoCanonical for SelectionArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let mask = self.metadata().clone().mask.take().unwrap();
-        filter(&self.backing()?, &mask)?.into_canonical()
+        self.backing()?.into_canonical_with_mask(&self.mask())
+    }
+
+    fn into_canonical_with_mask(self, mask: &FilterMask) -> VortexResult<Canonical> {
+        filter(self.as_ref(), mask)?.into_canonical()
     }
 }
 

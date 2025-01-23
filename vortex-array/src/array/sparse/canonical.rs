@@ -30,6 +30,9 @@ impl IntoCanonical for SparseArray {
             })
         }
     }
+
+    // TODO(DK): we can do a sorted join between the mask and the patch indices to quickly produce a
+    // primitive array
 }
 
 fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
