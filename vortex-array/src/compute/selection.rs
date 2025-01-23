@@ -1,18 +1,18 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compute::{
-    compare_with_selection, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
+    compare_with_selection, filter, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
 };
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ListArrayTrait, NullArrayTrait, PrimitiveArrayTrait,
-    Utf8ArrayTrait, VariantsVTable,
+    StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
 };
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -50,7 +50,7 @@ impl SelectionArray {
 
         Self::try_from_parts(
             data.dtype().clone(),
-            data.len(),
+            mask.true_count(),
             SelectionMetadata {
                 mask: Some(mask),
                 dtype: Some(data.dtype().clone()),
@@ -77,7 +77,8 @@ impl SelectionArray {
 
 impl IntoCanonical for SelectionArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        todo!("CALL into_canoncical_with_selection on child")
+        let mask = self.metadata().clone().mask.take().unwrap();
+        filter(&self.backing()?, &mask)?.into_canonical()
     }
 }
 
@@ -157,9 +158,9 @@ impl VariantsVTable<SelectionArray> for SelectionEncoding {
         Some(array)
     }
 
-    // fn as_struct_array<'a>(&self, array: &'a SelectionArray) -> Option<&'a dyn StructArrayTrait> {
-    //     Some(array)
-    // }
+    fn as_struct_array<'a>(&self, array: &'a SelectionArray) -> Option<&'a dyn StructArrayTrait> {
+        Some(array)
+    }
 
     fn as_list_array<'a>(&self, array: &'a SelectionArray) -> Option<&'a dyn ListArrayTrait> {
         Some(array)
@@ -171,6 +172,18 @@ impl VariantsVTable<SelectionArray> for SelectionEncoding {
     // ) -> Option<&'a dyn ExtensionArrayTrait> {
     //     Some(array)
     // }
+}
+
+impl StructArrayTrait for SelectionArray {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+        self.backing().unwrap().as_struct_array().and_then(|a| {
+            Some(SelectionArray::new(a.maybe_null_field_by_idx(idx)?, self.mask()).into_array())
+        })
+    }
+
+    fn project(&self, _projection: &[FieldName]) -> VortexResult<ArrayData> {
+        todo!()
+    }
 }
 
 impl NullArrayTrait for SelectionArray {}

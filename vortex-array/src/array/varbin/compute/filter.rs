@@ -14,8 +14,7 @@ use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &FilterMask) -> VortexResult<ArrayData> {
-        // filter_select_var_bin(array, mask).map(|a| a.into_array())
-        Ok(SelectionArray::new(array.clone().into_array(), mask.clone()).into_array())
+        filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }
 

@@ -7,8 +7,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::selection::SelectionArray;
-use crate::compute::FilterMask;
+use crate::compute::{filter, FilterMask};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
@@ -84,18 +83,12 @@ pub trait CompareFn<Array> {
 
     fn compare_with_selection(
         &self,
-        lhs: &Array,
-        rhs: &ArrayData,
-        operator: Operator,
-        selection: &FilterMask,
+        _lhs: &Array,
+        _rhs: &ArrayData,
+        _operator: Operator,
+        _selection: &FilterMask,
     ) -> VortexResult<Option<ArrayData>> {
-        if let Some(result) = self.compare(lhs, rhs, operator)? {
-            Ok(Some(
-                SelectionArray::new(result, selection.clone()).into_array(),
-            ))
-        } else {
-            Ok(None)
-        }
+        Ok(None)
     }
 }
 
@@ -124,7 +117,11 @@ pub fn compare(
     let right = right.as_ref();
 
     if left.len() != right.len() {
-        vortex_bail!("Compare operations only support arrays of the same length");
+        vortex_bail!(
+            "Compare operations only support arrays of the same length left {}, right {}",
+            left.len(),
+            right.len()
+        );
     }
     if !left.dtype().eq_ignore_nullability(right.dtype()) {
         vortex_bail!("Compare operations only support arrays of the same type");
@@ -196,9 +193,20 @@ pub fn compare_with_selection(
     let left = left.as_ref();
     let right = right.as_ref();
 
-    if left.len() != right.len() {
-        vortex_bail!("Compare operations only support arrays of the same length");
+    // println!(
+    //     "compare with sel left {}, right {}, sel {:?}",
+    //     left,
+    //     right,
+    //     selection.true_count()
+    // );
+
+    if selection.true_count() != right.len() {
+        vortex_bail!("Compare operations only support arrays of the same length left {}, len {} right {}, len {}", left, left.len(), right, right.len());
     }
+    if selection.len() != left.len() {
+        vortex_bail!("left")
+    }
+
     if !left.dtype().eq_ignore_nullability(right.dtype()) {
         vortex_bail!("Compare operations only support arrays of the same type");
     }
@@ -261,7 +269,7 @@ pub fn compare_with_selection(
     }
 
     // Fallback to arrow on canonical types
-    let result = arrow_compare(left, right, operator)?;
+    let result = arrow_compare(&filter(left, selection)?, right, operator)?;
     check_compare_result(&result, left, right);
     Ok(result)
 }

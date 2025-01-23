@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use flatbuffers::root;
 use futures::future::try_join_all;
-use vortex_array::compute::{filter, slice};
+use vortex_array::compute::{slice, SelectionArray};
 use vortex_array::parts::ArrayParts;
-use vortex_array::ArrayData;
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_flatbuffers::{array as fba, FlatBuffer};
@@ -63,7 +63,8 @@ impl ExprEvaluator for FlatReader {
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
         let array = slice(array, begin, begin + row_mask.len())?;
-        let array = filter(&array, row_mask.filter_mask())?;
+        // let array = filter(&array, row_mask.filter_mask())?;
+        let array = SelectionArray::new(array, row_mask.filter_mask().clone()).into_array();
 
         // Then apply the expression
         expr.evaluate(&array)

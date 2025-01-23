@@ -2,8 +2,8 @@ mod compare;
 
 use vortex_array::array::varbin_scalar;
 use vortex_array::compute::{
-    scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SelectionArray, SliceFn, TakeFn,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
+    SliceFn, TakeFn,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::ByteBuffer;
@@ -83,15 +83,13 @@ impl FilterFn<FSSTArray> for FSSTEncoding {
     fn filter(&self, array: &FSSTArray, mask: &FilterMask) -> VortexResult<ArrayData> {
         // Defer filtering until later. Instead we save off the mask and apply it
         // in future compare operations.
-        Ok(SelectionArray::new(array.clone().into_array(), mask.clone()).into_array())
-        //
-        // Ok(FSSTArray::try_new(
-        //     array.dtype().clone(),
-        //     array.symbols(),
-        //     array.symbol_lengths(),
-        //     filter(&array.codes(), mask)?,
-        //     filter(&array.uncompressed_lengths(), mask)?,
-        // )?
-        // .into_array())
+        Ok(FSSTArray::try_new(
+            array.dtype().clone(),
+            array.symbols(),
+            array.symbol_lengths(),
+            filter(&array.codes(), mask)?,
+            filter(&array.uncompressed_lengths(), mask)?,
+        )?
+        .into_array())
     }
 }

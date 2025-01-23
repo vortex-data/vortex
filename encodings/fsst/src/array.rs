@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBinArray, VarBinEncoding};
+use vortex_array::compute::SelectionEncoding;
 use vortex_array::encoding::{ids, Encoding};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
@@ -73,7 +74,9 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
         }
 
-        if codes.encoding().id() != VarBinEncoding::ID {
+        if codes.encoding().id() != VarBinEncoding::ID
+            && codes.encoding().id() != SelectionEncoding::ID
+        {
             vortex_bail!(
                 InvalidArgument: "codes must have varbin encoding, was {}",
                 codes.encoding().id()
