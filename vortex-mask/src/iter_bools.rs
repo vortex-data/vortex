@@ -8,6 +8,9 @@ impl Mask {
     ///
     /// This allows us to provide different implementations of the iterator based on the underlying
     /// representation of the mask, while avoiding a heap allocation to return a boxed iterator.
+    ///
+    /// Note that bool iteration might not be the fastest way to achieve whatever is it you're
+    /// trying to do!
     pub fn iter_bools<F, T>(&self, mut f: F) -> T
     where
         F: FnMut(&mut dyn Iterator<Item = bool>) -> T,
