@@ -45,7 +45,7 @@ impl TryFromArrowType<&DataType> for PType {
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
         Self::Struct(
-            StructDType::from_arrow(value.fields()),
+            Arc::new(StructDType::from_arrow(value.fields())),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
         )
     }
@@ -87,7 +87,7 @@ impl FromArrowType<&Field> for DType {
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(StructDType::from_arrow(f), nullability),
+            DataType::Struct(f) => Struct(Arc::new(StructDType::from_arrow(f)), nullability),
             _ => unimplemented!("Arrow data type not yet supported: {:?}", field.data_type()),
         }
     }
@@ -200,10 +200,10 @@ mod test {
 
         assert_eq!(
             infer_data_type(&DType::Struct(
-                StructDType::from_iter([
+                Arc::new(StructDType::from_iter([
                     ("field_a", DType::Bool(false.into())),
                     ("field_b", DType::Utf8(true.into()))
-                ]),
+                ])),
                 Nullability::NonNullable,
             ))
             .unwrap(),
@@ -248,8 +248,8 @@ mod test {
         let _ = infer_schema(&schema_null).unwrap();
     }
 
-    fn the_struct() -> StructDType {
-        StructDType::new(
+    fn the_struct() -> Arc<StructDType> {
+        Arc::new(StructDType::new(
             FieldNames::from([
                 FieldName::from("field_a"),
                 FieldName::from("field_b"),
@@ -260,6 +260,6 @@ mod test {
                 DType::Utf8(Nullability::NonNullable),
                 DType::Primitive(PType::I32, Nullability::Nullable),
             ],
-        )
+        ))
     }
 }

@@ -2,9 +2,9 @@ pub use vortex_array::*;
 pub use {
     vortex_buffer as buffer, vortex_datetime_dtype as datetime_dtype, vortex_dtype as dtype,
     vortex_error as error, vortex_expr as expr, vortex_file as file,
-    vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_proto as proto,
-    vortex_sampling_compressor as sampling_compressor, vortex_scalar as scalar,
-    vortex_scan as scan,
+    vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_mask as mask,
+    vortex_proto as proto, vortex_sampling_compressor as sampling_compressor,
+    vortex_scalar as scalar, vortex_scan as scan,
 };
 
 pub mod encodings {

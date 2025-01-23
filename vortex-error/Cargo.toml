@@ -31,6 +31,7 @@ jiff = { workspace = true }
 object_store = { workspace = true, optional = true }
 parquet = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
+rancor = { workspace = true, optional = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 worker = { workspace = true, optional = true }

@@ -9,7 +9,7 @@ use vortex_flatbuffers::FlatBuffer;
 
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
-use crate::{flatbuffers as fb, ArrayMetadata, ContextRef};
+use crate::{flatbuffers as fb, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
@@ -17,7 +17,6 @@ pub(super) struct ViewedArrayData {
     pub(super) encoding: EncodingRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: FlatBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[ByteBuffer]>,
@@ -42,10 +41,6 @@ impl ViewedArrayData {
         unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
-    pub fn metadata_bytes(&self) -> Option<&[u8]> {
-        self.flatbuffer().metadata().map(|m| m.bytes())
-    }
-
     // TODO(ngates): should we separate self and DType lifetimes? Should DType be cloned?
     pub fn child(&self, idx: usize, dtype: &DType, len: usize) -> VortexResult<Self> {
         let child = self
@@ -53,24 +48,11 @@ impl ViewedArrayData {
             .ok_or_else(|| vortex_err!("ArrayView: array_child({idx}) not found"))?;
         let flatbuffer_loc = child._tab.loc();
 
-        let encoding = self
-            .ctx
-            .lookup_encoding(child.encoding())
-            .unwrap_or_else(|| {
-                // We must return an EncodingRef, which requires a static reference.
-                // OpaqueEncoding however must be created dynamically, since we do not know ahead
-                // of time which of the ~65,000 unknown code IDs we will end up seeing. Thus, we
-                // allocate (and leak) 2 bytes of memory to create a new encoding.
-                Box::leak(Box::new(OpaqueEncoding(child.encoding())))
-            });
-
-        let metadata = encoding.load_metadata(child.metadata().map(|m| m.bytes()))?;
-
+        let encoding = self.ctx.lookup_encoding_or_opaque(child.encoding());
         Ok(Self {
             encoding,
             dtype: dtype.clone(),
             len,
-            metadata,
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc,
             buffers: self.buffers.clone(),

@@ -20,13 +20,14 @@ fn benchmark(c: &mut Criterion) {
             Format::InMemoryVortex {
                 enable_pushdown: true,
             },
+            false,
         ))
         .unwrap();
     let arrow_ctx = runtime
-        .block_on(load_datasets(&data_dir, Format::Arrow))
+        .block_on(load_datasets(&data_dir, Format::Arrow, false))
         .unwrap();
     let parquet_ctx = runtime
-        .block_on(load_datasets(&data_dir, Format::Parquet))
+        .block_on(load_datasets(&data_dir, Format::Parquet, false))
         .unwrap();
     let vortex_compressed_ctx = runtime
         .block_on(load_datasets(
@@ -34,6 +35,7 @@ fn benchmark(c: &mut Criterion) {
             Format::OnDiskVortex {
                 enable_compression: true,
             },
+            false,
         ))
         .unwrap();
 

@@ -8,6 +8,7 @@ use flatbuffers::root;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
+use moka::future::CacheBuilder;
 pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
@@ -139,11 +140,12 @@ impl VortexOpenOptions {
         read: R,
     ) -> VortexResult<VortexFile<FileIoDriver<R>>> {
         // Set up our segment cache.
-        let segment_cache = self
-            .segment_cache
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(InMemorySegmentCache::default()));
+        let segment_cache = self.segment_cache.as_ref().cloned().unwrap_or_else(|| {
+            Arc::new(InMemorySegmentCache::new(
+                // For now, use a fixed 1GB overhead.
+                CacheBuilder::new(1 << 30),
+            ))
+        });
 
         // If we need to read the file layout, then do so.
         let file_layout = match self.file_layout.take() {

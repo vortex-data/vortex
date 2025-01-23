@@ -1,8 +1,12 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
+use rkyv::from_bytes;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+};
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
@@ -11,14 +15,23 @@ use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTabl
 use crate::variants::{StructArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
+    IntoCanonical, RkyvMetadata,
 };
 
 mod compute;
 
-impl_encoding!("vortex.struct", ids::STRUCT, Struct);
+impl_encoding!(
+    "vortex.struct",
+    ids::STRUCT,
+    Struct,
+    RkyvMetadata<StructMetadata>
+);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
+#[repr(C)]
 pub struct StructMetadata {
     pub(crate) validity: ValidityMetadata,
 }
@@ -78,11 +91,11 @@ impl StructArray {
         }
 
         Self::try_from_parts(
-            DType::Struct(StructDType::new(names, field_dtypes), nullability),
+            DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability),
             length,
-            StructMetadata {
+            RkyvMetadata(StructMetadata {
                 validity: validity_metadata,
-            },
+            }),
             None,
             Some(children.into()),
             StatsSet::default(),

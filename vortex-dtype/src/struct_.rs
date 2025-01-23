@@ -321,7 +321,7 @@ mod test {
     #[test]
     fn nullability() {
         assert!(!DType::Struct(
-            StructDType::new(vec![].into(), Vec::new()),
+            StructDType::new(vec![].into(), Vec::new()).into(),
             Nullability::NonNullable
         )
         .is_nullable());
@@ -338,7 +338,7 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructDType::from_iter([("A", a_type.clone()), ("B", b_type.clone())]),
+            StructDType::from_iter([("A", a_type.clone()), ("B", b_type.clone())]).into(),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());

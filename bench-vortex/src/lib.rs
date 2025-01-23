@@ -9,8 +9,10 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
+use blob::SlowObjectStoreRegistry;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
+use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{collect, ExecutionPlan};
@@ -31,6 +33,7 @@ use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
 use crate::taxi_data::taxi_data_parquet;
 
+pub mod blob;
 pub mod clickbench;
 pub mod data_downloads;
 pub mod display;
@@ -314,17 +317,23 @@ impl Measurement {
     }
 }
 
-pub fn get_session_with_cache() -> SessionContext {
-    let cache_config = CacheManagerConfig::default();
+pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
+    let registry = if emulate_object_store {
+        Arc::new(SlowObjectStoreRegistry::default()) as _
+    } else {
+        Arc::new(DefaultObjectStoreRegistry::new()) as _
+    };
+
     let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
     let list_file_cache = Arc::new(DefaultListFilesCache::default());
 
-    let cache_config = cache_config
+    let cache_config = CacheManagerConfig::default()
         .with_files_statistics_cache(Some(file_static_cache))
         .with_list_files_cache(Some(list_file_cache));
 
     let rt = RuntimeEnvBuilder::new()
         .with_cache_manager(cache_config)
+        .with_object_store_registry(registry)
         .build_arc()
         .expect("could not build runtime environment");
 

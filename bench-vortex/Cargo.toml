@@ -26,6 +26,7 @@ anyhow = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -37,6 +38,7 @@ datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 enum-iterator = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
+governor = { workspace = true }
 homedir = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }
@@ -46,6 +48,7 @@ mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
+rand_distr = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }

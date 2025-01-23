@@ -55,6 +55,8 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructDType};
@@ -65,10 +67,10 @@ mod tests {
     #[test]
     fn test_remove_select() {
         let dtype = DType::Struct(
-            StructDType::new(
+            Arc::new(StructDType::new(
                 ["a".into(), "b".into()].into(),
                 vec![I32.into(), I32.into()],
-            ),
+            )),
             NonNullable,
         );
         let e = select(["a".into(), "b".into()], ident());

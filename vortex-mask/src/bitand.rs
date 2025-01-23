@@ -9,7 +9,7 @@ impl BitAnd for &Mask {
 
     fn bitand(self, rhs: Self) -> Self::Output {
         if self.len() != rhs.len() {
-            vortex_panic!("FilterMasks must have the same length");
+            vortex_panic!("Masks must have the same length");
         }
         if self.true_count() == 0 || rhs.true_count() == 0 {
             return Mask::new_false(self.len());

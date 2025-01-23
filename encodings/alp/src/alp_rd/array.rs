@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
@@ -8,13 +8,20 @@ use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, SerdeMetadata,
+};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::alp_rd::alp_rd_decode;
 
-impl_encoding!("vortex.alprd", ids::ALP_RD, ALPRD);
+impl_encoding!(
+    "vortex.alprd",
+    ids::ALP_RD,
+    ALPRD,
+    SerdeMetadata<ALPRDMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPRDMetadata {
@@ -23,12 +30,6 @@ pub struct ALPRDMetadata {
     dict: [u16; 8],
     left_parts_ptype: PType,
     patches: Option<PatchesMetadata>,
-}
-
-impl Display for ALPRDMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl ALPRDArray {
@@ -99,13 +100,13 @@ impl ALPRDArray {
         Self::try_from_parts(
             dtype,
             len,
-            ALPRDMetadata {
+            SerdeMetadata(ALPRDMetadata {
                 right_bit_width,
                 dict_len: left_parts_dict.as_ref().len() as u8,
                 dict,
                 left_parts_ptype,
                 patches,
-            },
+            }),
             None,
             Some(children.into()),
             StatsSet::default(),
@@ -180,8 +181,10 @@ impl ALPRDArray {
 
     /// The dictionary that maps the codes in `left_parts` into bit patterns.
     #[inline]
-    pub fn left_parts_dict(&self) -> &[u16] {
-        &self.metadata().dict[0..self.metadata().dict_len as usize]
+    pub fn left_parts_dict(&self) -> Vec<u16> {
+        // FIXME(ngates): either have metadata that can be a view over the bytes.
+        //  Or move dictionary into a buffer.
+        self.metadata().dict[0..self.metadata().dict_len as usize].to_vec()
     }
 
     #[inline]
@@ -262,7 +265,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{IntoArrayData, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoCanonical, SerdeMetadata};
     use vortex_dtype::PType;
 
     use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};
@@ -272,13 +275,13 @@ mod test {
     fn test_alprd_metadata() {
         check_metadata(
             "alprd.metadata",
-            ALPRDMetadata {
+            SerdeMetadata(ALPRDMetadata {
                 right_bit_width: u8::MAX,
                 patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
                 dict: [0u16; 8],
                 left_parts_ptype: PType::U64,
                 dict_len: 8,
-            },
+            }),
         );
     }
 

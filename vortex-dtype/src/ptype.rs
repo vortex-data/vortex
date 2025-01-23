@@ -18,6 +18,19 @@ use crate::DType::*;
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[cfg_attr(
+    feature = "rkyv",
+    derive(
+        rkyv::Archive,
+        rkyv::Portable,
+        rkyv::Serialize,
+        rkyv::Deserialize,
+        rkyv::bytecheck::CheckBytes,
+    ),
+    rkyv(as = PType),
+    bytecheck(crate = rkyv::bytecheck),
+)]
+#[repr(u8)]
 pub enum PType {
     /// An 8-bit unsigned integer
     U8,

@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use static_assertions::const_assert_eq;
 use DType::*;
 
 use crate::nullability::Nullability;
@@ -31,12 +32,18 @@ pub enum DType {
     /// Binary data
     Binary(Nullability),
     /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    Struct(StructDType, Nullability),
+    Struct(Arc<StructDType>, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
     /// User-defined extension types
     Extension(Arc<ExtDType>),
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+const_assert_eq!(size_of::<DType>(), 16);
+
+#[cfg(target_arch = "wasm32")]
+const_assert_eq!(size_of::<DType>(), 8);
 
 impl DType {
     /// The default DType for bytes
@@ -195,17 +202,5 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::mem;
-
-    use crate::dtype::DType;
-
-    #[test]
-    fn size_of() {
-        assert_eq!(mem::size_of::<DType>(), 40);
     }
 }

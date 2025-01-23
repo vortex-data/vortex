@@ -81,8 +81,8 @@ divan = "0.1.14"
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 fastlanes = "0.1.5"
-flatbuffers = "24.3.25"
-flexbuffers = "25.0.0"
+flatbuffers = "25"
+flexbuffers = "25"
 flume = "0.11"
 fsst-rs = "0.4.1"
 futures = { version = "0.3", default-features = false }
@@ -101,6 +101,7 @@ libfuzzer-sys = "0.4"
 log = "0.4.21"
 mimalloc = "0.1.42"
 moka = "0.12"
+governor = "0.8"
 num-traits = "0.2.18"
 num_enum = "0.7.2"
 object_store = "0.11.0"
@@ -114,10 +115,13 @@ prost-build = "0.13.0"
 prost-types = "0.13.0"
 pyo3 = { version = ">= 0.22", features = ["extension-module", "abi3-py310"] }
 pyo3-log = ">= 0.11"
+rancor = "0.1.0"
 rand = "0.8.5"
+rand_distr = "0.4"
 rayon = "1.10.0"
 regex = "1.11.0"
 reqwest = { version = "0.12.0", features = ["blocking"] }
+rkyv = { version = "0.8", features = ["little_endian", "pointer_width_32", "bytecheck"] }
 rstest = "0.24"
 serde = "1.0.197"
 serde_json = "1.0.116"
@@ -154,6 +158,7 @@ vortex-fsst = { version = "0.22.1", path = "./encodings/fsst" }
 vortex-io = { version = "0.22.1", path = "./vortex-io" }
 vortex-ipc = { version = "0.22.1", path = "./vortex-ipc" }
 vortex-layout = { version = "0.22.1", path = "./vortex-layout" }
+vortex-mask = { version = "0.22.1", path = "./vortex-mask" }
 vortex-proto = { version = "0.22.1", path = "./vortex-proto" }
 vortex-runend = { version = "0.22.1", path = "./encodings/runend" }
 vortex-scalar = { version = "0.22.1", path = "./vortex-scalar", default-features = false }

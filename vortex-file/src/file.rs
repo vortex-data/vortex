@@ -8,7 +8,6 @@ use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use pin_project_lite::pin_project;
-use vortex_array::compute::FilterMask;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
@@ -19,6 +18,7 @@ use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ident, ExprRef};
 use vortex_layout::{ExprEvaluator, LayoutReader};
+use vortex_mask::Mask;
 use vortex_scan::{RowMask, Scanner};
 
 use crate::exec::ExecDriver;
@@ -176,7 +176,7 @@ impl<I: IoDriver> VortexFile<I> {
             }
 
             // Construct a row mask for the range.
-            let filter_mask = FilterMask::from_indices(
+            let filter_mask = Mask::from_indices(
                 usize::try_from(row_range.end - row_range.start)
                     .vortex_expect("Split ranges are within usize"),
                 row_indices[start_idx..end_idx]

@@ -4,7 +4,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
-use vortex::compute::{compare, fill_forward, scalar_at, slice, take, FilterMask, Operator};
+use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
+use vortex::mask::Mask;
 use vortex::{ArrayDType, ArrayData, IntoCanonical};
 
 use crate::dtype::PyDType;
@@ -262,8 +263,7 @@ impl PyArray {
     /// ]
     fn filter(&self, filter: &Bound<PyArray>) -> PyResult<PyArray> {
         let filter = filter.borrow();
-        let inner =
-            vortex::compute::filter(&self.inner, &FilterMask::try_from(filter.inner.clone())?)?;
+        let inner = vortex::compute::filter(&self.inner, &Mask::try_from(filter.inner.clone())?)?;
         Ok(PyArray { inner })
     }
 

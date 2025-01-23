@@ -147,7 +147,7 @@ impl<'a> StructScalar<'a> {
             ScalarValue(InnerScalarValue::Null)
         };
         Ok(Scalar::new(
-            DType::Struct(projected_dtype, self.dtype().nullability()),
+            DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
             new_fields,
         ))
     }
@@ -190,7 +190,10 @@ mod tests {
         let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
-            StructDType::new(vec!["a".into(), "b".into()].into(), vec![f0_dt, f1_dt]),
+            Arc::new(StructDType::new(
+                vec!["a".into(), "b".into()].into(),
+                vec![f0_dt, f1_dt],
+            )),
             Nullability::Nullable,
         );
 

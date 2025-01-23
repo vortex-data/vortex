@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_dtype::{DType, Field, FieldName};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -109,7 +111,7 @@ impl StructArrayTrait for ChunkedArray {
             )?;
         ChunkedArray::try_new(
             chunks,
-            DType::Struct(projected_dtype, self.dtype().nullability()),
+            DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
         )
         .map(|a| a.into_array())
     }

@@ -41,7 +41,7 @@ fn benchmark(c: &mut Criterion) {
         .unwrap();
     }
 
-    let session_context = get_session_with_cache();
+    let session_context = get_session_with_cache(false);
     let context = session_context.clone();
 
     runtime.block_on(async move {

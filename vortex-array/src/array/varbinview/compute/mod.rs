@@ -40,7 +40,7 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(
             views,
-            (0..array.metadata().buffer_lens.len())
+            (0..array.nbuffers())
                 .map(|i| array.buffer(i))
                 .collect::<Vec<_>>(),
             array.dtype().clone(),

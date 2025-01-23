@@ -1,11 +1,12 @@
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::sparse::SparseArray;
 use crate::array::{ConstantArray, SparseEncoding};
 use crate::compute::{
-    BinaryNumericFn, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
+    BinaryNumericFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
+    SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
@@ -89,7 +90,7 @@ impl SearchSortedUsizeFn<SparseArray> for SparseEncoding {
 }
 
 impl FilterFn<SparseArray> for SparseEncoding {
-    fn filter(&self, array: &SparseArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayData> {
         let new_length = mask.true_count();
 
         let Some(new_patches) = array.resolved_patches()?.filter(mask)? else {
@@ -105,14 +106,13 @@ impl FilterFn<SparseArray> for SparseEncoding {
 mod test {
     use rstest::{fixture, rstest};
     use vortex_buffer::buffer;
+    use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
     use crate::compute::test_harness::test_binary_numeric;
-    use crate::compute::{
-        filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
-    };
+    use crate::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
     use crate::validity::Validity;
     use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
@@ -186,7 +186,7 @@ mod test {
     fn test_filter(array: ArrayData) {
         let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
-        let mask = FilterMask::from_iter(predicate);
+        let mask = Mask::from_iter(predicate);
 
         let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
@@ -198,7 +198,7 @@ mod test {
 
     #[test]
     fn true_fill_value() {
-        let mask = FilterMask::from_iter([false, true, false, true, false, true, true]);
+        let mask = Mask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
             buffer![0_u64, 3, 6].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
