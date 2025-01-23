@@ -23,7 +23,7 @@ use crate::array::{
     StructArray, TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
-use crate::compute::try_cast;
+use crate::compute::{filter, try_cast, FilterMask};
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
@@ -408,6 +408,18 @@ pub trait IntoCanonical {
         Self: Sized,
     {
         self.into_canonical()?.into_arrow_with_data_type(data_type)
+    }
+
+    fn into_canonical_with_mask(self, mask: &FilterMask) -> VortexResult<Canonical>
+    where
+        Self: Sized,
+        Self: AsRef<ArrayData>,
+    {
+        if mask.selectivity() < 0.2 {
+            filter(self.as_ref(), mask)?.into_canonical()
+        } else {
+            filter(self.into_canonical()?.as_ref(), mask)?.into_canonical()
+        }
     }
 }
 

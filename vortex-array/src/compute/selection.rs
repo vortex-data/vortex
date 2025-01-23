@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compute::{
-    compare_with_selection, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
+    compare_with_selection, filter, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
 };
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
@@ -77,7 +77,11 @@ impl SelectionArray {
 
 impl IntoCanonical for SelectionArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        todo!("CALL into_canoncical_with_selection on child")
+        self.backing()?.into_canonical_with_mask(&self.mask())
+    }
+
+    fn into_canonical_with_mask(self, mask: &FilterMask) -> VortexResult<Canonical> {
+        filter(self.as_ref(), mask)?.into_canonical()
     }
 }
 
