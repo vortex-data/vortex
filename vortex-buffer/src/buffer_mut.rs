@@ -325,7 +325,6 @@ impl<T> BufferMut<T> {
     pub fn freeze(self) -> Buffer<T> {
         Buffer {
             bytes: self.bytes.freeze(),
-            length: self.length,
             alignment: self.alignment,
             _marker: Default::default(),
         }

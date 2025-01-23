@@ -13,7 +13,6 @@ use crate::{Alignment, BufferMut, ByteBuffer};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
-    pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
@@ -110,10 +109,9 @@ impl<T> Buffer<T> {
                 size_of::<T>()
             );
         }
-        let length = bytes.len() / size_of::<T>();
+
         Self {
             bytes,
-            length,
             alignment,
             _marker: Default::default(),
         }
@@ -122,13 +120,13 @@ impl<T> Buffer<T> {
     /// Returns the length of the buffer in elements of type T.
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.length
+        self.bytes.len() / size_of::<T>()
     }
 
     /// Returns whether the buffer is empty.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.length == 0
+        self.len() == 0
     }
 
     /// Returns the alignment of the buffer.
@@ -142,7 +140,7 @@ impl<T> Buffer<T> {
     pub fn as_slice(&self) -> &[T] {
         let raw_slice = self.bytes.as_ref();
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
+        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.len()) }
     }
 
     /// Returns an iterator over the buffer of elements of type T.
@@ -228,7 +226,6 @@ impl<T> Buffer<T> {
 
         Self {
             bytes: self.bytes.slice(begin_byte..end_byte),
-            length: end - begin,
             alignment,
             _marker: Default::default(),
         }
@@ -243,7 +240,6 @@ impl<T> Buffer<T> {
     pub fn into_byte_buffer(self) -> ByteBuffer {
         ByteBuffer {
             bytes: self.bytes,
-            length: self.length * size_of::<T>(),
             alignment: self.alignment,
             _marker: Default::default(),
         }
@@ -257,17 +253,17 @@ impl<T> Buffer<T> {
 
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
+        let curr_length = self.len();
         self.bytes
             .try_into_mut()
             .map(|bytes| BufferMut {
                 bytes,
-                length: self.length,
+                length: curr_length,
                 alignment: self.alignment,
                 _marker: Default::default(),
             })
             .map_err(|bytes| Self {
                 bytes,
-                length: self.length,
                 alignment: self.alignment,
                 _marker: Default::default(),
             })
@@ -296,7 +292,7 @@ impl<T> Buffer<T> {
 impl<T: Debug> Debug for Buffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(&format!("Buffer<{}>", type_name::<T>()))
-            .field("length", &self.length)
+            .field("length", &self.len())
             .field("alignment", &self.alignment)
             .field("as_slice", &TruncatedDebug(self.as_slice()))
             .finish()
@@ -333,10 +329,8 @@ impl From<Vec<u8>> for ByteBuffer {
 /// Only for `Buffer<u8>` can we zero-copy from a `Bytes` since we can use a 1-byte alignment.
 impl From<Bytes> for ByteBuffer {
     fn from(bytes: Bytes) -> Self {
-        let length = bytes.len();
         Self {
             bytes,
-            length,
             alignment: Alignment::of::<u8>(),
             _marker: Default::default(),
         }
@@ -361,7 +355,6 @@ impl Buf for ByteBuffer {
             );
         }
         self.bytes.advance(cnt);
-        self.length -= cnt;
     }
 }
 

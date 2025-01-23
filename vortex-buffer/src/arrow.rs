@@ -22,7 +22,6 @@ impl<T: ArrowNativeType> Buffer<T> {
     /// Panics if the Arrow buffer is not aligned to the requested alignment, or if the requested
     /// alignment is not sufficient for type T.
     pub fn from_arrow_scalar_buffer(arrow: arrow_buffer::ScalarBuffer<T>) -> Self {
-        let length = arrow.len();
         let bytes = Bytes::from_owner(ArrowWrapper(arrow.into_inner()));
 
         let alignment = Alignment::of::<T>();
@@ -35,7 +34,6 @@ impl<T: ArrowNativeType> Buffer<T> {
 
         Self {
             bytes,
-            length,
             alignment,
             _marker: Default::default(),
         }
@@ -66,8 +64,6 @@ impl ByteBuffer {
     ///
     /// Panics if the Arrow buffer is not sufficiently aligned.
     pub fn from_arrow_buffer(arrow: arrow_buffer::Buffer, alignment: Alignment) -> Self {
-        let length = arrow.len();
-
         let bytes = Bytes::from_owner(ArrowWrapper(arrow));
         if bytes.as_ptr().align_offset(*alignment) != 0 {
             vortex_panic!(
@@ -78,7 +74,6 @@ impl ByteBuffer {
 
         Self {
             bytes,
-            length,
             alignment,
             _marker: Default::default(),
         }
