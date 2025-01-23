@@ -1,10 +1,11 @@
 use fsst::Symbol;
 use vortex_array::array::ConstantArray;
-use vortex_array::compute::{compare, compare_with_selection, CompareFn, FilterMask, Operator};
+use vortex_array::compute::{compare, compare_with_selection, CompareFn, Operator};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
@@ -40,7 +41,7 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
         lhs: &FSSTArray,
         rhs: &ArrayData,
         operator: Operator,
-        selection: &FilterMask,
+        selection: &Mask,
     ) -> VortexResult<Option<ArrayData>> {
         match (rhs.as_constant(), operator) {
             (Some(constant), _) if constant.is_null() => {
@@ -116,7 +117,7 @@ fn compare_fsst_constant_selection(
     left: &FSSTArray,
     right: &ConstantArray,
     equal: bool,
-    selection: &FilterMask,
+    selection: &Mask,
 ) -> VortexResult<ArrayData> {
     let symbols = left.symbols().into_primitive()?;
     let symbols_u64 = symbols.as_slice::<u64>();

@@ -1,10 +1,11 @@
 use vortex_array::array::{ConstantArray, PrimitiveArray};
-use vortex_array::compute::{compare, take, CompareFn, FilterMask, Operator};
+use vortex_array::compute::{compare, take, CompareFn, Operator};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::{DictArray, DictEncoding};
 
@@ -36,7 +37,7 @@ impl CompareFn<DictArray> for DictEncoding {
         lhs: &DictArray,
         rhs: &ArrayData,
         operator: Operator,
-        selection: &FilterMask,
+        selection: &Mask,
     ) -> VortexResult<Option<ArrayData>> {
         if selection.selectivity() < 0.2 {
             if let Some(const_scalar) = rhs.as_constant() {
@@ -72,11 +73,7 @@ impl CompareFn<DictArray> for DictEncoding {
     }
 }
 
-fn take_codes_with_sel<T: NativePType>(
-    codes: &[T],
-    selection: &FilterMask,
-    val: Validity,
-) -> ArrayData {
+fn take_codes_with_sel<T: NativePType>(codes: &[T], selection: &Mask, val: Validity) -> ArrayData {
     PrimitiveArray::new::<T>(
         selection
             .indices()

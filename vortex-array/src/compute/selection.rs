@@ -28,11 +28,13 @@ impl_encoding!(
 );
 
 // No need for the selection metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SelectionMetadata {
-    #[serde(skip_serializing, skip_deserializing)]
+    inner: u64,
+}
+
+pub struct InnerSelectionMetadata {
     mask: Option<Mask>,
-    #[serde(skip_serializing, skip_deserializing)]
     dtype: Option<DType>,
 }
 
@@ -56,12 +58,22 @@ impl SelectionArray {
             "Mask length must match array length"
         );
 
+        let true_count = mask.true_count();
+
+        let inner = Box::new(InnerSelectionMetadata {
+            mask: Some(mask),
+            dtype: Some(data.dtype().clone()),
+        });
+
+        let inner_ptr: *const InnerSelectionMetadata = &*inner;
+
+        let _ = Box::leak(inner);
+
         Self::try_from_parts(
             data.dtype().clone(),
-            mask.true_count(),
+            true_count,
             SerdeMetadata(SelectionMetadata {
-                mask: Some(mask),
-                dtype: Some(data.dtype().clone()),
+                inner: inner_ptr as u64,
             }),
             None,
             Some([data].into()),
@@ -73,13 +85,17 @@ impl SelectionArray {
     pub fn backing(&self) -> VortexResult<ArrayData> {
         self.as_ref().child(
             0,
-            &self.metadata().dtype.clone().unwrap(),
-            self.metadata().mask.clone().unwrap().len(),
+            &self.as_metadata().dtype.clone().unwrap(),
+            self.as_metadata().mask.clone().unwrap().len(),
         )
     }
 
+    pub fn as_metadata(&self) -> &'static InnerSelectionMetadata {
+        unsafe { &*(self.metadata().inner as *const InnerSelectionMetadata) }
+    }
+
     pub fn mask(&self) -> Mask {
-        self.metadata().clone().mask.unwrap()
+        self.as_metadata().mask.clone().unwrap()
     }
 }
 
@@ -92,6 +108,14 @@ impl IntoCanonical for SelectionArray {
         filter(self.as_ref(), mask)?.into_canonical()
     }
 }
+
+// impl Drop for SelectionMetadata {
+//     fn drop(&mut self) {
+//         unsafe {
+//             let _ = Box::from_raw(self.inner as *mut InnerSelectionMetadata);
+//         }
+//     }
+// }
 
 impl StatisticsVTable<SelectionArray> for SelectionEncoding {}
 
