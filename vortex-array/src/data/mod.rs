@@ -270,10 +270,13 @@ impl ArrayData {
     }
 
     pub fn metadata_bytes(&self) -> Option<&[u8]> {
-        match &self.0 {
+        println!("encoding {:?}", self.encoding().id());
+        let md = match &self.0 {
             InnerArrayData::Owned(d) => d.metadata.as_ref().map(|b| b.as_slice()),
             InnerArrayData::Viewed(v) => v.flatbuffer().metadata().map(|m| m.bytes()),
-        }
+        };
+        println!("md bytes {:?}", md);
+        md
     }
 
     pub fn nbuffers(&self) -> usize {
