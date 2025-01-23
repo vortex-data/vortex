@@ -14,7 +14,8 @@ use vortex_mask::Mask;
 
 /// A RowMask captures a set of selected rows within a range.
 ///
-/// The range itself can be [`u64`], but the length of the range must fit into a [`usize`].
+/// The range itself can be [`u64`], but the length of the range must fit into a [`usize`], this
+/// allows us to use a `usize` filter mask within a much larger file.
 #[derive(Debug, Clone)]
 pub struct RowMask {
     mask: Mask,
@@ -37,6 +38,7 @@ impl Display for RowMask {
 }
 
 impl RowMask {
+    /// Define a new [`RowMask`] with the given mask and offset into the file.
     pub fn new(mask: Mask, begin: u64) -> Self {
         let end = begin + (mask.len() as u64);
         Self { mask, begin, end }
@@ -161,6 +163,7 @@ impl RowMask {
         }
     }
 
+    /// Perform an intersection with another [`RowMask`], returning only rows that appear in both.
     pub fn and_rowmask(self, other: RowMask) -> VortexResult<Self> {
         if other.true_count() == other.len() {
             return Ok(self);
@@ -204,21 +207,20 @@ impl RowMask {
         Ok(Self::new(output_mask, output_begin))
     }
 
-    #[inline]
-    pub fn is_all_false(&self) -> bool {
-        self.mask.true_count() == 0
-    }
-
+    /// The beginning of the masked range.
     #[inline]
     pub fn begin(&self) -> u64 {
         self.begin
     }
 
+    /// The end of the masked range.
     #[inline]
     pub fn end(&self) -> u64 {
         self.end
     }
 
+    /// The length of the mask is the number of possible rows between the `begin` and `end`,
+    /// regardless of how many appear in the mask. For the number of masked rows, see `true_count`.
     #[inline]
     // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
     #[allow(clippy::len_without_is_empty)]
@@ -306,7 +308,7 @@ impl RowMask {
         Ok(RowMask::new(self.mask, self.begin - offset))
     }
 
-    // Get the true count of the underlying mask.
+    /// The number of masked rows within the range.
     pub fn true_count(&self) -> usize {
         self.mask.true_count()
     }
@@ -413,7 +415,7 @@ mod tests {
 
         assert_eq!(output.begin, 0);
         assert_eq!(output.end, 20);
-        assert!(output.is_all_false());
+        assert_eq!(output.true_count(), 0);
     }
 
     #[test]

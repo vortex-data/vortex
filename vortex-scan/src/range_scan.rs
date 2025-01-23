@@ -10,6 +10,7 @@ use vortex_mask::Mask;
 
 use crate::{RowMask, Scanner};
 
+/// A scan operation defined for a single row-range of the columnar data.
 pub struct RangeScanner {
     scan: Arc<Scanner>,
     row_range: Range<u64>,
@@ -26,6 +27,8 @@ enum State {
     Ready(Option<ArrayData>),
 }
 
+/// The next operation that should be performed. Either an expression to run, or the result
+/// of the [`RangeScanner`].
 pub enum NextOp {
     /// The finished result of the scan.
     Ready(Option<ArrayData>),

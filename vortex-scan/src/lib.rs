@@ -1,3 +1,9 @@
+//! The `vortex-scan` crate provides utilities for performing efficient scan operations.
+//!
+//! The [`Scanner`] object is responsible for storing state related to a scan operation, including
+//! expression selectivity metrics, in order to continually optimize the execution plan for each
+//! row-range of the scan.
+#![deny(missing_docs)]
 mod range_scan;
 mod row_mask;
 
