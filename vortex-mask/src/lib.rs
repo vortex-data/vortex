@@ -1,6 +1,10 @@
+#![feature(trusted_len)]
+//! A mask is a set of sorted unique positive integers.
+#![deny(missing_docs)]
 mod bitand;
 mod eq;
 mod intersect_by_rank;
+mod iter_bools;
 
 use std::cmp::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -20,7 +24,7 @@ const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
 #[derive(Clone, Debug)]
-pub struct Mask(Arc<Inner>);
+pub struct Mask(pub(crate) Arc<Inner>);
 
 #[derive(Debug)]
 struct Inner {
@@ -37,6 +41,11 @@ struct Inner {
 }
 
 impl Inner {
+    /// Returns a [`BooleanBuffer`] representation of the mask if one exists.
+    pub(crate) fn maybe_buffer(&self) -> Option<&BooleanBuffer> {
+        self.buffer.get()
+    }
+
     /// Constructs a [`BooleanBuffer`] from one of the other representations.
     fn buffer(&self) -> &BooleanBuffer {
         self.buffer.get_or_init(|| {
@@ -74,6 +83,11 @@ impl Inner {
         })
     }
 
+    /// Returns the indices representation of the mask if one exists.
+    pub(crate) fn maybe_indices(&self) -> Option<&[usize]> {
+        self.indices.get().map(|v| v.as_slice())
+    }
+
     /// Constructs an indices vector from one of the other representations.
     fn indices(&self) -> &[usize] {
         self.indices.get_or_init(|| {
@@ -103,6 +117,11 @@ impl Inner {
 
             vortex_panic!("No mask representation found")
         })
+    }
+
+    /// Returns the slices representation of the mask if one exists.
+    pub(crate) fn maybe_slices(&self) -> Option<&[(usize, usize)]> {
+        self.slices.get().map(|v| v.as_slice())
     }
 
     /// Constructs a slices vector from one of the other representations.
@@ -294,6 +313,7 @@ impl Mask {
         Self::from_indices(len, intersection)
     }
 
+    /// Returns the length of the mask (not the number of true values).
     #[inline]
     // There is no good definition of is_empty, does it mean len == 0 or true_count == 0?
     #[allow(clippy::len_without_is_empty)]
@@ -311,6 +331,18 @@ impl Mask {
     #[inline]
     pub fn false_count(&self) -> usize {
         self.len() - self.true_count()
+    }
+
+    /// Returns true if all values in the mask are true.
+    #[inline]
+    pub fn all_true(&self) -> bool {
+        self.true_count() == self.len()
+    }
+
+    /// Returns true if all values in the mask are false.
+    #[inline]
+    pub fn all_false(&self) -> bool {
+        self.true_count() == 0
     }
 
     /// Return the selectivity of the full mask.
@@ -391,6 +423,7 @@ impl Mask {
     }
 }
 
+/// Iterator over the indices or slices of a mask.
 pub enum MaskIter<'a> {
     /// Slice of pre-cached indices of a mask.
     Indices(&'a [usize]),
