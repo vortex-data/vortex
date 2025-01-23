@@ -99,8 +99,8 @@ impl<T> Buffer<T> {
         }
         if bytes.as_ptr().align_offset(*alignment) != 0 {
             vortex_panic!(
-                "Bytes alignment must align to the scalar type's alignment {}",
-                Alignment::of::<T>()
+                "Bytes alignment must align to the requested alignment {}",
+                alignment,
             );
         }
         if bytes.len() % size_of::<T>() != 0 {
@@ -289,6 +289,16 @@ impl<T> Buffer<T> {
                 )
             }
             Self::copy_from_aligned(self, alignment)
+        }
+    }
+
+    /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
+    pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self.alignment = alignment;
+            self
+        } else {
+            vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
         }
     }
 }

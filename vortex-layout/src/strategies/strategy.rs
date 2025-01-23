@@ -2,9 +2,10 @@
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
-use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
-use vortex_layout::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
+
+use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
+use crate::layouts::struct_::writer::StructLayoutWriter;
+use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 /// The default Vortex file layout strategy.
 ///

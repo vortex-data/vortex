@@ -15,7 +15,7 @@ categories.workspace = true
 
 [dependencies]
 arrow-buffer = { workspace = true }
-async-once-cell = "0.5.4"
+async-once-cell = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -27,6 +27,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
+vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-scan = { workspace = true }
 

@@ -30,6 +30,7 @@ use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
 use crate::can_be_pushed_down;
 
+/// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]
 pub struct VortexFormat {
     context: ContextRef,
@@ -37,9 +38,12 @@ pub struct VortexFormat {
     opts: VortexFormatOptions,
 }
 
+/// Options to configure the [`VortexFormat`].
 #[derive(Debug)]
 pub struct VortexFormatOptions {
+    /// The number of concurrency tasks used to infer the schema of multiple Vortex files.
     pub concurrent_infer_schema_ops: usize,
+    /// The size of the in-memory [`vortex_file::FileLayout`] cache.
     pub cache_size_mb: usize,
 }
 
@@ -65,6 +69,7 @@ impl Default for VortexFormat {
 }
 
 impl VortexFormat {
+    /// Create a new instance of the [`VortexFormat`].
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {

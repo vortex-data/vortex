@@ -3,11 +3,12 @@ mod compare;
 mod like;
 
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn,
-    FilterMask, LikeFn, ScalarAtFn, SliceFn, TakeFn,
+    filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn, LikeFn,
+    ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
@@ -60,7 +61,7 @@ impl TakeFn<DictArray> for DictEncoding {
 }
 
 impl FilterFn<DictArray> for DictEncoding {
-    fn filter(&self, array: &DictArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayData> {
         let codes = filter(&array.codes(), mask)?;
         DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }

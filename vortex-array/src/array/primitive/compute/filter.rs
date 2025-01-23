@@ -1,20 +1,21 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
+use vortex_mask::{Mask, MaskIter};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::{FilterFn, FilterIter, FilterMask};
+use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
-    fn filter(&self, array: &PrimitiveArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(mask)?;
         match_each_native_ptype!(array.ptype(), |$T| {
             let values = match mask.iter() {
-                FilterIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
-                FilterIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
+                MaskIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
+                MaskIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
             };
             Ok(PrimitiveArray::new(values, validity).into_array())
         })
@@ -45,9 +46,10 @@ fn filter_primitive_slices<T: Clone>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_mask::Mask;
 
     use crate::array::primitive::PrimitiveArray;
-    use crate::compute::{filter, FilterMask};
+    use crate::compute::filter;
     use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
 
     #[test]
@@ -55,7 +57,7 @@ mod test {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
-        let filtered = filter(&arr.to_array(), &FilterMask::from_iter(mask))
+        let filtered = filter(&arr.to_array(), &Mask::from_iter(mask))
             .unwrap()
             .into_primitive()
             .unwrap();

@@ -1,17 +1,18 @@
 use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::{Mask, MaskIter};
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::compute::{FilterFn, FilterIter, FilterMask};
+use crate::compute::FilterFn;
 use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn<BoolArray> for BoolEncoding {
-    fn filter(&self, array: &BoolArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(mask)?;
 
         let buffer = match mask.iter() {
-            FilterIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
-            FilterIter::Slices(slices) => filter_slices(
+            MaskIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
+            MaskIter::Slices(slices) => filter_slices(
                 &array.boolean_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
@@ -67,16 +68,17 @@ pub fn filter_slices(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_mask::Mask;
 
     use crate::array::bool::compute::filter::{filter_indices, filter_slices};
     use crate::array::BoolArray;
-    use crate::compute::{filter, FilterMask};
+    use crate::compute::filter;
     use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from_iter([true, true, false]);
-        let mask = FilterMask::from_iter([true, false, true]);
+        let mask = Mask::from_iter([true, false, true]);
 
         let filtered = filter(&arr.into_array(), &mask)
             .unwrap()

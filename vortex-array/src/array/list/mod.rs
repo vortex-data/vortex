@@ -6,11 +6,12 @@ use std::sync::Arc;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 #[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
@@ -24,11 +25,16 @@ use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
+    RkyvMetadata,
+};
 
-impl_encoding!("vortex.list", ids::LIST, List);
+impl_encoding!("vortex.list", ids::LIST, List, RkyvMetadata<ListMetadata>);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ListMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) elements_len: usize,
@@ -84,11 +90,11 @@ impl ListArray {
         Self::try_from_parts(
             list_dtype,
             list_len,
-            ListMetadata {
+            RkyvMetadata(ListMetadata {
                 validity: validity_metadata,
                 elements_len: element_len,
                 offset_ptype,
-            },
+            }),
             None,
             Some(children.into()),
             StatsSet::default(),
@@ -227,11 +233,12 @@ mod test {
     use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
+    use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
     use crate::array::PrimitiveArray;
-    use crate::compute::{filter, scalar_at, FilterMask};
+    use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
 
@@ -313,7 +320,7 @@ mod test {
 
         let filtered = filter(
             &list,
-            &FilterMask::from(BooleanBuffer::from(vec![false, true, true])),
+            &Mask::from(BooleanBuffer::from(vec![false, true, true])),
         );
 
         assert!(filtered.is_ok())

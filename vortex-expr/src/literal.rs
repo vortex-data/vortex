@@ -114,13 +114,13 @@ mod tests {
         );
 
         let sdtype = DType::Struct(
-            StructDType::new(
+            Arc::new(StructDType::new(
                 Arc::from([Arc::from("dog"), Arc::from("cat")]),
                 vec![
                     DType::Primitive(PType::U32, Nullability::NonNullable),
                     DType::Utf8(Nullability::NonNullable),
                 ],
-            ),
+            )),
             Nullability::NonNullable,
         );
         assert_eq!(

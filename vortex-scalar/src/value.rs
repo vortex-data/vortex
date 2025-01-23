@@ -29,6 +29,28 @@ pub(crate) enum InnerScalarValue {
     Null,
 }
 
+#[cfg(feature = "flatbuffers")]
+impl ScalarValue {
+    pub fn to_flexbytes(&self) -> vortex_flatbuffers::FlatBuffer {
+        use serde::Serialize;
+        use vortex_error::VortexExpect;
+
+        let mut ser = flexbuffers::FlexbufferSerializer::new();
+        self.0
+            .serialize(&mut ser)
+            .vortex_expect("Failed to serialize ScalarValue");
+        vortex_flatbuffers::FlatBuffer::copy_from(ser.view())
+    }
+
+    pub fn from_flexbytes(buf: &[u8]) -> VortexResult<Self> {
+        use serde::Deserialize;
+
+        Ok(ScalarValue::deserialize(flexbuffers::Reader::get_root(
+            buf,
+        )?)?)
+    }
+}
+
 fn to_hex(slice: &[u8]) -> Result<String, std::fmt::Error> {
     let mut output = String::new();
     for byte in slice {
@@ -197,6 +219,8 @@ impl InnerScalarValue {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use vortex_dtype::{DType, Nullability, PType, StructDType};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};
@@ -251,10 +275,10 @@ mod test {
 
         fn tstruct(left: &DType, right: &DType) -> DType {
             DType::Struct(
-                StructDType::new(
+                Arc::new(StructDType::new(
                     vec!["left".into(), "right".into()].into(),
                     vec![left.clone(), right.clone()],
-                ),
+                )),
                 Nullability::NonNullable,
             )
         }
@@ -293,7 +317,7 @@ mod test {
             .is_instance_of(&DType::Binary(Nullability::Nullable)));
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
-                StructDType::new([].into(), [].into()),
+                Arc::new(StructDType::new([].into(), [].into())),
                 Nullability::Nullable,
             ))
         );

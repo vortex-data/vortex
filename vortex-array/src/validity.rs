@@ -4,14 +4,17 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use rkyv::bytecheck::CheckBytes;
+use rkyv::traits::NoUndef;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::{filter, scalar_at, slice, take, FilterMask};
+use crate::compute::{filter, scalar_at, slice, take};
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
@@ -49,7 +52,21 @@ pub trait ArrayValidity {
     fn logical_validity(&self) -> LogicalValidity;
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[rkyv(as = ValidityMetadata)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(u8)]
 pub enum ValidityMetadata {
     NonNullable,
     AllValid,
@@ -222,7 +239,7 @@ impl Validity {
         }
     }
 
-    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Self> {
+    pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
         //  if we happen to be NonNullable, AllValid, or AllInvalid.
         match self {

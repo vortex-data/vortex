@@ -1,3 +1,9 @@
+//! The `vortex-scan` crate provides utilities for performing efficient scan operations.
+//!
+//! The [`Scanner`] object is responsible for storing state related to a scan operation, including
+//! expression selectivity metrics, in order to continually optimize the execution plan for each
+//! row-range of the scan.
+#![deny(missing_docs)]
 mod range_scan;
 mod row_mask;
 
@@ -44,7 +50,8 @@ struct Conjunct {
 impl Scanner {
     /// Create a new scan with the given projection and optional filter.
     pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> VortexResult<Self> {
-        let projection = simplify_typed(projection, dtype.clone())?;
+        let projection = simplify_typed(projection, &dtype)?;
+        let filter = filter.map(|f| simplify_typed(f, &dtype)).transpose()?;
 
         // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
         //  Where FieldMask ~= Vec<FieldPath>

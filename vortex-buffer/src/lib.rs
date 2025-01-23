@@ -59,6 +59,8 @@ mod bytes;
 mod r#const;
 mod debug;
 mod macros;
+#[cfg(feature = "rkyv")]
+mod rkyv;
 mod string;
 
 /// An immutable buffer of u8.

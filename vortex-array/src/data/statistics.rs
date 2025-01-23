@@ -3,7 +3,7 @@ use std::sync::Arc;
 use enum_iterator::all;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::vortex_panic;
+use vortex_error::{vortex_panic, VortexExpect as _};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::data::InnerArrayData;
@@ -118,7 +118,7 @@ impl Statistics for ArrayData {
         let s = self
             .encoding()
             .compute_statistics(self, stat)
-            .ok()?
+            .vortex_expect("compute_statistics must not fail")
             .get(stat)
             .cloned();
 

@@ -1,12 +1,12 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
 use crate::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -73,7 +73,7 @@ impl SliceFn<StructArray> for StructEncoding {
 }
 
 impl FilterFn<StructArray> for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(mask)?;
 
         let fields: Vec<ArrayData> = array
@@ -92,8 +92,10 @@ impl FilterFn<StructArray> for StructEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_mask::Mask;
+
     use crate::array::StructArray;
-    use crate::compute::{filter, FilterMask};
+    use crate::compute::filter;
     use crate::validity::Validity;
 
     #[test]
@@ -103,7 +105,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(struct_arr.as_ref(), &FilterMask::from_iter(mask)).unwrap();
+        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -111,8 +113,7 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered =
-            filter(struct_arr.as_ref(), &FilterMask::from_iter::<[bool; 0]>([])).unwrap();
+        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 }

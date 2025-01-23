@@ -100,39 +100,38 @@ impl Scalar {
         }
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Self> {
-        if self.is_null() && !dtype.is_nullable() {
-            vortex_bail!("Can't cast null scalar to non-nullable type")
+    pub fn cast(&self, target: &DType) -> VortexResult<Self> {
+        if let DType::Extension(ext_dtype) = target {
+            let storage_scalar = self.cast_to_non_extension(ext_dtype.storage_dtype())?;
+            Ok(Scalar::extension(ext_dtype.clone(), storage_scalar))
+        } else {
+            self.cast_to_non_extension(target)
         }
+    }
 
-        if self.dtype().eq_ignore_nullability(dtype) {
-            return Ok(Scalar {
-                dtype: dtype.clone(),
-                value: self.value.clone(),
-            });
-        }
-
-        match dtype {
-            DType::Null => vortex_bail!("Can't cast non-null to null"),
-            DType::Bool(_) => BoolScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Primitive(..) => PrimitiveScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Utf8(_) => Utf8Scalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Binary(_) => BinaryScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Struct(..) => StructScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::List(..) => ListScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Extension(ext_dtype) => {
-                if !self.value().is_instance_of(ext_dtype.storage_dtype()) {
-                    vortex_bail!(
-                        "Failed to cast scalar to extension dtype with storage type {:?}, found {:?}",
-                        ext_dtype.storage_dtype(),
-                        self.dtype()
-                    );
-                }
-                Ok(Scalar::extension(
-                    ext_dtype.clone(),
-                    self.cast(ext_dtype.storage_dtype())?,
-                ))
+    pub fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
+        assert!(!matches!(target, DType::Extension(..)));
+        if self.is_null() {
+            if target.is_nullable() {
+                return Ok(Scalar::new(target.clone(), self.value.clone()));
+            } else {
+                vortex_bail!("Can't cast null scalar to non-nullable type {}", target)
             }
+        }
+
+        if self.dtype().eq_ignore_nullability(target) {
+            return Ok(Scalar::new(target.clone(), self.value.clone()));
+        }
+
+        match &self.dtype {
+            DType::Null => unreachable!(), // handled by if is_null case
+            DType::Bool(_) => self.as_bool().cast(target),
+            DType::Primitive(..) => self.as_primitive().cast(target),
+            DType::Utf8(_) => self.as_utf8().cast(target),
+            DType::Binary(_) => self.as_binary().cast(target),
+            DType::Struct(..) => self.as_struct().cast(target),
+            DType::List(..) => self.as_list().cast(target),
+            DType::Extension(..) => self.as_extension().cast(target),
         }
     }
 
@@ -296,3 +295,191 @@ from_vec_for_scalar!(f64);
 from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
 from_vec_for_scalar!(ByteBuffer);
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use rstest::rstest;
+    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+
+    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+
+    #[rstest]
+    fn null_can_cast_to_anything_nullable(
+        #[values(
+            DType::Null,
+            DType::Bool(Nullability::Nullable),
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            DType::Extension(Arc::from(ExtDType::new(
+                ExtID::from("a"),
+                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+                None,
+            ))),
+            DType::Extension(Arc::from(ExtDType::new(
+                ExtID::from("b"),
+                Arc::from(DType::Utf8(Nullability::Nullable)),
+                None,
+            )))
+        )]
+        source_dtype: DType,
+        #[values(
+            DType::Null,
+            DType::Bool(Nullability::Nullable),
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            DType::Extension(Arc::from(ExtDType::new(
+                ExtID::from("a"),
+                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+                None,
+            ))),
+            DType::Extension(Arc::from(ExtDType::new(
+                ExtID::from("b"),
+                Arc::from(DType::Utf8(Nullability::Nullable)),
+                None,
+            )))
+        )]
+        target_dtype: DType,
+    ) {
+        assert_eq!(
+            Scalar::null(source_dtype)
+                .cast(&target_dtype)
+                .unwrap()
+                .dtype(),
+            &target_dtype
+        );
+    }
+
+    #[test]
+    fn list_casts() {
+        let list = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(
+                InnerScalarValue::Primitive(PValue::U16(6)),
+            )]))),
+        );
+
+        let target_u32 = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(list.cast(&target_u32).unwrap().dtype(), &target_u32);
+
+        let target_u32_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(
+            list.cast(&target_u32_nonnull).unwrap().dtype(),
+            &target_u32_nonnull
+        );
+
+        let target_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        );
+        assert_eq!(list.cast(&target_nonnull).unwrap().dtype(), &target_nonnull);
+
+        let target_u8 = DType::List(
+            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(list.cast(&target_u8).unwrap().dtype(), &target_u8);
+
+        let list_with_null = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
+                ScalarValue(InnerScalarValue::Null),
+            ]))),
+        );
+        let target_u8 = DType::List(
+            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(list_with_null.cast(&target_u8).unwrap().dtype(), &target_u8);
+
+        let target_u32_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        assert!(list_with_null.cast(&target_u32_nonnull).is_err());
+    }
+
+    #[test]
+    fn cast_to_from_extension_types() {
+        let apples = ExtDType::new(
+            ExtID::new(Arc::from("apples")),
+            Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
+            None,
+        );
+        let ext_dtype = DType::Extension(Arc::from(apples.clone()));
+        let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
+        let storage_scalar = Scalar::new(
+            DType::clone(apples.storage_dtype()),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U16(1000))),
+        );
+
+        // to self
+        let expected_dtype = &ext_dtype;
+        let actual = ext_scalar.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // to nullable self
+        let expected_dtype = &ext_dtype.as_nullable();
+        let actual = ext_scalar.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // cast to the storage type
+        let expected_dtype = apples.storage_dtype();
+        let actual = ext_scalar.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // cast to the storage type, nullable
+        let expected_dtype = &apples.storage_dtype().as_nullable();
+        let actual = ext_scalar.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // cast from storage type to extension
+        let expected_dtype = &ext_dtype;
+        let actual = storage_scalar.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // cast from storage type to extension, nullable
+        let expected_dtype = &ext_dtype.as_nullable();
+        let actual = storage_scalar.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // cast from *compatible* storage type to extension
+        let storage_scalar_u64 = Scalar::new(
+            DType::clone(apples.storage_dtype()),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(1000))),
+        );
+        let expected_dtype = &ext_dtype;
+        let actual = storage_scalar_u64.cast(expected_dtype).unwrap();
+        assert_eq!(actual.dtype(), expected_dtype);
+
+        // cast from *incompatible* storage type to extension
+        let apples_u8 = ExtDType::new(
+            ExtID::new(Arc::from("apples")),
+            Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            None,
+        );
+        let expected_dtype = &DType::Extension(Arc::from(apples_u8));
+        let result = storage_scalar.cast(expected_dtype);
+        assert!(
+            result.as_ref().is_err_and(|err| {
+                err
+                    .to_string()
+                    .contains("Can't cast u16 scalar 1000_u16 to u8 (cause: Cannot read primitive value U16(1000) as u8")
+            }),
+            "{:?}",
+            result
+        );
+    }
+}

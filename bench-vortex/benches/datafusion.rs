@@ -23,7 +23,7 @@ use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{ArrayData, Context};
-use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions};
+use vortex_datafusion::memory::VortexMemTable;
 
 pub static CTX: LazyLock<Context> = LazyLock::new(|| {
     Context::default().with_encodings([
@@ -157,14 +157,10 @@ fn bench_arrow<M: Measurement>(mut group: BenchmarkGroup<M>, session: &SessionCo
 fn bench_vortex<M: Measurement>(
     mut group: BenchmarkGroup<M>,
     session: &SessionContext,
-    enable_pushdown: bool,
     compress: bool,
 ) {
     let vortex_dataset = toy_dataset_vortex(compress);
-    let vortex_table = Arc::new(VortexMemTable::new(
-        vortex_dataset,
-        VortexMemTableOptions::default().with_pushdown(enable_pushdown),
-    ));
+    let vortex_table = Arc::new(VortexMemTable::new(vortex_dataset));
 
     measure_provider(&mut group, session, vortex_table);
 }
@@ -172,35 +168,17 @@ fn bench_vortex<M: Measurement>(
 fn bench_datafusion(c: &mut Criterion) {
     bench_arrow(c.benchmark_group("arrow"), &SessionContext::new());
 
-    // compress=true, pushdown enabled
+    // compress=true
     bench_vortex(
-        c.benchmark_group("vortex-pushdown-compressed"),
+        c.benchmark_group("vortex-compressed"),
         &SessionContext::new(),
-        true,
         true,
     );
 
-    // compress=false, pushdown enabled
+    // compress=false
     bench_vortex(
-        c.benchmark_group("vortex-pushdown-uncompressed"),
+        c.benchmark_group("vortex-uncompressed"),
         &SessionContext::new(),
-        true,
-        false,
-    );
-
-    // compress=true, pushdown disabled
-    bench_vortex(
-        c.benchmark_group("vortex-nopushdown-compressed"),
-        &SessionContext::new(),
-        false,
-        true,
-    );
-
-    // compress=false, pushdown disabled
-    bench_vortex(
-        c.benchmark_group("vortex-nopushdown-uncompressed"),
-        &SessionContext::new(),
-        false,
         false,
     );
 }

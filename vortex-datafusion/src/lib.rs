@@ -1,5 +1,5 @@
 //! Connectors to enable DataFusion to read Vortex data.
-
+#![deny(missing_docs)]
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::cast_possible_truncation)]
 
@@ -12,7 +12,7 @@ use datafusion_expr::{Expr, Operator};
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::vortex_err;
 
-use crate::memory::{VortexMemTable, VortexMemTableOptions};
+use crate::memory::VortexMemTable;
 
 pub mod memory;
 pub mod persistent;
@@ -50,36 +50,17 @@ fn supported_data_types(dt: DataType) -> bool {
     is_supported
 }
 
+/// Extension function to the DataFusion [`SessionContext`] for registering Vortex tables.
 pub trait SessionContextExt {
-    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayData) -> DFResult<()> {
-        self.register_mem_vortex_opts(name, array, VortexMemTableOptions::default())
-    }
+    /// Register an in-memory Vortex [`ArrayData`] as a DataFusion table.
+    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayData) -> DFResult<()>;
 
-    fn register_mem_vortex_opts<S: AsRef<str>>(
-        &self,
-        name: S,
-        array: ArrayData,
-        options: VortexMemTableOptions,
-    ) -> DFResult<()>;
-
-    fn read_mem_vortex(&self, array: ArrayData) -> DFResult<DataFrame> {
-        self.read_mem_vortex_opts(array, VortexMemTableOptions::default())
-    }
-
-    fn read_mem_vortex_opts(
-        &self,
-        array: ArrayData,
-        options: VortexMemTableOptions,
-    ) -> DFResult<DataFrame>;
+    /// Read an in-memory Vortex [`ArrayData`] into a DataFusion [`DataFrame`].
+    fn read_mem_vortex(&self, array: ArrayData) -> DFResult<DataFrame>;
 }
 
 impl SessionContextExt for SessionContext {
-    fn register_mem_vortex_opts<S: AsRef<str>>(
-        &self,
-        name: S,
-        array: ArrayData,
-        options: VortexMemTableOptions,
-    ) -> DFResult<()> {
+    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayData) -> DFResult<()> {
         if !array.dtype().is_struct() {
             return Err(vortex_err!(
                 "Vortex arrays must have struct type, found {}",
@@ -88,16 +69,12 @@ impl SessionContextExt for SessionContext {
             .into());
         }
 
-        let vortex_table = VortexMemTable::new(array, options);
+        let vortex_table = VortexMemTable::new(array);
         self.register_table(name.as_ref(), Arc::new(vortex_table))
             .map(|_| ())
     }
 
-    fn read_mem_vortex_opts(
-        &self,
-        array: ArrayData,
-        options: VortexMemTableOptions,
-    ) -> DFResult<DataFrame> {
+    fn read_mem_vortex(&self, array: ArrayData) -> DFResult<DataFrame> {
         if !array.dtype().is_struct() {
             return Err(vortex_err!(
                 "Vortex arrays must have struct type, found {}",
@@ -106,7 +83,7 @@ impl SessionContextExt for SessionContext {
             .into());
         }
 
-        let vortex_table = VortexMemTable::new(array, options);
+        let vortex_table = VortexMemTable::new(array);
 
         self.read_table(Arc::new(vortex_table))
     }

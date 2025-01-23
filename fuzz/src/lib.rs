@@ -13,10 +13,11 @@ use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ListEncoding;
-use vortex_array::compute::{scalar_at, FilterMask, SearchResult, SearchSortedSide};
+use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
 use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
+use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
@@ -60,7 +61,7 @@ pub enum Action {
     Slice(Range<usize>),
     Take(ArrayData),
     SearchSorted(Scalar, SearchSortedSide),
-    Filter(FilterMask),
+    Filter(Mask),
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
@@ -148,7 +149,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .collect::<Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask);
                     (
-                        Action::Filter(FilterMask::from_iter(mask)),
+                        Action::Filter(Mask::from_iter(mask)),
                         ExpectedValue::Array(current_array.clone()),
                     )
                 }

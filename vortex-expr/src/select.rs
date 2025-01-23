@@ -162,6 +162,8 @@ impl PartialEq for Select {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
@@ -201,11 +203,13 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], ident());
         let expected_dtype = DType::Struct(
-            dtype
-                .as_struct()
-                .unwrap()
-                .project(&[Field::from("a")])
-                .unwrap(),
+            Arc::new(
+                dtype
+                    .as_struct()
+                    .unwrap()
+                    .project(&[Field::from("a")])
+                    .unwrap(),
+            ),
             Nullability::NonNullable,
         );
         assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
@@ -231,11 +235,13 @@ mod tests {
         assert_eq!(
             select_expr_exclude.return_dtype(&dtype).unwrap(),
             DType::Struct(
-                dtype
-                    .as_struct()
-                    .unwrap()
-                    .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
-                    .unwrap(),
+                Arc::new(
+                    dtype
+                        .as_struct()
+                        .unwrap()
+                        .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
+                        .unwrap()
+                ),
                 Nullability::NonNullable
             )
         );

@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
@@ -9,11 +9,16 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
-impl_encoding!("vortex.datetimeparts", ids::DATE_TIME_PARTS, DateTimeParts);
+impl_encoding!(
+    "vortex.datetimeparts",
+    ids::DATE_TIME_PARTS,
+    DateTimeParts,
+    SerdeMetadata<DateTimePartsMetadata>
+);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DateTimePartsMetadata {
@@ -22,12 +27,6 @@ pub struct DateTimePartsMetadata {
     days_ptype: PType,
     seconds_ptype: PType,
     subseconds_ptype: PType,
-}
-
-impl Display for DateTimePartsMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl DateTimePartsArray {
@@ -70,7 +69,7 @@ impl DateTimePartsArray {
         Self::try_from_parts(
             dtype,
             length,
-            metadata,
+            SerdeMetadata(metadata),
             None,
             Some([days, seconds, subsecond].into()),
             StatsSet::default(),
@@ -158,6 +157,7 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
     use crate::DateTimePartsMetadata;
@@ -167,11 +167,11 @@ mod test {
     fn test_datetimeparts_metadata() {
         check_metadata(
             "datetimeparts.metadata",
-            DateTimePartsMetadata {
+            SerdeMetadata(DateTimePartsMetadata {
                 days_ptype: PType::I64,
                 seconds_ptype: PType::I64,
                 subseconds_ptype: PType::I64,
-            },
+            }),
         );
     }
 }

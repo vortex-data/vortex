@@ -106,7 +106,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.10

@@ -1,14 +1,16 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
 use crate::value::{InnerScalarValue, ScalarValue};
 use crate::Scalar;
 
 pub struct ListScalar<'a> {
     dtype: &'a DType,
+    element_dtype: &'a Arc<DType>,
     elements: Option<Arc<[ScalarValue]>>,
 }
 
@@ -65,8 +67,26 @@ impl<'a> ListScalar<'a> {
             })
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        let DType::List(element_dtype, ..) = dtype else {
+            vortex_bail!("Can't cast {:?} to {}", self.dtype(), dtype)
+        };
+
+        Ok(Scalar::new(
+            dtype.clone(),
+            ScalarValue(InnerScalarValue::List(
+                self.elements
+                    .as_ref()
+                    .vortex_expect("nullness handled in Scalar::cast")
+                    .iter()
+                    .map(|element| {
+                        Scalar::new(DType::clone(self.element_dtype), element.clone())
+                            .cast(element_dtype)
+                            .map(|x| x.value().clone())
+                    })
+                    .process_results(|iter| iter.collect())?,
+            )),
+        ))
     }
 }
 
@@ -105,12 +125,13 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::List(..)) {
+        let DType::List(element_dtype, ..) = value.dtype() else {
             vortex_bail!("Expected list scalar, found {}", value.dtype())
-        }
+        };
 
         Ok(Self {
             dtype: value.dtype(),
+            element_dtype,
             elements: value.value.as_list()?.cloned(),
         })
     }

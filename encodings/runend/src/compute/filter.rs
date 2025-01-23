@@ -4,13 +4,14 @@ use std::ops::AddAssign;
 use arrow_buffer::BooleanBuffer;
 use num_traits::AsPrimitive;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::{filter, FilterFn, FilterMask};
+use vortex_array::compute::{filter, FilterFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 use crate::compute::take::take_indices_unchecked;
 use crate::{RunEndArray, RunEndEncoding};
@@ -18,7 +19,7 @@ use crate::{RunEndArray, RunEndEncoding};
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterFn<RunEndArray> for RunEndEncoding {
-    fn filter(&self, array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayData> {
         let runs_ratio = mask.true_count() as f64 / array.ends().len() as f64;
 
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask.true_count() < 25 {
@@ -39,7 +40,7 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
 }
 
 // We expose this function to our benchmarks.
-pub fn filter_run_end(array: &RunEndArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayData> {
     let primitive_run_ends = array.ends().into_primitive()?;
     let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
         filter_run_end_primitive(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
@@ -54,8 +55,8 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
     run_ends: &[R],
     offset: u64,
     length: u64,
-    mask: &FilterMask,
-) -> VortexResult<(PrimitiveArray, FilterMask)> {
+    mask: &Mask,
+) -> VortexResult<(PrimitiveArray, Mask)> {
     let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
     let mut start = 0u64;
@@ -63,7 +64,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
     let mut count = R::zero();
     let filter_values = mask.boolean_buffer();
 
-    let new_mask: FilterMask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
+    let new_mask: Mask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;
         let end = min(run_ends[i].as_() - offset, length);
 
@@ -93,8 +94,9 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::{slice, FilterMask};
+    use vortex_array::compute::slice;
     use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_mask::Mask;
 
     use super::filter_run_end;
     use crate::RunEndArray;
@@ -111,7 +113,7 @@ mod tests {
         let arr = ree_array();
         let filtered = filter_run_end(
             &arr,
-            &FilterMask::from_iter([
+            &Mask::from_iter([
                 true, true, false, false, false, false, false, false, false, false, true, true,
             ]),
         )
@@ -141,7 +143,7 @@ mod tests {
         let arr = slice(ree_array(), 2, 7).unwrap();
         let filtered = filter_run_end(
             &RunEndArray::maybe_from(arr).unwrap(),
-            &FilterMask::from_iter([true, false, false, true, true]),
+            &Mask::from_iter([true, false, false, true, true]),
         )
         .unwrap();
         let filtered_run_end = RunEndArray::try_from(filtered).unwrap();

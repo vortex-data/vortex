@@ -4,9 +4,9 @@ use std::iter::Iterator;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use num_traits::ToPrimitive;
-use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayLen, IntoArrayData};
 use vortex_buffer::Buffer;
+use vortex_mask::Mask;
 use vortex_runend::RunEndArray;
 use vortex_runend::_benchmarking::{filter_run_end, take_indices_unchecked};
 
@@ -35,7 +35,7 @@ fn evenly_spaced(c: &mut Criterion) {
             let array = RunEndArray::try_new(ends, values).unwrap();
 
             for filter_density in [0.001, 0.01, 0.015, 0.020, 0.025, 0.030] {
-                let mask = FilterMask::from_indices(
+                let mask = Mask::from_indices(
                     array.len(),
                     // In this case, the benchmarks don't seem to change whether we evenly spread
                     // the mask values or like here we pack them into the beginning of the mask.

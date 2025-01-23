@@ -238,6 +238,14 @@ impl StructDType {
         &self.names
     }
 
+    /// Find the index of a field.
+    pub fn find(&self, field: &Field) -> Option<usize> {
+        match field {
+            Field::Name(name) => self.find_name(name),
+            Field::Index(idx) => Some(*idx),
+        }
+    }
+
     /// Find the index of a field by name
     /// Returns `None` if the field is not found
     pub fn find_name(&self, name: &str) -> Option<usize> {
@@ -313,7 +321,7 @@ mod test {
     #[test]
     fn nullability() {
         assert!(!DType::Struct(
-            StructDType::new(vec![].into(), Vec::new()),
+            StructDType::new(vec![].into(), Vec::new()).into(),
             Nullability::NonNullable
         )
         .is_nullable());
@@ -330,7 +338,7 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructDType::from_iter([("A", a_type.clone()), ("B", b_type.clone())]),
+            StructDType::from_iter([("A", a_type.clone()), ("B", b_type.clone())]).into(),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());

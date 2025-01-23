@@ -1,6 +1,3 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
@@ -9,7 +6,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoArrayVariant,
+    IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -19,16 +17,7 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
 
-impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZigZagMetadata;
-
-impl Display for ZigZagMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ZigZagMetadata")
-    }
-}
+impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag, EmptyMetadata);
 
 impl ZigZagArray {
     pub fn try_new(encoded: ArrayData) -> VortexResult<Self> {
@@ -46,7 +35,7 @@ impl ZigZagArray {
         Self::try_from_parts(
             dtype,
             len,
-            ZigZagMetadata,
+            EmptyMetadata,
             None,
             Some(children.into()),
             StatsSet::default(),
@@ -134,16 +123,10 @@ impl IntoCanonical for ZigZagArray {
 #[cfg(test)]
 mod test {
     use vortex_array::compute::{scalar_at, slice};
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
 
     use super::*;
-
-    #[test]
-    fn test_zigzag_metadata() {
-        check_metadata("zigzag.metadata", ZigZagMetadata);
-    }
 
     #[test]
     fn test_compute_statistics() {

@@ -1,11 +1,12 @@
-use vortex_array::compute::{filter, FilterFn, FilterMask};
+use vortex_array::compute::{filter, FilterFn};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl FilterFn<ALPRDArray> for ALPRDEncoding {
-    fn filter(&self, array: &ALPRDArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayData> {
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.filter(mask))
@@ -28,10 +29,11 @@ impl FilterFn<ALPRDArray> for ALPRDEncoding {
 mod test {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::{filter, FilterMask};
+    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
+    use vortex_mask::Mask;
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -46,13 +48,10 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(
-            encoded.as_ref(),
-            &FilterMask::from_iter([true, false, true]),
-        )
-        .unwrap()
-        .into_primitive()
-        .unwrap();
+        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
+            .unwrap()
+            .into_primitive()
+            .unwrap();
         assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
     }
 }

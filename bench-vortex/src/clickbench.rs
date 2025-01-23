@@ -229,7 +229,7 @@ pub async fn register_vortex_files(
                 .expect("Failed to write Vortex file")
             })
         })
-        .buffered(16)
+        .buffer_unordered(16)
         .try_collect::<Vec<_>>()
         .await?;
 

@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 pub use exec::*;
 use flatbuffers::root;
+use futures_util::stream::FuturesUnordered;
+use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
+use moka::future::CacheBuilder;
 pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
@@ -42,6 +45,7 @@ pub struct VortexOpenOptions {
     execution_mode: Option<ExecutionMode>,
     // TODO(ngates): allow fully configurable I/O driver.
     io_concurrency: usize,
+    exec_concurrency: Option<usize>,
 }
 
 impl VortexOpenOptions {
@@ -56,7 +60,8 @@ impl VortexOpenOptions {
             segment_cache: None,
             execution_mode: None,
             // TODO(ngates): pick some numbers...
-            io_concurrency: 16,
+            io_concurrency: 10,
+            exec_concurrency: None,
         }
     }
 
@@ -111,6 +116,21 @@ impl VortexOpenOptions {
         self.execution_mode = Some(execution_mode);
         self
     }
+
+    /// Configure the number of concurrent I/O requests.
+    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
+        self.io_concurrency = io_concurrency;
+        self
+    }
+
+    /// Override the default split-by concurrency.
+    ///
+    /// It is recommended to use more split-by concurrency than I/O concurrency to ensure there
+    /// are always I/O operations enqueued.
+    pub fn with_exec_concurrency(mut self, exec_concurrency: usize) -> Self {
+        self.exec_concurrency = Some(exec_concurrency);
+        self
+    }
 }
 
 impl VortexOpenOptions {
@@ -120,11 +140,12 @@ impl VortexOpenOptions {
         read: R,
     ) -> VortexResult<VortexFile<FileIoDriver<R>>> {
         // Set up our segment cache.
-        let segment_cache = self
-            .segment_cache
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(InMemorySegmentCache::default()));
+        let segment_cache = self.segment_cache.as_ref().cloned().unwrap_or_else(|| {
+            Arc::new(InMemorySegmentCache::new(
+                // For now, use a fixed 1GB overhead.
+                CacheBuilder::new(1 << 30),
+            ))
+        });
 
         // If we need to read the file layout, then do so.
         let file_layout = match self.file_layout.take() {
@@ -143,11 +164,8 @@ impl VortexOpenOptions {
         // Set up the execution driver.
         let exec_driver = self
             .execution_mode
-            .unwrap_or(ExecutionMode::Inline)
-            .into_driver();
-
-        // Compute the splits of the file.
-        let splits = self.split_by.splits(file_layout.root_layout())?.into();
+            .unwrap_or_default()
+            .into_driver(self.exec_concurrency.unwrap_or(self.io_concurrency * 2));
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
@@ -155,7 +173,7 @@ impl VortexOpenOptions {
             file_layout,
             io_driver,
             exec_driver,
-            splits,
+            split_by: self.split_by,
         })
     }
 
@@ -290,13 +308,16 @@ impl VortexOpenOptions {
                 )
             })?;
 
-        let root_layout = LayoutData::try_new_viewed(
-            root_encoding,
-            dtype,
-            bytes.clone(),
-            fb_root_layout._tab.loc(),
-            self.layout_ctx.clone(),
-        )?;
+        // SAFETY: We have validated the fb_root_layout at the beginning of this function
+        let root_layout = unsafe {
+            LayoutData::new_viewed_unchecked(
+                root_encoding,
+                dtype,
+                bytes.clone(),
+                fb_root_layout._tab.loc(),
+                self.layout_ctx.clone(),
+            )
+        };
 
         let fb_segments = fb
             .segments()
@@ -314,17 +335,25 @@ impl VortexOpenOptions {
         file_layout: &FileLayout,
         segments: &dyn SegmentCache,
     ) -> VortexResult<()> {
-        for (idx, segment) in file_layout.segment_map().iter().enumerate() {
-            if segment.offset < initial_offset {
-                // Skip segments that aren't in the initial read.
-                continue;
-            }
-            let segment_id = SegmentId::from(u32::try_from(idx)?);
-            let offset = usize::try_from(segment.offset - initial_offset)?;
-            let buffer = initial_read.slice(offset..offset + (segment.length as usize));
+        stream::iter(
+            file_layout
+                .segment_map()
+                .iter()
+                .enumerate()
+                .filter(|(_, segment)| segment.offset > initial_offset)
+                .map(|(idx, segment)| async move {
+                    let segment_id = SegmentId::from(u32::try_from(idx)?);
+                    let offset = usize::try_from(segment.offset - initial_offset)?;
+                    let buffer = initial_read
+                        .slice(offset..offset + (segment.length as usize))
+                        .aligned(segment.alignment);
 
-            segments.put(segment_id, buffer).await?;
-        }
-        Ok(())
+                    segments.put(segment_id, buffer).await
+                }),
+        )
+        .collect::<FuturesUnordered<_>>()
+        .await
+        .try_collect::<()>()
+        .await
     }
 }

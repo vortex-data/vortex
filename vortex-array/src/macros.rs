@@ -1,7 +1,10 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use crate::encoding::{ArrayEncodingRef, EncodingRef};
-use crate::{ArrayData, ToArrayData};
+use std::fmt::{Display, Formatter};
+
+use crate::array::StructMetadata;
+use crate::encoding::{ArrayEncodingRef, Encoding, EncodingRef};
+use crate::{ArrayData, ArrayMetadata, ToArrayData};
 
 impl<A: AsRef<ArrayData>> ToArrayData for A {
     fn to_array(&self) -> ArrayData {
@@ -15,7 +18,7 @@ impl<A: AsRef<ArrayData>> ToArrayData for A {
 /// 3. New metadata type that implements `ArrayMetadata`.
 #[macro_export]
 macro_rules! impl_encoding {
-    ($id:literal, $code:expr, $Name:ident) => {
+    ($id:literal, $code:expr, $Name:ident, $Metadata:ty) => {
         $crate::paste::paste! {
             #[derive(std::fmt::Debug, Clone)]
             #[repr(transparent)]
@@ -33,32 +36,34 @@ macro_rules! impl_encoding {
                 }
             }
 
+            #[allow(dead_code)]
             impl [<$Name Array>] {
-                #[allow(dead_code)]
-                fn metadata(&self) -> &[<$Name Metadata>] {
-                    use vortex_error::VortexExpect;
-                    self.0.metadata::<[<$Name Metadata>]>()
-                        .vortex_expect("Metadata should be tied to the encoding")
-                }
-
-                #[allow(dead_code)]
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,
                     len: usize,
-                    metadata: [<$Name Metadata>],
+                    metadata: $Metadata,
                     buffers: Option<Box<[vortex_buffer::ByteBuffer]>>,
                     children: Option<Box<[$crate::ArrayData]>>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
+                    use $crate::SerializeMetadata;
+
                     Self::try_from($crate::ArrayData::try_new_owned(
                             &[<$Name Encoding>],
                             dtype,
                             len,
-                            std::sync::Arc::new(metadata),
+                            metadata.serialize()?,
                             buffers,
                             children,
                             stats
                     )?)
+                }
+
+                fn metadata(&self) -> <$Metadata as $crate::DeserializeMetadata>::Output {
+                    use $crate::DeserializeMetadata;
+
+                    // SAFETY: Metadata is validated during construction of ArrayData.
+                    unsafe { <$Metadata as DeserializeMetadata>::deserialize_unchecked(self.0.metadata_bytes()) }
                 }
 
                 /// Optionally downcast an [`ArrayData`](crate::ArrayData) instance to a specific encoding.
@@ -112,7 +117,7 @@ macro_rules! impl_encoding {
             impl $crate::encoding::Encoding for [<$Name Encoding>] {
                 const ID: $crate::encoding::EncodingId = $crate::encoding::EncodingId::new($id, $code);
                 type Array = [<$Name Array>];
-                type Metadata = [<$Name Metadata>];
+                type Metadata = $Metadata;
             }
 
             impl $crate::encoding::EncodingVTable for [<$Name Encoding>] {
@@ -122,19 +127,6 @@ macro_rules! impl_encoding {
                 }
 
                 fn as_any(&self) -> &dyn std::any::Any {
-                    self
-                }
-            }
-
-            /// Implement ArrayMetadata
-            impl $crate::ArrayMetadata for [<$Name Metadata>] {
-                #[inline]
-                fn as_any(&self) -> &dyn std::any::Any {
-                    self
-                }
-
-                #[inline]
-                fn as_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn std::any::Any + std::marker::Send + std::marker::Sync> {
                     self
                 }
             }

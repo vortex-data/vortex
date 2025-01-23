@@ -155,7 +155,7 @@ mod tests {
             );
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(1392672_u64))
+                Some(Scalar::from(1392641_u64))
             );
         }
 
@@ -168,7 +168,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(134357017_u64))
+                Some(Scalar::from(134357009_u64))
             );
         }
 

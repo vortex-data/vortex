@@ -15,12 +15,13 @@ categories.workspace = true
 
 [dependencies]
 exponential-decay-histogram = { workspace = true }
+itertools = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
-itertools = "0.13.0"
+vortex-mask = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

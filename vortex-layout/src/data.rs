@@ -6,7 +6,7 @@ use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
@@ -104,6 +104,27 @@ impl LayoutData {
             flatbuffer_loc,
             ctx,
         })))
+    }
+
+    /// Create a new viewed layout from a flatbuffer root message.
+    ///
+    /// # SAFETY
+    ///
+    /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
+    pub unsafe fn new_viewed_unchecked(
+        encoding: LayoutEncodingRef,
+        dtype: DType,
+        flatbuffer: ByteBuffer,
+        flatbuffer_loc: usize,
+        ctx: LayoutContextRef,
+    ) -> Self {
+        Self(Inner::Viewed(ViewedLayoutData {
+            encoding,
+            dtype,
+            flatbuffer,
+            flatbuffer_loc,
+            ctx,
+        }))
     }
 
     /// Returns the [`crate::LayoutEncoding`] for this layout.
@@ -270,8 +291,14 @@ impl LayoutData {
     }
 
     /// Register splits for this layout.
-    pub fn register_splits(&self, row_offset: u64, splits: &mut BTreeSet<u64>) -> VortexResult<()> {
-        self.encoding().register_splits(self, row_offset, splits)
+    pub fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        self.encoding()
+            .register_splits(self, field_mask, row_offset, splits)
     }
 }
 

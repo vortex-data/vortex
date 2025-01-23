@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{FieldName, StructDType};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Identity, Select};
@@ -21,6 +21,19 @@ pub fn immediate_scope_accesses<'a>(
     scope_dtype: &'a StructDType,
 ) -> VortexResult<FieldAccesses<'a>> {
     ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)
+}
+
+/// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
+pub fn immediate_scope_access<'a>(
+    expr: &'a ExprRef,
+    scope_dtype: &'a StructDType,
+) -> VortexResult<HashSet<FieldName>> {
+    ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)?
+        .get(expr)
+        .ok_or_else(|| {
+            vortex_err!("Expression missing from scope accesses, this is a internal bug")
+        })
+        .cloned()
 }
 
 struct ImmediateScopeAccessesAnalysis<'a> {

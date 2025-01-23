@@ -23,8 +23,6 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::stats::ArrayStatistics;
-    use vortex_dtype::{DType, Nullability};
-    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -90,14 +88,8 @@ mod tests {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert_eq!(
-            bool_arr.statistics().compute(Stat::Min).unwrap(),
-            Scalar::null(DType::Bool(Nullability::Nullable))
-        );
-        assert_eq!(
-            bool_arr.statistics().compute(Stat::Max).unwrap(),
-            Scalar::null(DType::Bool(Nullability::Nullable))
-        );
+        assert_eq!(bool_arr.statistics().compute(Stat::Min), None);
+        assert_eq!(bool_arr.statistics().compute(Stat::Max), None);
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
     }

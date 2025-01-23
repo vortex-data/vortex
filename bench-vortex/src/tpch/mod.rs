@@ -20,11 +20,12 @@ use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
+use crate::{
+    get_session_with_cache, idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE,
+};
 
 pub mod dbgen;
 mod execute;
@@ -40,8 +41,9 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
 pub async fn load_datasets<P: AsRef<Path>>(
     base_dir: P,
     format: Format,
+    emulate_object_store: bool,
 ) -> anyhow::Result<SessionContext> {
-    let context = SessionContext::new();
+    let context = get_session_with_cache(emulate_object_store);
     let base_dir = base_dir.as_ref();
 
     let customer = base_dir.join("customer.tbl");
@@ -61,17 +63,8 @@ pub async fn load_datasets<P: AsRef<Path>>(
                 Format::Parquet => {
                     register_parquet(&context, stringify!($name), &$name, $schema).await
                 }
-                Format::InMemoryVortex {
-                    enable_pushdown, ..
-                } => {
-                    register_vortex(
-                        &context,
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                        enable_pushdown,
-                    )
-                    .await
+                Format::InMemoryVortex => {
+                    register_vortex(&context, stringify!($name), &$name, $schema).await
                 }
                 Format::OnDiskVortex { enable_compression } => {
                     register_vortex_file(
@@ -302,7 +295,6 @@ async fn register_vortex(
     name: &str,
     file: &Path,
     schema: &Schema,
-    enable_pushdown: bool,
 ) -> anyhow::Result<()> {
     let record_batches = session
         .read_csv(
@@ -327,11 +319,7 @@ async fn register_vortex(
     let dtype = chunks[0].dtype().clone();
     let chunked_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
 
-    session.register_mem_vortex_opts(
-        name,
-        chunked_array,
-        VortexMemTableOptions::default().with_pushdown(enable_pushdown),
-    )?;
+    session.register_mem_vortex(name, chunked_array)?;
 
     Ok(())
 }

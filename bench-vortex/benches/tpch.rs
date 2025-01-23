@@ -15,18 +15,13 @@ fn benchmark(c: &mut Criterion) {
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
     let vortex_ctx = runtime
-        .block_on(load_datasets(
-            &data_dir,
-            Format::InMemoryVortex {
-                enable_pushdown: true,
-            },
-        ))
+        .block_on(load_datasets(&data_dir, Format::InMemoryVortex, false))
         .unwrap();
     let arrow_ctx = runtime
-        .block_on(load_datasets(&data_dir, Format::Arrow))
+        .block_on(load_datasets(&data_dir, Format::Arrow, false))
         .unwrap();
     let parquet_ctx = runtime
-        .block_on(load_datasets(&data_dir, Format::Parquet))
+        .block_on(load_datasets(&data_dir, Format::Parquet, false))
         .unwrap();
     let vortex_compressed_ctx = runtime
         .block_on(load_datasets(
@@ -34,6 +29,7 @@ fn benchmark(c: &mut Criterion) {
             Format::OnDiskVortex {
                 enable_compression: true,
             },
+            false,
         ))
         .unwrap();
 
@@ -48,9 +44,7 @@ fn benchmark(c: &mut Criterion) {
                     &vortex_ctx,
                     &sql_queries,
                     q,
-                    Format::InMemoryVortex {
-                        enable_pushdown: true,
-                    },
+                    Format::InMemoryVortex,
                 )
                 .await;
                 assert_eq!(expected_row_count, row_count, "Mismatched row count {row_count} instead of {expected_row_count} in query {q} for in memory pushdown format");

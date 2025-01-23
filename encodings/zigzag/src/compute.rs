@@ -1,11 +1,11 @@
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{vortex_err, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::{PrimitiveScalar, Scalar};
 use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 
@@ -30,7 +30,7 @@ impl ComputeVTable for ZigZagEncoding {
 }
 
 impl FilterFn<ZigZagArray> for ZigZagEncoding {
-    fn filter(&self, array: &ZigZagArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayData> {
         let encoded = filter(&array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }

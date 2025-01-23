@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -12,20 +13,12 @@ use crate::validate::ValidateVTable;
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::{ExtensionArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
-
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoCanonical,
+};
 mod compute;
 
-impl_encoding!("vortex.ext", ids::EXTENSION, Extension);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtensionMetadata;
-
-impl Display for ExtensionMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
+impl_encoding!("vortex.ext", ids::EXTENSION, Extension, EmptyMetadata);
 
 impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
@@ -38,7 +31,7 @@ impl ExtensionArray {
         Self::try_from_parts(
             DType::Extension(ext_dtype),
             storage.len(),
-            ExtensionMetadata,
+            EmptyMetadata,
             None,
             Some([storage].into()),
             Default::default(),

@@ -1,42 +1,57 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::value::ScalarValue;
 use crate::Scalar;
 
 pub struct ExtScalar<'a> {
-    dtype: &'a DType,
+    ext_dtype: &'a ExtDType,
     value: &'a ScalarValue,
 }
 
 impl<'a> ExtScalar<'a> {
     pub fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
-        if !matches!(dtype, DType::Extension(..)) {
+        let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Expected extension scalar, found {}", dtype)
-        }
+        };
 
-        Ok(Self { dtype, value })
-    }
-
-    #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
+        Ok(Self { ext_dtype, value })
     }
 
     /// Returns the storage scalar of the extension scalar.
     pub fn storage(&self) -> Scalar {
-        let storage_dtype = if let DType::Extension(ext_dtype) = self.dtype() {
-            ext_dtype.storage_dtype().clone()
-        } else {
-            vortex_panic!("Expected extension DType: {}", self.dtype());
-        };
-        Scalar::new(storage_dtype, self.value.clone())
+        Scalar::new(self.ext_dtype.storage_dtype().clone(), self.value.clone())
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        if self.value.is_null() && !dtype.is_nullable() {
+            vortex_bail!(
+                "cannot cast extension dtype with id {} and storage type {} to {}",
+                self.ext_dtype.id(),
+                self.ext_dtype.storage_dtype(),
+                dtype
+            );
+        }
+
+        if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
+            // Casting from an extension type to the underlying storage type is OK.
+            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+        }
+
+        if let DType::Extension(ext_dtype) = dtype {
+            if self.ext_dtype.eq_ignore_nullability(ext_dtype) {
+                return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+            }
+        }
+
+        vortex_bail!(
+            "cannot cast extension dtype with id {} and storage type {} to {}",
+            self.ext_dtype.id(),
+            self.ext_dtype.storage_dtype(),
+            dtype
+        );
     }
 }
 
