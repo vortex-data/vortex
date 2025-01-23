@@ -291,6 +291,16 @@ impl<T> Buffer<T> {
             Self::copy_from_aligned(self, alignment)
         }
     }
+
+    /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
+    pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self.alignment = alignment;
+            self
+        } else {
+            vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
+        }
+    }
 }
 
 impl<T: Debug> Debug for Buffer<T> {

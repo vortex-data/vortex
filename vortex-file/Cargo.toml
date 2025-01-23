@@ -26,6 +26,7 @@ futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+moka = { workspace = true, features = ["future"] }
 pin-project-lite = { workspace = true }
 rayon = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
