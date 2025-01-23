@@ -91,14 +91,7 @@ impl ArrayData {
     {
         let array = flatbuffer_init(flatbuffer.as_ref())?;
         let flatbuffer_loc = array._tab.loc();
-
-        let encoding = ctx.lookup_encoding(array.encoding()).ok_or_else(
-            || {
-                let pretty_known_encodings = ctx.encodings()
-                    .format_with("\n", |e, f| f(&format_args!("- {}", e.id())));
-                vortex_err!(InvalidSerde: "Unknown encoding with ID {:#02x}. Known encodings:\n{pretty_known_encodings}", array.encoding())
-            },
-        )?;
+        let encoding = ctx.lookup_encoding_or_opaque(array.encoding());
 
         let view = ViewedArrayData {
             encoding,
