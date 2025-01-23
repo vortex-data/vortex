@@ -61,7 +61,7 @@ pub enum Format {
     Csv,
     Arrow,
     Parquet,
-    InMemoryVortex { enable_pushdown: bool },
+    InMemoryVortex,
     OnDiskVortex { enable_compression: bool },
 }
 
@@ -71,8 +71,8 @@ impl std::fmt::Display for Format {
             Format::Csv => write!(f, "csv"),
             Format::Arrow => write!(f, "arrow"),
             Format::Parquet => write!(f, "parquet"),
-            Format::InMemoryVortex { enable_pushdown } => {
-                write!(f, "in_memory_vortex(pushdown={enable_pushdown})")
+            Format::InMemoryVortex => {
+                write!(f, "in_memory_vortex")
             }
             Format::OnDiskVortex { enable_compression } => {
                 write!(f, "on_disk_vortex(compressed={enable_compression})")
@@ -87,12 +87,7 @@ impl Format {
             Format::Csv => "csv".to_string(),
             Format::Arrow => "arrow".to_string(),
             Format::Parquet => "parquet".to_string(),
-            Format::InMemoryVortex { enable_pushdown } => if *enable_pushdown {
-                "vortex-in-memory-pushdown"
-            } else {
-                "vortex-in-memory"
-            }
-            .to_string(),
+            Format::InMemoryVortex => "vortex-in-memory".to_string(),
             Format::OnDiskVortex { enable_compression } => if *enable_compression {
                 "vortex-file-compressed"
             } else {

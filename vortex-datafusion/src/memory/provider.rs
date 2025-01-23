@@ -32,7 +32,6 @@ use crate::memory::plans::{RowSelectorExec, TakeRowsExec};
 pub struct VortexMemTable {
     array: ChunkedArray,
     schema_ref: SchemaRef,
-    options: VortexMemTableOptions,
 }
 
 impl VortexMemTable {
@@ -41,7 +40,7 @@ impl VortexMemTable {
     /// # Panics
     ///
     /// Creation will panic if the provided array is not of `DType::Struct` type.
-    pub fn new(array: ArrayData, options: VortexMemTableOptions) -> Self {
+    pub fn new(array: ArrayData) -> Self {
         let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
@@ -54,11 +53,7 @@ impl VortexMemTable {
             }
         };
 
-        Self {
-            array,
-            schema_ref,
-            options,
-        }
+        Self { array, schema_ref }
     }
 }
 
@@ -141,15 +136,6 @@ impl TableProvider for VortexMemTable {
         &self,
         filters: &[&Expr],
     ) -> DFResult<Vec<TableProviderFilterPushDown>> {
-        // In the case the caller has configured this provider with filter pushdown disabled,
-        // do not attempt to apply any filters at scan time.
-        if !self.options.enable_pushdown {
-            return Ok(filters
-                .iter()
-                .map(|_| TableProviderFilterPushDown::Unsupported)
-                .collect());
-        }
-
         filters
             .iter()
             .map(|expr| {
@@ -160,27 +146,6 @@ impl TableProvider for VortexMemTable {
                 }
             })
             .try_collect()
-    }
-}
-
-/// Optional configurations to pass when loading a [VortexMemTable].
-#[derive(Debug, Clone)]
-pub struct VortexMemTableOptions {
-    pub enable_pushdown: bool,
-}
-
-impl Default for VortexMemTableOptions {
-    fn default() -> Self {
-        Self {
-            enable_pushdown: true,
-        }
-    }
-}
-
-impl VortexMemTableOptions {
-    pub fn with_pushdown(mut self, enable_pushdown: bool) -> Self {
-        self.enable_pushdown = enable_pushdown;
-        self
     }
 }
 
@@ -220,7 +185,6 @@ mod test {
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex_array::{ArrayData, IntoArrayData};
 
-    use crate::memory::VortexMemTableOptions;
     use crate::{can_be_pushed_down, SessionContextExt as _};
 
     fn presidents_array() -> ArrayData {
@@ -251,44 +215,6 @@ mod test {
 
         let distinct_names = df
             .filter(col("term_start").gt_eq(lit(1795)))
-            .unwrap()
-            .aggregate(vec![], vec![count_distinct(col("president"))])
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
-
-        assert_eq!(distinct_names.len(), 1);
-
-        assert_eq!(
-            *distinct_names[0]
-                .column(0)
-                .as_primitive::<Int64Type>()
-                .values()
-                .first()
-                .unwrap(),
-            4i64
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn test_datafusion_no_pushdown() {
-        let ctx = SessionContext::new();
-
-        let df = ctx
-            .read_mem_vortex_opts(
-                presidents_array(),
-                // Disable pushdown. We run this test to make sure that the naive codepath also
-                // produces correct results and does not panic anywhere.
-                VortexMemTableOptions::default().with_pushdown(false),
-            )
-            .unwrap();
-
-        let distinct_names = df
-            .filter(col("term_start").gt_eq(lit(1795)))
-            .unwrap()
-            .filter(col("term_start").lt(lit(2000)))
             .unwrap()
             .aggregate(vec![], vec![count_distinct(col("president"))])
             .unwrap()

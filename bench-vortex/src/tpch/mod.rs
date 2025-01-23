@@ -20,7 +20,6 @@ use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
@@ -64,17 +63,8 @@ pub async fn load_datasets<P: AsRef<Path>>(
                 Format::Parquet => {
                     register_parquet(&context, stringify!($name), &$name, $schema).await
                 }
-                Format::InMemoryVortex {
-                    enable_pushdown, ..
-                } => {
-                    register_vortex(
-                        &context,
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                        enable_pushdown,
-                    )
-                    .await
+                Format::InMemoryVortex => {
+                    register_vortex(&context, stringify!($name), &$name, $schema).await
                 }
                 Format::OnDiskVortex { enable_compression } => {
                     register_vortex_file(
@@ -305,7 +295,6 @@ async fn register_vortex(
     name: &str,
     file: &Path,
     schema: &Schema,
-    enable_pushdown: bool,
 ) -> anyhow::Result<()> {
     let record_batches = session
         .read_csv(
@@ -330,11 +319,7 @@ async fn register_vortex(
     let dtype = chunks[0].dtype().clone();
     let chunked_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
 
-    session.register_mem_vortex_opts(
-        name,
-        chunked_array,
-        VortexMemTableOptions::default().with_pushdown(enable_pushdown),
-    )?;
+    session.register_mem_vortex(name, chunked_array)?;
 
     Ok(())
 }
