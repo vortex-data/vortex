@@ -9,6 +9,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
+use moka::policy::EvictionPolicy;
 pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};

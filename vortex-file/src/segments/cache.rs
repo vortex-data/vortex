@@ -2,6 +2,7 @@ use std::hash::RandomState;
 
 use async_trait::async_trait;
 use moka::future::{Cache, CacheBuilder};
+use moka::policy::EvictionPolicy;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::SegmentId;
@@ -39,9 +40,13 @@ impl InMemorySegmentCache {
     ) -> Self {
         Self(
             builder
+                // Weight each segment by the number of bytes in the buffer.
                 .weigher(|_, buffer| {
                     u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
                 })
+                // We configure LRU instead of LFU since we're likely to re-read segments between
+                // filter and projection.
+                .eviction_policy(EvictionPolicy::lru())
                 .build(),
         )
     }
