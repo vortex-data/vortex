@@ -55,7 +55,7 @@ impl ExprEvaluator for FlatReader {
         );
 
         // Decode into an ArrayData.
-        println!("decoding array of type {}", self.dtype());
+        // println!("decoding array of type {}", self.dtype());
         let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
         assert_eq!(
             array.len() as u64,

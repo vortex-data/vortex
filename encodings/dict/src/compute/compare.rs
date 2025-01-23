@@ -42,7 +42,7 @@ impl CompareFn<DictArray> for DictEncoding {
         if selection.selectivity() < 0.2 {
             if let Some(const_scalar) = rhs.as_constant() {
                 // Ensure the other is the same length as the dictionary
-                println!("lhs.values().len() = {}", lhs.values().len());
+                // println!("lhs.values().len() = {}", lhs.values().len());
                 let compare_result = compare(
                     lhs.values(),
                     ConstantArray::new(const_scalar, lhs.values().len()),

@@ -416,7 +416,7 @@ pub trait IntoCanonical {
         Self: Sized,
         Self: AsRef<ArrayData>,
     {
-        if mask.selectivity() < 0.2 {
+        if mask.selectivity() < 0.99 {
             filter(self.as_ref(), mask)?.into_canonical()
         } else {
             filter(self.into_canonical()?.as_ref(), mask)?.into_canonical()
