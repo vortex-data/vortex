@@ -121,7 +121,8 @@ rand_distr = "0.4"
 rayon = "1.10.0"
 regex = "1.11.0"
 reqwest = { version = "0.12.0", features = ["blocking"] }
-rkyv = { version = "0.8", features = ["little_endian", "pointer_width_32", "bytecheck"] }
+# TODO(ngates): remove the unaligned rkyv feature when we move to 8-byte metadata.
+rkyv = { version = "0.8", features = ["little_endian", "pointer_width_32", "bytecheck", "unaligned"] }
 rstest = "0.24"
 serde = "1.0.197"
 serde_json = "1.0.116"
