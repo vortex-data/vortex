@@ -253,12 +253,10 @@ impl<T> Buffer<T> {
 
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
-        let curr_length = self.len();
         self.bytes
             .try_into_mut()
             .map(|bytes| BufferMut {
                 bytes,
-                length: curr_length,
                 alignment: self.alignment,
                 _marker: Default::default(),
             })
