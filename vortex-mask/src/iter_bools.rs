@@ -130,7 +130,14 @@ where
         self.pos += 1;
         Some(true)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.len - self.pos;
+        (remaining, Some(remaining))
+    }
 }
+
+unsafe impl<I: Iterator<Item = (usize, usize)>> TrustedLen for SlicesBoolIter<I> {}
 
 #[cfg(test)]
 mod test {
