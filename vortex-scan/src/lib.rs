@@ -60,7 +60,7 @@ impl Scanner {
             .dtype()
             .clone();
 
-        let filter = filter.map(|f| simplify_typed(f, dtype)).transpose()?;
+        let filter = filter.map(|f| simplify_typed(f, &dtype)).transpose()?;
 
         let conjuncts: Arc<RwLock<Vec<Conjunct>>> = if let Some(filter) = filter {
             let conjuncts = cnf(filter)?;
