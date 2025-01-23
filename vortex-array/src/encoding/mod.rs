@@ -3,6 +3,7 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::sync::{Arc, LazyLock};
 
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
@@ -63,14 +64,14 @@ impl AsRef<str> for EncodingId {
 }
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static {
+pub trait Encoding: 'static + Send + Sync {
     const ID: EncodingId;
 
     type Array;
     type Metadata: SerializeMetadata + DeserializeMetadata;
 }
 
-pub type EncodingRef = &'static dyn EncodingVTable;
+pub type EncodingRef = Arc<dyn EncodingVTable>;
 
 /// Object-safe encoding trait for an array.
 pub trait EncodingVTable:
@@ -105,7 +106,7 @@ impl Hash for dyn EncodingVTable + '_ {
 }
 
 pub trait ArrayEncodingRef {
-    fn encoding(&self) -> EncodingRef;
+    fn encoding(&self) -> &EncodingRef;
 }
 
 #[doc = "Encoding ID constants for all Vortex-provided encodings"]

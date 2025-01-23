@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
@@ -140,10 +141,10 @@ impl ArrayData {
     }
 
     /// Return the array's encoding
-    pub fn encoding(&self) -> EncodingRef {
+    pub fn encoding(&self) -> &EncodingRef {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.encoding,
-            InnerArrayData::Viewed(v) => v.encoding,
+            InnerArrayData::Owned(d) => &d.encoding,
+            InnerArrayData::Viewed(v) => &v.encoding,
         }
     }
 
@@ -401,12 +402,19 @@ impl<T: AsRef<ArrayData>> ArrayLen for T {
 impl<A: AsRef<ArrayData>> ArrayValidity for A {
     /// Return whether the element at the given index is valid (true) or null (false).
     fn is_valid(&self, index: usize) -> bool {
-        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
+        ValidityVTable::<ArrayData>::is_valid(
+            self.as_ref().encoding().deref(),
+            self.as_ref(),
+            index,
+        )
     }
 
     /// Return the logical validity of the array.
     fn logical_validity(&self) -> LogicalValidity {
-        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
+        ValidityVTable::<ArrayData>::logical_validity(
+            self.as_ref().encoding().deref(),
+            self.as_ref(),
+        )
     }
 }
 

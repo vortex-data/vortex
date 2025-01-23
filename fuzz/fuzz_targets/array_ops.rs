@@ -1,5 +1,7 @@
 #![no_main]
 
+use std::sync::Arc;
+
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{
@@ -44,14 +46,14 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
                 let mut sorted = sort_canonical_array(&current_array);
                 if !HashSet::from([
-                    &PrimitiveEncoding as EncodingRef,
-                    &VarBinEncoding,
-                    &VarBinViewEncoding,
-                    &BoolEncoding,
-                    &StructEncoding,
-                    &ListEncoding,
+                    Arc::new(PrimitiveEncoding) as EncodingRef,
+                    Arc::new(VarBinEncoding),
+                    Arc::new(VarBinViewEncoding),
+                    Arc::new(BoolEncoding),
+                    Arc::new(StructEncoding),
+                    Arc::new(ListEncoding),
                 ])
-                .contains(&current_array.encoding())
+                .contains(current_array.encoding())
                 {
                     sorted =
                         fuzz_compress(&sorted, &SamplingCompressor::default()).unwrap_or(sorted);

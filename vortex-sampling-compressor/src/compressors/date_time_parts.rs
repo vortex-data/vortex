@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::TemporalArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
@@ -77,6 +79,6 @@ impl EncodingCompressor for DateTimePartsCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&DateTimePartsEncoding as EncodingRef])
+        HashSet::from([Arc::new(DateTimePartsEncoding) as EncodingRef])
     }
 }

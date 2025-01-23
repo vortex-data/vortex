@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_alp::{
     alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPRDEncoding,
 };
@@ -76,10 +78,10 @@ impl EncodingCompressor for ALPCompressor {
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
         HashSet::from([
-            &ALPEncoding as EncodingRef,
+            Arc::new(ALPEncoding) as EncodingRef,
             // ALP-RD + BitPacking possibly used for patches
-            &ALPRDEncoding,
-            &BitPackedEncoding,
+            Arc::new(ALPRDEncoding),
+            Arc::new(BitPackedEncoding),
         ])
     }
 }

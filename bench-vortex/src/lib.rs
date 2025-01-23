@@ -52,7 +52,7 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         Context::default()
             .with_encodings(SamplingCompressor::default().used_encodings())
-            .with_encoding(&DeltaEncoding),
+            .with_encoding(Arc::new(DeltaEncoding)),
     )
 });
 

@@ -1,8 +1,9 @@
 //! The core Vortex macro to create new encodings and array types.
 
 use std::fmt::{Display, Formatter};
+use std::sync::{Arc, LazyLock};
 
-use crate::array::StructMetadata;
+use crate::array::{PrimitiveEncoding, StructMetadata};
 use crate::encoding::{ArrayEncodingRef, Encoding, EncodingRef};
 use crate::{ArrayData, ArrayMetadata, ToArrayData};
 
@@ -49,7 +50,7 @@ macro_rules! impl_encoding {
                     use $crate::SerializeMetadata;
 
                     Self::try_from($crate::ArrayData::try_new_owned(
-                            &[<$Name Encoding>],
+                            _REF.clone(),
                             dtype,
                             len,
                             metadata.serialize()?,
@@ -114,8 +115,11 @@ macro_rules! impl_encoding {
             #[derive(std::fmt::Debug)]
             pub struct [<$Name Encoding>];
 
+            static _REF: std::sync::LazyLock<$crate::encoding::EncodingRef> = std::sync::LazyLock::new(|| std::sync::Arc::new([<$Name Encoding>]));
+
             impl $crate::encoding::Encoding for [<$Name Encoding>] {
                 const ID: $crate::encoding::EncodingId = $crate::encoding::EncodingId::new($id, $code);
+
                 type Array = [<$Name Array>];
                 type Metadata = $Metadata;
             }
@@ -135,7 +139,7 @@ macro_rules! impl_encoding {
 }
 
 impl<T: AsRef<ArrayData>> ArrayEncodingRef for T {
-    fn encoding(&self) -> EncodingRef {
+    fn encoding(&self) -> &EncodingRef {
         self.as_ref().encoding()
     }
 }

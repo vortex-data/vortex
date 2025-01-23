@@ -178,7 +178,7 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
 
 const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
 
-fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
+fn actions_for_encoding(encoding: &EncodingRef) -> HashSet<usize> {
     if ListEncoding::ID == encoding.id() {
         // compress, slice
         vec![0, 1].into_iter().collect()

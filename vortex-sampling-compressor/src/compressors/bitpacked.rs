@@ -1,4 +1,7 @@
 #![allow(clippy::cast_possible_truncation)]
+
+use std::sync::Arc;
+
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
@@ -156,7 +159,7 @@ impl EncodingCompressor for BitPackedCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&BitPackedEncoding as EncodingRef])
+        HashSet::from([Arc::new(BitPackedEncoding) as EncodingRef])
     }
 }
 

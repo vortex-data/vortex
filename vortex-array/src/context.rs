@@ -6,7 +6,7 @@ use crate::array::{
     PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::encoding::opaque::OpaqueEncoding;
-use crate::encoding::EncodingRef;
+use crate::encoding::{Encoding, EncodingRef};
 
 /// A mapping between an encoding's ID to an [`EncodingRef`], used to have a shared view of all available encoding schemes.
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl Context {
             // OpaqueEncoding however must be created dynamically, since we do not know ahead
             // of time which of the ~65,000 unknown code IDs we will end up seeing. Thus, we
             // allocate (and leak) 2 bytes of memory to create a new encoding.
-            Box::leak(Box::new(OpaqueEncoding(encoding_id)))
+            Arc::new(OpaqueEncoding(encoding_id))
         })
     }
 }
@@ -52,17 +52,17 @@ impl Default for Context {
     fn default() -> Self {
         Self {
             encodings: [
-                &NullEncoding as EncodingRef,
-                &BoolEncoding,
-                &PrimitiveEncoding,
-                &StructEncoding,
-                &ListEncoding,
-                &VarBinEncoding,
-                &VarBinViewEncoding,
-                &ExtensionEncoding,
-                &SparseEncoding,
-                &ConstantEncoding,
-                &ChunkedEncoding,
+                Arc::new(NullEncoding) as EncodingRef,
+                Arc::new(BoolEncoding),
+                Arc::new(PrimitiveEncoding),
+                Arc::new(StructEncoding),
+                Arc::new(ListEncoding),
+                Arc::new(VarBinEncoding),
+                Arc::new(VarBinViewEncoding),
+                Arc::new(ExtensionEncoding),
+                Arc::new(SparseEncoding),
+                Arc::new(ConstantEncoding),
+                Arc::new(ChunkedEncoding),
             ]
             .into_iter()
             .map(|e| (e.id().code(), e))

@@ -132,6 +132,6 @@ impl EncodingCompressor for FSSTCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&FSSTEncoding as EncodingRef])
+        HashSet::from([Arc::new(FSSTEncoding) as EncodingRef])
     }
 }

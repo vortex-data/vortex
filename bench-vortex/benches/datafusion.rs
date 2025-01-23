@@ -27,10 +27,10 @@ use vortex_datafusion::memory::VortexMemTable;
 
 pub static CTX: LazyLock<Context> = LazyLock::new(|| {
     Context::default().with_encodings([
-        &BitPackedEncoding as EncodingRef,
-        &DictEncoding,
-        &FoREncoding,
-        &DeltaEncoding,
+        Arc::new(BitPackedEncoding) as EncodingRef,
+        Arc::new(DictEncoding),
+        Arc::new(FoREncoding),
+        Arc::new(DeltaEncoding),
     ])
 });
 

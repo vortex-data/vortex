@@ -44,6 +44,7 @@ pub trait EncodingCompressor: Sync + Send + Debug {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>>;
 
+    // TODO(ngates): return EncodingId
     fn used_encodings(&self) -> HashSet<EncodingRef>;
 }
 

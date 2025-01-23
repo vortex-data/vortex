@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
@@ -57,6 +59,6 @@ impl EncodingCompressor for ZigZagCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ZigZagEncoding as EncodingRef])
+        HashSet::from([Arc::new(ZigZagEncoding) as EncodingRef])
     }
 }

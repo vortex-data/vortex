@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{StructArray, StructEncoding};
@@ -70,6 +72,6 @@ impl EncodingCompressor for StructCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&StructEncoding as EncodingRef])
+        HashSet::from([Arc::new(StructEncoding) as EncodingRef])
     }
 }

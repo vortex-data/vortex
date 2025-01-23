@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ListArray, ListEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
@@ -55,6 +57,6 @@ impl EncodingCompressor for ListCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ListEncoding as EncodingRef])
+        HashSet::from([Arc::new(ListEncoding) as EncodingRef])
     }
 }

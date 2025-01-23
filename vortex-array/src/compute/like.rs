@@ -30,7 +30,7 @@ where
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        let array = <E::Array as TryFrom<ArrayData>>::try_from(array)?;
+        let array = <E::Array as TryFrom<ArrayData>>::try_from(array.clone())?;
         LikeFn::like(encoding, array, pattern, options)
     }
 }

@@ -523,18 +523,20 @@ impl IntoCanonical for ArrayData {
         if !self.is_canonical() && self.len() > 1 {
             log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
         }
-        self.encoding().into_canonical(self)
+        self.encoding().clone().into_canonical(self)
     }
 
     fn into_arrow(self) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
-        self.encoding().into_arrow(self)
+        self.encoding().clone().into_arrow(self)
     }
 
     fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
-        self.encoding().into_arrow_with_data_type(self, data_type)
+        self.encoding()
+            .clone()
+            .into_arrow_with_data_type(self, data_type)
     }
 }
 

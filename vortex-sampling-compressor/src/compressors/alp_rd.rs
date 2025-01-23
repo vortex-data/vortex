@@ -72,7 +72,10 @@ impl EncodingCompressor for ALPRDCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ALPRDEncoding as EncodingRef, &BitPackedEncoding])
+        HashSet::from([
+            Arc::new(ALPRDEncoding) as EncodingRef,
+            Arc::new(BitPackedEncoding),
+        ])
     }
 }
 

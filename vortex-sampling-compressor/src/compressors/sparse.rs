@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{SparseArray, SparseEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
@@ -47,6 +49,6 @@ impl EncodingCompressor for SparseCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&SparseEncoding as EncodingRef])
+        HashSet::from([Arc::new(SparseEncoding) as EncodingRef])
     }
 }
