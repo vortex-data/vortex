@@ -422,7 +422,7 @@ impl<T> Extend<T> for BufferMut<T> {
         }
 
         let new_length = self.bytes.len() + (consumed * size_of::<T>());
-        unsafe { self.bytes.set_len(dbg!(new_length)) };
+        unsafe { self.bytes.set_len(new_length) };
 
         // In case the iterator has more items than the lower bound
         iterator.for_each(|item| self.push(item));
