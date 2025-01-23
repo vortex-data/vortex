@@ -48,6 +48,11 @@ impl ExprEvaluator for StructReader {
         )?
         .into_array();
 
+        // println!(
+        //     "StructReader::evaluate_expr {} -> {}",
+        //     expr, partitioned.root
+        // );
+
         partitioned.root.evaluate(&root_scope)
     }
 }

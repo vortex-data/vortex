@@ -30,6 +30,13 @@ impl ExprEvaluator for FlatReader {
         )
         .await?;
 
+        // println!(
+        //     "FlatReader::evaluate_expr {}, mask {}, {}",
+        //     expr,
+        //     row_mask.filter_mask().selectivity(),
+        //     row_mask,
+        // );
+
         // Pop the array flatbuffer.
         let flatbuffer = FlatBuffer::try_from(
             buffers
@@ -62,9 +69,16 @@ impl ExprEvaluator for FlatReader {
         // Filter the array based on the row mask.
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
+        // println!("arr len pre {}", array.len(),);
         let array = slice(array, begin, begin + row_mask.len())?;
         // let array = filter(&array, row_mask.filter_mask())?;
+        // println!(
+        //     "arr len slice {}, mask sel {}",
+        //     array.len(),
+        //     row_mask.filter_mask().selectivity()
+        // );
         let array = SelectionArray::new(array, row_mask.filter_mask().clone()).into_array();
+        // println!("arr len filter {}", array.len());
 
         // Then apply the expression
         expr.evaluate(&array)

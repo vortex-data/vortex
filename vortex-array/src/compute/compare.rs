@@ -116,6 +116,8 @@ pub fn compare(
     let left = left.as_ref();
     let right = right.as_ref();
 
+    // println!("compare with left {}, right {}", left, right);
+
     if left.len() != right.len() {
         vortex_bail!(
             "Compare operations only support arrays of the same length left {}, right {}",
@@ -194,10 +196,10 @@ pub fn compare_with_selection(
     let right = right.as_ref();
 
     // println!(
-    //     "compare with sel left {}, right {}, sel {:?}",
+    //     "SEL compare left {}, right {}, sel {:?}",
     //     left,
     //     right,
-    //     selection.true_count()
+    //     selection.selectivity()
     // );
 
     if selection.true_count() != right.len() {

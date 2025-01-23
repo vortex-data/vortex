@@ -59,6 +59,9 @@ pub enum NextOp {
 impl RangeScanner {
     pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: FilterMask) -> Self {
         let state = if !scan.rev_filter.is_empty() {
+            // if let Some(filt) = scan.rev_filter.last() {
+            //     println!("filt = {}", filt);
+            // }
             // If we have a filter expression, then for now we evaluate it against all rows
             // of the range.
             // TODO(ngates): we should decide based on mask.true_count() whether to include the
@@ -102,7 +105,7 @@ impl RangeScanner {
 
     /// Post the result of the last expression evaluation back to the range scan.
     fn transition(mut self, result: ArrayData) -> VortexResult<Self> {
-        const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.2;
+        // const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.2;
         match self.state {
             State::FilterEval((eval_mask, mut conjuncts_rev)) => {
                 // conjuncts are non-empty here
@@ -121,19 +124,23 @@ impl RangeScanner {
                     self.mask.intersect_by_rank(&mask)
                 };
 
+                // if let Some(filt) = conjuncts_rev.last() {
+                //     println!("filt = {}, mask {}", filt, mask.selectivity());
+                // }
+
                 // Then move onto the projection
                 if mask.true_count() == 0 {
                     // If the mask is empty, then we're done.
                     self.state = State::Ready(None);
                 } else if !conjuncts_rev.is_empty() {
                     self.mask = mask;
-                    let mask = if self.mask.selectivity() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
-                        self.mask.clone()
-                    } else {
-                        FilterMask::new_true(self.mask.len())
-                    };
+                    // let mask = if self.mask.selectivity() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
+                    //     self.mask.clone()
+                    // } else {
+                    //     FilterMask::new_true(self.mask.len())
+                    // };
                     // conjuncts_rev is again non-empty, so we can put it into FilterEval
-                    self.state = State::FilterEval((mask, conjuncts_rev))
+                    self.state = State::FilterEval((self.mask.clone(), conjuncts_rev))
                 } else {
                     self.state = State::Project((mask, self.scan.projection().clone()))
                 }

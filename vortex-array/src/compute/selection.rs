@@ -117,6 +117,13 @@ impl CompareFn<SelectionArray> for SelectionEncoding {
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
         // Delegate to the underlying encoding
+        // println!(
+        //     "SelectionArray::compare {} {} {}, {}",
+        //     lhs.backing().vortex_expect("sddd"),
+        //     rhs,
+        //     operator,
+        //     lhs.mask().selectivity()
+        // );
         compare_with_selection(&lhs.backing()?, rhs, operator, &lhs.mask()).map(Some)
     }
 }

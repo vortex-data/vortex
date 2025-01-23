@@ -201,10 +201,10 @@ impl<I: IoDriver> VortexFile<I> {
     where
         R: Iterator<Item = RowMask> + Send + 'static,
     {
-        if let Some(filter) = &filter {
-            println!("filter {}", filter)
-        }
-        println!("projection {}", projection);
+        // if let Some(filter) = &filter {
+        //     println!("filter {}", filter)
+        // }
+        // println!("projection {}", projection);
 
         let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
 
