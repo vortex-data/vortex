@@ -44,6 +44,9 @@ impl CompareFn<ALPArray> for ALPEncoding {
     }
 }
 
+// We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
+// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
+// encode into the ALP domain.
 fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,
@@ -79,7 +82,8 @@ where
             Operator::Lt | Operator::Lte => Ok(Some(compare(
                 alp.encoded(),
                 ConstantArray::new(F::encode_below(value, exponents), alp.len()),
-                // Since the encoded values unencodable lt is equivalent to lte
+                // Since the encoded values unencodable lt is equivalent to lte.
+                // See Gt | Gte for further explanation.
                 Operator::Lte,
             )?)),
         },
