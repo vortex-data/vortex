@@ -25,10 +25,6 @@ impl CompareFn<ALPArray> for ALPEncoding {
             return Ok(None);
         }
 
-        if operator != Operator::Eq && operator != Operator::NotEq {
-            // TODO(joe): support other operators
-            return Ok(None);
-        }
         if let Some(const_scalar) = rhs.as_constant() {
             let pscalar = PrimitiveScalar::try_from(&const_scalar)?;
 
@@ -56,7 +52,7 @@ where
     F::ALPInt: Into<Scalar>,
     <F as ALPFloat>::ALPInt: Debug,
 {
-    // TODO: support patches, this is checked above.
+    // TODO(joe): support patches, this is checked above.
     if alp.patches().is_some() {
         return Ok(None);
     }
