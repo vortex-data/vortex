@@ -6,10 +6,10 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::array::{varbin_scalar, VarBinEncoding};
 use crate::compute::scalar_at;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::ArrayTrait;
+use crate::{ArrayDType, ArrayTrait};
 
 impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -128,7 +128,10 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
         // get (don't compute) null count if `min == max` to determine if it's constant
         if array.statistics().get_as::<u64>(Stat::NullCount) == Some(0) {
             // if there are no nulls, then the array is constant
-            return Ok(StatsSet::constant(min.into(), array.len()));
+            return Ok(StatsSet::constant(
+                varbin_scalar(min, array.dtype()),
+                array.len(),
+            ));
         }
     } else {
         stats.set(Stat::IsConstant, false);
