@@ -187,8 +187,8 @@ mod tests {
             .into_bool()
             .unwrap();
 
+        // !(0.0605_f32 >= 0.06051_f32);
         assert!(r_gte.boolean_buffer().iter().all(|v| !v));
-        assert!(!(0.0605_f32 >= 0.06051_f32));
 
         let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gt)
             .unwrap()
@@ -196,8 +196,8 @@ mod tests {
             .into_bool()
             .unwrap();
 
+        // (0.0605_f32 > 0.06051_f32);
         assert!(r_gt.boolean_buffer().iter().all(|v| !v));
-        assert!(!(0.0605_f32 > 0.06051_f32));
 
         let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lte)
             .unwrap()
@@ -205,8 +205,8 @@ mod tests {
             .into_bool()
             .unwrap();
 
+        // 0.0605_f32 <= 0.06051_f32;
         assert!(r_lte.boolean_buffer().iter().all(|v| v));
-        assert!(0.0605_f32 <= 0.06051_f32);
 
         let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lt)
             .unwrap()
@@ -214,8 +214,8 @@ mod tests {
             .into_bool()
             .unwrap();
 
+        //0.0605_f32 < 0.06051_f32;
         assert!(r_lt.boolean_buffer().iter().all(|v| v));
-        assert!(0.0605_f32 < 0.06051_f32);
     }
 
     #[test]
