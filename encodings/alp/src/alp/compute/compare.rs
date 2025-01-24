@@ -8,6 +8,8 @@ use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
+// TODO(joe): add fuzzing.
+
 impl CompareFn<ALPArray> for ALPEncoding {
     fn compare(
         &self,
