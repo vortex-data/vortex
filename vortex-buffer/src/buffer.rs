@@ -1,6 +1,8 @@
 use std::any::type_name;
+use std::cmp::Ordering;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
@@ -10,12 +12,32 @@ use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> PartialEq for Buffer<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl<T> Eq for Buffer<T> {}
+
+impl<T> PartialOrd for Buffer<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.bytes.partial_cmp(&other.bytes)
+    }
+}
+
+impl<T> Hash for Buffer<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.bytes.as_ref().hash(state)
+    }
 }
 
 impl<T> Buffer<T> {
@@ -230,6 +252,26 @@ impl<T> Buffer<T> {
             bytes: self.bytes.slice(begin_byte..end_byte),
             length: end - begin,
             alignment,
+            _marker: Default::default(),
+        }
+    }
+
+    /// Returns a slice of self that is equivalent to the given subset.
+    ///
+    /// When processing the buffer you will often end up with &[T] that is a subset
+    /// of the underlying buffer. This function turns the slice into a slice of the buffer
+    /// it has been taken from.
+    ///
+    /// # Panics:
+    /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    pub fn slice_ref(&self, subset: &[T]) -> Self {
+        let subset_u8 =
+            unsafe { std::slice::from_raw_parts(subset.as_ptr().cast(), size_of_val(subset)) };
+
+        Self {
+            bytes: self.bytes.slice_ref(subset_u8),
+            length: subset.len(),
+            alignment: self.alignment,
             _marker: Default::default(),
         }
     }

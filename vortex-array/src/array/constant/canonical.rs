@@ -136,16 +136,12 @@ mod tests {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         // Check all values correct.
-        let canonical = const_array
-            .into_canonical()
-            .unwrap()
-            .into_varbinview()
-            .unwrap();
+        let canonical = const_array.into_varbinview().unwrap();
 
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
-            assert_eq!(scalar_at(&canonical, i).unwrap(), "four".into(),);
+            assert_eq!(scalar_at(&canonical, i).unwrap(), "four".into());
         }
     }
 
