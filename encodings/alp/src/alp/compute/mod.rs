@@ -1,3 +1,5 @@
+mod compare;
+
 use vortex_array::compute::{
     filter, scalar_at, slice, take, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
