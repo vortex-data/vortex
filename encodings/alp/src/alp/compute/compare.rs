@@ -19,8 +19,7 @@ impl CompareFn<ALPArray> for ALPEncoding {
             // TODO(joe): support patches
             return Ok(None);
         }
-        //
-        if lhs.dtype().is_nullable() {
+        if lhs.dtype().is_nullable() || rhs.dtype().is_nullable() {
             // TODO(joe): support nullability
             return Ok(None);
         }
