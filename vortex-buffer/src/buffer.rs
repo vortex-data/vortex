@@ -258,7 +258,7 @@ impl<T> Buffer<T> {
 
     /// Returns a slice of self that is equivalent to the given subset.
     ///
-    /// When processing the buffer you will often end up with &[T] that is a subset
+    /// When processing the buffer you will often end up with &\[T\] that is a subset
     /// of the underlying buffer. This function turns the slice into a slice of the buffer
     /// it has been taken from.
     ///
