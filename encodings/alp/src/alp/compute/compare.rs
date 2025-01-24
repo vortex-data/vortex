@@ -57,7 +57,9 @@ where
     <F as ALPFloat>::ALPInt: Debug,
 {
     // TODO: support patches, this is checked above.
-    assert!(alp.patches().is_none());
+    if alp.patches().is_some() {
+        return Ok(None);
+    }
 
     let exponents = alp.exponents();
     // If the scalar doesn't fit into the ALP domain,
@@ -150,7 +152,8 @@ mod tests {
             vec![1234; 1025]
         );
 
-        let r_eq = alp_scalar_compare(&encoded, 1.23444444_f32, Operator::Eq)
+        #[allow(clippy::excessive_precision)]
+        let r_eq = alp_scalar_compare(&encoded, 1.234444_f32, Operator::Eq)
             .unwrap()
             .unwrap()
             .into_bool()
@@ -158,7 +161,8 @@ mod tests {
 
         assert!(r_eq.boolean_buffer().iter().all(|v| !v));
 
-        let r_neq = alp_scalar_compare(&encoded, 1.23444444f32, Operator::NotEq)
+        #[allow(clippy::excessive_precision)]
+        let r_neq = alp_scalar_compare(&encoded, 1.234444f32, Operator::NotEq)
             .unwrap()
             .unwrap()
             .into_bool()

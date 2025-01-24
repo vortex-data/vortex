@@ -158,13 +158,13 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     fn encode_above(value: Self, exponents: Exponents) -> Self::ALPInt {
         (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
             .ceil()
-            .as_int();
+            .as_int()
     }
 
     fn encode_below(value: Self, exponents: Exponents) -> Self::ALPInt {
         (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
             .floor()
-            .as_int();
+            .as_int()
     }
 
     fn decode(encoded: &[Self::ALPInt], exponents: Exponents) -> Vec<Self> {
