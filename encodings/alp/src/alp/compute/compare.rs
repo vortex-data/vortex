@@ -99,6 +99,20 @@ mod tests {
     use super::*;
     use crate::alp_encode;
 
+    fn test_alp_compare<F: ALPFloat + Into<Scalar>>(
+        alp: &ALPArray,
+        value: F,
+        operator: Operator,
+    ) -> Option<Vec<bool>>
+    where
+        F::ALPInt: Into<Scalar>,
+        <F as ALPFloat>::ALPInt: Debug,
+    {
+        alp_scalar_compare(alp, value, operator)
+            .unwrap()
+            .map(|a| a.into_bool().unwrap().boolean_buffer().iter().collect())
+    }
+
     #[test]
     fn basic_comparison_test() {
         let array = PrimitiveArray::from_iter([1.234f32; 1025]);
@@ -216,6 +230,42 @@ mod tests {
 
         //0.0605_f32 < 0.06051_f32;
         assert!(r_lt.boolean_buffer().iter().all(|v| v));
+    }
+
+    #[test]
+    fn comparison_zeroes() {
+        let array = PrimitiveArray::from_iter([0.0_f32; 10]);
+        let encoded = alp_encode(&array).unwrap();
+        assert!(encoded.patches().is_none());
+        assert_eq!(
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            vec![0; 10]
+        );
+
+        let r_gte = test_alp_compare(&encoded, -0.00000001_f32, Operator::Gte).unwrap();
+        assert_eq!(r_gte, vec![true; 10]);
+
+        let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gte).unwrap();
+        assert_eq!(r_gte, vec![true; 10]);
+
+        let r_gt = test_alp_compare(&encoded, -0.0000000001f32, Operator::Gt).unwrap();
+        assert_eq!(r_gt, vec![true; 10]);
+
+        let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gt).unwrap();
+        assert_eq!(r_gte, vec![false; 10]);
+
+        let r_lte = test_alp_compare(&encoded, 0.06051_f32, Operator::Lte).unwrap();
+        assert_eq!(r_lte, vec![true; 10]);
+
+        let r_lt = test_alp_compare(&encoded, 0.06051_f32, Operator::Lt).unwrap();
+        assert_eq!(r_lt, vec![true; 10]);
+
+        let r_lt = test_alp_compare(&encoded, -0.00001_f32, Operator::Lt).unwrap();
+        assert_eq!(r_lt, vec![false; 10]);
     }
 
     #[test]
