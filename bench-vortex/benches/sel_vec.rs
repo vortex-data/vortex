@@ -12,6 +12,7 @@ use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::bitpacked::{
     BitPackedCompressor, BITPACK_WITH_PATCHES,
 };
+use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex::sampling_compressor::compressors::EncodingCompressor;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::PrimitiveArrayTrait;
@@ -26,6 +27,7 @@ fn bench_sel_vec(c: &mut Criterion) {
     let compressor = SamplingCompressor::default().including_only(&[
         &ALPCompressor as &dyn EncodingCompressor,
         &BITPACK_WITH_PATCHES,
+        &FoRCompressor,
     ]);
 
     // Create a low-precision primitive array of f64
@@ -37,6 +39,8 @@ fn bench_sel_vec(c: &mut Criterion) {
         .unwrap()
         .into_array();
     assert_eq!(arr.encoding().id(), ALPEncoding::ID);
+
+    println!("tree: {}", arr.tree_display());
 
     // Try for various mask
     let max = 65536;

@@ -12,8 +12,8 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
-    take, SearchResult, SearchSortedSide,
+    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
+    sub_scalar, take, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
@@ -215,7 +215,7 @@ impl Patches {
         // TODO(ngates): add functions to operate with Mask directly
         let buffer = mask.boolean_buffer();
         let mut coordinate_indices = BufferMut::<u64>::empty();
-        let mut value_indices = BufferMut::<u64>::empty();
+        let mut value_indices: Vec<usize> = Vec::new(); // BufferMut::<u64>::empty();
         let mut last_inserted_index: usize = 0;
 
         let flat_indices = self.indices().clone().into_primitive()?;
@@ -226,7 +226,7 @@ impl Patches {
                     let adjusted_coordinate = buffer.slice(last_inserted_index, (*coordinate as usize) - last_inserted_index).count_set_bits() as u64;
                     coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
                     last_inserted_index = *coordinate as usize;
-                    value_indices.push(value_idx as u64);
+                    value_indices.push(value_idx as u64 as usize);
                 }
             }
         });
@@ -236,7 +236,8 @@ impl Patches {
         }
 
         let indices = coordinate_indices.into_array();
-        let values = take(self.values(), value_indices.into_array())?;
+        let mask = Mask::from_indices(self.values().len(), value_indices);
+        let values: ArrayData = filter(self.values(), &mask)?;
 
         Ok(Some(Self::new(mask.len(), indices, values)))
     }
