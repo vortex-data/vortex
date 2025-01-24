@@ -68,7 +68,11 @@ where
             Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
         }
         None => match operator {
+            // Since this value is not encodable it cannot be equal to any value in the encoded
+            // array.
             Operator::Eq => Ok(Some(ConstantArray::new(false, alp.len()).into_array())),
+            // Since this value is not encodable it cannot be equal to any value in the encoded
+            // array, hence != to all values in the encoded array.
             Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
             Operator::Gt | Operator::Gte => Ok(Some(compare(
                 alp.encoded(),
