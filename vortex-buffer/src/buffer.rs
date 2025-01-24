@@ -12,7 +12,7 @@ use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
@@ -25,8 +25,6 @@ impl<T> PartialEq for Buffer<T> {
         self.bytes == other.bytes
     }
 }
-
-impl<T> Eq for Buffer<T> {}
 
 impl<T> PartialOrd for Buffer<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
