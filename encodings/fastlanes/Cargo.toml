@@ -34,9 +34,14 @@ vortex-sparse = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+divan = { workspace = true }
 rand = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
 name = "bitpacking_take"
+harness = false
+
+[[bench]]
+name = "bitpacking_decompress_selection"
 harness = false

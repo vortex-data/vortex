@@ -5482,6 +5482,7 @@ dependencies = [
  "arrayref",
  "arrow-buffer",
  "criterion",
+ "divan",
  "fastlanes",
  "itertools 0.14.0",
  "num-traits",
