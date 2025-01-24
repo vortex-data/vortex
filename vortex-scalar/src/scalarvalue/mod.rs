@@ -234,12 +234,6 @@ where
     }
 }
 
-impl From<Vec<ScalarValue>> for ScalarValue {
-    fn from(value: Vec<ScalarValue>) -> Self {
-        ScalarValue(InnerScalarValue::List(value.into()))
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
