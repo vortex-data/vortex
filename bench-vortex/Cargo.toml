@@ -82,11 +82,6 @@ test = false
 harness = false
 
 [[bench]]
-name = "datafusion"
-test = false
-harness = false
-
-[[bench]]
 name = "tpch"
 test = false
 harness = false
