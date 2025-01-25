@@ -1,36 +1,4 @@
-.. Vortex documentation master file, created by
-   sphinx-quickstart on Wed Aug 28 10:10:21 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Vortex: a State-of-the-Art Columnar File Format
-===============================================
-
-.. grid:: 1 1 2 2
-    :gutter: 4 4 4 4
-
-    .. grid-item-card:: The File Format
-       :link: file_format
-       :link-type: doc
-
-       Currently just a schematic. Specification forthcoming.
-
-    .. grid-item-card:: The Rust API
-       :link: /vortex/docs/rust/doc/vortex
-
-       The primary interface to the Vortex toolkit.
-
-    .. grid-item-card:: Quickstart
-       :link: quickstart
-       :link-type: doc
-
-       For end-users looking to read and write Vortex files.
-
-    .. grid-item-card:: The Benchmarks
-       :link: https://bench.vortex.dev/
-
-       Random access, throughput, and TPC-H.
-
+# Vortex: a State-of-the-Art Columnar File Format
 
 Vortex is a fast & extensible columnar file format that is based around the latest research from the
 database community. It is built around cascading compression with lightweight, vectorized encodings
@@ -65,14 +33,48 @@ fast reads, small files, few columns, many columns, over-sized columns, etc.
 Documentation
 -------------
 
-..
-    The Rust API link must be external because of: https://github.com/sphinx-doc/sphinx/issues/701
+## Contents
 
-.. toctree::
-   :maxdepth: 2
+```{toctree}
+---
+maxdepth: 3
+includehidden:
+caption: Concepts
+---
 
-   quickstart
-   guide
-   file_format
-   api/index
-   Rust API <https://spiraldb.github.io/vortex/docs/rust/doc/>
+concepts/arrays/index
+```
+
+```{toctree}
+---
+maxdepth: 3
+includehidden:
+caption: User Guide
+---
+
+python/api/index
+rust/index
+```
+
+```{toctree}
+---
+maxdepth: 3
+includehidden:
+caption: Specification
+---
+
+specs/file_format
+specs/ipc_format
+```
+
+```{toctree}
+---
+hidden:
+caption: Project Links
+---
+
+Spiral <https://spiraldb.com>
+GitHub <https://github.com/spiraldb/vortex>
+PyPI <https://pypi.org/project/vortex-array>
+Crates <https://crates.io/crates/vortex>
+```

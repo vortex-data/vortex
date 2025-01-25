@@ -26,7 +26,7 @@ uv run make python-and-rust-html
 After building:
 
 ```
-open pyvortex/_build/html/index.html
+open _build/html/index.html
 ```
 
 ## Python Doctests
