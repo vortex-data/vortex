@@ -42,7 +42,12 @@ includehidden:
 caption: Concepts
 ---
 
-concepts/arrays/index
+Arrays <concepts/arrays>
+Layouts <concepts/layouts>
+Data Types <concepts/dtypes>
+Scalars <concepts/scalars>
+Expressions <concepts/exprs>
+Buffers <concepts/buffers>
 ```
 
 ```{toctree}
