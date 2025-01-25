@@ -30,10 +30,13 @@ Its features include:
 Vortex's flexible layout empowers writers to choose the right layout for their setting: fast writes,
 fast reads, small files, few columns, many columns, over-sized columns, etc.
 
-Documentation
--------------
+## Concepts
 
-## Contents
+Vortex is more like an ecosystem of building blocks than it is a specific format or specification. Almost everything
+in Vortex is extensible, enabling it to be used for both general-purpose columnar data processing, and niche
+embedded use-cases where specific encodings and performance characteristics are required.
+
+This section of the documentation covers the core concepts of Vortex and how they piece together.
 
 ```{toctree}
 ---
@@ -50,6 +53,11 @@ Expressions <concepts/exprs>
 Buffers <concepts/buffers>
 ```
 
+## User Guides
+
+Vortex is currently available for both Python and Rust. The user guides for each language provide a comprehensive
+overview of the Vortex API and how to use it.
+
 ```{toctree}
 ---
 maxdepth: 3
@@ -61,11 +69,17 @@ Python <python/index>
 Rust <rust/index>
 ```
 
+## Specifications
+
+Vortex currently defines two serialization formats: a file format and an IPC format. The file format is designed for
+random access to [Vortex Layouts](/concepts/layouts) on disk, while the IPC format is designed to efficiently send
+possibly compressed [Vortex Arrays](/concepts/arrays) over the wire.
+
 ```{toctree}
 ---
 maxdepth: 3
 includehidden:
-caption: Specification
+caption: Specifications
 ---
 
 specs/file_format
