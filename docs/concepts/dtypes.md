@@ -26,8 +26,7 @@ in memory.
 
 ## Logical Types
 
-The following table lists the built-in dtypes in Vortex, each of which can
-be marked as either nullable or non-nullable.
+The following table lists the built-in dtypes in Vortex, each of which can be marked as either nullable or non-nullable.
 
 | Name        | Domain                                      |
 |-------------|---------------------------------------------|
@@ -39,6 +38,11 @@ be marked as either nullable or non-nullable.
 | `Struct`    | See [Struct](struct)                        |
 | `List`      | See [List](list)                            |
 | `Extension` | See [Extension](extension)                  |
+
+:::{note}
+There are additional logical types that Vortex does not yet support, for example fixed-length binary, utf-8, and list
+types, as well as a map type. These may be added in future versions.
+:::
 
 ### Primitive
 
@@ -54,9 +58,9 @@ Primitive dtypes are an enumeration of different fixed-width primitive values.
 | `U16` | 16-bit unsigned integer |
 | `U32` | 32-bit unsigned integer |
 | `U64` | 64-bit unsigned integer |
-| `F16` | 16-bit floating point   |
-| `F32` | 32-bit floating point   |
-| `F64` | 64-bit floating point   |
+| `F16` | IEEE 754-2008 half      |
+| `F32` | IEEE 754-1985 single    |
+| `F64` | IEEE 754-1985 double    |
 
 ### Struct
 
@@ -64,7 +68,8 @@ A `Struct` dtype is an ordered collection of named fields, each of which has its
 
 ### List
 
-A `List` dtype has a single _element type_, itself a logical dtype.
+A `List` dtype has a single _element type_, itself a logical dtype, and represents an array of variable-length
+sequences of elements of that type.
 
 ### Extension
 
