@@ -52,8 +52,8 @@ includehidden:
 caption: User Guide
 ---
 
-python/api/index
-rust/index
+Python <python/index>
+Rust <rust/index>
 ```
 
 ```{toctree}

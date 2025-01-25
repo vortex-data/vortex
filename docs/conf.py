@@ -40,6 +40,12 @@ nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 
 doctest_global_setup = "import pyarrow; import vortex"
 
+# -- Options for MyST Parser -------------------------------------------------
+
+myst_enable_extensions = [
+    "colon_fence", # Use ::: for Sphinx directives
+]
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
