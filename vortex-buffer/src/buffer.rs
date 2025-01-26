@@ -36,7 +36,7 @@ impl<T> Ord for Buffer<T> {
 
 impl<T> PartialOrd for Buffer<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.bytes.partial_cmp(&other.bytes)
+        Some(self.bytes.cmp(&other.bytes))
     }
 }
 
