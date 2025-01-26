@@ -12,7 +12,7 @@ use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
@@ -23,6 +23,14 @@ pub struct Buffer<T> {
 impl<T> PartialEq for Buffer<T> {
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
+    }
+}
+
+impl<T> Eq for Buffer<T> {}
+
+impl<T> Ord for Buffer<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.bytes.cmp(&other.bytes)
     }
 }
 
@@ -266,10 +274,16 @@ impl<T> Buffer<T> {
         let subset_u8 =
             unsafe { std::slice::from_raw_parts(subset.as_ptr().cast(), size_of_val(subset)) };
 
+        let alignment = if subset.as_ptr().align_offset(*self.alignment) == 0 {
+            self.alignment
+        } else {
+            Alignment::of::<T>()
+        };
+
         Self {
             bytes: self.bytes.slice_ref(subset_u8),
             length: subset.len(),
-            alignment: self.alignment,
+            alignment,
             _marker: Default::default(),
         }
     }
