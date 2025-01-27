@@ -25,7 +25,7 @@ struct LayoutData {
 }
 ```
 
-### Owned vs Viewed
+**Owned vs Viewed**
 
 As with other possibly large recursive data structures in Vortex, layouts can be either _owned_ or _viewed_.
 Owned layouts are heap-allocated, while viewed layouts are lazily unwrapped from an underlying FlatBuffer

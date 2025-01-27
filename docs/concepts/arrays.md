@@ -18,7 +18,7 @@ struct ArrayData {
 
 This document goes into detail about each of these fields as well as the mechanics behind the encoding vtables.
 
-### Owned vs Viewed
+**Owned vs Viewed**
 
 As with other possibly large recursive data structures in Vortex, arrays can be either _owned_ or _viewed_.
 Owned arrays are heap-allocated, while viewed arrays are lazily unwrapped from an underlying FlatBuffer representation.

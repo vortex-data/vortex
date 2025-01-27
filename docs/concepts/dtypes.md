@@ -17,7 +17,7 @@ columnar data. This means you can write a Vortex file containing a single intege
 with many columns.
 :::
 
-### Owned vs Viewed
+**Owned vs Viewed**
 
 As with other possibly large recursive data structures in Vortex, dtypes can be either _owned_ or _viewed_.
 Owned dtypes are heap-allocated, while viewed dtypes are lazily unwrapped from an underlying FlatBuffer representation.
@@ -35,14 +35,16 @@ The following table lists the built-in dtypes in Vortex, each of which can be ma
 | `Primitive` | See [Primitive](#primitive)                 |
 | `UTF8`      | Variable length valid utf-8 encoded strings |
 | `Binary`    | Arbitrary variable length bytes             |
-| `Struct`    | See [Struct](struct)                        |
-| `List`      | See [List](list)                            |
+| `Struct`    | See [Struct](#struct)                       |
+| `List`      | See [List](#list)                           |
 | `Extension` | See [Extension](#extension)                 |
 
 :::{note}
 There are additional logical types that Vortex does not yet support, for example fixed-length binary, utf-8, and list
 types, as well as a map type. These may be added in future versions.
 :::
+
+(primitive)=
 
 ### Primitive
 
@@ -62,14 +64,20 @@ Primitive dtypes are an enumeration of different fixed-width primitive values.
 | `F32` | IEEE 754-1985 single    |
 | `F64` | IEEE 754-1985 double    |
 
+(struct)=
+
 ### Struct
 
 A `Struct` dtype is an ordered collection of named fields, each of which has its own logical dtype.
+
+(list)=
 
 ### List
 
 A `List` dtype has a single _element type_, itself a logical dtype, and represents an array of variable-length
 sequences of elements of that type.
+
+(extension)=
 
 ### Extension
 
