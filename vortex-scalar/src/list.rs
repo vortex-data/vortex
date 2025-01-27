@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+};
 
 use crate::value::{InnerScalarValue, ScalarValue};
 use crate::Scalar;
@@ -160,5 +162,21 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
             element_dtype,
             elements: value.value.as_list()?.cloned(),
         })
+    }
+}
+
+impl<'a, T: for<'b> TryFrom<&'b Scalar, Error = VortexError>> TryFrom<&'a Scalar> for Vec<T> {
+    type Error = VortexError;
+
+    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
+        let value = ListScalar::try_from(value)?;
+        let mut elems = vec![];
+        for e in value
+            .elements()
+            .ok_or_else(|| vortex_err!("Expected non-null list"))?
+        {
+            elems.push(T::try_from(&e)?);
+        }
+        Ok(elems)
     }
 }

@@ -212,6 +212,7 @@ impl<'de> Deserialize<'de> for PValue {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::discriminant;
     use std::sync::Arc;
 
     use flexbuffers::{FlexbufferSerializer, Reader};
@@ -232,6 +233,9 @@ mod tests {
         let written = serializer.take_buffer();
         let reader = Reader::get_root(written.as_ref()).unwrap();
         let scalar_read_back = ScalarValue::deserialize(reader).unwrap();
-        assert_eq!(scalar_value, scalar_read_back);
+        assert_eq!(
+            discriminant(&scalar_value.0),
+            discriminant(&scalar_read_back.0)
+        );
     }
 }

@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::vortex_panic;
 
 use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
@@ -61,15 +61,11 @@ impl Display for Scalar {
             }
             DType::List(..) => {
                 let v = ListScalar::try_from(self).map_err(|_| std::fmt::Error)?;
-
-                if v.is_null() {
-                    write!(f, "null")
-                } else {
-                    write!(
-                        f,
-                        "[{}]",
-                        v.elements().vortex_expect("non-null").iter().format(",")
-                    )
+                match v.elements() {
+                    None => write!(f, "null"),
+                    Some(elems) => {
+                        write!(f, "[{}]", elems.iter().format(","))
+                    }
                 }
             }
             // Specialized handling for date/time/timestamp builtin extension types.
