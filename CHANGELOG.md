@@ -7,6 +7,193 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.22.1...vortex-datafusion-v0.23.0) - 2025-01-27
+
+### Other
+- Docs for DataFusion crate ([#2064](https://github.com/spiraldb/vortex/pull/2064))
+
+## `vortex-zigzag` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.22.1...vortex-zigzag-v0.23.0) - 2025-01-27
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-sampling-compressor` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.22.1...vortex-sampling-compressor-v0.23.0) - 2025-01-27
+
+### Other
+- update Cargo.lock dependencies
+
+## `vortex-runend` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.22.1...vortex-runend-v0.23.0) - 2025-01-27
+
+### Added
+- teach RunEndArray NullCount and TrueCount (#2007)
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Emulate blob storage latency in benchmarks ([#2049](https://github.com/spiraldb/vortex/pull/2049))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-fsst` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.22.1...vortex-fsst-v0.23.0) - 2025-01-27
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-scan` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-scan-v0.22.1...vortex-scan-v0.23.0) - 2025-01-27
+
+### Other
+- Docs for vortex-scan ([#2065](https://github.com/spiraldb/vortex/pull/2065))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+
+## `vortex-layout` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.22.1...vortex-layout-v0.23.0) - 2025-01-27
+
+### Other
+- Write some docs ([#2080](https://github.com/spiraldb/vortex/pull/2080))
+- configurable layouts for open options ([#2081](https://github.com/spiraldb/vortex/pull/2081))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Remove unused StructOfChunks in favour of VortexLayoutStrategy ([#2038](https://github.com/spiraldb/vortex/pull/2038))
+
+## `vortex-ipc` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.22.1...vortex-ipc-v0.23.0) - 2025-01-27
+
+### Other
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-io` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.22.1...vortex-io-v0.23.0) - 2025-01-27
+
+### Other
+- update Cargo.lock dependencies
+
+## `vortex-file` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.22.1...vortex-file-v0.23.0) - 2025-01-27
+
+### Other
+- configurable layouts for open options ([#2081](https://github.com/spiraldb/vortex/pull/2081))
+- Remove old flatbuffers ([#2076](https://github.com/spiraldb/vortex/pull/2076))
+- Moka segment cache ([#2061](https://github.com/spiraldb/vortex/pull/2061))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Emulate blob storage latency in benchmarks ([#2049](https://github.com/spiraldb/vortex/pull/2049))
+- Remove unused StructOfChunks in favour of VortexLayoutStrategy ([#2038](https://github.com/spiraldb/vortex/pull/2038))
+
+## `vortex-expr` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.22.1...vortex-expr-v0.23.0) - 2025-01-27
+
+### Other
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Emulate blob storage latency in benchmarks ([#2049](https://github.com/spiraldb/vortex/pull/2049))
+
+## `vortex-dict` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.22.1...vortex-dict-v0.23.0) - 2025-01-27
+
+### Fixed
+- Dict LikeFn length mismatch (#2043)
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-datetime-parts` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.22.1...vortex-datetime-parts-v0.23.0) - 2025-01-27
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-bytebool` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.22.1...vortex-bytebool-v0.23.0) - 2025-01-27
+
+### Other
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+- all scalars support cast (#1965)
+
+## `vortex-fastlanes` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.22.1...vortex-fastlanes-v0.23.0) - 2025-01-27
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-scalar` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.22.1...vortex-scalar-v0.23.0) - 2025-01-27
+
+### Other
+- smaller `ScalarValue` buffer variants ([#2079](https://github.com/spiraldb/vortex/pull/2079))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+- all scalars support cast (#1965)
+
+## `vortex-mask` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.22.1...vortex-mask-v0.23.0) - 2025-01-27
+
+### Added
+- small mask improvements (#2035)
+
+### Other
+- Mask boolean iterator ([#2057](https://github.com/spiraldb/vortex/pull/2057))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+
+## `vortex-proto` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.22.1...vortex-proto-v0.23.0) - 2025-01-27
+
+### Other
+- update Cargo.lock dependencies
+
+## `vortex-flatbuffers` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.22.1...vortex-flatbuffers-v0.23.0) - 2025-01-27
+
+### Other
+- Write some docs ([#2080](https://github.com/spiraldb/vortex/pull/2080))
+- Remove old flatbuffers ([#2076](https://github.com/spiraldb/vortex/pull/2076))
+
+## `vortex-dtype` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.22.1...vortex-dtype-v0.23.0) - 2025-01-27
+
+### Other
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-datetime-dtype` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.22.1...vortex-datetime-dtype-v0.23.0) - 2025-01-27
+
+### Other
+- *(deps)* lock file maintenance (#2075)
+
+## `vortex-error` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.22.1...vortex-error-v0.23.0) - 2025-01-27
+
+### Other
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-buffer` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.22.1...vortex-buffer-v0.23.0) - 2025-01-27
+
+### Other
+- Moka segment cache ([#2061](https://github.com/spiraldb/vortex/pull/2061))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-array` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.22.1...vortex-array-v0.23.0) - 2025-01-27
+
+### Fixed
+- Dict LikeFn length mismatch (#2043)
+
+### Other
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Default to opaque encoding ([#2060](https://github.com/spiraldb/vortex/pull/2060))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+- all scalars support cast (#1965)
+
+## `vortex-alp` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.22.1...vortex-alp-v0.23.0) - 2025-01-27
+
+### Added
+- alp compare v2 (#2071)
+
+### Other
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex` - [0.23.0](https://github.com/spiraldb/vortex/compare/0.22.1...0.23.0) - 2025-01-27
+
+### Other
+- configurable layouts for open options ([#2081](https://github.com/spiraldb/vortex/pull/2081))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+
 ## `vortex-mask` - [0.22.1](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.22.0...vortex-mask-v0.22.1) - 2025-01-21
 
 ### Added
