@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
+use vortex_flatbuffers::{footer as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
 
 use crate::footer::segment::Segment;

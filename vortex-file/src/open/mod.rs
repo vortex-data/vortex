@@ -14,7 +14,7 @@ use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, footer2 as fb, FlatBuffer, ReadFlatBuffer};
+use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};

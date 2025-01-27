@@ -84,35 +84,13 @@ pub mod scalar;
 #[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/footer.rs"]
-/// A file format footer containining a serialized `vortex-serde` Layout.
-///
-/// `footer.fbs`:
-/// ```flatbuffers
-#[doc = include_str!("../flatbuffers/vortex-serde/footer.fbs")]
-/// ```
-pub mod footer;
-
-#[cfg(feature = "file")]
-#[allow(clippy::all)]
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[allow(clippy::many_single_char_names)]
-#[allow(clippy::unwrap_used)]
-#[allow(dead_code)]
-#[allow(non_snake_case)]
-#[allow(non_camel_case_types)]
-#[allow(unsafe_op_in_unsafe_fn)]
-#[allow(unused_imports)]
-#[allow(unused_lifetimes)]
-#[allow(unused_qualifications)]
-#[rustfmt::skip]
-#[path = "./generated/footer2.rs"]
 /// A file format footer containing a serialized `vortex-file` Layout.
 ///
 /// `footer.fbs`:
 /// ```flatbuffers
-#[doc = include_str!("../flatbuffers/vortex-file/footer2.fbs")]
+#[doc = include_str!("../flatbuffers/vortex-file/footer.fbs")]
 /// ```
-pub mod footer2;
+pub mod footer;
 
 #[cfg(feature = "layout")]
 #[allow(clippy::all)]
