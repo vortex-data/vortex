@@ -77,7 +77,7 @@ impl Display for InnerScalarValue {
                         to_hex(&buf[buf.len() - 5..buf.len()])?,
                     )
                 } else {
-                    write!(f, "{}", to_hex(&buf)?)
+                    write!(f, "{}", to_hex(buf)?)
                 }
             }
             Self::BufferString(bufstr) => {
