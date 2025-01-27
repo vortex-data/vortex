@@ -1,5 +1,6 @@
 use std::any::type_name;
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
@@ -190,7 +191,7 @@ impl Scalar {
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Primitive(ptype, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(value)),
+            value: ScalarValue(Arc::new(InnerScalarValue::Primitive(value))),
         }
     }
 
@@ -213,15 +214,15 @@ impl Scalar {
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))
-                .map(|x| ScalarValue(InnerScalarValue::Primitive(x)))
-                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
+                .map(|x| ScalarValue(Arc::new(InnerScalarValue::Primitive(x))))
+                .unwrap_or_else(|| ScalarValue(Arc::new(InnerScalarValue::Null))),
         )
     }
 
     pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(T::zero().into())),
+            value: ScalarValue(Arc::new(InnerScalarValue::Primitive(T::zero().into()))),
         }
     }
 }
@@ -265,7 +266,7 @@ macro_rules! primitive_scalar {
             fn from(value: $T) -> Self {
                 Scalar {
                     dtype: DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    value: ScalarValue(InnerScalarValue::Primitive(value.into())),
+                    value: ScalarValue(Arc::new(InnerScalarValue::Primitive(value.into()))),
                 }
             }
         }
@@ -431,6 +432,8 @@ impl<'a> PrimitiveScalar<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
@@ -442,12 +445,12 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let p_scalar1 = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(5))),
+            &ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::I32(5)))),
         )
         .unwrap();
         let p_scalar2 = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(4))),
+            &ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::I32(4)))),
         )
         .unwrap();
         let pscalar_or_overflow = p_scalar1.checked_sub(p_scalar2).unwrap();
@@ -470,12 +473,12 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let p_scalar1 = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32::MIN))),
+            &ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::I32(i32::MIN)))),
         )
         .unwrap();
         let p_scalar2 = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32::MAX))),
+            &ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::I32(i32::MAX)))),
         )
         .unwrap();
         let pscalar_or_error = p_scalar1 - p_scalar2;
@@ -493,12 +496,12 @@ mod tests {
         let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let p_scalar1 = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::F32(1.99f32))),
+            &ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::F32(1.99f32)))),
         )
         .unwrap();
         let p_scalar2 = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::F32(1.0f32))),
+            &ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::F32(1.0f32)))),
         )
         .unwrap();
         let pscalar_or_overflow = p_scalar1.checked_sub(p_scalar2).unwrap();

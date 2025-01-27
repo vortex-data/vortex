@@ -112,7 +112,7 @@ impl<'a> StructScalar<'a> {
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(Scalar {
                 dtype: dtype.clone(),
-                value: ScalarValue(InnerScalarValue::List(fields.into())),
+                value: ScalarValue(InnerScalarValue::List(fields.into()).into()),
             })
         } else {
             Ok(Scalar::null(dtype.clone()))
@@ -132,19 +132,22 @@ impl<'a> StructScalar<'a> {
                 .as_slice(),
         )?;
         let new_fields = if let Some(fs) = self.field_values() {
-            ScalarValue(InnerScalarValue::List(
-                projection
-                    .iter()
-                    .map(|name| {
-                        struct_dtype
-                            .find_name(name)
-                            .vortex_expect("DType has been successfully projected already")
-                    })
-                    .map(|i| fs[i].clone())
-                    .collect(),
-            ))
+            ScalarValue(
+                InnerScalarValue::List(
+                    projection
+                        .iter()
+                        .map(|name| {
+                            struct_dtype
+                                .find_name(name)
+                                .vortex_expect("DType has been successfully projected already")
+                        })
+                        .map(|i| fs[i].clone())
+                        .collect(),
+                )
+                .into(),
+            )
         } else {
-            ScalarValue(InnerScalarValue::Null)
+            ScalarValue(InnerScalarValue::Null.into())
         };
         Ok(Scalar::new(
             DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
@@ -157,13 +160,16 @@ impl Scalar {
     pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
         Self {
             dtype,
-            value: ScalarValue(InnerScalarValue::List(
-                children
-                    .into_iter()
-                    .map(|x| x.into_value())
-                    .collect_vec()
-                    .into(),
-            )),
+            value: ScalarValue(
+                InnerScalarValue::List(
+                    children
+                        .into_iter()
+                        .map(|x| x.into_value())
+                        .collect_vec()
+                        .into(),
+                )
+                .into(),
+            ),
         }
     }
 }

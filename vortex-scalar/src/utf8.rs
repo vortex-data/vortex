@@ -27,12 +27,15 @@ impl<'a> Utf8Scalar<'a> {
         }
         Ok(Scalar::new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::BufferString(
-                self.value
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .clone(),
-            )),
+            ScalarValue(
+                InnerScalarValue::BufferString(
+                    self.value
+                        .as_ref()
+                        .vortex_expect("nullness handled in Scalar::cast")
+                        .clone(),
+                )
+                .into(),
+            ),
         ))
     }
 }
@@ -54,7 +57,7 @@ impl Scalar {
     {
         Ok(Self {
             dtype: DType::Utf8(nullability),
-            value: ScalarValue(InnerScalarValue::BufferString(str.try_into()?)),
+            value: ScalarValue(InnerScalarValue::BufferString(str.try_into()?).into()),
         })
     }
 }
@@ -85,7 +88,7 @@ impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value.to_string().into())),
+            value: ScalarValue(InnerScalarValue::BufferString(value.to_string().into()).into()),
         }
     }
 }
@@ -94,7 +97,7 @@ impl From<String> for Scalar {
     fn from(value: String) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value.into())),
+            value: ScalarValue(InnerScalarValue::BufferString(value.into()).into()),
         }
     }
 }
@@ -103,7 +106,7 @@ impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value)),
+            value: ScalarValue(InnerScalarValue::BufferString(value).into()),
         }
     }
 }

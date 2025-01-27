@@ -89,14 +89,14 @@ impl Scalar {
         assert!(dtype.is_nullable());
         Self {
             dtype,
-            value: ScalarValue(InnerScalarValue::Null),
+            value: ScalarValue(Arc::new(InnerScalarValue::Null)),
         }
     }
 
     pub fn null_typed<T: ScalarType>() -> Self {
         Self {
             dtype: T::dtype().as_nullable(),
-            value: ScalarValue(InnerScalarValue::Null),
+            value: ScalarValue(Arc::new(InnerScalarValue::Null)),
         }
     }
 
@@ -245,7 +245,7 @@ where
             .map(|x| x.into_nullable())
             .unwrap_or_else(|| Scalar {
                 dtype: T::dtype().as_nullable(),
-                value: ScalarValue(InnerScalarValue::Null),
+                value: ScalarValue(Arc::new(InnerScalarValue::Null)),
             })
     }
 }
@@ -255,8 +255,8 @@ impl From<PrimitiveScalar<'_>> for Scalar {
         let dtype = pscalar.dtype().clone();
         let value = pscalar
             .pvalue()
-            .map(|pvalue| ScalarValue(InnerScalarValue::Primitive(pvalue)))
-            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
+            .map(|pvalue| ScalarValue(Arc::new(InnerScalarValue::Primitive(pvalue))))
+            .unwrap_or_else(|| ScalarValue(Arc::new(InnerScalarValue::Null)));
         Self::new(dtype, value)
     }
 }
@@ -267,13 +267,13 @@ macro_rules! from_vec_for_scalar {
             fn from(value: Vec<$T>) -> Self {
                 Scalar {
                     dtype: DType::List(Arc::from(<$T>::dtype()), Nullability::NonNullable),
-                    value: ScalarValue(InnerScalarValue::List(
+                    value: ScalarValue(Arc::new(InnerScalarValue::List(
                         value
                             .into_iter()
                             .map(Scalar::from)
                             .map(|s| s.into_value())
                             .collect::<Arc<[_]>>(),
-                    )),
+                    ))),
                 }
             }
         }
@@ -356,9 +356,9 @@ mod test {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(
-                InnerScalarValue::Primitive(PValue::U16(6)),
-            )]))),
+            ScalarValue(Arc::new(InnerScalarValue::List(Arc::from([ScalarValue(
+                Arc::new(InnerScalarValue::Primitive(PValue::U16(6))),
+            )])))),
         );
 
         let target_u32 = DType::List(
@@ -393,10 +393,10 @@ mod test {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
-                ScalarValue(InnerScalarValue::Null),
-            ]))),
+            ScalarValue(Arc::new(InnerScalarValue::List(Arc::from([
+                ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::U16(6)))),
+                ScalarValue(Arc::new(InnerScalarValue::Null)),
+            ])))),
         );
         let target_u8 = DType::List(
             Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
@@ -419,10 +419,13 @@ mod test {
             None,
         );
         let ext_dtype = DType::Extension(Arc::from(apples.clone()));
-        let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
+        let ext_scalar = Scalar::new(
+            ext_dtype.clone(),
+            ScalarValue(Arc::new(InnerScalarValue::Bool(true))),
+        );
         let storage_scalar = Scalar::new(
             DType::clone(apples.storage_dtype()),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U16(1000))),
+            ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::U16(1000)))),
         );
 
         // to self
@@ -458,7 +461,7 @@ mod test {
         // cast from *compatible* storage type to extension
         let storage_scalar_u64 = Scalar::new(
             DType::clone(apples.storage_dtype()),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(1000))),
+            ScalarValue(Arc::new(InnerScalarValue::Primitive(PValue::U64(1000)))),
         );
         let expected_dtype = &ext_dtype;
         let actual = storage_scalar_u64.cast(expected_dtype).unwrap();

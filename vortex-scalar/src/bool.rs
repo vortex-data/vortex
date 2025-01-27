@@ -42,8 +42,8 @@ impl<'a> BoolScalar<'a> {
             dtype: self.dtype.clone(),
             value: self
                 .value
-                .map(|x| ScalarValue(InnerScalarValue::Bool(x)))
-                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
+                .map(|x| ScalarValue(InnerScalarValue::Bool(x).into()))
+                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null.into())),
         }
     }
 }
@@ -52,7 +52,7 @@ impl Scalar {
     pub fn bool(value: bool, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Bool(nullability),
-            value: ScalarValue(InnerScalarValue::Bool(value)),
+            value: ScalarValue(InnerScalarValue::Bool(value).into()),
         }
     }
 }
@@ -115,7 +115,7 @@ impl From<bool> for Scalar {
 
 impl From<bool> for ScalarValue {
     fn from(value: bool) -> Self {
-        ScalarValue(InnerScalarValue::Bool(value))
+        ScalarValue(InnerScalarValue::Bool(value).into())
     }
 }
 

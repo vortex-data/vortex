@@ -133,7 +133,7 @@ impl From<ScalarValue> for Scalar {
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype)),
-                    crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i))),
+                    crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i)).into()),
                 )
             }),
             ScalarValue::Date64(v)
@@ -146,7 +146,7 @@ impl From<ScalarValue> for Scalar {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
-                    crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i))),
+                    crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i)).into()),
                 )
             }),
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),

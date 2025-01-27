@@ -277,7 +277,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)).into())
                 )
             ),
             "00:03:25"
@@ -301,7 +301,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)).into())
                 )
             ),
             "1970-01-26"
@@ -312,7 +312,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)).into())
                 )
             ),
             "1971-01-01"
@@ -323,7 +323,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)).into())
                 )
             ),
             "1973-12-31"
@@ -350,9 +350,12 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
-                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
-                    )))
+                    ScalarValue(
+                        InnerScalarValue::Primitive(PValue::I32(
+                            3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
+                        ))
+                        .into()
+                    )
                 )
             ),
             "1970-01-04T02:05:10Z"
@@ -380,7 +383,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)).into())
                 )
             ),
             "1970-01-01T10:00:00+10:00[Pacific/Guam]"
@@ -391,9 +394,12 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
-                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
-                    )))
+                    ScalarValue(
+                        InnerScalarValue::Primitive(PValue::I32(
+                            3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
+                        ))
+                        .into()
+                    )
                 )
             ),
             "1970-01-04T12:05:10+10:00[Pacific/Guam]"

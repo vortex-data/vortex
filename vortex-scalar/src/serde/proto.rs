@@ -20,21 +20,21 @@ impl From<&Scalar> for pb::Scalar {
 
 impl From<&ScalarValue> for pb::ScalarValue {
     fn from(value: &ScalarValue) -> Self {
-        match value {
-            ScalarValue(InnerScalarValue::Null) => pb::ScalarValue {
+        match value.0.as_ref() {
+            InnerScalarValue::Null => pb::ScalarValue {
                 kind: Some(Kind::NullValue(0)),
             },
-            ScalarValue(InnerScalarValue::Bool(v)) => pb::ScalarValue {
+            InnerScalarValue::Bool(v) => pb::ScalarValue {
                 kind: Some(Kind::BoolValue(*v)),
             },
-            ScalarValue(InnerScalarValue::Primitive(v)) => v.into(),
-            ScalarValue(InnerScalarValue::Buffer(v)) => pb::ScalarValue {
+            InnerScalarValue::Primitive(v) => v.into(),
+            InnerScalarValue::Buffer(v) => pb::ScalarValue {
                 kind: Some(Kind::BytesValue(v.as_slice().to_vec())),
             },
-            ScalarValue(InnerScalarValue::BufferString(v)) => pb::ScalarValue {
+            InnerScalarValue::BufferString(v) => pb::ScalarValue {
                 kind: Some(Kind::StringValue(v.as_str().to_string())),
             },
-            ScalarValue(InnerScalarValue::List(v)) => {
+            InnerScalarValue::List(v) => {
                 let mut values = Vec::with_capacity(v.len());
                 for elem in v.iter() {
                     values.push(pb::ScalarValue::from(elem));
@@ -117,10 +117,14 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
         .ok_or_else(|| vortex_err!(InvalidSerde: "ScalarValue missing kind"))?;
 
     match kind {
-        Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
-        Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
-        Kind::Int32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I32(*v)))),
-        Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
+        Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null.into())),
+        Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v).into())),
+        Kind::Int32Value(v) => Ok(ScalarValue(
+            InnerScalarValue::Primitive(PValue::I32(*v)).into(),
+        )),
+        Kind::Int64Value(v) => Ok(ScalarValue(
+            InnerScalarValue::Primitive(PValue::I64(*v)).into(),
+        )),
         Kind::Uint32Value(v) => match dtype {
             DType::Primitive(PType::F16, _) => {
                 let f16_value = f16::from_bits(u16::try_from(*v).map_err(|_| {
@@ -130,24 +134,30 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
                     )
                 })?);
 
-                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                    f16_value,
-                ))))
+                Ok(ScalarValue(
+                    InnerScalarValue::Primitive(PValue::F16(f16_value)).into(),
+                ))
             }
-            DType::Primitive(PType::U32, _) => {
-                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(*v))))
-            }
+            DType::Primitive(PType::U32, _) => Ok(ScalarValue(
+                InnerScalarValue::Primitive(PValue::U32(*v)).into(),
+            )),
             _ => vortex_bail!("invalid dtype for f32 value {}", dtype),
         },
-        Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
-        Kind::FloatValue(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
-        Kind::DoubleValue(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
-        Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(
-            BufferString::from(v.clone()),
-        ))),
-        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
-            v.clone(),
-        )))),
+        Kind::Uint64Value(v) => Ok(ScalarValue(
+            InnerScalarValue::Primitive(PValue::U64(*v)).into(),
+        )),
+        Kind::FloatValue(v) => Ok(ScalarValue(
+            InnerScalarValue::Primitive(PValue::F32(*v)).into(),
+        )),
+        Kind::DoubleValue(v) => Ok(ScalarValue(
+            InnerScalarValue::Primitive(PValue::F64(*v)).into(),
+        )),
+        Kind::StringValue(v) => Ok(ScalarValue(
+            InnerScalarValue::BufferString(BufferString::from(v.clone())).into(),
+        )),
+        Kind::BytesValue(v) => Ok(ScalarValue(
+            InnerScalarValue::Buffer(ByteBuffer::from(v.clone())).into(),
+        )),
         Kind::ListValue(v) => {
             let mut values = Vec::with_capacity(v.values.len());
             match dtype {
@@ -163,7 +173,7 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
                 }
                 _ => vortex_bail!("invalid dtype for list value {}", dtype),
             }
-            Ok(ScalarValue(InnerScalarValue::List(values.into())))
+            Ok(ScalarValue(InnerScalarValue::List(values.into()).into()))
         }
     }
 }
@@ -196,7 +206,7 @@ mod test {
     fn test_bool() {
         round_trip(Scalar::new(
             DType::Bool(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Bool(true)),
+            ScalarValue(InnerScalarValue::Bool(true).into()),
         ));
     }
 
@@ -204,7 +214,7 @@ mod test {
     fn test_primitive() {
         round_trip(Scalar::new(
             DType::Primitive(I32, Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Primitive(42i32.into())),
+            ScalarValue(InnerScalarValue::Primitive(42i32.into()).into()),
         ));
     }
 
@@ -212,7 +222,7 @@ mod test {
     fn test_buffer() {
         round_trip(Scalar::new(
             DType::Binary(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Buffer(vec![1, 2, 3].into())),
+            ScalarValue(InnerScalarValue::Buffer(vec![1, 2, 3].into()).into()),
         ));
     }
 
@@ -220,9 +230,9 @@ mod test {
     fn test_buffer_string() {
         round_trip(Scalar::new(
             DType::Utf8(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::BufferString(BufferString::from(
-                "hello".to_string(),
-            ))),
+            ScalarValue(
+                InnerScalarValue::BufferString(BufferString::from("hello".to_string())).into(),
+            ),
         ));
     }
 
@@ -233,13 +243,16 @@ mod test {
                 Arc::new(DType::Primitive(I32, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(
-                vec![
-                    ScalarValue(InnerScalarValue::Primitive(42i32.into())),
-                    ScalarValue(InnerScalarValue::Primitive(43i32.into())),
-                ]
+            ScalarValue(
+                InnerScalarValue::List(
+                    vec![
+                        ScalarValue(InnerScalarValue::Primitive(42i32.into()).into()),
+                        ScalarValue(InnerScalarValue::Primitive(43i32.into()).into()),
+                    ]
+                    .into(),
+                )
                 .into(),
-            )),
+            ),
         ));
     }
 
@@ -247,9 +260,7 @@ mod test {
     fn test_f16() {
         round_trip(Scalar::new(
             DType::Primitive(PType::F16, Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16::from_f32(
-                0.42,
-            )))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16::from_f32(0.42))).into()),
         ));
     }
 }

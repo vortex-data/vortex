@@ -74,18 +74,21 @@ impl<'a> ListScalar<'a> {
 
         Ok(Scalar::new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::List(
-                self.elements
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .iter()
-                    .map(|element| {
-                        Scalar::new(DType::clone(self.element_dtype), element.clone())
-                            .cast(element_dtype)
-                            .map(|x| x.value().clone())
-                    })
-                    .process_results(|iter| iter.collect())?,
-            )),
+            ScalarValue(
+                InnerScalarValue::List(
+                    self.elements
+                        .as_ref()
+                        .vortex_expect("nullness handled in Scalar::cast")
+                        .iter()
+                        .map(|element| {
+                            Scalar::new(DType::clone(self.element_dtype), element.clone())
+                                .cast(element_dtype)
+                                .map(|x| x.value().clone())
+                        })
+                        .process_results(|iter| iter.collect())?,
+                )
+                .into(),
+            ),
         ))
     }
 }
@@ -107,16 +110,17 @@ impl Scalar {
         }
         Self {
             dtype: DType::List(element_dtype, nullability),
-            value: ScalarValue(InnerScalarValue::List(
-                children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
-            )),
+            value: ScalarValue(
+                InnerScalarValue::List(children.into_iter().map(|x| x.value).collect::<Arc<[_]>>())
+                    .into(),
+            ),
         }
     }
 
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self {
             dtype: DType::List(element_dtype, nullability),
-            value: ScalarValue(InnerScalarValue::Null),
+            value: ScalarValue(InnerScalarValue::Null.into()),
         }
     }
 }
