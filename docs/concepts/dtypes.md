@@ -17,7 +17,7 @@ columnar data. This means you can write a Vortex file containing a single intege
 with many columns.
 :::
 
-## Owned vs Viewed
+### Owned vs Viewed
 
 As with other possibly large recursive data structures in Vortex, dtypes can be either _owned_ or _viewed_.
 Owned dtypes are heap-allocated, while viewed dtypes are lazily unwrapped from an underlying FlatBuffer representation.

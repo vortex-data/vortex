@@ -49,8 +49,7 @@ Arrays <concepts/arrays>
 Layouts <concepts/layouts>
 Data Types <concepts/dtypes>
 Scalars <concepts/scalars>
-Expressions <concepts/exprs>
-Buffers <concepts/buffers>
+Compute <concepts/compute>
 ```
 
 ## User Guides
@@ -82,9 +81,9 @@ includehidden:
 caption: Specifications
 ---
 
-specs/file_format
-specs/ipc_format
-specs/dtype_format
+specs/file-format
+specs/ipc-format
+specs/dtype-format
 ```
 
 ```{toctree}
