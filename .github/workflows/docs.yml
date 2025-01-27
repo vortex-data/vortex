@@ -3,6 +3,7 @@ name: Python & Rust docs
 on:
   push:
     branches: [ develop ]
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -24,11 +25,19 @@ jobs:
         run: |
           uv run make -C docs html
       - name: Upload static files as artifact
+        if: false
         id: deployment
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_build/html
+      - name: Upload artifacts to CloudFlare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: pages deploy docs/_build/html --project-name=vortex-docs
+
   deploy:
+    if: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
