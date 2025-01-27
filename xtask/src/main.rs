@@ -18,8 +18,7 @@ fn execute_generate_fbs() -> anyhow::Result<()> {
         "./flatbuffers/vortex-dtype/dtype.fbs",
         "./flatbuffers/vortex-scalar/scalar.fbs",
         "./flatbuffers/vortex-array/array.fbs",
-        "./flatbuffers/vortex-file/footer2.fbs",
-        "./flatbuffers/vortex-serde/footer.fbs",
+        "./flatbuffers/vortex-file/footer.fbs",
         "./flatbuffers/vortex-layout/layout.fbs",
         "./flatbuffers/vortex-serde/message.fbs",
     ];

@@ -1801,9 +1801,9 @@ dependencies = [
 
 [[package]]
 name = "flatbuffers"
-version = "25.1.21"
+version = "25.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "744fff4a025a51bc620d8427474693aa2af4534a3b3610aabfb07a3968dacaa9"
+checksum = "c58d7edb5d62d268a095c72e59c8dcf2c456ad3e332a9df17bdc4bd029a9a870"
 dependencies = [
  "bitflags 1.3.2",
  "rustc_version",
@@ -1821,9 +1821,9 @@ dependencies = [
 
 [[package]]
 name = "flexbuffers"
-version = "25.1.21"
+version = "25.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c39469dafb05c6d18b3ac1498461aee767dc39b52903de46e1e966f8eb5a8d46"
+checksum = "7fbddda936f61d9be8a02b5b4ff6c1caf4bf05e6d1a057420834dde4c0fdec8c"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",
@@ -5087,7 +5087,7 @@ dependencies = [
  "backtrace",
  "criterion",
  "enum-iterator",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "flexbuffers",
  "futures-util",
  "getrandom",
@@ -5224,7 +5224,7 @@ name = "vortex-dtype"
 version = "0.22.1"
 dependencies = [
  "arbitrary",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "half",
  "itertools 0.14.0",
  "num-traits",
@@ -5246,7 +5246,7 @@ version = "0.22.1"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "flexbuffers",
  "jiff",
  "object_store",
@@ -5307,7 +5307,7 @@ dependencies = [
  "arrow-schema",
  "async-trait",
  "bytes",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "futures",
  "futures-executor",
  "futures-util",
@@ -5337,7 +5337,7 @@ dependencies = [
 name = "vortex-flatbuffers"
 version = "0.22.1"
 dependencies = [
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "vortex-buffer",
 ]
 
@@ -5401,7 +5401,7 @@ name = "vortex-ipc"
 version = "0.22.1"
 dependencies = [
  "bytes",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "futures-util",
  "itertools 0.14.0",
  "pin-project-lite",
@@ -5421,7 +5421,7 @@ dependencies = [
  "async-once-cell",
  "async-trait",
  "bytes",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "futures",
  "itertools 0.14.0",
  "vortex-array",
@@ -5504,7 +5504,7 @@ dependencies = [
  "arbitrary",
  "arrow-array",
  "datafusion-common",
- "flatbuffers 25.1.21",
+ "flatbuffers 25.1.24",
  "flexbuffers",
  "itertools 0.14.0",
  "num-traits",
