@@ -2,7 +2,7 @@ use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
@@ -36,7 +36,15 @@ impl IntoCanonical for ConstantArray {
             DType::Primitive(ptype, ..) => {
                 match_each_native_ptype!(ptype, |$P| {
                     Canonical::Primitive(PrimitiveArray::new(
-                        Buffer::full($P::try_from(scalar).unwrap_or_else(|_| $P::default()), self.len()),
+                        Buffer::full(
+                            if scalar.is_null() {
+                                $P::default()
+                            } else {
+                                $P::try_from(scalar)
+                                    .vortex_expect("Couldn't unwrap scalar to primitive")
+                            },
+                            self.len(),
+                        ),
                         validity,
                     ))
                 })
