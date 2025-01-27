@@ -10,11 +10,11 @@ codes.
 ## Compute Functions
 
 * `binary_boolean(lhs: ArrayData, rhs: ArrayData, BinaryOperator) -> ArrayData`
-    * Compute `And`, `AndKleene`, `Or, `OrKleene` operations over two boolean arrays.
+    * Compute `And`, `AndKleene`, `Or`, `OrKleene` operations over two boolean arrays.
 * `binary_numeric(lhs: ArrayData, rhs: ArrayData, BinaryOperator) -> ArrayData`
     * Compute `Add`, `Sub`, `RSub`, `Mul`, `Div`, `RDiv` operations over two numeric arrays.
 * `compare(lhs: ArrayData, rhs: ArrayData, CompareOperator) -> ArrayData`
-    * Compute `Eq`, `NotEq`, `Gt`, `Gte, `Lt`, `Lte` operations over two arrays.
+    * Compute `Eq`, `NotEq`, `Gt`, `Gte`, `Lt`, `Lte` operations over two arrays.
 * `try_cast(ArrayData, DType) -> ArrayData`
     * Try to cast the array to the specified data type.
 * `fill_forward(ArrayData) -> ArrayData`
