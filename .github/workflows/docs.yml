@@ -25,14 +25,12 @@ jobs:
         run: |
           uv run make -C docs html
       - name: Upload static files as artifact
-        if: false
         id: deployment
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_build/html
 
   deploy:
-    if: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
