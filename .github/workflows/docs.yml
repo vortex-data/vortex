@@ -46,6 +46,10 @@ jobs:
           name: github-pages
           path: docs
 
+      - name: List Files
+        run: find docs
+        shell: bash
+
       # Note, since we use an API token we run it in a separate job that doesn't run any repository code.
       - name: Upload artifacts to CloudFlare Pages
         uses: cloudflare/wrangler-action@v3
