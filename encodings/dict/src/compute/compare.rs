@@ -1,7 +1,8 @@
 use vortex_array::array::ConstantArray;
-use vortex_array::compute::{compare, take, CompareFn, Operator};
-use vortex_array::ArrayData;
+use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
@@ -14,6 +15,9 @@ impl CompareFn<DictArray> for DictEncoding {
     ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
+            if lhs.values().len() < 512 && matches!(operator, Operator::Eq) {
+                return compare_by_value(lhs, const_scalar, operator);
+            }
             // Ensure the other is the same length as the dictionary
             let compare_result = compare(
                 lhs.values(),
@@ -26,5 +30,72 @@ impl CompareFn<DictArray> for DictEncoding {
         // It's a little more complex, but we could perform a comparison against the dictionary
         // values in the future.
         Ok(None)
+    }
+}
+
+fn compare_by_value(
+    lhs: &DictArray,
+    rhs: Scalar,
+    operator: Operator,
+) -> VortexResult<Option<ArrayData>> {
+    // TODO: handle neq
+    assert!(matches!(operator, Operator::Eq));
+    // If the RHS is constant, then we just need to compare against our encoded values.
+    let compare_result = compare(
+        lhs.values(),
+        ConstantArray::new(rhs, lhs.values().len()),
+        operator,
+    )?;
+
+    let bool = compare_result.into_bool()?;
+
+    let Some(code) = bool.boolean_buffer().set_indices().next() else {
+        return Ok(Some(
+            ConstantArray::new(false, lhs.codes().len()).into_array(),
+        ));
+    };
+
+    // Ensure the other is the same length as the dictionary
+    let compare_result = compare(
+        lhs.codes(),
+        try_cast(
+            &ConstantArray::new(code, lhs.codes().len()),
+            lhs.codes().dtype(),
+        )?,
+        operator,
+    )?;
+    Ok(Some(compare_result))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::array::ConstantArray;
+    use vortex_array::compute::{compare, Operator};
+    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::buffer;
+    use vortex_scalar::Scalar;
+
+    use crate::DictArray;
+
+    #[test]
+    fn test_compare_value() {
+        let dict = DictArray::try_new(
+            buffer![0u32, 1, 2].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        )
+        .unwrap();
+
+        let res = compare(
+            &dict,
+            ConstantArray::new(Scalar::from(1i32), 3),
+            Operator::Eq,
+        )
+        .unwrap();
+        let res = res.into_bool().unwrap();
+        assert_eq!(res.len(), 3);
+        assert_eq!(
+            res.boolean_buffer().iter().collect::<Vec<_>>(),
+            vec![true, false, false]
+        );
     }
 }
