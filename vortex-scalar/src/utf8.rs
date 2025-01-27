@@ -112,6 +112,15 @@ impl From<BufferString> for Scalar {
     }
 }
 
+impl From<Arc<BufferString>> for Scalar {
+    fn from(value: Arc<BufferString>) -> Self {
+        Self {
+            dtype: DType::Utf8(NonNullable),
+            value: ScalarValue(InnerScalarValue::BufferString(value)),
+        }
+    }
+}
+
 impl<'a> TryFrom<&'a Scalar> for BufferString {
     type Error = VortexError;
 
