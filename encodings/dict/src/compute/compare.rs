@@ -15,6 +15,7 @@ impl CompareFn<DictArray> for DictEncoding {
     ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
+            // TODO: support other operations if the dict is sorted.
             if matches!(operator, Operator::Eq) {
                 return compare_by_value(lhs, const_scalar, operator);
             }
@@ -38,7 +39,6 @@ fn compare_by_value(
     rhs: Scalar,
     operator: Operator,
 ) -> VortexResult<Option<ArrayData>> {
-    // TODO: handle neq
     assert!(matches!(operator, Operator::Eq));
     // If the RHS is constant, then we just need to compare against our encoded values.
     let compare_result = compare(
@@ -49,6 +49,7 @@ fn compare_by_value(
 
     let bool = compare_result.into_bool()?;
 
+    // Couldn't find a value match, so the result is all false
     let Some(code) = bool.boolean_buffer().set_indices().next() else {
         return Ok(Some(
             ConstantArray::new(false, lhs.codes().len()).into_array(),
