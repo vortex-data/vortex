@@ -4,7 +4,7 @@ use num_traits::AsPrimitive;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, Entry, HashMap, HashTable, RandomState};
 use vortex_array::array::{
-    BinaryView, ConstantArray, PrimitiveArray, SparseArray, VarBinArray, VarBinViewArray,
+    BinaryView, ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -13,6 +13,7 @@ use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, ToBytes};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
+use vortex_sparse::SparseArray;
 
 use crate::DictArray;
 

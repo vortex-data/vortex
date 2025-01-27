@@ -18,12 +18,14 @@ workspace = true
 
 [dependencies]
 itertools = { workspace = true }
-num-traits = { workspace = true }
+rkyv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
-vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

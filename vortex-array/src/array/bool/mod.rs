@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use arrow_array::BooleanArray;
-use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
+use arrow_buffer::MutableBuffer;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
@@ -22,7 +22,7 @@ mod patch;
 mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
-pub use arrow_buffer::BooleanBuffer;
+pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
 

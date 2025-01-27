@@ -123,7 +123,6 @@ pub mod ids {
     pub const VAR_BIN: u16 = 5;
     pub const VAR_BIN_VIEW: u16 = 6;
     pub const EXTENSION: u16 = 7;
-    pub const SPARSE: u16 = 8;
     pub const CONSTANT: u16 = 9;
     pub const CHUNKED: u16 = 10;
     pub const LIST: u16 = 11;
@@ -148,6 +147,7 @@ pub mod ids {
     pub const FL_RLE: u16 = 25;
     pub const FSST: u16 = 26;
     pub const RUN_END: u16 = 27;
+    pub const SPARSE: u16 = 8;
     pub const ZIGZAG: u16 = 28;
 }
 

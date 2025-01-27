@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::aliases::hash_map::HashMap;
 use crate::array::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
-    PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
@@ -60,7 +60,6 @@ impl Default for Context {
                 &VarBinEncoding,
                 &VarBinViewEncoding,
                 &ExtensionEncoding,
-                &SparseEncoding,
                 &ConstantEncoding,
                 &ChunkedEncoding,
             ]

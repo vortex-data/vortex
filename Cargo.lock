@@ -5219,6 +5219,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-sparse",
 ]
 
 [[package]]
@@ -5298,6 +5299,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-sparse",
 ]
 
 [[package]]
@@ -5481,7 +5483,6 @@ dependencies = [
  "fsst-rs",
  "itertools 0.14.0",
  "log",
- "num-traits",
  "rand",
  "vortex-alp",
  "vortex-array",
@@ -5496,6 +5497,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-sparse",
  "vortex-zigzag",
 ]
 
@@ -5541,13 +5543,13 @@ name = "vortex-sparse"
 version = "0.22.1"
 dependencies = [
  "itertools 0.14.0",
- "num-traits",
+ "rkyv",
+ "rstest",
  "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
 ]

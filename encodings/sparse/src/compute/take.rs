@@ -1,9 +1,9 @@
+use vortex_array::array::ConstantArray;
+use vortex_array::compute::TakeFn;
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
-use crate::array::sparse::SparseArray;
-use crate::array::{ConstantArray, SparseEncoding};
-use crate::compute::TakeFn;
-use crate::{ArrayData, IntoArrayData};
+use crate::{SparseArray, SparseEncoding};
 
 impl TakeFn<SparseArray> for SparseEncoding {
     fn take(&self, array: &SparseArray, take_indices: &ArrayData) -> VortexResult<ArrayData> {
@@ -21,14 +21,14 @@ impl TakeFn<SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::sparse::SparseArray;
-    use crate::compute::{scalar_at, slice, take};
-    use crate::validity::Validity;
-    use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::SparseArray;
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying

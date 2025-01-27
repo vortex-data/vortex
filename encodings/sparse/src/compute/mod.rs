@@ -1,14 +1,14 @@
+use vortex_array::array::ConstantArray;
+use vortex_array::compute::{
+    BinaryNumericFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
+    SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
+};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::sparse::SparseArray;
-use crate::array::{ConstantArray, SparseEncoding};
-use crate::compute::{
-    BinaryNumericFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
-    SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
-};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{SparseArray, SparseEncoding};
 
 mod binary_numeric;
 mod invert;
@@ -105,16 +105,16 @@ impl FilterFn<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::test_harness::test_binary_numeric;
+    use vortex_array::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::sparse::SparseArray;
-    use crate::compute::test_harness::test_binary_numeric;
-    use crate::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
-    use crate::validity::Validity;
-    use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::SparseArray;
 
     #[fixture]
     fn array() -> ArrayData {
