@@ -44,8 +44,6 @@ There are additional logical types that Vortex does not yet support, for example
 types, as well as a map type. These may be added in future versions.
 :::
 
-(primitive)=
-
 ### Primitive
 
 Primitive dtypes are an enumeration of different fixed-width primitive values.
@@ -64,20 +62,14 @@ Primitive dtypes are an enumeration of different fixed-width primitive values.
 | `F32` | IEEE 754-1985 single    |
 | `F64` | IEEE 754-1985 double    |
 
-(struct)=
-
 ### Struct
 
 A `Struct` dtype is an ordered collection of named fields, each of which has its own logical dtype.
-
-(list)=
 
 ### List
 
 A `List` dtype has a single _element type_, itself a logical dtype, and represents an array of variable-length
 sequences of elements of that type.
-
-(extension)=
 
 ### Extension
 
