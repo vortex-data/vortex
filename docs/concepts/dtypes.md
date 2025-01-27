@@ -32,12 +32,12 @@ The following table lists the built-in dtypes in Vortex, each of which can be ma
 |-------------|---------------------------------------------|
 | `Null`      | `null`                                      |
 | `Bool`      | `true`, `false`                             |
-| `Primitive` | See [Primitive](primitive)                  |
+| `Primitive` | See [Primitive](#primitive)                 |
 | `UTF8`      | Variable length valid utf-8 encoded strings |
 | `Binary`    | Arbitrary variable length bytes             |
 | `Struct`    | See [Struct](struct)                        |
 | `List`      | See [List](list)                            |
-| `Extension` | See [Extension](extension)                  |
+| `Extension` | See [Extension](#extension)                 |
 
 :::{note}
 There are additional logical types that Vortex does not yet support, for example fixed-length binary, utf-8, and list

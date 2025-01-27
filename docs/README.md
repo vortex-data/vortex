@@ -21,12 +21,12 @@ Build the Python and Rust docs and place the rust docs at `_build/rust/html`:
 uv run make python-and-rust-html
 ```
 
-## Viewing
+## Development
 
-After building:
+Live-reloading (ish) build of the docs:
 
 ```
-open _build/html/index.html
+uv run make serve
 ```
 
 ## Python Doctests

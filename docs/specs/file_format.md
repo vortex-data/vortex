@@ -38,7 +38,7 @@ Immediately prior to the trailing magic number are two 16-bit integers: the vers
 The postfix contains the locations of the file's root `DType` segment, as well as a `FileLayout` segment containing
 the root `Layout`, a _segment map_, and other shared configuration such as compression and encryption schemes.
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer2.fbs
+:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
 :start-after: [postscript]
 :end-before: [postscript]
 :::
@@ -63,7 +63,7 @@ The file layout is a flat buffer serialized `FileLayout` object. This object con
 load the root `Layout` object into a usable `LayoutReader`. For example, it contains the locations, compression schemes,
 encryption schemes, and required alignment of all segments in the file.
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer2.fbs
+:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
 :start-after: [file layout]
 :end-before: [file layout]
 :::
