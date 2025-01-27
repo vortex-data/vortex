@@ -9,7 +9,6 @@ permissions:
   actions: read
   deployments: write
   contents: write
-  pages: write
   id-token: write
 
 jobs:
@@ -37,19 +36,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
+      # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't
+      # execute any repository code.
       - uses: actions/download-artifact@v4
         with:
           name: github-pages
-
       - name: Extract Pages Artifact
         run: mkdir docs && tar -xvf artifact.tar -C docs
         shell: bash
-
-      # Note, since we use an API token we run it in a separate job that doesn't run any repository code.
       - name: Upload artifacts to CloudFlare Pages
         uses: cloudflare/wrangler-action@v3
         with:
