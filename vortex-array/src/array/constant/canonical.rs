@@ -36,15 +36,15 @@ impl IntoCanonical for ConstantArray {
             DType::Primitive(ptype, ..) => {
                 match_each_native_ptype!(ptype, |$P| {
                     Canonical::Primitive(PrimitiveArray::new(
-                        Buffer::full(
-                            if scalar.is_null() {
-                                $P::default()
-                            } else {
+                        if scalar.is_valid() {
+                            Buffer::full(
                                 $P::try_from(scalar)
-                                    .vortex_expect("Couldn't unwrap scalar to primitive")
-                            },
-                            self.len(),
-                        ),
+                                    .vortex_expect("Couldn't unwrap scalar to primitive"),
+                                self.len(),
+                            )
+                        } else {
+                            Buffer::zeroed(self.len())
+                        },
                         validity,
                     ))
                 })
