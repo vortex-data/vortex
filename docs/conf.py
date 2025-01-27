@@ -1,3 +1,5 @@
+import doctest
+
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -26,7 +28,7 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -39,6 +41,9 @@ intersphinx_mapping = {
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 
 doctest_global_setup = "import pyarrow; import vortex"
+doctest_default_flags = (
+    doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL | doctest.DONT_ACCEPT_TRUE_FOR_1 | doctest.NORMALIZE_WHITESPACE
+)
 
 # -- Options for MyST Parser -------------------------------------------------
 
