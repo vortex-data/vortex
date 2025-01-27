@@ -45,6 +45,7 @@ vortex-sampling-compressor = { workspace = true }
 vortex-scalar = { workspace = true, default-features = true }
 vortex-scan = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
+vortex-layout = { workspace = true }
 
 [features]
 tokio = ["vortex-io/tokio", "vortex-file/tokio"]
