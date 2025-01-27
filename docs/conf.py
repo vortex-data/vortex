@@ -43,7 +43,7 @@ doctest_global_setup = "import pyarrow; import vortex"
 # -- Options for MyST Parser -------------------------------------------------
 
 myst_enable_extensions = [
-    "colon_fence", # Use ::: for Sphinx directives
+    "colon_fence",  # Use ::: for Sphinx directives
 ]
 
 # -- Options for HTML output -------------------------------------------------
