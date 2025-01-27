@@ -356,6 +356,11 @@ mod test {
         PValue::F16(f16::from_f32(5.722046e-6)),
         Some(Ordering::Equal)
     )]
+    #[case(
+        PValue::F16(f16::from_f32(5.722046e-6)),
+        PValue::U8(96),
+        Some(Ordering::Equal)
+    )]
     fn test_compare_different_types(
         #[case] left: PValue,
         #[case] right: PValue,
@@ -368,6 +373,7 @@ mod test {
     #[case(PValue::I8(4), PValue::I8(5), false)]
     #[case(PValue::I8(4), PValue::I64(5), false)]
     #[case(PValue::U8(96), PValue::F16(f16::from_f32(5.722046e-6)), true)]
+    #[case(PValue::F16(f16::from_f32(5.722046e-6)), PValue::U8(96), true)]
     fn is_equals_different_types(
         #[case] left: PValue,
         #[case] right: PValue,
