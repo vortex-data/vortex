@@ -203,7 +203,20 @@ impl Scalar {
 
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype == other.dtype && self.value.0 == other.value.0
+        if self.dtype != other.dtype {
+            return false;
+        }
+
+        match self.dtype() {
+            DType::Null => true,
+            DType::Bool(_) => self.as_bool() == other.as_bool(),
+            DType::Primitive(..) => {}
+            DType::Utf8(_) => {}
+            DType::Binary(_) => {}
+            DType::Struct(..) => {}
+            DType::List(..) => {}
+            DType::Extension(_) => {}
+        }
     }
 }
 
