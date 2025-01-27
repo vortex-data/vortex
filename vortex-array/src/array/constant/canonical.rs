@@ -105,10 +105,12 @@ fn canonical_byte_view(
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::half::f16;
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::ConstantArray;
+    use crate::canonical::IntoArrayVariant;
     use crate::compute::scalar_at;
     use crate::stats::{ArrayStatistics as _, StatsSet};
     use crate::{ArrayLen, IntoArrayData as _, IntoCanonical};
@@ -150,5 +152,18 @@ mod tests {
 
         assert_eq!(canonical_stats, StatsSet::constant(&scalar, 4));
         assert_eq!(canonical_stats, stats);
+    }
+
+    #[test]
+    fn test_canonicalize_scalar_values() {
+        let f16_scalar = Scalar::primitive(f16::from_f32(5.722046e-6), Nullability::NonNullable);
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            Scalar::primitive(96u8, Nullability::NonNullable).into_value(),
+        );
+        let const_array = ConstantArray::new(scalar.clone(), 1).into_array();
+        let canonical_const = const_array.into_primitive().unwrap();
+        assert_eq!(scalar_at(&canonical_const, 0).unwrap(), scalar);
+        assert_eq!(scalar_at(&canonical_const, 0).unwrap(), f16_scalar);
     }
 }
