@@ -20,6 +20,7 @@ use crate::LayoutData;
 
 /// A strategy for writing chunks of an array into a layout.
 /// FIXME(ngates): move this into writer.rs
+// [layout writer]
 pub trait LayoutWriter: Send {
     fn push_chunk(
         &mut self,
@@ -29,6 +30,7 @@ pub trait LayoutWriter: Send {
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData>;
 }
+// [layout writer]
 
 pub trait LayoutWriterExt: LayoutWriter {
     /// Box the layout writer.

@@ -10,7 +10,7 @@ struct ArrayData {
     dtype: DType,
     len: usize,
     metadata: ByteBuffer,
-    children: [Array],
+    children: [ArrayDat],
     buffers: [ByteBuffer],
     statistics: Statistics,
 }
