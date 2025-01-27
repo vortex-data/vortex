@@ -6,7 +6,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::Stat;
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone)]
 pub struct StatsSet {
     values: Option<Vec<(Stat, ScalarValue)>>,
 }
@@ -77,7 +77,7 @@ impl StatsSet {
         }
 
         if matches!(dtype, DType::Bool(_)) {
-            let bool_val: Option<bool> = sv.try_into().vortex_expect("Checked dtype");
+            let bool_val = <Option<bool>>::try_from(&sv).vortex_expect("Checked dtype");
             let true_count = bool_val
                 .map(|b| if b { length as u64 } else { 0 })
                 .unwrap_or(0);
@@ -229,16 +229,16 @@ impl Extend<(Stat, ScalarValue)> for StatsSet {
 impl StatsSet {
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
     /// contains stats from an array that is *appended* to the array represented by `self`.
-    pub fn merge_ordered(mut self, other: &Self) -> Self {
+    pub fn merge_ordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {
             match s {
                 Stat::BitWidthFreq => self.merge_bit_width_freq(other),
                 Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
-                Stat::IsConstant => self.merge_is_constant(other),
-                Stat::IsSorted => self.merge_is_sorted(other),
-                Stat::IsStrictSorted => self.merge_is_strict_sorted(other),
-                Stat::Max => self.merge_max(other),
-                Stat::Min => self.merge_min(other),
+                Stat::IsConstant => self.merge_is_constant(other, dtype),
+                Stat::IsSorted => self.merge_is_sorted(other, dtype),
+                Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
+                Stat::Max => self.merge_max(other, dtype),
+                Stat::Min => self.merge_min(other, dtype),
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
@@ -251,7 +251,7 @@ impl StatsSet {
 
     /// Merge stats set `other` into `self`, with no assumption on ordering.
     /// Stats that are not commutative (e.g., is_sorted) are dropped from the result.
-    pub fn merge_unordered(mut self, other: &Self) -> Self {
+    pub fn merge_unordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {
             if !s.is_commutative() {
                 self.clear(s);
@@ -261,9 +261,9 @@ impl StatsSet {
             match s {
                 Stat::BitWidthFreq => self.merge_bit_width_freq(other),
                 Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
-                Stat::IsConstant => self.merge_is_constant(other),
-                Stat::Max => self.merge_max(other),
-                Stat::Min => self.merge_min(other),
+                Stat::IsConstant => self.merge_is_constant(other, dtype),
+                Stat::Max => self.merge_max(other, dtype),
+                Stat::Min => self.merge_min(other, dtype),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
@@ -274,10 +274,10 @@ impl StatsSet {
         self
     }
 
-    fn merge_min(&mut self, other: &Self) {
+    fn merge_min(&mut self, other: &Self, dtype: &DType) {
         match (self.get(Stat::Min), other.get(Stat::Min)) {
             (Some(m1), Some(m2)) => {
-                if m2 < m1 {
+                if Scalar::new(dtype.clone(), m2.clone()) < Scalar::new(dtype.clone(), m1.clone()) {
                     self.set(Stat::Min, m2.clone());
                 }
             }
@@ -285,10 +285,10 @@ impl StatsSet {
         }
     }
 
-    fn merge_max(&mut self, other: &Self) {
+    fn merge_max(&mut self, other: &Self, dtype: &DType) {
         match (self.get(Stat::Max), other.get(Stat::Max)) {
             (Some(m1), Some(m2)) => {
-                if m2 > m1 {
+                if Scalar::new(dtype.clone(), m2.clone()) > Scalar::new(dtype.clone(), m1.clone()) {
                     self.set(Stat::Max, m2.clone());
                 }
             }
@@ -296,10 +296,20 @@ impl StatsSet {
         }
     }
 
-    fn merge_is_constant(&mut self, other: &Self) {
+    fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
         if let Some(is_constant) = self.get_as(Stat::IsConstant) {
             if let Some(other_is_constant) = other.get_as(Stat::IsConstant) {
-                if is_constant && other_is_constant && self.get(Stat::Min) == other.get(Stat::Min) {
+                if is_constant
+                    && other_is_constant
+                    && self
+                        .get(Stat::Min)
+                        .cloned()
+                        .map(|sv| Scalar::new(dtype.clone(), sv))
+                        == other
+                            .get(Stat::Min)
+                            .cloned()
+                            .map(|sv| Scalar::new(dtype.clone(), sv))
+                {
                     return;
                 }
             }
@@ -307,18 +317,19 @@ impl StatsSet {
         }
     }
 
-    fn merge_is_sorted(&mut self, other: &Self) {
-        self.merge_sortedness_stat(other, Stat::IsSorted, |own, other| own <= other)
+    fn merge_is_sorted(&mut self, other: &Self, dtype: &DType) {
+        self.merge_sortedness_stat(other, Stat::IsSorted, dtype, |own, other| own <= other)
     }
 
-    fn merge_is_strict_sorted(&mut self, other: &Self) {
-        self.merge_sortedness_stat(other, Stat::IsStrictSorted, |own, other| own < other)
+    fn merge_is_strict_sorted(&mut self, other: &Self, dtype: &DType) {
+        self.merge_sortedness_stat(other, Stat::IsStrictSorted, dtype, |own, other| own < other)
     }
 
-    fn merge_sortedness_stat<F: Fn(Option<&ScalarValue>, Option<&ScalarValue>) -> bool>(
+    fn merge_sortedness_stat<F: Fn(Option<Scalar>, Option<Scalar>) -> bool>(
         &mut self,
         other: &Self,
         stat: Stat,
+        dtype: &DType,
         cmp: F,
     ) {
         if let Some(is_sorted) = self.get_as(stat) {
@@ -327,7 +338,15 @@ impl StatsSet {
                     self.clear(stat);
                 } else if is_sorted
                     && other_is_sorted
-                    && cmp(self.get(Stat::Max), other.get(Stat::Min))
+                    && cmp(
+                        self.get(Stat::Max)
+                            .cloned()
+                            .map(|sv| Scalar::new(dtype.clone(), sv)),
+                        other
+                            .get(Stat::Min)
+                            .cloned()
+                            .map(|sv| Scalar::new(dtype.clone(), sv)),
+                    )
                 {
                     return;
                 } else {

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_buffer::BufferString;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 
@@ -17,19 +19,21 @@ impl<'a> TryFrom<&'a ScalarValue> for String {
 
 impl From<&str> for ScalarValue {
     fn from(value: &str) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(value.to_string().into()))
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(
+            value.to_string().into(),
+        )))
     }
 }
 
 impl From<String> for ScalarValue {
     fn from(value: String) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(value.into()))
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into())))
     }
 }
 
 impl From<BufferString> for ScalarValue {
     fn from(value: BufferString) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(value))
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(value)))
     }
 }
 
@@ -42,26 +46,10 @@ impl<'a> TryFrom<&'a ScalarValue> for BufferString {
     }
 }
 
-impl TryFrom<ScalarValue> for BufferString {
-    type Error = VortexError;
-
-    fn try_from(scalar: ScalarValue) -> Result<Self, Self::Error> {
-        Self::try_from(&scalar)
-    }
-}
-
 impl<'a> TryFrom<&'a ScalarValue> for Option<BufferString> {
     type Error = VortexError;
 
     fn try_from(scalar: &'a ScalarValue) -> Result<Self, Self::Error> {
         scalar.as_buffer_string()
-    }
-}
-
-impl TryFrom<ScalarValue> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(scalar: ScalarValue) -> Result<Self, Self::Error> {
-        Self::try_from(&scalar)
     }
 }

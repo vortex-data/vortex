@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 
-<<<<<<< HEAD:encodings/sparse/src/lib.rs
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::encoding::ids;
@@ -10,9 +9,6 @@ use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, RkyvMetadata};
-=======
-use rkyv::Deserialize;
->>>>>>> dc8a42588 ( This is a combination of 5 commits.):vortex-array/src/array/sparse/mod.rs
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -184,7 +180,7 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
             return Ok(fill_stats);
         }
 
-        Ok(stats.merge_unordered(&fill_stats))
+        Ok(stats.merge_unordered(&fill_stats, array.dtype()))
     }
 }
 

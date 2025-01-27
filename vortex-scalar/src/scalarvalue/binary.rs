@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
@@ -20,22 +21,6 @@ impl<'a> TryFrom<&'a ScalarValue> for Option<ByteBuffer> {
 
     fn try_from(scalar: &'a ScalarValue) -> VortexResult<Self> {
         scalar.as_buffer()
-    }
-}
-
-impl TryFrom<ScalarValue> for ByteBuffer {
-    type Error = VortexError;
-
-    fn try_from(scalar: ScalarValue) -> VortexResult<Self> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl TryFrom<ScalarValue> for Option<ByteBuffer> {
-    type Error = VortexError;
-
-    fn try_from(scalar: ScalarValue) -> VortexResult<Self> {
-        Self::try_from(&scalar)
     }
 }
 

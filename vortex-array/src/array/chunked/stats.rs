@@ -2,6 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
+use crate::ArrayDType;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 
 impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
@@ -20,7 +21,7 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
                 }
                 .unwrap_or_default()
             })
-            .reduce(|acc, x| acc.merge_ordered(&x))
+            .reduce(|acc, x| acc.merge_ordered(&x, array.dtype()))
             .unwrap_or_default())
     }
 }

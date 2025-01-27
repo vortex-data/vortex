@@ -5,7 +5,6 @@ use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::ScalarValue;
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
@@ -26,10 +25,10 @@ pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
 
     // If we can't cast to i64, then leave the array as its original type.
     // It's too big to downcast anyway.
-    let Ok(min) = <ScalarValue as TryInto<i64>>::try_into(min) else {
+    let Ok(min) = i64::try_from(&min) else {
         return Ok(array.into_array());
     };
-    let Ok(max) = <ScalarValue as TryInto<i64>>::try_into(max) else {
+    let Ok(max) = i64::try_from(&max) else {
         return Ok(array.into_array());
     };
 

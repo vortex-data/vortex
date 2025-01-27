@@ -7,7 +7,7 @@ use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{vortex_panic, VortexError, VortexResult};
 use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
@@ -18,9 +18,18 @@ use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant};
 
-trait PStatsType: NativePType + Into<ScalarValue> + BitWidth {}
+trait PStatsType:
+    NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
+{
+}
 
-impl<T: NativePType + Into<ScalarValue> + BitWidth> PStatsType for T {}
+impl<T> PStatsType for T where
+    T: NativePType
+        + Into<ScalarValue>
+        + BitWidth
+        + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
+{
+}
 
 impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -64,8 +73,8 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
                 stats.set(
                     Stat::IsConstant,
                     stats
-                        .get(Stat::Min)
-                        .zip(stats.get(Stat::Max))
+                        .get_as::<T>(Stat::Min)
+                        .zip(stats.get_as::<T>(Stat::Max))
                         .map(|(min, max)| min == max)
                         .unwrap_or(false),
                 );
@@ -334,8 +343,6 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
-    use vortex_scalar::{Scalar, ScalarValue};
-
     use crate::array::primitive::PrimitiveArray;
     use crate::stats::{ArrayStatistics, Stat};
 
@@ -401,7 +408,7 @@ mod test {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
         let min = arr.statistics().compute(Stat::Min);
         let max = arr.statistics().compute(Stat::Max);
-        assert_eq!(min, None);
-        assert_eq!(max, None);
+        assert!(min.is_none());
+        assert!(max.is_none());
     }
 }

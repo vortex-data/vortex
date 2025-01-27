@@ -18,19 +18,3 @@ impl TryFrom<&ScalarValue> for Option<bool> {
         value.as_bool()
     }
 }
-
-impl TryFrom<ScalarValue> for bool {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> VortexResult<Self> {
-        Self::try_from(&value)
-    }
-}
-
-impl TryFrom<ScalarValue> for Option<bool> {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> VortexResult<Self> {
-        Self::try_from(&value)
-    }
-}

@@ -16,14 +16,6 @@ macro_rules! primitive_scalar {
             }
         }
 
-        impl TryFrom<ScalarValue> for $T {
-            type Error = VortexError;
-
-            fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-                <$T>::try_from(&value)
-            }
-        }
-
         impl TryFrom<&ScalarValue> for Option<$T> {
             type Error = VortexError;
 
@@ -31,14 +23,6 @@ macro_rules! primitive_scalar {
                 paste! {
                     Ok(value.as_pvalue()?.and_then(|v| v.[<as_ $T>]()))
                 }
-            }
-        }
-
-        impl TryFrom<ScalarValue> for Option<$T> {
-            type Error = VortexError;
-
-            fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-                <Option<$T>>::try_from(&value)
             }
         }
 
