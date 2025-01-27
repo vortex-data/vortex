@@ -50,6 +50,7 @@ doctest_default_flags = (
 myst_enable_extensions = [
     "colon_fence",  # Use ::: for Sphinx directives
 ]
+myst_heading_anchors = 3
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
