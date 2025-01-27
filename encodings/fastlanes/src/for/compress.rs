@@ -9,7 +9,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 use vortex_sparse::SparseArray;
 
 use crate::FoRArray;
@@ -25,7 +25,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let nullability = dtype.nullability();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
-            assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()).into_value());
+            assert_eq!(min, ScalarValue::from(0usize));
             encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
