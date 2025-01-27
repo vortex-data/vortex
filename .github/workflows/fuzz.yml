@@ -42,8 +42,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: 'us-east-1'
 
-  fuzz:
-    name: 'fuzz'
+  compute_fuzz:
+    name: 'Array Compute Fuzz'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

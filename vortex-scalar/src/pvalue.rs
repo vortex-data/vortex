@@ -4,7 +4,6 @@ use std::hash::{Hash, Hasher};
 use std::mem;
 
 use num_traits::NumCast;
-use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
 use vortex_error::{vortex_err, VortexError, VortexExpect};
@@ -26,15 +25,20 @@ pub enum PValue {
 
 impl PartialEq for PValue {
     fn eq(&self, other: &Self) -> bool {
+        // f16 can be serialized as u8, u16 or f16, we need to handle comparing all of the variants
         match (self, other) {
-            (Self::U8(s), o) => o.as_u64().vortex_expect("upcast") == *s as u64,
-            (Self::U16(s), o) => o.as_u64().vortex_expect("upcast") == *s as u64,
-            (Self::U32(s), o) => o.as_u64().vortex_expect("upcast") == *s as u64,
-            (Self::U64(s), o) => o.as_u64().vortex_expect("upcast") == *s,
-            (Self::I8(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
-            (Self::I16(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
-            (Self::I32(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
-            (Self::I64(s), o) => o.as_i64().vortex_expect("upcast") == *s,
+            (Self::U8(s), Self::F16(o)) => f16::from_bits(*s as u16).is_eq(*o),
+            (Self::U8(s), o) => o.as_primitive::<u64>().vortex_expect("upcast") == *s as u64,
+            (Self::U16(s), Self::F16(o)) => f16::from_bits(*s).is_eq(*o),
+            (Self::U16(s), o) => o.as_primitive::<u64>().vortex_expect("upcast") == *s as u64,
+            (Self::U32(s), o) => o.as_primitive::<u64>().vortex_expect("upcast") == *s as u64,
+            (Self::U64(s), o) => o.as_primitive::<u64>().vortex_expect("upcast") == *s,
+            (Self::I8(s), o) => o.as_primitive::<i64>().vortex_expect("upcast") == *s as i64,
+            (Self::I16(s), o) => o.as_primitive::<i64>().vortex_expect("upcast") == *s as i64,
+            (Self::I32(s), o) => o.as_primitive::<i64>().vortex_expect("upcast") == *s as i64,
+            (Self::I64(s), o) => o.as_primitive::<i64>().vortex_expect("upcast") == *s,
+            (Self::F16(s), Self::U8(o)) => s.is_eq(f16::from_bits(*o as u16)),
+            (Self::F16(s), Self::U16(o)) => s.is_eq(f16::from_bits(*o)),
             (Self::F16(s), Self::F16(o)) => s.is_eq(*o),
             (Self::F32(s), Self::F32(o)) => s.is_eq(*o),
             (Self::F64(s), Self::F64(o)) => s.is_eq(*o),
@@ -45,15 +49,32 @@ impl PartialEq for PValue {
 
 impl PartialOrd for PValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // f16 can be serialized as u8, u16 or f16, we need to handle comparing all of the variants
         match (self, other) {
-            (Self::U8(s), o) => Some((*s as u64).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::U16(s), o) => Some((*s as u64).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::U32(s), o) => Some((*s as u64).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::U64(s), o) => Some((*s).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::I8(s), o) => Some((*s as i64).cmp(&o.as_i64().vortex_expect("upcast"))),
-            (Self::I16(s), o) => Some((*s as i64).cmp(&o.as_i64().vortex_expect("upcast"))),
-            (Self::I32(s), o) => Some((*s as i64).cmp(&o.as_i64().vortex_expect("upcast"))),
-            (Self::I64(s), o) => Some((*s).cmp(&o.as_i64().vortex_expect("upcast"))),
+            (Self::U8(s), Self::F16(o)) => Some(f16::from_bits(*s as u16).total_compare(*o)),
+            (Self::U8(s), o) => {
+                Some((*s as u64).cmp(&o.as_primitive::<u64>().vortex_expect("upcast")))
+            }
+            (Self::U16(s), Self::F16(o)) => Some(f16::from_bits(*s).total_compare(*o)),
+            (Self::U16(s), o) => {
+                Some((*s as u64).cmp(&o.as_primitive::<u64>().vortex_expect("upcast")))
+            }
+            (Self::U32(s), o) => {
+                Some((*s as u64).cmp(&o.as_primitive::<u64>().vortex_expect("upcast")))
+            }
+            (Self::U64(s), o) => Some((*s).cmp(&o.as_primitive::<u64>().vortex_expect("upcast"))),
+            (Self::I8(s), o) => {
+                Some((*s as i64).cmp(&o.as_primitive::<i64>().vortex_expect("upcast")))
+            }
+            (Self::I16(s), o) => {
+                Some((*s as i64).cmp(&o.as_primitive::<i64>().vortex_expect("upcast")))
+            }
+            (Self::I32(s), o) => {
+                Some((*s as i64).cmp(&o.as_primitive::<i64>().vortex_expect("upcast")))
+            }
+            (Self::I64(s), o) => Some((*s).cmp(&o.as_primitive::<i64>().vortex_expect("upcast"))),
+            (Self::F16(s), Self::U8(o)) => Some(s.total_compare(f16::from_bits(*o as u16))),
+            (Self::F16(s), Self::U16(o)) => Some(s.total_compare(f16::from_bits(*o))),
             (Self::F16(s), Self::F16(o)) => Some(s.total_compare(*o)),
             (Self::F32(s), Self::F32(o)) => Some(s.total_compare(*o)),
             (Self::F64(s), Self::F64(o)) => Some(s.total_compare(*o)),
@@ -84,29 +105,6 @@ impl ToBytes for PValue {
             PValue::F64(v) => v.to_le_bytes(),
         }
     }
-}
-
-macro_rules! as_primitive {
-    ($T:ty, $PT:tt) => {
-        paste! {
-            #[doc = "Access PValue as `" $T "`, returning `None` if conversion is unsuccessful"]
-            pub fn [<as_ $T>](self) -> Option<$T> {
-                match self {
-                    PValue::U8(v) => <$T as NumCast>::from(v),
-                    PValue::U16(v) => <$T as NumCast>::from(v),
-                    PValue::U32(v) => <$T as NumCast>::from(v),
-                    PValue::U64(v) => <$T as NumCast>::from(v),
-                    PValue::I8(v) => <$T as NumCast>::from(v),
-                    PValue::I16(v) => <$T as NumCast>::from(v),
-                    PValue::I32(v) => <$T as NumCast>::from(v),
-                    PValue::I64(v) => <$T as NumCast>::from(v),
-                    PValue::F16(v) => <$T as NumCast>::from(v),
-                    PValue::F32(v) => <$T as NumCast>::from(v),
-                    PValue::F64(v) => <$T as NumCast>::from(v),
-                }
-            }
-        }
-    };
 }
 
 impl PValue {
@@ -199,18 +197,6 @@ impl PValue {
             },
         }
     }
-
-    as_primitive!(i8, I8);
-    as_primitive!(i16, I16);
-    as_primitive!(i32, I32);
-    as_primitive!(i64, I64);
-    as_primitive!(u8, U8);
-    as_primitive!(u16, U16);
-    as_primitive!(u32, U32);
-    as_primitive!(u64, U64);
-    as_primitive!(f16, F16);
-    as_primitive!(f32, F32);
-    as_primitive!(f64, F64);
 }
 
 macro_rules! int_pvalue {
@@ -277,6 +263,7 @@ impl TryFrom<PValue> for f16 {
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
         // We serialize f16 as u16.
         match value {
+            PValue::U8(u) => Some(Self::from_bits(u as u16)),
             PValue::U16(u) => Some(Self::from_bits(u)),
             PValue::F16(u) => Some(u),
             PValue::F32(f) => <Self as NumCast>::from(f),
@@ -337,6 +324,7 @@ impl Display for PValue {
 mod test {
     use std::cmp::Ordering;
 
+    use rstest::rstest;
     use vortex_dtype::half::f16;
     use vortex_dtype::PType;
 
@@ -360,15 +348,31 @@ mod test {
         assert!(!PValue::F16(f16::from_f32(10.0)).is_instance_of(&PType::I16));
     }
 
-    #[test]
-    fn test_compare_different_types() {
-        assert_eq!(
-            PValue::I8(4).partial_cmp(&PValue::I8(5)),
-            Some(Ordering::Less)
-        );
-        assert_eq!(
-            PValue::I8(4).partial_cmp(&PValue::I64(5)),
-            Some(Ordering::Less)
-        );
+    #[rstest]
+    #[case(PValue::I8(4), PValue::I8(5), Some(Ordering::Less))]
+    #[case(PValue::I8(4), PValue::I64(5), Some(Ordering::Less))]
+    #[case(
+        PValue::U8(96),
+        PValue::F16(f16::from_f32(5.722046e-6)),
+        Some(Ordering::Equal)
+    )]
+    fn test_compare_different_types(
+        #[case] left: PValue,
+        #[case] right: PValue,
+        #[case] expected: Option<Ordering>,
+    ) {
+        assert_eq!(left.partial_cmp(&right), expected);
+    }
+
+    #[rstest]
+    #[case(PValue::I8(4), PValue::I8(5), false)]
+    #[case(PValue::I8(4), PValue::I64(5), false)]
+    #[case(PValue::U8(96), PValue::F16(f16::from_f32(5.722046e-6)), true)]
+    fn is_equals_different_types(
+        #[case] left: PValue,
+        #[case] right: PValue,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(left == right, expected);
     }
 }

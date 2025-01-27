@@ -85,8 +85,8 @@ fn assert_search_sorted(
 ) {
     let search_result = search_sorted(&array, s.clone(), side).unwrap();
     assert_eq!(
-        search_result,
         expected,
+        search_result,
         "Expected to find {s}({}) at {expected} in {} from {side} but instead found it at {search_result} in step {step}",
         s.dtype(),
         array.tree_display()
