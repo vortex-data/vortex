@@ -22,25 +22,12 @@ jobs:
 
       - name: build Python and Rust docs
         run: |
-          uv run make -C docs python-and-rust-html
-      - name: commit python docs to gh-pages-bench
-        run: |
-          set -ex
-
-          built_sha=$(git rev-parse HEAD)
-
-          rm -rf docs/_build/html/rust/CACHETAG.DIR docs/_build/html/rust/debug
-
-          mkdir /tmp/html
-          mv docs/_build/html /tmp/html/docs
-
-          mkdir -p /tmp/html/dev
-          mv benchmarks-website /tmp/html/dev/bench
+          uv run make -C docs html
       - name: Upload static files as artifact
         id: deployment
         uses: actions/upload-pages-artifact@v3
         with:
-          path: /tmp/html/
+          path: docs/_build/html
   deploy:
     environment:
       name: github-pages

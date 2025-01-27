@@ -9,16 +9,10 @@ inherits some of its doc strings from Rust docstrings:
 cd ../pyvortex && uv run maturin develop
 ```
 
-Build just the Python docs:
+Build the Vortex docs:
 
 ```
 uv run make html
-```
-
-Build the Python and Rust docs and place the rust docs at `_build/rust/html`:
-
-```
-uv run make python-and-rust-html
 ```
 
 ## Development
