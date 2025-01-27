@@ -226,6 +226,12 @@ where
 }
 
 impl dyn Statistics + '_ {
+    /// Get the provided stat if present in the underlying array, converting the `ScalarValue` into a typed value.
+    /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the conversion fails.
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -243,7 +249,10 @@ impl dyn Statistics + '_ {
             })
     }
 
-    /// Get or calculate the provided stat, converting the `Scalar` into a typed value.
+    /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
+    /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
+    ///
+    /// # Panics
     ///
     /// This function will panic if the conversion fails.
     pub fn compute_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
