@@ -27,9 +27,13 @@ in memory.
 
 This abstraction is hidden from users inside an `ArrayData` object.
 
+(encodings)=
+
 ## Encodings
 
 An encoding acts as the virtual function table (vtable) for an `ArrayData`.
+
+(vtable)=
 
 ### VTable
 
@@ -83,6 +87,8 @@ The canonical encodings are support **zero-copy** conversion to and from _Apache
 | `DType::List`      | `ListEncoding`       |
 | `DType::Extension` | `ExtensionEncoding`  |
 
+(data-type)=
+
 ## Data Type
 
 The array's [data type](/concepts/dtypes) is a logical definition of the data held within the array and does not
@@ -91,10 +97,14 @@ confer any specific meaning on the array's children or buffers.
 Another way to think about logical data types is that they represent the type of the scalar value you might read
 out of the array.
 
+(length)=
+
 ## Length
 
 The length of an array can almost always be inferred by encoding from its children and buffers. But given how
 important the length is for many operations, it is stored directly in the `ArrayData` object for faster access.
+
+(metadata)=
 
 ## Metadata
 
@@ -103,6 +113,8 @@ store any additional information they need to encode or decode the array.
 
 For example, a dictionary encoding might store the dictionary values in the metadata buffer.
 
+(children)=
+
 ## Children
 
 Arrays can have some number of child arrays. These differ from buffers in that they are logically typed, meaning the
@@ -110,6 +122,8 @@ encoding cannot make assumptions about the layout of these children when impleme
 
 Dictionary encoding is an example of where child arrays might be used, with one array representing the unique
 dictionary values and another array representing the codes indexing into those values.
+
+(buffers)=
 
 ## Buffers
 
@@ -121,6 +135,8 @@ at write-time.
 
 For example, a bit-packed array stores packed integers in binary form. These would be stored in a buffer with an
 alignment sufficient for SIMD unpacking operations.
+
+(statistics)=
 
 ## Statistics
 

@@ -49,7 +49,7 @@ Both viewed arrays and viewed layouts require an external `DType` to instantiate
 redundancy in the serialized format since it is very common for a child array or layout to inherit or infer its data
 type from the parent type.
 
-The root `DType` segment is a flat buffer serialized `DType` object. See [DType Format](/specs/dtype_format) for more
+The root `DType` segment is a flat buffer serialized `DType` object. See [DType Format](/specs/dtype-format) for more
 information.
 
 :::{note}
@@ -78,6 +78,8 @@ changes within a major version of Vortex.
 
 Please upvote or comment on the [GitHub issue](https://github.com/spiraldb/vortex/issues/2077) if you would like to
 see a stable release sooner.
+
+(forward-compatibility)=
 
 ## Forward Compatibility
 
