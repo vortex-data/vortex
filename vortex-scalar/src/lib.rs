@@ -41,8 +41,9 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 /// A [`ScalarValue`] is opaque, and should be accessed via one of the type-specific scalar wrappers
 /// for example [`BoolScalar`], [`PrimitiveScalar`], etc.
 ///
-/// Note: [`PartialEq`] and [`PartialOrd`] are implemented only for an exact match of the scalar's
-/// dtype, including nullability.
+/// Note that [`PartialOrd`] is implemented only for an exact match of the scalar's dtype,
+/// including nullability. When the DType does match, ordering is nulls first (lowest), then the
+/// natural ordering of the scalar value.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
