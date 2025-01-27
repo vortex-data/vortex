@@ -143,11 +143,11 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
         Kind::FloatValue(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
         Kind::DoubleValue(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
         Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(
-            BufferString::from(v.clone()),
+            BufferString::from(v.clone()).into(),
         ))),
-        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
-            v.clone(),
-        )))),
+        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(
+            ByteBuffer::from(v.clone()).into(),
+        ))),
         Kind::ListValue(v) => {
             let mut values = Vec::with_capacity(v.values.len());
             match dtype {
@@ -212,7 +212,7 @@ mod test {
     fn test_buffer() {
         round_trip(Scalar::new(
             DType::Binary(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Buffer(vec![1, 2, 3].into())),
+            ScalarValue(InnerScalarValue::Buffer(Arc::new(vec![1, 2, 3].into()))),
         ));
     }
 
@@ -220,9 +220,9 @@ mod test {
     fn test_buffer_string() {
         round_trip(Scalar::new(
             DType::Utf8(Nullability::Nullable),
-            ScalarValue(InnerScalarValue::BufferString(BufferString::from(
-                "hello".to_string(),
-            ))),
+            ScalarValue(InnerScalarValue::BufferString(
+                BufferString::from("hello".to_string()).into(),
+            )),
         ));
     }
 

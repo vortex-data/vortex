@@ -21,8 +21,8 @@ pub struct ScalarValue(pub(crate) InnerScalarValue);
 pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
-    Buffer(ByteBuffer),
-    BufferString(BufferString),
+    Buffer(Arc<ByteBuffer>),
+    BufferString(Arc<BufferString>),
     List(Arc<[ScalarValue]>),
     // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
     // values such that Nulls are last (greatest)
@@ -194,7 +194,7 @@ impl InnerScalarValue {
     pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),
+            InnerScalarValue::Buffer(b) => Ok(Some(b.as_ref().clone())),
             _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }
@@ -202,8 +202,8 @@ impl InnerScalarValue {
     pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => Ok(Some(BufferString::try_from(b.clone())?)),
-            InnerScalarValue::BufferString(b) => Ok(Some(b.clone())),
+            InnerScalarValue::Buffer(b) => Ok(Some(BufferString::try_from(b.as_ref().clone())?)),
+            InnerScalarValue::BufferString(b) => Ok(Some(b.as_ref().clone())),
             _ => Err(vortex_err!("Expected a string scalar, found {:?}", self)),
         }
     }

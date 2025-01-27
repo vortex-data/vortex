@@ -1,4 +1,5 @@
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use serde::de::{Error, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
@@ -137,17 +138,17 @@ impl<'de> Deserialize<'de> for ScalarValue {
             where
                 E: Error,
             {
-                Ok(ScalarValue(InnerScalarValue::BufferString(
+                Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
                     BufferString::from(v.to_string()),
-                )))
+                ))))
             }
 
             fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
-                    v.to_vec(),
+                Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
+                    ByteBuffer::from(v.to_vec()),
                 ))))
             }
 

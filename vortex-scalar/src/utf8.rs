@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_buffer::BufferString;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
@@ -27,12 +29,12 @@ impl<'a> Utf8Scalar<'a> {
         }
         Ok(Scalar::new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::BufferString(
+            ScalarValue(InnerScalarValue::BufferString(Arc::new(
                 self.value
                     .as_ref()
                     .vortex_expect("nullness handled in Scalar::cast")
                     .clone(),
-            )),
+            ))),
         ))
     }
 }
@@ -54,7 +56,7 @@ impl Scalar {
     {
         Ok(Self {
             dtype: DType::Utf8(nullability),
-            value: ScalarValue(InnerScalarValue::BufferString(str.try_into()?)),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
         })
     }
 }
@@ -85,7 +87,9 @@ impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value.to_string().into())),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(
+                value.to_string().into(),
+            ))),
         }
     }
 }
@@ -94,7 +98,7 @@ impl From<String> for Scalar {
     fn from(value: String) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value.into())),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
         }
     }
 }
@@ -103,7 +107,7 @@ impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value)),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
         }
     }
 }

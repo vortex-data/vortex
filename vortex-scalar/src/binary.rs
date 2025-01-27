@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
@@ -26,12 +28,12 @@ impl<'a> BinaryScalar<'a> {
         }
         Ok(Scalar::new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::Buffer(
+            ScalarValue(InnerScalarValue::Buffer(Arc::new(
                 self.value
                     .as_ref()
                     .vortex_expect("nullness handled in Scalar::cast")
                     .clone(),
-            )),
+            ))),
         ))
     }
 }
@@ -40,7 +42,7 @@ impl Scalar {
     pub fn binary(buffer: ByteBuffer, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Binary(nullability),
-            value: ScalarValue(InnerScalarValue::Buffer(buffer)),
+            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer))),
         }
     }
 }
@@ -110,7 +112,7 @@ impl From<ByteBuffer> for Scalar {
     fn from(value: ByteBuffer) -> Self {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue(InnerScalarValue::Buffer(value)),
+            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(value))),
         }
     }
 }
