@@ -19,14 +19,12 @@ pub struct ScalarValue(pub(crate) InnerScalarValue);
 
 #[derive(Debug, Clone)]
 pub(crate) enum InnerScalarValue {
+    Null,
     Bool(bool),
     Primitive(PValue),
     Buffer(Arc<ByteBuffer>),
     BufferString(Arc<BufferString>),
     List(Arc<[ScalarValue]>),
-    // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
-    // values such that Nulls are last (greatest)
-    Null,
 }
 
 #[cfg(feature = "flatbuffers")]
@@ -79,7 +77,7 @@ impl Display for InnerScalarValue {
                         to_hex(&buf[buf.len() - 5..buf.len()])?,
                     )
                 } else {
-                    write!(f, "{}", to_hex(buf.as_slice())?)
+                    write!(f, "{}", to_hex(&buf)?)
                 }
             }
             Self::BufferString(bufstr) => {
@@ -87,8 +85,8 @@ impl Display for InnerScalarValue {
                     write!(
                         f,
                         "{}..{}",
-                        &bufstr.as_str()[0..5],
-                        &bufstr.as_str()[bufstr.len() - 5..bufstr.len()],
+                        &bufstr[0..5],
+                        &bufstr[bufstr.len() - 5..bufstr.len()],
                     )
                 } else {
                     write!(f, "\"{}\"", bufstr.as_str())

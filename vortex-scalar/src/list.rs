@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -12,6 +13,34 @@ pub struct ListScalar<'a> {
     dtype: &'a DType,
     element_dtype: &'a Arc<DType>,
     elements: Option<Arc<[ScalarValue]>>,
+}
+
+impl PartialEq for ListScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.dtype != other.dtype {
+            return false;
+        }
+        self.elements() == other.elements()
+    }
+}
+
+impl Eq for ListScalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different DTypes
+impl PartialOrd for ListScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+        self.elements().partial_cmp(&other.elements())
+    }
+}
+
+impl Hash for ListScalar<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        self.elements().hash(state);
+    }
 }
 
 impl<'a> ListScalar<'a> {
@@ -55,16 +84,13 @@ impl<'a> ListScalar<'a> {
             })
     }
 
-    pub fn elements(&self) -> impl Iterator<Item = Scalar> + '_ {
-        self.elements
-            .as_ref()
-            .map(AsRef::as_ref)
-            .unwrap_or_else(|| &[] as &[ScalarValue])
-            .iter()
-            .map(|e| Scalar {
-                dtype: self.element_dtype(),
-                value: e.clone(),
-            })
+    pub fn elements(&self) -> Option<Vec<Scalar>> {
+        self.elements.as_ref().map(|elems| {
+            elems
+                .iter()
+                .map(|e| Scalar::new(self.element_dtype(), e.clone()))
+                .collect_vec()
+        })
     }
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
@@ -134,18 +160,5 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
             element_dtype,
             elements: value.value.as_list()?.cloned(),
         })
-    }
-}
-
-impl<'a, T: for<'b> TryFrom<&'b Scalar, Error = VortexError>> TryFrom<&'a Scalar> for Vec<T> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        let value = ListScalar::try_from(value)?;
-        let mut elems = vec![];
-        for e in value.elements() {
-            elems.push(T::try_from(&e)?);
-        }
-        Ok(elems)
     }
 }

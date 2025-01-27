@@ -1,4 +1,5 @@
 use std::any::type_name;
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
@@ -13,11 +14,29 @@ use crate::pvalue::PValue;
 use crate::value::ScalarValue;
 use crate::{InnerScalarValue, Scalar};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
     ptype: PType,
     pvalue: Option<PValue>,
+}
+
+impl PartialEq for PrimitiveScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype() == other.dtype() && self.pvalue == other.pvalue
+    }
+}
+
+impl Eq for PrimitiveScalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different nullability
+impl PartialOrd for PrimitiveScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+        self.pvalue.partial_cmp(&other.pvalue)
+    }
 }
 
 impl<'a> PrimitiveScalar<'a> {
