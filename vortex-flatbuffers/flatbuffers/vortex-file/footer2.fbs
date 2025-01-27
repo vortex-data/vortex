@@ -1,43 +1,43 @@
 include "vortex-layout/layout.fbs";
 
-/// A `Segment` acts as the locator for a buffer within the file.
-// TODO(ngates): I think this should actually be more of a German String style struct? I don't know how
-//  many buffers we have that are <128 bits.
-struct Segment {
-    offset: uint64;
-    length: uint32;
-    alignment_exponent: uint8;
-    // These two fields are reserved for future use, I imagine they will be pointers
-    // into a compression scheme and encryption scheme tables that live in the FileLayout.
-    // This struct would have been padded to 128 bits anyway, so we're not losing anything.
-    // We could also restrict alignment exponent to e.g. 5 bits, and then use 3 bits to indicate a pointer into the
-    // compression scheme table.
-    _compression: uint8;
-    _encryption: uint16;
-}
-
+// [file layout]
 /// The `FileLayout` stores the root `Layout` as well as location information for each referenced segment.
 table FileLayout {
     root_layout: Layout;
     segments: [Segment];
 }
 
-/// The `Postscript` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
-/// in length, and is immediately followed by an 8-byte `EndOfFile` struct.
-///
-/// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
-/// using flatbuffers, but the equivalent flatbuffer definition would be:
-///
-/// struct EndOfFile {
-///     version: uint16;
-///     footer_length: uint16;
-///     magic: [uint8; 4]; // "VTXF"
-/// }
-///
+/// A `Segment` acts as the locator for a buffer within the file.
+struct Segment {
+    offset: uint64;
+    length: uint32;
+    alignment_exponent: uint8;
+    // These two fields are reserved for future use and act as pointers
+    // into `FileLayout::compression_schemes` and `FileLayout::encryption_schemes`
+    // respectively. They are not used in the current version of the file format.
+    _compression: uint8;
+    _encryption: uint16;
+}
+// [file layout]
+
+// [postscript]
+/// The `Postscript` is guaranteed by the file format to never exceed
+/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
+/// followed by an 8-byte `EndOfFile` struct.
 table Postscript {
     dtype: Segment;
     file_layout: Segment;
 }
+// [postscript]
+
+/// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
+/// using flatbuffers, but the equivalent flatbuffer definition would be:
+///
+// struct EndOfFile {
+//     version: uint16;
+//     footer_length: uint16;
+//     magic: [uint8; 4]; // "VTXF"
+// }
 
 root_type Layout;
 root_type Postscript;

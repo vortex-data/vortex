@@ -1,7 +1,8 @@
 # File Format
 
 :::{seealso}
-It is recommended that you familiarize yourself with [Vortex Layouts](/concepts/layouts) prior to reading this document.
+The majority of the complexity of the Vortex file format is encapsulated in [Vortex Layouts](/concepts/layouts).
+Unless you are interested in the specific byte layout of the file, you are probably looking for that documentation!
 :::
 
 Recall that [Vortex Layouts](/concepts/layouts) provide a mechanism to efficiently query large serialized Vortex
@@ -20,13 +21,13 @@ Other considerations for the Vortex file format include:
 The Vortex file format has a very small definition, with much of the complexity encapsulated
 in [Vortex Layouts](/concepts/layouts).
 
-```plaintext
-0..4: 'VTXF' magic number
-... segments of binary data, optionally with inter-segment padding
-... postfix data
--8..-6: u16 version tag
--6..-4: u16 postfix length
--4..: 'VTXF' magic number
+```
+<4 bytes>  magic number 'VTXF'
+...        segments of binary data, optionally with inter-segment padding
+...        postfix data
+<2 bytes>  u16 version tag
+<2 bytes>  u16 postfix length
+<4 bytes>  magic number 'VTXF'
 ```
 
 The file format begins and ends with the 4-byte magic number `VTXF`.
@@ -34,22 +35,63 @@ Immediately prior to the trailing magic number are two 16-bit integers: the vers
 
 ### Postfix
 
-The postfix contains
+The postfix contains the locations of the file's root `DType` segment, as well as a `FileLayout` segment containing
+the root `Layout`, a _segment map_, and other shared configuration such as compression and encryption schemes.
 
-## Footer Specification
+:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer2.fbs
+:start-after: [postscript]
+:end-before: [postscript]
+:::
 
-The footer
+### Data Type
 
-With this in mind, the idea of a Vortex file format becomes simply a way to load a `LayoutData` tree whose
-segments are stored within the file.
+Both viewed arrays and viewed layouts require an external `DType` to instantiate them. This helps us to avoid
+redundancy in the serialized format since it is very common for a child array or layout to inherit or infer its data
+type from the parent type.
 
-The Vortex file format provides a way to store such a layout in a contiguous binary file and optimize access
-from memory-mapped, local disk, or cloud storage.
+The root `DType` segment is a flat buffer serialized `DType` object. See [DType Format](/specs/dtype_format) for more
+information.
 
-is a way to store these serialized arrays in a contiguous binary format.
+:::{note}
+Unlike many columnar formats, the `DType` of a Vortex file is not required to be a `StructDType`. It is perfectly
+valid to store a `Float64` array, a `Boolean` array, or any other root data type.
+:::
 
-a way to represent an array that can lazily load portions of data.
+### File Layout
 
-The goal of the Vortex file format is to provide a backwards- and forwards-compatible way to store and query large
-Vortex arrays serialized in a contiguous binary format.
+The file layout is a flat buffer serialized `FileLayout` object. This object contains all the information required to
+load the root `Layout` object into a usable `LayoutReader`. For example, it contains the locations, compression schemes,
+encryption schemes, and required alignment of all segments in the file.
 
+:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer2.fbs
+:start-after: [file layout]
+:end-before: [file layout]
+:::
+
+## Backward Compatibility
+
+Backward compatability guarantees that any **old** Vortex file can be read by **newer** versions of the Vortex library.
+
+The Vortex File Format is currently considered unstable. We are aiming for an 0.x release in Q1 2025 that guarantees
+no breaking changes within each minor version of Vortex, and a 1.0 release in H2 2025 that guarantees no breaking
+changes within a major version of Vortex.
+
+Please upvote or comment on the [GitHub issue](https://github.com/spiraldb/vortex/issues/2077) if you would like to
+see a stable release sooner.
+
+## Forward Compatibility
+
+:::{note}
+Forward compatibility is planned to ship prior to the 1.0 release.
+:::
+
+Forward compatibility guarantees that any **new** Vortex file can be read by **older** versions of the Vortex library.
+
+This rare feature allows us to continue to evolve the Vortex File Format, avoiding calcification and remaining up to
+date with new compression codecs and layout optimizations - all without breaking existing readers or requiring them to
+be updated.
+
+At write-time, a minimum supported reader version is declared. Any new encodings or layouts are then embedded into the
+file with WebAssembly decompression logic. Old readers are able to decompress new data (slower than native code, but
+still with SIMD acceleration) and read the file. New readers are able to make the best use of these encodings with
+native decompression logic and additional push-down compute functions.

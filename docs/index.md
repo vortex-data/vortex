@@ -84,6 +84,7 @@ caption: Specifications
 
 specs/file_format
 specs/ipc_format
+specs/dtype_format
 ```
 
 ```{toctree}
