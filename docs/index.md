@@ -48,7 +48,6 @@ caption: Concepts
 Arrays <concepts/arrays>
 Layouts <concepts/layouts>
 Data Types <concepts/dtypes>
-Scalars <concepts/scalars>
 Compute <concepts/compute>
 ```
 
