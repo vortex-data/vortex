@@ -100,10 +100,11 @@ important the length is for many operations, it is stored directly in the `Array
 
 ## Metadata
 
-Each array can store a small amount of metadata in the form of a byte buffer. This is used by encodings to
-store any additional information they need to encode or decode the array.
+Each array can store a small amount of metadata in the form of a byte buffer. This is typically not much more than
+8 bytes and does not have any alignment guarantees. This is used by encodings to store any additional information they
+might need in order to access their children or buffers.
 
-For example, a dictionary encoding might store the dictionary values in the metadata buffer.
+For example, a dictionary encoding stores the length of its `values` child, and the primitive type of its `codes` child.
 
 ## Children
 
