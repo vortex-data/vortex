@@ -1,4 +1,4 @@
-name: Python & Rust docs
+name: Vortex Docs
 
 on:
   push:
@@ -49,4 +49,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/ --project-name=vortex-docs --branch=${{ github.ref }}
+          command: pages deploy docs/ --project-name=vortex-docs --branch=${{ github.head_ref || github.ref_name }}
