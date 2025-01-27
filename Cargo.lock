@@ -5051,6 +5051,7 @@ dependencies = [
  "vortex-sampling-compressor",
  "vortex-scalar",
  "vortex-scan",
+ "vortex-sparse",
  "vortex-zigzag",
 ]
 
@@ -5533,6 +5534,22 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-mask",
+]
+
+[[package]]
+name = "vortex-sparse"
+version = "0.22.1"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "serde",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-mask",
+ "vortex-scalar",
 ]
 
 [[package]]

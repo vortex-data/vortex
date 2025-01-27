@@ -11,6 +11,6 @@ pub mod encodings {
     pub use {
         vortex_alp as alp, vortex_bytebool as bytebool, vortex_datetime_parts as datetime_parts,
         vortex_dict as dict, vortex_fastlanes as fastlanes, vortex_fsst as fsst,
-        vortex_runend as runend, vortex_zigzag as zigzag,
+        vortex_runend as runend, vortex_sparse as sparse, vortex_zigzag as zigzag,
     };
 }
