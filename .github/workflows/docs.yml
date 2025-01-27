@@ -46,7 +46,7 @@ jobs:
           name: github-pages
 
       - name: Extract Pages Artifact
-        run: tar -xvf artifact.tar
+        run: mkdir docs && tar -xvf artifact.tar -C docs
         shell: bash
 
       # Note, since we use an API token we run it in a separate job that doesn't run any repository code.
@@ -55,4 +55,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy artifact/ --project-name=vortex-docs --branch=${{ github.ref }}
+          command: pages deploy docs/ --project-name=vortex-docs --branch=${{ github.ref }}
