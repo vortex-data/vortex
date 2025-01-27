@@ -15,7 +15,7 @@ impl CompareFn<DictArray> for DictEncoding {
     ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
-            if lhs.values().len() < 512 && matches!(operator, Operator::Eq) {
+            if matches!(operator, Operator::Eq) {
                 return compare_by_value(lhs, const_scalar, operator);
             }
             // Ensure the other is the same length as the dictionary
@@ -59,7 +59,7 @@ fn compare_by_value(
     let compare_result = compare(
         lhs.codes(),
         try_cast(
-            &ConstantArray::new(code, lhs.codes().len()),
+            ConstantArray::new(code, lhs.codes().len()),
             lhs.codes().dtype(),
         )?,
         operator,
