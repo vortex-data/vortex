@@ -39,10 +39,10 @@ impl<'a> BinaryScalar<'a> {
 }
 
 impl Scalar {
-    pub fn binary(buffer: ByteBuffer, nullability: Nullability) -> Self {
+    pub fn binary(buffer: impl Into<Arc<ByteBuffer>>, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Binary(nullability),
-            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer))),
+            value: ScalarValue(InnerScalarValue::Buffer(buffer.into())),
         }
     }
 }
@@ -113,6 +113,15 @@ impl From<ByteBuffer> for Scalar {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
             value: ScalarValue(InnerScalarValue::Buffer(Arc::new(value))),
+        }
+    }
+}
+
+impl From<Arc<ByteBuffer>> for Scalar {
+    fn from(value: Arc<ByteBuffer>) -> Self {
+        Self {
+            dtype: DType::Binary(Nullability::NonNullable),
+            value: ScalarValue(InnerScalarValue::Buffer(value)),
         }
     }
 }
