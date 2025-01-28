@@ -7,14 +7,14 @@ use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
-use vortex_mask::{Mask, MaskIter};
+use vortex_mask::Mask;
 
 use super::chunked_indices;
 use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
-    fn filter(&self, array: &BitPackedArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayData> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
@@ -48,12 +48,11 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
             .and_then(|a| a.into_primitive());
     }
 
-    let values: Buffer<T> = match mask.iter() {
-        MaskIter::Indices(indices) => {
-            filter_indices(array, mask.true_count(), indices.iter().copied())
-        }
-        MaskIter::Slices(slices) => filter_slices(array, mask.true_count(), slices.iter().copied()),
-    };
+    let values: Buffer<T> = filter_indices(
+        array,
+        mask.true_count(),
+        mask.indices().expect_some().iter().copied(),
+    );
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
@@ -109,19 +108,6 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     });
 
     values.freeze()
-}
-
-fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
-    array: &BitPackedArray,
-    indices_len: usize,
-    slices: impl Iterator<Item = (usize, usize)>,
-) -> Buffer<T> {
-    // TODO(ngates): do this more efficiently.
-    filter_indices(
-        array,
-        indices_len,
-        slices.into_iter().flat_map(|(start, end)| start..end),
-    )
 }
 
 #[cfg(test)]

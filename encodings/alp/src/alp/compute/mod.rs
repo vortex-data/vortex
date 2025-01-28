@@ -85,7 +85,7 @@ impl SliceFn<ALPArray> for ALPEncoding {
 }
 
 impl FilterFn<ALPArray> for ALPEncoding {
-    fn filter(&self, array: &ALPArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayData> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))

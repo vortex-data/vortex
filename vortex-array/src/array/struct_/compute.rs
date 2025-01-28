@@ -75,12 +75,12 @@ impl SliceFn<StructArray> for StructEncoding {
 }
 
 impl FilterFn<StructArray> for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(&mask.into())?;
+    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(mask)?;
 
         let fields: Vec<ArrayData> = array
             .children()
-            .map(|field| filter(&field, &mask.into()))
+            .map(|field| filter(&field, mask))
             .try_collect()?;
         let length = fields
             .first()

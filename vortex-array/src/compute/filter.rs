@@ -17,7 +17,10 @@ use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, I
 
 pub trait FilterFn<Array> {
     /// Filter an array by the provided predicate.
-    fn filter(&self, array: &Array, mask: &Arc<MaskValues>) -> VortexResult<ArrayData>;
+    ///
+    /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
+    /// leaving only `Mask::Values` to be handled by this function.
+    fn filter(&self, array: &Array, mask: &Mask) -> VortexResult<ArrayData>;
 }
 
 impl<E: Encoding> FilterFn<ArrayData> for E
@@ -25,7 +28,7 @@ where
     E: FilterFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn filter(&self, array: &ArrayData, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
@@ -81,6 +84,8 @@ pub fn filter(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
 }
 
 fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
+    // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
+    // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
     let values = match &mask {
         Mask::AllTrue(_) => return Ok(array.clone()),
         Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype())?.into_array()),
@@ -88,7 +93,7 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
     };
 
     if let Some(filter_fn) = array.encoding().filter_fn() {
-        let result = filter_fn.filter(array, values)?;
+        let result = filter_fn.filter(array, mask)?;
         debug_assert_eq!(result.len(), mask.true_count());
         return Ok(result);
     }

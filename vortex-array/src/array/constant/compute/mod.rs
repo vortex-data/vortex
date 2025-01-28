@@ -75,7 +75,7 @@ impl SliceFn<ConstantArray> for ConstantEncoding {
 }
 
 impl FilterFn<ConstantArray> for ConstantEncoding {
-    fn filter(&self, array: &ConstantArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(array.scalar(), mask.true_count()).into_array())
     }
 }

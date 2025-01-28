@@ -1,6 +1,6 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
-use std::ops::{BitAnd, RangeBounds};
+use std::ops::RangeBounds;
 
 use vortex_array::array::BooleanBuffer;
 use vortex_array::compute::{and, filter, slice, try_cast};
@@ -138,50 +138,6 @@ impl RowMask {
 
         // Two ranges are disjoint if one ends before the other begins
         self.end <= start || end <= self.begin
-    }
-
-    /// Perform an intersection with another [`RowMask`], returning only rows that appear in both.
-    pub fn and_rowmask(self, other: RowMask) -> VortexResult<Self> {
-        if other.true_count() == other.len() {
-            return Ok(self);
-        }
-
-        // If both masks align perfectly
-        if self.begin == other.begin && self.end == other.end {
-            return Ok(RowMask::new(self.mask.bitand(&other.mask), self.begin));
-        }
-
-        // Disjoint row ranges
-        if self.end <= other.begin || self.begin >= other.end {
-            return Ok(RowMask::new_invalid_between(
-                min(self.begin, other.begin),
-                max(self.end, other.end),
-            ));
-        }
-
-        let output_begin = min(self.begin, other.begin);
-        let output_end = max(self.end, other.end);
-        let output_len = usize::try_from(output_end - output_begin)
-            .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
-
-        let output_mask = Mask::from_intersection_indices(
-            output_len,
-            self.mask
-                .indices()
-                .iter()
-                .copied()
-                .map(|v| v as u64 + self.begin - output_begin)
-                .map(|v| usize::try_from(v).vortex_expect("mask index must fit into usize")),
-            other
-                .mask
-                .indices()
-                .iter()
-                .copied()
-                .map(|v| v as u64 + other.begin - output_begin)
-                .map(|v| usize::try_from(v).vortex_expect("mask index must fit into usize")),
-        );
-
-        Ok(Self::new(output_mask, output_begin))
     }
 
     /// The beginning of the masked range.
@@ -359,71 +315,5 @@ mod tests {
     fn test_row_mask_type_validation() {
         let array = PrimitiveArray::new(buffer![1.0, 2.0], Validity::AllInvalid).into_array();
         RowMask::from_array(&array, 0, 2).unwrap();
-    }
-
-    #[test]
-    fn test_and_rowmap_disjoint() {
-        let a = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-        let b = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            15,
-            20,
-        )
-        .unwrap();
-
-        let output = a.and_rowmask(b).unwrap();
-
-        assert_eq!(output.begin, 0);
-        assert_eq!(output.end, 20);
-        assert_eq!(output.true_count(), 0);
-    }
-
-    #[test]
-    fn test_and_rowmap_aligned() {
-        let a = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-        let b = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 7], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-
-        let output = a.and_rowmask(b).unwrap();
-
-        assert_eq!(output.begin, 0);
-        assert_eq!(output.end, 10);
-        assert_eq!(output.true_count(), 2);
-    }
-
-    #[test]
-    fn test_and_rowmap_intersect() {
-        let a = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-        let b = RowMask::from_array(
-            PrimitiveArray::new(buffer!(1, 2, 7), Validity::AllValid).as_ref(),
-            5,
-            15,
-        )
-        .unwrap();
-
-        let output = a.and_rowmask(b).unwrap();
-
-        assert_eq!(output.begin, 0);
-        assert_eq!(output.end, 15);
-        assert_eq!(output.true_count(), 0);
     }
 }

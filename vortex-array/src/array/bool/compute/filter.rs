@@ -12,10 +12,13 @@ use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<BoolArray> for BoolEncoding {
-    fn filter(&self, array: &BoolArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(&mask.into())?;
+    fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(mask)?;
 
-        let buffer = match mask.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
+        let buffer = match mask
+            .threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD)
+            .expect_some()
+        {
             MaskIter::Indices(indices) => filter_indices(
                 &array.boolean_buffer(),
                 mask.true_count(),
@@ -35,14 +38,6 @@ impl FilterFn<BoolArray> for BoolEncoding {
 /// Select indices from a boolean buffer.
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to
 ///  pass the indices as an iterator of usize. So we keep this alternate implementation.
-fn filter_indices_slice(buffer: &BooleanBuffer, indices: &[usize]) -> BooleanBuffer {
-    let src = buffer.values().as_ptr();
-    let offset = buffer.offset();
-    BooleanBuffer::collect_bool(indices.len(), |idx| unsafe {
-        bit_util::get_bit_raw(src, *indices.get_unchecked(idx) + offset)
-    })
-}
-
 pub fn filter_indices(
     buffer: &BooleanBuffer,
     indices_len: usize,

@@ -19,12 +19,12 @@ use crate::{RunEndArray, RunEndEncoding};
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterFn<RunEndArray> for RunEndEncoding {
-    fn filter(&self, array: &RunEndArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayData> {
         let runs_ratio = mask.true_count() as f64 / array.ends().len() as f64;
 
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask.true_count() < 25 {
             // This strategy is directly proportional to the number of indices.
-            take_indices_unchecked(array, mask.indices())
+            take_indices_unchecked(array, mask.indices().expect_some())
         } else {
             // This strategy ends up being close to fixed cost based on the number of runs,
             // rather than the number of indices.
@@ -62,7 +62,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
     let mut start = 0u64;
     let mut j = 0;
     let mut count = R::zero();
-    let filter_values = mask.boolean_buffer();
+    let filter_values = mask.boolean_buffer().expect_some();
 
     let new_mask: Mask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;

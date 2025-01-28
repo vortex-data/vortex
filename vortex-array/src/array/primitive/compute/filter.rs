@@ -15,10 +15,13 @@ use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
-    fn filter(&self, array: &PrimitiveArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(&mask.into())?;
+    fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(mask)?;
 
-        match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+        match mask
+            .threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD)
+            .expect_some()
+        {
             MaskIter::Indices(indices) => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let values = filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied());

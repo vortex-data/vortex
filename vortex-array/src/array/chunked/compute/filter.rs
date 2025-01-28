@@ -13,10 +13,13 @@ use crate::{ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanon
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<ChunkedArray> for ChunkedEncoding {
-    fn filter(&self, array: &ChunkedArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayData> {
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
-        let chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+        let chunks = match mask
+            .threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD)
+            .expect_some()
+        {
             MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
             MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
         }?;

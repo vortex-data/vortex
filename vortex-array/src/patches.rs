@@ -1,13 +1,14 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskValues};
+use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
@@ -208,38 +209,39 @@ impl Patches {
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
-    pub fn filter(&self, mask: &Arc<MaskValues>) -> VortexResult<Option<Self>> {
-        if mask.true_count() == 0 {
-            return Ok(None);
-        }
+    pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+        match mask.boolean_buffer() {
+            AllOr::All => Ok(Some(self.clone())),
+            AllOr::None => Ok(None),
+            AllOr::Some(buffer) => {
+                // TODO(ngates): add functions to operate with Mask directly
+                let mut coordinate_indices = BufferMut::<u64>::empty();
+                let mut value_indices = BufferMut::<u64>::empty();
+                let mut last_inserted_index: usize = 0;
 
-        // TODO(ngates): add functions to operate with Mask directly
-        let buffer = mask.boolean_buffer();
-        let mut coordinate_indices = BufferMut::<u64>::empty();
-        let mut value_indices = BufferMut::<u64>::empty();
-        let mut last_inserted_index: usize = 0;
+                let flat_indices = self.indices().clone().into_primitive()?;
+                match_each_integer_ptype!(flat_indices.ptype(), |$I| {
+                    for (value_idx, coordinate) in flat_indices.as_slice::<$I>().iter().enumerate() {
+                        if buffer.value(*coordinate as usize) {
+                            // We count the number of truthy values between this coordinate and the previous truthy one
+                            let adjusted_coordinate = buffer.slice(last_inserted_index, (*coordinate as usize) - last_inserted_index).count_set_bits() as u64;
+                            coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
+                            last_inserted_index = *coordinate as usize;
+                            value_indices.push(value_idx as u64);
+                        }
+                    }
+                });
 
-        let flat_indices = self.indices().clone().into_primitive()?;
-        match_each_integer_ptype!(flat_indices.ptype(), |$I| {
-            for (value_idx, coordinate) in flat_indices.as_slice::<$I>().iter().enumerate() {
-                if buffer.value(*coordinate as usize) {
-                    // We count the number of truthy values between this coordinate and the previous truthy one
-                    let adjusted_coordinate = buffer.slice(last_inserted_index, (*coordinate as usize) - last_inserted_index).count_set_bits() as u64;
-                    coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
-                    last_inserted_index = *coordinate as usize;
-                    value_indices.push(value_idx as u64);
+                if coordinate_indices.is_empty() {
+                    return Ok(None);
                 }
+
+                let indices = coordinate_indices.into_array();
+                let values = take(self.values(), value_indices.into_array())?;
+
+                Ok(Some(Self::new(mask.len(), indices, values)))
             }
-        });
-
-        if coordinate_indices.is_empty() {
-            return Ok(None);
         }
-
-        let indices = coordinate_indices.into_array();
-        let values = take(self.values(), value_indices.into_array())?;
-
-        Ok(Some(Self::new(mask.len(), indices, values)))
     }
 
     /// Slice the patches by a range of the patched array.

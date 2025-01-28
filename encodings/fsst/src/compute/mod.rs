@@ -80,7 +80,7 @@ impl ScalarAtFn<FSSTArray> for FSSTEncoding {
 
 impl FilterFn<FSSTArray> for FSSTEncoding {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, array: &FSSTArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayData> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols(),

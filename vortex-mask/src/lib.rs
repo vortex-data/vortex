@@ -8,10 +8,12 @@ mod iter_bools;
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::mem::discriminant;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use itertools::Itertools;
+use vortex_error::vortex_panic;
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -21,6 +23,33 @@ pub enum AllOr<T> {
     None,
     /// Some values are included.
     Some(T),
+}
+
+impl<T> AllOr<T> {
+    /// Returns the `Some` variant of the enum.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the variant is not `Some`.
+    pub fn expect_some(self) -> T {
+        match self {
+            Self::Some(v) => v,
+            _ => vortex_panic!("Expected Some variant, got {:?}", discriminant(&self)),
+        }
+    }
+
+    /// Returns the `Some` variant of the enum, or a default value.
+    pub fn unwrap_or_else<F, G>(self, all_true: F, all_false: G) -> T
+    where
+        F: FnOnce() -> T,
+        G: FnOnce() -> T,
+    {
+        match self {
+            Self::Some(v) => v,
+            AllOr::All => all_true(),
+            AllOr::None => all_false(),
+        }
+    }
 }
 
 impl<T> Debug for AllOr<T>
@@ -82,12 +111,6 @@ pub struct MaskValues {
     density: f64,
 }
 
-impl From<&Arc<MaskValues>> for Mask {
-    fn from(value: &Arc<MaskValues>) -> Self {
-        Self::Values(value.clone())
-    }
-}
-
 impl MaskValues {
     /// Returns the length of the mask.
     #[inline]
@@ -129,7 +152,7 @@ impl MaskValues {
             indices.extend(self.buffer.set_indices());
             debug_assert!(indices.is_sorted());
             assert_eq!(indices.len(), self.true_count);
-            return indices;
+            indices
         })
     }
 
@@ -141,7 +164,7 @@ impl MaskValues {
                 return vec![(0, self.len())];
             }
 
-            return self.buffer.set_slices().collect();
+            self.buffer.set_slices().collect()
         })
     }
 
