@@ -4,8 +4,8 @@ use crate::traversal::{MutNodeVisitor, Node, TransformResult};
 use crate::{ExprRef, GetItem, Pack};
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
-/// There are no assumptions as the scope dtype, see `simplify_typed` for a simplifier which uses
-/// dtype.
+///
+/// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
 pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
     let mut folder = Simplify;
     e.transform(&mut folder).map(|e| e.result)

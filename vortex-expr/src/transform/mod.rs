@@ -2,6 +2,7 @@
 pub mod field_mask;
 pub mod immediate_access;
 pub mod partition;
+mod remove_merge;
 pub(crate) mod remove_select;
 pub mod simplify;
 pub mod simplify_typed;

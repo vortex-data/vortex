@@ -151,7 +151,7 @@ mod tests {
                 "0",
                 StructArray::from_fields(&[
                     ("a", buffer![0, 0, 0].into_array()),
-                    ("b", buffer![0, 0, 0].into_array()),
+                    ("b", buffer![1, 1, 1].into_array()),
                 ])
                 .unwrap()
                 .into_array(),
@@ -159,8 +159,8 @@ mod tests {
             (
                 "1",
                 StructArray::from_fields(&[
-                    ("b", buffer![1, 1, 1].into_array()),
-                    ("c", buffer![1, 1, 1].into_array()),
+                    ("b", buffer![2, 2, 2].into_array()),
+                    ("c", buffer![3, 3, 3].into_array()),
                 ])
                 .unwrap()
                 .into_array(),
@@ -168,8 +168,8 @@ mod tests {
             (
                 "2",
                 StructArray::from_fields(&[
-                    ("d", buffer![2, 2, 2].into_array()),
-                    ("e", buffer![2, 2, 2].into_array()),
+                    ("d", buffer![4, 4, 4].into_array()),
+                    ("e", buffer![5, 5, 5].into_array()),
                 ])
                 .unwrap()
                 .into_array(),
@@ -194,25 +194,25 @@ mod tests {
             primitive_field(&actual_array, &["b"])
                 .unwrap()
                 .as_slice::<i32>(),
-            [1, 1, 1]
+            [2, 2, 2]
         );
         assert_eq!(
             primitive_field(&actual_array, &["c"])
                 .unwrap()
                 .as_slice::<i32>(),
-            [1, 1, 1]
+            [3, 3, 3]
         );
         assert_eq!(
             primitive_field(&actual_array, &["d"])
                 .unwrap()
                 .as_slice::<i32>(),
-            [2, 2, 2]
+            [4, 4, 4]
         );
         assert_eq!(
             primitive_field(&actual_array, &["e"])
                 .unwrap()
                 .as_slice::<i32>(),
-            [2, 2, 2]
+            [5, 5, 5]
         );
     }
 
@@ -244,7 +244,7 @@ mod tests {
                     "a",
                     StructArray::from_fields(&[
                         ("x", buffer![0, 0, 0].into_array()),
-                        ("y", buffer![0, 0, 0].into_array()),
+                        ("y", buffer![1, 1, 1].into_array()),
                     ])
                     .unwrap()
                     .into_array(),
@@ -296,7 +296,7 @@ mod tests {
                 "0",
                 StructArray::from_fields(&[
                     ("a", buffer![0, 0, 0].into_array()),
-                    ("c", buffer![0, 0, 0].into_array()),
+                    ("c", buffer![1, 1, 1].into_array()),
                 ])
                 .unwrap()
                 .into_array(),
@@ -304,8 +304,8 @@ mod tests {
             (
                 "1",
                 StructArray::from_fields(&[
-                    ("b", buffer![1, 1, 1].into_array()),
-                    ("d", buffer![1, 1, 1].into_array()),
+                    ("b", buffer![2, 2, 2].into_array()),
+                    ("d", buffer![3, 3, 3].into_array()),
                 ])
                 .unwrap()
                 .into_array(),
