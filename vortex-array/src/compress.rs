@@ -65,18 +65,18 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
             .into_iter()
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
+            let compressed_scalar = compressed
+                .statistics()
+                .get(stat)
+                .map(|sv| Scalar::new(stat.dtype(compressed.dtype()), sv));
             debug_assert_eq!(
-                compressed
-                    .statistics()
-                    .get(stat)
-                    .map(|sv| Scalar::new(compressed.dtype().clone(), sv)),
-                Some(Scalar::new(arr.dtype().clone(), value.clone())),
+                compressed_scalar,
+                Some(Scalar::new(stat.dtype(arr.dtype()), value.clone())),
                 "Compression changed {stat} from {value} to {}",
-                compressed
-                    .statistics()
-                    .get(stat)
+                compressed_scalar
+                    .as_ref()
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| "null".to_string())
+                    .unwrap_or_else(|| "null".to_string()),
             );
         }
     }
