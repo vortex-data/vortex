@@ -8,7 +8,7 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 
@@ -21,11 +21,10 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
         .compute(Stat::Min)
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
-    let nullability = array.dtype().nullability();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
             assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()));
-            encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
+            encoded_zero::<$T>(array.validity().to_logical(array.len()))
                 .vortex_expect("Failed to encode all zeroes")
         } else {
             let unsigned_ptype = array.ptype().to_unsigned();
@@ -37,24 +36,16 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     FoRArray::try_new(encoded, min, shift)
 }
 
-fn encoded_zero<T: NativePType>(
-    logical_validity: LogicalValidity,
-    nullability: Nullability,
-) -> VortexResult<ArrayData> {
-    if nullability == Nullability::NonNullable
-        && !matches!(logical_validity, LogicalValidity::AllValid(_))
-    {
-        vortex_bail!("Must have LogicalValidity::AllValid with non-nullable DType")
-    }
-
+fn encoded_zero<T: NativePType>(logical_validity: LogicalValidity) -> VortexResult<ArrayData> {
     let encoded_ptype = T::PTYPE.to_unsigned();
-    let zero =
-        match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(nullability));
+    let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(logical_validity.nullability()));
 
     Ok(match logical_validity {
-        LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
+        LogicalValidity::NonNullable(len) | LogicalValidity::AllValid(len) => {
+            ConstantArray::new(zero, len).into_array()
+        }
         LogicalValidity::AllInvalid(len) => ConstantArray::new(
-            Scalar::null(DType::Primitive(encoded_ptype, nullability)),
+            Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
             len,
         )
         .into_array(),

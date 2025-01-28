@@ -26,7 +26,9 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
         }
 
         match array.logical_validity() {
-            LogicalValidity::AllValid(_) => self.compute_statistics(&array.boolean_buffer(), stat),
+            LogicalValidity::NonNullable(_) | LogicalValidity::AllValid(_) => {
+                self.compute_statistics(&array.boolean_buffer(), stat)
+            }
             LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
             LogicalValidity::Array(a) => self.compute_statistics(
                 &NullableBools(&array.boolean_buffer(), &a.into_bool()?.boolean_buffer()),

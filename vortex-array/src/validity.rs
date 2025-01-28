@@ -20,6 +20,7 @@ use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
+// TODO(ngates): merge this with IntoCanonical VTable and rename to into_canonical_validity.
 pub trait ValidityVTable<Array> {
     // TODO(ngates): can we implement this based on logical validity? Or is that too expensive?
     fn is_valid(&self, array: &Array, index: usize) -> bool;
@@ -252,7 +253,7 @@ impl Validity {
 
     pub fn to_logical(&self, length: usize) -> LogicalValidity {
         match self {
-            Self::NonNullable => LogicalValidity::AllValid(length),
+            Self::NonNullable => LogicalValidity::NonNullable(length),
             Self::AllValid => LogicalValidity::AllValid(length),
             Self::AllInvalid => LogicalValidity::AllInvalid(length),
             Self::Array(a) => {
@@ -406,6 +407,14 @@ impl FromIterator<LogicalValidity> for Validity {
     fn from_iter<T: IntoIterator<Item = LogicalValidity>>(iter: T) -> Self {
         let validities: Vec<LogicalValidity> = iter.into_iter().collect();
 
+        // If they're all non-nullable, then return a single non-nullable validity.
+        if validities
+            .iter()
+            .all(|v| matches!(v, LogicalValidity::NonNullable(_)))
+        {
+            return Self::NonNullable;
+        }
+
         // If they're all valid, then return a single validity.
         if validities.iter().all(|v| v.all_valid()) {
             return Self::AllValid;
@@ -419,6 +428,9 @@ impl FromIterator<LogicalValidity> for Validity {
         let mut buffer = BooleanBufferBuilder::new(validities.iter().map(|v| v.len()).sum());
         for validity in validities {
             match validity {
+                LogicalValidity::NonNullable(_) => {
+                    vortex_panic!("NonNullable validity returned from nullable dtype")
+                }
                 LogicalValidity::AllValid(count) => buffer.append_n(count, true),
                 LogicalValidity::AllInvalid(count) => buffer.append_n(count, false),
                 LogicalValidity::Array(array) => {
@@ -450,8 +462,10 @@ impl From<Nullability> for Validity {
     }
 }
 
+/// Logical validity actually represents "canonical validity".
 #[derive(Clone, Debug)]
 pub enum LogicalValidity {
+    NonNullable(usize),
     AllValid(usize),
     AllInvalid(usize),
     Array(ArrayData),
@@ -480,11 +494,19 @@ impl LogicalValidity {
 
     pub fn to_null_buffer(&self) -> VortexResult<Option<NullBuffer>> {
         match self {
+            Self::NonNullable(_) => Ok(None),
             Self::AllValid(_) => Ok(None),
             Self::AllInvalid(l) => Ok(Some(NullBuffer::new_null(*l))),
             Self::Array(a) => Ok(Some(NullBuffer::new(
                 a.clone().into_bool()?.boolean_buffer(),
             ))),
+        }
+    }
+
+    pub fn nullability(&self) -> Nullability {
+        match self {
+            Self::NonNullable(_) => Nullability::NonNullable,
+            _ => Nullability::Nullable,
         }
     }
 
@@ -498,6 +520,7 @@ impl LogicalValidity {
 
     pub fn len(&self) -> usize {
         match self {
+            Self::NonNullable(n) => *n,
             Self::AllValid(n) => *n,
             Self::AllInvalid(n) => *n,
             Self::Array(a) => a.len(),
@@ -506,6 +529,7 @@ impl LogicalValidity {
 
     pub fn is_empty(&self) -> bool {
         match self {
+            Self::NonNullable(n) => *n == 0,
             Self::AllValid(n) => *n == 0,
             Self::AllInvalid(n) => *n == 0,
             Self::Array(a) => a.is_empty(),
@@ -518,10 +542,8 @@ impl LogicalValidity {
             "NonNullable validity must be AllValid",
         );
         match self {
-            Self::AllValid(_) => match nullability {
-                Nullability::NonNullable => Validity::NonNullable,
-                Nullability::Nullable => Validity::AllValid,
-            },
+            Self::NonNullable(_) => Validity::NonNullable,
+            Self::AllValid(_) => Validity::AllValid,
             Self::AllInvalid(_) => Validity::AllInvalid,
             Self::Array(a) => Validity::Array(a),
         }
@@ -529,6 +551,7 @@ impl LogicalValidity {
 
     pub fn null_count(&self) -> VortexResult<usize> {
         match self {
+            Self::NonNullable(_) => Ok(0),
             Self::AllValid(_) => Ok(0),
             Self::AllInvalid(len) => Ok(*len),
             Self::Array(a) => {
@@ -552,7 +575,9 @@ impl TryFrom<ArrayData> for LogicalValidity {
 impl IntoArrayData for LogicalValidity {
     fn into_array(self) -> ArrayData {
         match self {
-            Self::AllValid(len) => ConstantArray::new(true, len).into_array(),
+            Self::NonNullable(len) | Self::AllValid(len) => {
+                ConstantArray::new(true, len).into_array()
+            }
             Self::AllInvalid(len) => ConstantArray::new(false, len).into_array(),
             Self::Array(a) => a,
         }

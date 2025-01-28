@@ -80,7 +80,9 @@ impl RowMask {
     /// True-valued positions are kept by the returned mask.
     fn from_mask_array(array: &ArrayData, begin: u64) -> VortexResult<Self> {
         match array.logical_validity() {
-            LogicalValidity::AllValid(_) => Ok(Self::new(Mask::try_from(array.clone())?, begin)),
+            LogicalValidity::NonNullable(_) | LogicalValidity::AllValid(_) => {
+                Ok(Self::new(Mask::try_from(array.clone())?, begin))
+            }
             LogicalValidity::AllInvalid(_) => {
                 Ok(Self::new_invalid_between(begin, begin + array.len() as u64))
             }

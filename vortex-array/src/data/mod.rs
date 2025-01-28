@@ -404,7 +404,7 @@ impl<A: AsRef<ArrayData>> ArrayValidity for A {
         ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
     }
 
-    /// Return the logical validity of the array.
+    /// Return the logical validity of the array if nullable, and None if non-nullable.
     fn logical_validity(&self) -> LogicalValidity {
         ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
     }
