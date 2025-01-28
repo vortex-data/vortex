@@ -403,6 +403,12 @@ fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
     let mask_indices = mask.indices();
 
     while mask_idx < patch_indices.len() && true_idx < mask.true_count() {
+        // NOTE: we are searching for overlaps between sorted, unaligned indices in `patch_indices`
+        //  and `mask_indices`. We assume that Patches are sparse relative to the global space of
+        //  the mask (which covers both patch and non-patch values of the parent array), and so to
+        //  quickly jump through regions with no overlap, we attempt to move our pointers by STRIDE
+        //  elements on each iteration. If we cannot rule out overlap due to min/max values, we
+        //  fallback to performing a two-way iterator merge.
         if (mask_idx + STRIDE) < patch_indices.len() && (true_idx + STRIDE) < mask_indices.len() {
             // Load a vector of each into our registers.
             let left_min = patch_indices[mask_idx].to_usize().vortex_expect("left_min");
@@ -423,6 +429,8 @@ fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
                 // Fallthrough to direct comparison path.
             }
         }
+
+        // Two-way sorted iterator merge:
 
         let left = patch_indices[mask_idx].to_usize().vortex_expect("left");
         let right = mask_indices[true_idx];
