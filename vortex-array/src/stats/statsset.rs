@@ -453,7 +453,10 @@ mod test {
 
     #[test]
     fn merge_into_min() {
-        let first = StatsSet::of(Stat::Min, 42).merge_ordered(&StatsSet::default(), &DType::Primitive(PType::I32, Nullability::NonNullable));
+        let first = StatsSet::of(Stat::Min, 42).merge_ordered(
+            &StatsSet::default(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        );
         assert_eq!(first.get(Stat::Min), None);
     }
 
