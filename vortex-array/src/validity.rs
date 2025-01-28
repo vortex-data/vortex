@@ -539,7 +539,10 @@ impl LogicalValidity {
             "NonNullable validity must be AllValid",
         );
         match self {
-            Self::AllValid(_) => Validity::AllValid,
+            Self::AllValid(_) => match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                Nullability::Nullable => Validity::AllValid,
+            },
             Self::AllInvalid(_) => Validity::AllInvalid,
             Self::Mask(a) => Validity::Array(a.into_array()),
         }
@@ -553,14 +556,6 @@ impl LogicalValidity {
         }
     }
 }
-//
-// impl TryFrom<ArrayData> for LogicalValidity {
-//     type Error = VortexError;
-//
-//     fn try_from(array: ArrayData) -> VortexResult<Self> {
-//         Self::try_new_from_array(array)
-//     }
-// }
 
 impl IntoArrayData for LogicalValidity {
     fn into_array(self) -> ArrayData {

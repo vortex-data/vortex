@@ -234,6 +234,7 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
     }
 
     fn logical_validity(&self, array: &ChunkedArray) -> VortexResult<LogicalValidity> {
+        // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
         let validity: Validity = array.chunks().map(|a| a.logical_validity()).try_collect()?;
         validity.to_logical(array.len())
     }
