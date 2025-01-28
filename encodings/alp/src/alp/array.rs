@@ -120,11 +120,11 @@ impl VariantsVTable<ALPArray> for ALPEncoding {
 impl PrimitiveArrayTrait for ALPArray {}
 
 impl ValidityVTable<ALPArray> for ALPEncoding {
-    fn is_valid(&self, array: &ALPArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ALPArray, index: usize) -> VortexResult<bool> {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &ALPArray) -> VortexResult<LogicalValidity> {
         array.encoded().logical_validity()
     }
 }

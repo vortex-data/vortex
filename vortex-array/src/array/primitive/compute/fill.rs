@@ -16,7 +16,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
             return Ok(array.to_array());
         }
 
-        let validity = array.logical_validity();
+        let validity = array.logical_validity()?;
         if validity.all_valid() {
             return Ok(PrimitiveArray::from_byte_buffer(
                 array.byte_buffer().clone(),

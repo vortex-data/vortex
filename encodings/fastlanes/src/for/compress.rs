@@ -49,7 +49,7 @@ fn encoded_zero<T: NativePType>(logical_validity: LogicalValidity) -> VortexResu
             len,
         )
         .into_array(),
-        LogicalValidity::Array(a) => {
+        LogicalValidity::Mask(a) => {
             let len = a.len();
             let valid_indices = a
                 .into_bool()?

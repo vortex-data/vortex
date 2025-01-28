@@ -194,11 +194,11 @@ impl VisitorVTable<FSSTArray> for FSSTEncoding {
 impl StatisticsVTable<FSSTArray> for FSSTEncoding {}
 
 impl ValidityVTable<FSSTArray> for FSSTEncoding {
-    fn is_valid(&self, array: &FSSTArray, index: usize) -> bool {
+    fn is_valid(&self, array: &FSSTArray, index: usize) -> VortexResult<bool> {
         array.codes().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FSSTArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &FSSTArray) -> VortexResult<LogicalValidity> {
         array.codes().logical_validity()
     }
 }

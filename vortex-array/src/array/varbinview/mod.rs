@@ -445,6 +445,7 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
 
     let nulls = var_bin_view
         .logical_validity()
+        .vortex_expect("VarBinViewArray: failed to get logical validity")
         .to_null_buffer()
         .vortex_expect("VarBinViewArray: validity child must be bool");
 
@@ -478,11 +479,11 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
 }
 
 impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
-    fn is_valid(&self, array: &VarBinViewArray, index: usize) -> bool {
+    fn is_valid(&self, array: &VarBinViewArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &VarBinViewArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &VarBinViewArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

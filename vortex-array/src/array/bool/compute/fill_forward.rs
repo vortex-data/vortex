@@ -9,7 +9,7 @@ use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
 impl FillForwardFn<BoolArray> for BoolEncoding {
     fn fill_forward(&self, array: &BoolArray) -> VortexResult<ArrayData> {
-        let validity = array.logical_validity();
+        let validity = array.logical_validity()?;
 
         // nothing to see or do in this case
         if matches!(validity, LogicalValidity::NonNullable(_)) {

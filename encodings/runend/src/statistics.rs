@@ -22,7 +22,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     .statistics()
                     .compute_is_sorted()
                     .unwrap_or(false)
-                    && array.logical_validity().all_valid(),
+                    && array.logical_validity()?.all_valid(),
             )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => Some(Scalar::from(array.true_count()?)),
@@ -69,7 +69,7 @@ impl RunEndArray {
                     .sum()
             }
             LogicalValidity::AllInvalid(_) => 0,
-            LogicalValidity::Array(is_valid) => {
+            LogicalValidity::Mask(is_valid) => {
                 let is_valid = is_valid.into_bool()?.boolean_buffer();
                 let mut is_valid = is_valid.set_indices();
                 match is_valid.next() {
@@ -107,7 +107,7 @@ impl RunEndArray {
             LogicalValidity::NonNullable(_) => 0u64,
             LogicalValidity::AllValid(_) => 0u64,
             LogicalValidity::AllInvalid(_) => self.len() as u64,
-            LogicalValidity::Array(is_valid) => {
+            LogicalValidity::Mask(is_valid) => {
                 let is_valid = is_valid.into_bool()?.boolean_buffer();
                 match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), is_valid))
             }

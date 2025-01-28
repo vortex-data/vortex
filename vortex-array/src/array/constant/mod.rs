@@ -57,15 +57,19 @@ impl ConstantArray {
 impl ValidateVTable<ConstantArray> for ConstantEncoding {}
 
 impl ValidityVTable<ConstantArray> for ConstantEncoding {
-    fn is_valid(&self, array: &ConstantArray, _index: usize) -> bool {
-        !array.scalar().is_null()
+    fn is_valid(&self, array: &ConstantArray, _index: usize) -> VortexResult<bool> {
+        Ok(!array.scalar().is_null())
     }
 
-    fn logical_validity(&self, array: &ConstantArray) -> LogicalValidity {
-        match array.scalar().is_null() {
-            true => LogicalValidity::AllInvalid(array.len()),
-            false => LogicalValidity::AllValid(array.len()),
-        }
+    fn logical_validity(&self, array: &ConstantArray) -> VortexResult<LogicalValidity> {
+        Ok(if array.dtype().is_nullable() {
+            match array.scalar().is_null() {
+                true => LogicalValidity::AllInvalid(array.len()),
+                false => LogicalValidity::AllValid(array.len()),
+            }
+        } else {
+            LogicalValidity::NonNullable(array.len())
+        })
     }
 }
 

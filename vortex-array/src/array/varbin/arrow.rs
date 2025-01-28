@@ -27,7 +27,7 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
     };
     let nulls = varbin_array
-        .logical_validity()
+        .logical_validity()?
         .to_null_buffer()
         .map_err(|err| err.with_context("Failed to get null buffer from logical validity"))?;
 

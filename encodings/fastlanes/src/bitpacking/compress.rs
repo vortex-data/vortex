@@ -172,6 +172,7 @@ pub fn gather_patches(
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };
+
     match_each_integer_ptype!(parray.ptype(), |$T| {
         let mut indices: BufferMut<u64> = BufferMut::with_capacity(num_exceptions_hint);
         let mut values: BufferMut<$T> = BufferMut::with_capacity(num_exceptions_hint);

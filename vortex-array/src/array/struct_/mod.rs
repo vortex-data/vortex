@@ -196,11 +196,11 @@ impl IntoCanonical for StructArray {
 }
 
 impl ValidityVTable<StructArray> for StructEncoding {
-    fn is_valid(&self, array: &StructArray, index: usize) -> bool {
+    fn is_valid(&self, array: &StructArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &StructArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &StructArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

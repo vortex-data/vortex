@@ -73,11 +73,11 @@ impl VariantsVTable<ZigZagArray> for ZigZagEncoding {
 impl PrimitiveArrayTrait for ZigZagArray {}
 
 impl ValidityVTable<ZigZagArray> for ZigZagEncoding {
-    fn is_valid(&self, array: &ZigZagArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ZigZagArray, index: usize) -> VortexResult<bool> {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ZigZagArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &ZigZagArray) -> VortexResult<LogicalValidity> {
         array.encoded().logical_validity()
     }
 }

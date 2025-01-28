@@ -39,12 +39,12 @@ impl IntoCanonical for NullArray {
 }
 
 impl ValidityVTable<NullArray> for NullEncoding {
-    fn is_valid(&self, _array: &NullArray, _idx: usize) -> bool {
-        false
+    fn is_valid(&self, _array: &NullArray, _idx: usize) -> VortexResult<bool> {
+        Ok(false)
     }
 
-    fn logical_validity(&self, array: &NullArray) -> LogicalValidity {
-        LogicalValidity::AllInvalid(array.len())
+    fn logical_validity(&self, array: &NullArray) -> VortexResult<LogicalValidity> {
+        Ok(LogicalValidity::AllInvalid(array.len()))
     }
 }
 

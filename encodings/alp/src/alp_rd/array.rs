@@ -232,12 +232,12 @@ impl IntoCanonical for ALPRDArray {
 }
 
 impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
-    fn is_valid(&self, array: &ALPRDArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ALPRDArray, index: usize) -> VortexResult<bool> {
         // Use validity from left_parts
         array.left_parts().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPRDArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &ALPRDArray) -> VortexResult<LogicalValidity> {
         // Use validity from left_parts
         array.left_parts().logical_validity()
     }

@@ -68,7 +68,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
             vortex_bail!("Metadata must be Timestamp, found {}", ext.id());
         };
 
-        if !array.is_valid(index) {
+        if !array.is_valid(index)? {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 

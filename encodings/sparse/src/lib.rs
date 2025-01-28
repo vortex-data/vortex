@@ -1,15 +1,20 @@
 use std::fmt::{Debug, Display};
 
-use vortex_array::array::ConstantArray;
+use vortex_array::array::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, RkyvMetadata};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, RkyvMetadata,
+};
+use vortex_dtype::match_each_integer_ptype;
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
 mod canonical;
@@ -185,48 +190,58 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
 }
 
 impl ValidityVTable<SparseArray> for SparseEncoding {
-    fn is_valid(&self, array: &SparseArray, index: usize) -> bool {
-        match array.patches().get_patched(index) {
-            Ok(None) => array.fill_scalar().is_valid(),
-            Ok(Some(patch_value)) => patch_value.is_valid(),
-            Err(e) => vortex_panic!(e, "Error while finding index {} in sparse array", index),
-        }
+    fn is_valid(&self, array: &SparseArray, index: usize) -> VortexResult<bool> {
+        Ok(match array.patches().get_patched(index)? {
+            None => array.fill_scalar().is_valid(),
+            Some(patch_value) => patch_value.is_valid(),
+        })
     }
 
-    fn logical_validity(&self, array: &SparseArray) -> LogicalValidity {
-        let validity = if array.fill_scalar().is_null() {
-            // If we have a null fill value, then the result is a Sparse array with a fill_value
-            // of true, and patch values of false.
-            SparseArray::try_new_from_patches(
-                array
-                    .patches()
-                    .map_values(|values| Ok(ConstantArray::new(true, values.len()).into_array()))
-                    .vortex_expect("constant array has same length as values array"),
-                array.len(),
-                array.indices_offset(),
-                false.into(),
-            )
-        } else {
-            // If the fill_value is non-null, then the validity is based on the validity of the
-            // existing values.
-            SparseArray::try_new_from_patches(
-                array
-                    .patches()
-                    .map_values(|values| Ok(values.logical_validity().into_array()))
-                    .vortex_expect("logical validity preserves length"),
-                array.len(),
-                array.indices_offset(),
-                true.into(),
-            )
+    fn logical_validity(&self, array: &SparseArray) -> VortexResult<LogicalValidity> {
+        if array.dtype().is_nullable() {
+            return Ok(LogicalValidity::NonNullable(array.len()));
         }
-        .vortex_expect("Error determining logical validity for sparse array");
-        LogicalValidity::Array(validity.into_array())
+
+        let indices = array.patches().indices().clone().into_primitive()?;
+
+        if array.fill_scalar().is_null() {
+            // If we have a null fill value, then we set each patch value to true.
+            let mut buffer = BooleanBufferBuilder::new(array.len());
+            // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
+            buffer.append_n(array.len(), false);
+
+            match_each_integer_ptype!(indices.ptype(), |$I| {
+                indices.as_slice::<$I>().into_iter().for_each(|&index| {
+                    buffer.set_bit(index.try_into().vortex_expect("Failed to cast to usize"), true);
+                });
+            });
+
+            return Ok(LogicalValidity::Mask(Mask::from_buffer(buffer.finish())));
+        }
+
+        // If the fill_value is non-null, then the validity is based on the validity of the
+        // patch values.
+        let mut buffer = BooleanBufferBuilder::new(array.len());
+        buffer.append_n(array.len(), true);
+
+        let values_validity = array.patches().values().logical_validity()?;
+        match_each_integer_ptype!(indices.ptype(), |$I| {
+            indices.as_slice::<$I>()
+                .into_iter()
+                .enumerate()
+                .for_each(|(patch_idx, &index)| {
+                    buffer.set_bit(index.try_into().vortex_expect("failed to cast to usize"), values_validity.is_valid(patch_idx));
+                })
+        });
+
+        Ok(LogicalValidity::Mask(Mask::from_buffer(buffer.finish())))
     }
 }
 
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::array::ConstantArray;
     use vortex_array::compute::{slice, try_cast};
     use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;

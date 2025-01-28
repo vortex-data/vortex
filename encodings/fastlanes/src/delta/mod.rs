@@ -239,11 +239,11 @@ impl IntoCanonical for DeltaArray {
 }
 
 impl ValidityVTable<DeltaArray> for DeltaEncoding {
-    fn is_valid(&self, array: &DeltaArray, index: usize) -> bool {
+    fn is_valid(&self, array: &DeltaArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DeltaArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &DeltaArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }
