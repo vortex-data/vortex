@@ -105,7 +105,7 @@ fn compare_struct(expected: ArrayData, actual: ArrayData) {
     assert_eq!(
         bool_builder.finish().count_set_bits(),
         arrow_lhs.len(),
-        "\nLHS: {}RHS: {}",
+        "\nEXPECTED: {}ACTUAL: {}",
         expected.tree_display(),
         actual.tree_display()
     );
