@@ -61,12 +61,9 @@ impl DictArray {
             .codes()
             .into_primitive()
             .vortex_expect("Failed to convert DictArray codes to primitive array");
-        PrimitiveArray::from_byte_buffer(
-            codes.into_byte_buffer(),
-            self.ptype(),
-            Validity::NonNullable,
-        )
-        .into_array()
+        let ptype = codes.ptype();
+        PrimitiveArray::from_byte_buffer(codes.into_byte_buffer(), ptype, Validity::NonNullable)
+            .into_array()
     }
 
     #[inline]
