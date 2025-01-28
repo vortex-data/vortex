@@ -9,6 +9,12 @@ pub struct ReferenceCollector {
     fields: HashSet<FieldName>,
 }
 
+impl Default for ReferenceCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReferenceCollector {
     pub fn new() -> Self {
         Self {

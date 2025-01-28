@@ -3,6 +3,7 @@ mod visitor;
 
 use itertools::Itertools;
 pub use references::ReferenceCollector;
+pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
