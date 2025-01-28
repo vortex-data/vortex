@@ -23,6 +23,7 @@ use crate::array::{
     StructArray, TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
+use crate::builders::builder_with_capacity;
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
@@ -101,12 +102,7 @@ impl Canonical {
 impl Canonical {
     // Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
-        let arrow_dtype = infer_data_type(dtype)?;
-        ArrayData::from_arrow(
-            arrow_array::new_empty_array(&arrow_dtype),
-            dtype.is_nullable(),
-        )
-        .into_canonical()
+        builder_with_capacity(dtype, 0).finish()?.into_canonical()
     }
 }
 
