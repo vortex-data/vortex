@@ -20,12 +20,12 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
 
         match array.logical_validity()?.boolean_buffer() {
             AllOr::All => {
-                return Ok(PrimitiveArray::from_byte_buffer(
+                Ok(PrimitiveArray::from_byte_buffer(
                     array.byte_buffer().clone(),
                     array.ptype(),
                     Validity::AllValid,
                 )
-                .into_array());
+                .into_array())
             }
             AllOr::None => {
                 match_each_native_ptype!(array.ptype(), |$T| {
