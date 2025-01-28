@@ -2,17 +2,16 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical, SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
+    SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -58,13 +57,14 @@ impl DictArray {
 
     // TODO: remove once take supports validity
     pub(crate) fn non_nullable_codes(&self) -> ArrayData {
-        let codes = self
-            .codes()
-            .into_primitive()
-            .vortex_expect("Failed to convert DictArray codes to primitive array");
-        let ptype = codes.ptype();
-        PrimitiveArray::from_byte_buffer(codes.into_byte_buffer(), ptype, Validity::NonNullable)
-            .into_array()
+        // let codes = self
+        //     .codes()
+        //     .into_primitive()
+        //     .vortex_expect("Failed to convert DictArray codes to primitive array");
+        // let ptype = codes.ptype();
+        // PrimitiveArray::from_byte_buffer(codes.into_byte_buffer(), ptype, Validity::NonNullable)
+        //     .into_array()
+        self.codes()
     }
 
     #[inline]
