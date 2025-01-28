@@ -311,8 +311,8 @@ impl<T> Buffer<T> {
     /// Returns the underlying aligned buffer.
     pub fn into_inner(self) -> Bytes {
         debug_assert_eq!(
-            self.length,
-            self.bytes.len() * size_of::<T>(),
+            self.length * size_of::<T>(),
+            self.bytes.len(),
             "Own length has to be the same as the underlying bytes length"
         );
         self.bytes
