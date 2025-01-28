@@ -362,10 +362,7 @@ mod test {
     #[test]
     fn sparse_logical_validity_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(matches!(
-            array.logical_validity().unwrap(),
-            LogicalValidity::AllValid(10)
-        ));
+        assert!(array.logical_validity().unwrap().all_valid());
     }
 
     #[test]

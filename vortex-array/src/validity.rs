@@ -491,11 +491,19 @@ impl LogicalValidity {
     }
 
     pub fn all_valid(&self) -> bool {
-        matches!(self, Self::AllValid(_))
+        match self {
+            LogicalValidity::AllValid(_) => true,
+            LogicalValidity::AllInvalid(_) => false,
+            LogicalValidity::Mask(mask) => mask.all_true(),
+        }
     }
 
     pub fn all_invalid(&self) -> bool {
-        matches!(self, Self::AllInvalid(_))
+        match self {
+            LogicalValidity::AllValid(_) => false,
+            LogicalValidity::AllInvalid(_) => true,
+            LogicalValidity::Mask(mask) => mask.all_false(),
+        }
     }
 
     pub fn is_valid(&self, index: usize) -> bool {
