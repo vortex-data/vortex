@@ -55,7 +55,7 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
         // FIXME(ngates): we should be operating over canonical validity, which doesn't
         //  have fallible is_valid function.
         let arr = match validity {
-            LogicalValidity::NonNullable(_) | LogicalValidity::AllValid(_) => {
+            LogicalValidity::AllValid(_) => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
                     indices.as_slice::<$I>()
                     .iter()

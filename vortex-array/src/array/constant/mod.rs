@@ -62,13 +62,9 @@ impl ValidityVTable<ConstantArray> for ConstantEncoding {
     }
 
     fn logical_validity(&self, array: &ConstantArray) -> VortexResult<LogicalValidity> {
-        Ok(if array.dtype().is_nullable() {
-            match array.scalar().is_null() {
-                true => LogicalValidity::AllInvalid(array.len()),
-                false => LogicalValidity::AllValid(array.len()),
-            }
-        } else {
-            LogicalValidity::NonNullable(array.len())
+        Ok(match array.scalar().is_null() {
+            true => LogicalValidity::AllInvalid(array.len()),
+            false => LogicalValidity::AllValid(array.len()),
         })
     }
 }

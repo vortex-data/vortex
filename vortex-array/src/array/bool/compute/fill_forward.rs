@@ -12,7 +12,7 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
         let validity = array.logical_validity()?;
 
         // nothing to see or do in this case
-        if matches!(validity, LogicalValidity::NonNullable(_)) {
+        if matches!(validity, LogicalValidity::AllValid(_)) {
             return Ok(array.to_array());
         }
 

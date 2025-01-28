@@ -198,10 +198,6 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
     }
 
     fn logical_validity(&self, array: &SparseArray) -> VortexResult<LogicalValidity> {
-        if array.dtype().is_nullable() {
-            return Ok(LogicalValidity::NonNullable(array.len()));
-        }
-
         let indices = array.patches().indices().clone().into_primitive()?;
 
         if array.fill_scalar().is_null() {

@@ -183,7 +183,6 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
 
     fn logical_validity(&self, array: &RunEndArray) -> VortexResult<LogicalValidity> {
         Ok(match array.values().logical_validity()? {
-            LogicalValidity::NonNullable(_) => LogicalValidity::NonNullable(array.len()),
             LogicalValidity::AllValid(_) => LogicalValidity::AllValid(array.len()),
             LogicalValidity::AllInvalid(_) => LogicalValidity::AllInvalid(array.len()),
             LogicalValidity::Mask(validity) => {

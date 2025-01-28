@@ -24,7 +24,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
             assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()));
-            encoded_zero::<$T>(array.logical_validity()?)
+            encoded_zero::<$T>(array.logical_validity()?, array.dtype().nullability())
                 .vortex_expect("Failed to encode all zeroes")
         } else {
             let unsigned_ptype = array.ptype().to_unsigned();
@@ -36,14 +36,16 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     FoRArray::try_new(encoded, min, shift)
 }
 
-fn encoded_zero<T: NativePType>(logical_validity: LogicalValidity) -> VortexResult<ArrayData> {
+fn encoded_zero<T: NativePType>(
+    logical_validity: LogicalValidity,
+    nullability: Nullability,
+) -> VortexResult<ArrayData> {
     let encoded_ptype = T::PTYPE.to_unsigned();
-    let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(logical_validity.nullability()));
+    let zero =
+        match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(nullability));
 
     Ok(match logical_validity {
-        LogicalValidity::NonNullable(len) | LogicalValidity::AllValid(len) => {
-            ConstantArray::new(zero, len).into_array()
-        }
+        LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
         LogicalValidity::AllInvalid(len) => ConstantArray::new(
             Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
             len,

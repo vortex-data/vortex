@@ -54,7 +54,7 @@ impl RunEndArray {
         decompressed_values: BooleanBuffer,
     ) -> VortexResult<u64> {
         Ok(match self.values().logical_validity()? {
-            LogicalValidity::NonNullable(_) | LogicalValidity::AllValid(_) => {
+            LogicalValidity::AllValid(_) => {
                 let mut begin = self.offset() as u64;
                 decompressed_ends
                     .iter()
@@ -103,7 +103,6 @@ impl RunEndArray {
     fn null_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
         let null_count = match self.values().logical_validity()? {
-            LogicalValidity::NonNullable(_) => 0u64,
             LogicalValidity::AllValid(_) => 0u64,
             LogicalValidity::AllInvalid(_) => self.len() as u64,
             LogicalValidity::Mask(mask) => {

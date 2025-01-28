@@ -180,7 +180,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
     Ok(match values_validity {
-        LogicalValidity::NonNullable(_) | LogicalValidity::AllValid(_) => {
+        LogicalValidity::AllValid(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             for (end, value) in run_ends.zip_eq(values) {
                 decoded.push_n(*value, end - decoded.len());
@@ -223,7 +223,7 @@ pub fn runend_decode_typed_bool(
     length: usize,
 ) -> VortexResult<BoolArray> {
     Ok(match values_validity {
-        LogicalValidity::NonNullable(_) | LogicalValidity::AllValid(_) => {
+        LogicalValidity::AllValid(_) => {
             let mut decoded = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(values.iter()) {
                 decoded.append_n(end - decoded.len(), value);
