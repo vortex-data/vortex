@@ -30,7 +30,7 @@ impl ComputeVTable for ZigZagEncoding {
 }
 
 impl FilterFn<ZigZagArray> for ZigZagEncoding {
-    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ZigZagArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
         let encoded = filter(&array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }

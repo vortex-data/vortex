@@ -19,7 +19,7 @@ use crate::{RunEndArray, RunEndEncoding};
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterFn<RunEndArray> for RunEndEncoding {
-    fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &RunEndArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
         let runs_ratio = mask.true_count() as f64 / array.ends().len() as f64;
 
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask.true_count() < 25 {

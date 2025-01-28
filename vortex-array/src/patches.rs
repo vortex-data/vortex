@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskValues};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
@@ -207,7 +208,7 @@ impl Patches {
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
-    pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+    pub fn filter(&self, mask: &Arc<MaskValues>) -> VortexResult<Option<Self>> {
         if mask.true_count() == 0 {
             return Ok(None);
         }

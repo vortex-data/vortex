@@ -100,6 +100,7 @@ impl Canonical {
 
 impl Canonical {
     // Create an empty canonical array of the given dtype.
+    // TODO(ngates): why can this fail? We should use builders
     pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
         let arrow_dtype = infer_data_type(dtype)?;
         ArrayData::from_arrow(

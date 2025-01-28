@@ -63,12 +63,12 @@ pub enum Mask {
     /// No values are included.
     AllFalse(usize),
     /// Some values are included, represented as a [`BooleanBuffer`].
-    Values(Arc<Values>),
+    Values(Arc<MaskValues>),
 }
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
-pub struct Values {
+pub struct MaskValues {
     buffer: BooleanBuffer,
 
     // We cached the indices and slices representations, since it can be faster than iterating
@@ -82,12 +82,23 @@ pub struct Values {
     density: f64,
 }
 
-impl Values {
+impl From<&Arc<MaskValues>> for Mask {
+    fn from(value: &Arc<MaskValues>) -> Self {
+        Self::Values(value.clone())
+    }
+}
+
+impl MaskValues {
     /// Returns the length of the mask.
     #[inline]
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.buffer.len()
+    }
+
+    /// Returns the true count of the mask.
+    pub fn true_count(&self) -> usize {
+        self.true_count
     }
 
     /// Returns the boolean buffer representation of the mask.
@@ -133,6 +144,15 @@ impl Values {
             return self.buffer.set_slices().collect();
         })
     }
+
+    /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    pub fn threshold_iter(&self, threshold: f64) -> MaskIter {
+        if self.density >= threshold {
+            MaskIter::Slices(self.slices())
+        } else {
+            MaskIter::Indices(self.indices())
+        }
+    }
 }
 
 impl Mask {
@@ -158,7 +178,7 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        Self::Values(Arc::new(Values {
+        Self::Values(Arc::new(MaskValues {
             buffer,
             indices: Default::default(),
             slices: Default::default(),
@@ -189,7 +209,7 @@ impl Mask {
         indices.iter().for_each(|idx| buf.set_bit(*idx, true));
         debug_assert_eq!(buf.len(), len);
 
-        Self::Values(Arc::new(Values {
+        Self::Values(Arc::new(MaskValues {
             buffer: buf.finish(),
             indices: OnceLock::from(indices),
             slices: Default::default(),
@@ -227,7 +247,7 @@ impl Mask {
         }
         debug_assert_eq!(buf.len(), len);
 
-        Self::Values(Arc::new(Values {
+        Self::Values(Arc::new(MaskValues {
             buffer: buf.finish(),
             indices: Default::default(),
             slices: OnceLock::from(slices),
@@ -391,6 +411,15 @@ impl Mask {
             Self::AllTrue(_) => AllOr::All,
             Self::AllFalse(_) => AllOr::None,
             Self::Values(values) => AllOr::Some(values.slices()),
+        }
+    }
+
+    /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter> {
+        match &self {
+            Self::AllTrue(_) => AllOr::All,
+            Self::AllFalse(_) => AllOr::None,
+            Self::Values(values) => AllOr::Some(values.threshold_iter(threshold)),
         }
     }
 }

@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskValues};
 use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
@@ -73,12 +75,12 @@ impl SliceFn<StructArray> for StructEncoding {
 }
 
 impl FilterFn<StructArray> for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(mask)?;
+    fn filter(&self, array: &StructArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(&mask.into())?;
 
         let fields: Vec<ArrayData> = array
             .children()
-            .map(|field| filter(&field, mask))
+            .map(|field| filter(&field, &mask.into()))
             .try_collect()?;
         let length = fields
             .first()

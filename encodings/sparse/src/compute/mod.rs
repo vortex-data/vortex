@@ -90,7 +90,7 @@ impl SearchSortedUsizeFn<SparseArray> for SparseEncoding {
 }
 
 impl FilterFn<SparseArray> for SparseEncoding {
-    fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &SparseArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
         let new_length = mask.true_count();
 
         let Some(new_patches) = array.resolved_patches()?.filter(mask)? else {

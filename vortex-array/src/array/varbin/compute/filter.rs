@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskValues};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
@@ -13,12 +15,12 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
-    fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &VarBinArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }
 
-fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinArray> {
+fn filter_select_var_bin(arr: &VarBinArray, mask: &Arc<MaskValues>) -> VortexResult<VarBinArray> {
     let selection_count = mask.true_count();
     if selection_count * 2 > mask.len() {
         filter_select_var_bin_by_slice(arr, mask, selection_count)
@@ -29,7 +31,7 @@ fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinA
 
 fn filter_select_var_bin_by_slice(
     values: &VarBinArray,
-    mask: &Mask,
+    mask: &Arc<MaskValues>,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().into_primitive()?;
@@ -50,7 +52,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
-    mask: &Mask,
+    mask: &Arc<MaskValues>,
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
@@ -129,7 +131,7 @@ fn update_non_nullable_slice<O>(
 
 fn filter_select_var_bin_by_index(
     values: &VarBinArray,
-    mask: &Mask,
+    mask: &Arc<MaskValues>,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().into_primitive()?;
@@ -150,7 +152,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
-    mask: &Mask,
+    mask: &Arc<MaskValues>,
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {

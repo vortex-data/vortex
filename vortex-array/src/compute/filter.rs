@@ -6,7 +6,7 @@ use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskValues};
 
 use crate::array::ConstantArray;
 use crate::arrow::FromArrowArray;
@@ -17,7 +17,7 @@ use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, I
 
 pub trait FilterFn<Array> {
     /// Filter an array by the provided predicate.
-    fn filter(&self, array: &Array, mask: &Mask) -> VortexResult<ArrayData>;
+    fn filter(&self, array: &Array, mask: &Arc<MaskValues>) -> VortexResult<ArrayData>;
 }
 
 impl<E: Encoding> FilterFn<ArrayData> for E
@@ -25,7 +25,7 @@ where
     E: FilterFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn filter(&self, array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ArrayData, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
@@ -81,8 +81,16 @@ pub fn filter(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
 }
 
 fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
+    let values = match &mask {
+        Mask::AllTrue(_) => return Ok(array.clone()),
+        Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype())?.into_array()),
+        Mask::Values(values) => values,
+    };
+
     if let Some(filter_fn) = array.encoding().filter_fn() {
-        return filter_fn.filter(array, mask);
+        let result = filter_fn.filter(array, values)?;
+        debug_assert_eq!(result.len(), mask.true_count());
+        return Ok(result);
     }
 
     // We can use scalar_at if the mask has length 1.
@@ -98,7 +106,7 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
     );
 
     let array_ref = array.clone().into_arrow()?;
-    let mask_array = BooleanArray::new(mask.boolean_buffer().clone(), None);
+    let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
     Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))

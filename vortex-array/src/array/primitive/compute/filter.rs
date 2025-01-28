@@ -1,24 +1,37 @@
+use std::sync::Arc;
+
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
-use vortex_mask::{Mask, MaskIter};
+use vortex_mask::{Mask, MaskIter, MaskValues};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+
+// This is modeled after the constant with the equivalent name in arrow-rs.
+const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
-    fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayData> {
-        let validity = array.validity().filter(mask)?;
-        match_each_native_ptype!(array.ptype(), |$T| {
-            let values = match mask.iter() {
-                MaskIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
-                MaskIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
-            };
-            Ok(PrimitiveArray::new(values, validity).into_array())
-        })
+    fn filter(&self, array: &PrimitiveArray, mask: &Arc<MaskValues>) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(&mask.into())?;
+
+        match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+            MaskIter::Indices(indices) => {
+                match_each_native_ptype!(array.ptype(), |$T| {
+                    let values = filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied());
+                    Ok(PrimitiveArray::new(values, validity).into_array())
+                })
+            }
+            MaskIter::Slices(slices) => {
+                match_each_native_ptype!(array.ptype(), |$T| {
+                    let values = filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied());
+                    Ok(PrimitiveArray::new(values, validity).into_array())
+                })
+            }
+        }
     }
 }
 
