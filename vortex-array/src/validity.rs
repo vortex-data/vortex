@@ -12,6 +12,7 @@ use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
 use vortex_mask::{Mask, MaskValues};
+use vortex_scalar::Scalar;
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take};
@@ -467,9 +468,7 @@ impl Validity {
                 Nullability::Nullable => Validity::AllValid,
             },
             Mask::AllFalse(_) => Validity::AllInvalid,
-            Mask::Values(values) => Validity::Array(
-                BoolArray::new(values.boolean_buffer().clone(), nullability).into_array(),
-            ),
+            Mask::Values(values) => Validity::Array(values.into_array()),
         }
     }
 }

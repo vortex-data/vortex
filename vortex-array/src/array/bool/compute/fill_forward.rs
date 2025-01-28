@@ -21,17 +21,14 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
         match validity.boolean_buffer() {
             AllOr::All => {
                 // all valid, but we need to convert to non-nullable
-                Ok(
-                    BoolArray::new(array.boolean_buffer(), Nullability::Nullable).into_array(),
-                )
+                Ok(BoolArray::new(array.boolean_buffer(), Nullability::Nullable).into_array())
             }
             AllOr::None => {
                 // all invalid => fill with default value (false)
-                Ok(BoolArray::try_new(
-                    BooleanBuffer::new_unset(array.len()),
-                    Validity::AllValid,
-                )?
-                .into_array())
+                Ok(
+                    BoolArray::try_new(BooleanBuffer::new_unset(array.len()), Validity::AllValid)?
+                        .into_array(),
+                )
             }
             AllOr::Some(validity) => {
                 let bools = array.boolean_buffer();

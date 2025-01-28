@@ -19,14 +19,12 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
         }
 
         match array.logical_validity()?.boolean_buffer() {
-            AllOr::All => {
-                Ok(PrimitiveArray::from_byte_buffer(
-                    array.byte_buffer().clone(),
-                    array.ptype(),
-                    Validity::AllValid,
-                )
-                .into_array())
-            }
+            AllOr::All => Ok(PrimitiveArray::from_byte_buffer(
+                array.byte_buffer().clone(),
+                array.ptype(),
+                Validity::AllValid,
+            )
+            .into_array()),
             AllOr::None => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let fill_value = Scalar::from($T::default()).cast(array.dtype())?;
