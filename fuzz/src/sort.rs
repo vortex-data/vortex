@@ -27,7 +27,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                 )
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
-            sort_opt_slice(&mut opt_values);
+            opt_values.sort();
             BoolArray::from_iter(opt_values).into_array()
         }
         DType::Primitive(p, _) => {
@@ -57,7 +57,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             let mut opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();
-            sort_opt_slice(&mut opt_values);
+            opt_values.sort();
             VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array()
         }
         DType::Struct(..) => {
@@ -88,17 +88,7 @@ fn sort_primitive_slice<T: NativePType>(s: &mut [Option<T>]) {
     s.sort_by(|a, b| match (a, b) {
         (Some(v), Some(w)) => v.total_compare(*w),
         (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-    });
-}
-
-/// Reverse sorting of Option<T> such that None is last (Greatest)
-fn sort_opt_slice<T: Ord>(s: &mut [Option<T>]) {
-    s.sort_by(|a, b| match (a, b) {
-        (Some(v), Some(w)) => v.cmp(w),
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
     });
 }
