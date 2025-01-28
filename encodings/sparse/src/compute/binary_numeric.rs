@@ -1,9 +1,10 @@
+use vortex_array::array::ConstantArray;
+use vortex_array::compute::{binary_numeric, BinaryNumericFn};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::BinaryNumericOperator;
 
-use crate::array::{ConstantArray, SparseArray, SparseEncoding};
-use crate::compute::{binary_numeric, BinaryNumericFn};
-use crate::{ArrayData, ArrayLen as _, IntoArrayData};
+use crate::{SparseArray, SparseEncoding};
 
 impl BinaryNumericFn<SparseArray> for SparseEncoding {
     fn binary_numeric(

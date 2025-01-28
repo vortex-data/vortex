@@ -1,15 +1,13 @@
-use arrow_buffer::{ArrowNativeType, BooleanBuffer};
+use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::patches::Patches;
+use vortex_array::validity::Validity;
+use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::sparse::SparseArray;
-use crate::array::{BoolArray, ConstantArray};
-use crate::patches::Patches;
-use crate::validity::Validity;
-use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
+use crate::SparseArray;
 
 impl IntoCanonical for SparseArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
@@ -59,7 +57,7 @@ fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexRes
 }
 
 fn canonicalize_sparse_primitives<
-    T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError> + ArrowNativeType,
+    T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
 >(
     patches: Patches,
     fill_value: &Scalar,
@@ -84,17 +82,16 @@ fn canonicalize_sparse_primitives<
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBufferBuilder;
     use rstest::rstest;
+    use vortex_array::array::{BoolArray, BooleanBufferBuilder, PrimitiveArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayDType, IntoArrayData, IntoCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
 
-    use crate::array::sparse::SparseArray;
-    use crate::array::{BoolArray, PrimitiveArray};
-    use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
+    use crate::SparseArray;
 
     #[rstest]
     #[case(Some(true))]

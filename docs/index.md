@@ -1,36 +1,4 @@
-.. Vortex documentation master file, created by
-   sphinx-quickstart on Wed Aug 28 10:10:21 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Vortex: a State-of-the-Art Columnar File Format
-===============================================
-
-.. grid:: 1 1 2 2
-    :gutter: 4 4 4 4
-
-    .. grid-item-card:: The File Format
-       :link: file_format
-       :link-type: doc
-
-       Currently just a schematic. Specification forthcoming.
-
-    .. grid-item-card:: The Rust API
-       :link: /vortex/docs/rust/doc/vortex
-
-       The primary interface to the Vortex toolkit.
-
-    .. grid-item-card:: Quickstart
-       :link: quickstart
-       :link-type: doc
-
-       For end-users looking to read and write Vortex files.
-
-    .. grid-item-card:: The Benchmarks
-       :link: https://bench.vortex.dev/
-
-       Random access, throughput, and TPC-H.
-
+# Vortex: a State-of-the-Art Columnar File Format
 
 Vortex is a fast & extensible columnar file format that is based around the latest research from the
 database community. It is built around cascading compression with lightweight, vectorized encodings
@@ -62,17 +30,69 @@ Its features include:
 Vortex's flexible layout empowers writers to choose the right layout for their setting: fast writes,
 fast reads, small files, few columns, many columns, over-sized columns, etc.
 
-Documentation
--------------
+## Concepts
 
-..
-    The Rust API link must be external because of: https://github.com/sphinx-doc/sphinx/issues/701
+Vortex is more like an ecosystem of building blocks than it is a specific format or specification. Almost everything
+in Vortex is extensible, enabling it to be used for both general-purpose columnar data processing, and niche
+embedded use-cases where specific encodings and performance characteristics are required.
 
-.. toctree::
-   :maxdepth: 2
+This section of the documentation covers the core concepts of Vortex and how they piece together.
 
-   quickstart
-   guide
-   file_format
-   api/index
-   Rust API <https://spiraldb.github.io/vortex/docs/rust/doc/>
+```{toctree}
+---
+maxdepth: 3
+includehidden:
+caption: Concepts
+---
+
+Arrays <concepts/arrays>
+Layouts <concepts/layouts>
+Data Types <concepts/dtypes>
+Compute <concepts/compute>
+```
+
+## User Guides
+
+Vortex is currently available for both Python and Rust. The user guides for each language provide a comprehensive
+overview of the Vortex API and how to use it.
+
+```{toctree}
+---
+maxdepth: 3
+includehidden:
+caption: User Guide
+---
+
+Python <python/index>
+Rust <rust/index>
+```
+
+## Specifications
+
+Vortex currently defines two serialization formats: a file format and an IPC format. The file format is designed for
+random access to [Vortex Layouts](/concepts/layouts) on disk, while the IPC format is designed to efficiently send
+possibly compressed [Vortex Arrays](/concepts/arrays) over the wire.
+
+```{toctree}
+---
+maxdepth: 3
+includehidden:
+caption: Specifications
+---
+
+specs/file-format
+specs/ipc-format
+specs/dtype-format
+```
+
+```{toctree}
+---
+hidden:
+caption: Project Links
+---
+
+Spiral <https://spiraldb.com>
+GitHub <https://github.com/spiraldb/vortex>
+PyPI <https://pypi.org/project/vortex-array>
+Crates <https://crates.io/crates/vortex>
+```

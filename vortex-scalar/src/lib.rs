@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::hash::Hash;
-use std::mem::discriminant;
 use std::sync::Arc;
 
 pub use scalar_type::ScalarType;
@@ -42,8 +41,9 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 /// A [`ScalarValue`] is opaque, and should be accessed via one of the type-specific scalar wrappers
 /// for example [`BoolScalar`], [`PrimitiveScalar`], etc.
 ///
-/// Note: [`PartialEq`] and [`PartialOrd`] are implemented only for an exact match of the scalar's
-/// dtype, including nullability.
+/// Note that [`PartialOrd`] is implemented only for an exact match of the scalar's dtype,
+/// including nullability. When the DType does match, ordering is nulls first (lowest), then the
+/// natural ordering of the scalar value.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
@@ -203,7 +203,20 @@ impl Scalar {
 
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype == other.dtype && self.value.0 == other.value.0
+        if self.dtype != other.dtype {
+            return false;
+        }
+
+        match self.dtype() {
+            DType::Null => true,
+            DType::Bool(_) => self.as_bool() == other.as_bool(),
+            DType::Primitive(..) => self.as_primitive() == other.as_primitive(),
+            DType::Utf8(_) => self.as_utf8() == other.as_utf8(),
+            DType::Binary(_) => self.as_binary() == other.as_binary(),
+            DType::Struct(..) => self.as_struct() == other.as_struct(),
+            DType::List(..) => self.as_list() == other.as_list(),
+            DType::Extension(_) => self.as_extension() == other.as_extension(),
+        }
     }
 }
 
@@ -211,20 +224,35 @@ impl Eq for Scalar {}
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // We check for DType equality, ignoring nullability, and allowing us to compare all
-        // primitive types to all other primitive types.
-        if discriminant(self.dtype()) == discriminant(other.dtype()) {
-            self.value.0.partial_cmp(&other.value.0)
-        } else {
-            None
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+
+        match self.dtype() {
+            DType::Null => Some(Ordering::Equal),
+            DType::Bool(_) => self.as_bool().partial_cmp(&other.as_bool()),
+            DType::Primitive(..) => self.as_primitive().partial_cmp(&other.as_primitive()),
+            DType::Utf8(_) => self.as_utf8().partial_cmp(&other.as_utf8()),
+            DType::Binary(_) => self.as_binary().partial_cmp(&other.as_binary()),
+            DType::Struct(..) => self.as_struct().partial_cmp(&other.as_struct()),
+            DType::List(..) => self.as_list().partial_cmp(&other.as_list()),
+            DType::Extension(_) => self.as_extension().partial_cmp(&other.as_extension()),
         }
     }
 }
 
 impl Hash for Scalar {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        discriminant(self.dtype()).hash(state);
-        self.value.0.hash(state);
+        match self.dtype() {
+            DType::Null => self.dtype().hash(state), // Hash the dtype instead of the value
+            DType::Bool(_) => self.as_bool().hash(state),
+            DType::Primitive(..) => self.as_primitive().hash(state),
+            DType::Utf8(_) => self.as_utf8().hash(state),
+            DType::Binary(_) => self.as_binary().hash(state),
+            DType::Struct(..) => self.as_struct().hash(state),
+            DType::List(..) => self.as_list().hash(state),
+            DType::Extension(_) => self.as_extension().hash(state),
+        }
     }
 }
 

@@ -49,20 +49,23 @@ where
     }
 
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        if value.is_null() {
-            if self.nullability == Nullability::NonNullable {
-                vortex_bail!("Cannot append null value to non-nullable list");
+        match value.elements() {
+            None => {
+                if self.nullability == Nullability::NonNullable {
+                    vortex_bail!("Cannot append null value to non-nullable list");
+                }
+                self.append_null();
+                Ok(())
             }
-            self.append_null();
-            Ok(())
-        } else {
-            for scalar in value.elements() {
-                // TODO(joe): This is slow, we should be able to append multiple values at once,
-                // or the list scalar should hold an ArrayData
-                self.value_builder.append_scalar(&scalar)?;
+            Some(elements) => {
+                for scalar in elements {
+                    // TODO(joe): This is slow, we should be able to append multiple values at once,
+                    // or the list scalar should hold an ArrayData
+                    self.value_builder.append_scalar(&scalar)?;
+                }
+                self.validity.append_value(true);
+                self.append_index(self.value_builder.len().as_())
             }
-            self.validity.append_value(true);
-            self.append_index(self.value_builder.len().as_())
         }
     }
 

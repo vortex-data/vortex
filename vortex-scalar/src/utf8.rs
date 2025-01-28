@@ -8,9 +8,25 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, Vort
 use crate::value::ScalarValue;
 use crate::{InnerScalarValue, Scalar};
 
+#[derive(Debug, Hash)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<BufferString>,
+}
+
+impl PartialEq for Utf8Scalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype == other.dtype && self.value == other.value
+    }
+}
+
+impl Eq for Utf8Scalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different nullability
+impl PartialOrd for Utf8Scalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.value.partial_cmp(&other.value)
+    }
 }
 
 impl<'a> Utf8Scalar<'a> {

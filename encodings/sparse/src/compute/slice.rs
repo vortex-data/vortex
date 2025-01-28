@@ -1,9 +1,8 @@
+use vortex_array::array::ConstantArray;
 use vortex_error::VortexResult;
 
-use crate::array::sparse::SparseArray;
-use crate::array::{ConstantArray, SparseEncoding};
 use crate::compute::SliceFn;
-use crate::{ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData, SparseArray, SparseEncoding};
 
 impl SliceFn<SparseArray> for SparseEncoding {
     fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
@@ -29,11 +28,11 @@ impl SliceFn<SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::compute::slice;
+    use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
 
     use super::*;
-    use crate::compute::slice;
-    use crate::IntoArrayVariant;
 
     #[test]
     fn test_slice() {

@@ -1,14 +1,12 @@
+use vortex_array::variants::{
+    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
+};
 use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
-use crate::array::sparse::SparseArray;
-use crate::array::SparseEncoding;
-use crate::variants::{
-    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
-};
-use crate::{ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, ArrayLen, IntoArrayData, SparseArray, SparseEncoding};
 
 /// Sparse arrays support all DTypes
 impl VariantsVTable<SparseArray> for SparseEncoding {
@@ -125,12 +123,13 @@ impl ExtensionArrayTrait for SparseArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::array::BoolArray;
+    use vortex_array::compute::invert;
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::{BoolArray, SparseArray};
-    use crate::compute::invert;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::SparseArray;
 
     #[test]
     fn invert_bools_non_null_fill() {

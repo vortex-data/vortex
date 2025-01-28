@@ -1,24 +1,17 @@
 use std::fmt::{Debug, Display};
 
-use rkyv::rancor::{Error, Failure};
-use rkyv::{access, from_bytes, to_bytes, Deserialize};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
-};
+use vortex_array::array::ConstantArray;
+use vortex_array::compute::{scalar_at, sub_scalar};
+use vortex_array::encoding::ids;
+use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::validate::ValidateVTable;
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, RkyvMetadata};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::array::constant::ConstantArray;
-use crate::compute::{scalar_at, sub_scalar};
-use crate::encoding::ids;
-use crate::patches::{Patches, PatchesMetadata};
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
-    RkyvMetadata,
-};
 mod canonical;
 mod compute;
 mod variants;
@@ -234,17 +227,15 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::compute::{slice, try_cast};
+    use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
     use vortex_error::VortexError;
     use vortex_scalar::{PrimitiveScalar, Scalar};
 
-    use crate::array::sparse::SparseArray;
-    use crate::array::ConstantArray;
-    use crate::compute::{scalar_at, slice, try_cast};
-    use crate::validity::ArrayValidity;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use super::*;
 
     fn nullable_fill() -> Scalar {
         Scalar::null(DType::Primitive(PType::I32, Nullable))

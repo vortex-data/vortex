@@ -2,11 +2,10 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, RangeBounds};
 
-use vortex_array::array::{BooleanBuffer, PrimitiveArray, SparseArray};
+use vortex_array::array::BooleanBuffer;
 use vortex_array::compute::{and, filter, slice, try_cast};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::Buffer;
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -141,28 +140,6 @@ impl RowMask {
         self.end <= start || end <= self.begin
     }
 
-    /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
-    pub fn and_bitmask(&self, bitmask: ArrayData) -> VortexResult<Self> {
-        // If we are a dense all true bitmap just take the bitmask array
-        if self.mask.true_count() == self.len() {
-            if bitmask.len() != self.len() {
-                vortex_bail!(
-                    "Bitmask length {} does not match our length {}",
-                    bitmask.len(),
-                    self.mask.len()
-                );
-            }
-            Self::from_mask_array(&bitmask, self.begin)
-        } else {
-            // TODO(robert): Avoid densifying sparse values just to get true indices
-            let sparse_mask =
-                SparseArray::try_new(self.to_indices_array()?, bitmask, self.len(), false.into())?
-                    .into_array()
-                    .into_bool()?;
-            Self::from_mask_array(sparse_mask.as_ref(), self.begin())
-        }
-    }
-
     /// Perform an intersection with another [`RowMask`], returning only rows that appear in both.
     pub fn and_rowmask(self, other: RowMask) -> VortexResult<Self> {
         if other.true_count() == other.len() {
@@ -282,18 +259,6 @@ impl RowMask {
         }
 
         filter(sliced, &self.mask).map(Some)
-    }
-
-    fn to_indices_array(&self) -> VortexResult<ArrayData> {
-        Ok(PrimitiveArray::new(
-            self.mask
-                .indices()
-                .iter()
-                .map(|i| *i as u64)
-                .collect::<Buffer<u64>>(),
-            Validity::NonNullable,
-        )
-        .into_array())
     }
 
     /// Shift the [`RowMask`] down by the given offset.

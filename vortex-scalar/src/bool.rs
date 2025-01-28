@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
@@ -5,9 +7,27 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, Vort
 use crate::value::ScalarValue;
 use crate::{InnerScalarValue, Scalar};
 
+#[derive(Debug, Hash)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
+}
+
+impl PartialEq for BoolScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for BoolScalar<'_> {}
+
+impl PartialOrd for BoolScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.dtype != other.dtype {
+            return None;
+        }
+        self.value.partial_cmp(&other.value)
+    }
 }
 
 impl<'a> BoolScalar<'a> {

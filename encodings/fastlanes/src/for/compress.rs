@@ -1,5 +1,5 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
-use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
+use vortex_array::array::{ConstantArray, PrimitiveArray};
 use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
 use vortex_array::validity::LogicalValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -10,6 +10,7 @@ use vortex_dtype::{
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
+use vortex_sparse::SparseArray;
 
 use crate::FoRArray;
 

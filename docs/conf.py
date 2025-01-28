@@ -1,3 +1,5 @@
+import doctest
+
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -14,16 +16,19 @@ author = "Spiral"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
+    "myst_parser",  # Markdown support
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
-    "sphinx_design",
+    "sphinx_copybutton",
+    "sphinx_inline_tabs",
+    "sphinxext.opengraph",
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -36,42 +41,32 @@ intersphinx_mapping = {
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 
 doctest_global_setup = "import pyarrow; import vortex"
+doctest_default_flags = (
+    doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL | doctest.DONT_ACCEPT_TRUE_FOR_1 | doctest.NORMALIZE_WHITESPACE
+)
+
+# -- Options for MyST Parser -------------------------------------------------
+
+myst_enable_extensions = [
+    "colon_fence",  # Use ::: for Sphinx directives
+]
+myst_heading_anchors = 3
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "pydata_sphinx_theme"
+html_theme = "furo"
 html_static_path = ["_static"]
 html_css_files = ["style.css"]  # relative to _static/
 
-# -- Options for PyData Theme ------------------------------------------------
+# -- Options for Furo Theme ------------------------------------------------
+
 html_theme_options = {
-    "show_toc_level": 2,
-    "logo": {
-        "alt_text": "The Vortex logo.",
-        "text": "Vortex",
-        "image_light": "_static/vortex_spiral_logo.svg",
-        "image_dark": "_static/vortex_spiral_logo_dark_theme.svg",
-    },
-    "icon_links": [
-        {
-            "name": "GitHub",
-            "url": "https://github.com/spiraldb/vortex",
-            "icon": "fa-brands fa-github",
-            "type": "fontawesome",
-        },
-        {
-            "name": "PyPI",
-            "url": "https://pypi.org/project/vortex-array",
-            "icon": "fa-brands fa-python",
-            "type": "fontawesome",
-        },
-    ],
-    "header_links_before_dropdown": 3,
+    "light_logo": "vortex_spiral_logo.svg",
+    "dark_logo": "vortex_spiral_logo_dark_theme.svg",
 }
-html_sidebars = {
-    # hide the primary (left-hand) sidebar on pages without sub-pages
-    "quickstart": [],
-    "guide": [],
-    "file_format": [],
-}
+
+# -- Options for OpenGraph ---------------------------------------------------
+
+ogp_site_url = "https://docs.vortex.dev"
+ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"

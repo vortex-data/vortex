@@ -61,11 +61,11 @@ impl Display for Scalar {
             }
             DType::List(..) => {
                 let v = ListScalar::try_from(self).map_err(|_| std::fmt::Error)?;
-
-                if v.is_null() {
-                    write!(f, "null")
-                } else {
-                    write!(f, "[{}]", v.elements().format(","))
+                match v.elements() {
+                    None => write!(f, "null"),
+                    Some(elems) => {
+                        write!(f, "[{}]", elems.iter().format(","))
+                    }
                 }
             }
             // Specialized handling for date/time/timestamp builtin extension types.

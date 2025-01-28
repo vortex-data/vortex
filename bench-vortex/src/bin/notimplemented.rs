@@ -8,8 +8,8 @@ use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
 use vortex::array::builder::VarBinBuilder;
 use vortex::array::{
-    BoolArray, ChunkedArray, ConstantArray, ListArray, NullArray, PrimitiveArray, SparseArray,
-    StructArray, VarBinViewArray,
+    BoolArray, ChunkedArray, ConstantArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use vortex::buffer::buffer;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
@@ -21,6 +21,7 @@ use vortex::encodings::dict::DictArray;
 use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::sparse::SparseArray;
 use vortex::encodings::zigzag::ZigZagArray;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;

@@ -10,8 +10,7 @@ use compressors::varbin::VarBinCompressor;
 use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
-    ListEncoding, PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding,
-    VarBinViewEncoding,
+    ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{Context, ContextRef};
@@ -41,6 +40,7 @@ mod sampling;
 mod sampling_compressor;
 
 pub use sampling_compressor::*;
+use vortex_sparse::SparseEncoding;
 
 use crate::compressors::alp_rd::ALPRDCompressor;
 

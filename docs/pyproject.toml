@@ -4,10 +4,14 @@ version = "0.1.0"
 description = "Vortex documentation."
 authors = []
 dependencies = [
-    "pydata-sphinx-theme>=0.16.0",
+    "furo>=2024.8.6",
+    "myst-parser>=4.0.0",
+    "sphinx-autobuild>=2024.10.3",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-inline-tabs>=2023.4.21",
     "sphinx>=8.0.2",
+    "sphinxext-opengraph>=0.9.1",
     "vortex-array",
-    "sphinx-design>=0.6.1",
 ]
 requires-python = ">= 3.10"
 
