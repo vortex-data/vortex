@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
@@ -20,7 +21,7 @@ use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
+use crate::validity::{ArrayValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
@@ -231,7 +232,7 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
         array.chunk(chunk)?.is_valid(offset_in_chunk)
     }
 
-    fn logical_validity(&self, array: &ChunkedArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ChunkedArray) -> VortexResult<Mask> {
         // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
         let validity: Validity = array.chunks().map(|a| a.logical_validity()).try_collect()?;
         validity.to_logical(array.len())

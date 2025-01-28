@@ -4,11 +4,12 @@ use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::validity::ArrayValidity;
 use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
@@ -26,10 +27,10 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
         }
 
         match array.logical_validity()? {
-            LogicalValidity::AllValid(_) => self.compute_statistics(&array.boolean_buffer(), stat),
-            LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
-            LogicalValidity::Mask(mask) => self.compute_statistics(
-                &NullableBools(&array.boolean_buffer(), mask.boolean_buffer().expect_some()),
+            Mask::AllTrue(_) => self.compute_statistics(&array.boolean_buffer(), stat),
+            Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
+            Mask::Values(values) => self.compute_statistics(
+                &NullableBools(&array.boolean_buffer(), values.boolean_buffer()),
                 stat,
             ),
         }

@@ -63,10 +63,11 @@ impl TakeFn<NullArray> for NullEncoding {
 mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
+    use vortex_mask::Mask;
 
     use crate::array::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
-    use crate::validity::{ArrayValidity, LogicalValidity};
+    use crate::validity::ArrayValidity;
     use crate::{ArrayLen, IntoArrayData};
 
     #[test]
@@ -78,7 +79,7 @@ mod test {
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
             sliced.logical_validity().unwrap(),
-            LogicalValidity::AllInvalid(4)
+            Mask::AllFalse(4)
         ));
     }
 
@@ -92,7 +93,7 @@ mod test {
         assert_eq!(taken.len(), 5);
         assert!(matches!(
             taken.logical_validity().unwrap(),
-            LogicalValidity::AllInvalid(5)
+            Mask::AllFalse(5)
         ));
     }
 

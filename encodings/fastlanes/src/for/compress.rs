@@ -1,7 +1,7 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::{ConstantArray, PrimitiveArray};
 use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
@@ -9,6 +9,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
 use vortex_error::{vortex_err, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 
@@ -39,25 +40,24 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
 }
 
 fn encoded_zero<T: NativePType>(
-    logical_validity: LogicalValidity,
+    logical_validity: Mask,
     nullability: Nullability,
 ) -> VortexResult<ArrayData> {
     let encoded_ptype = T::PTYPE.to_unsigned();
     let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
 
     Ok(match logical_validity {
-        LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
-        LogicalValidity::AllInvalid(len) => ConstantArray::new(
+        Mask::AllTrue(len) => ConstantArray::new(zero, len).into_array(),
+        Mask::AllFalse(len) => ConstantArray::new(
             Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
             len,
         )
         .into_array(),
-        LogicalValidity::Mask(mask) => {
+        Mask::Values(mask) => {
             let len = mask.len();
 
             let valid_indices = mask
                 .indices()
-                .expect_some()
                 .iter()
                 .map(|&i| i as u64)
                 .collect::<Buffer<u64>>()

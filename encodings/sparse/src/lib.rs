@@ -6,7 +6,7 @@ use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -197,7 +197,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
         })
     }
 
-    fn logical_validity(&self, array: &SparseArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &SparseArray) -> VortexResult<Mask> {
         let indices = array.patches().indices().clone().into_primitive()?;
 
         if array.fill_scalar().is_null() {
@@ -212,7 +212,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
                 });
             });
 
-            return Ok(LogicalValidity::Mask(Mask::from_buffer(buffer.finish())));
+            return Ok(Mask::from_buffer(buffer.finish()));
         }
 
         // If the fill_value is non-null, then the validity is based on the validity of the
@@ -226,11 +226,11 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
                 .into_iter()
                 .enumerate()
                 .for_each(|(patch_idx, &index)| {
-                    buffer.set_bit(index.try_into().vortex_expect("failed to cast to usize"), values_validity.is_valid(patch_idx));
+                    buffer.set_bit(index.try_into().vortex_expect("failed to cast to usize"), values_validity.value(patch_idx));
                 })
         });
 
-        Ok(LogicalValidity::Mask(Mask::from_buffer(buffer.finish())))
+        Ok(Mask::from_buffer(buffer.finish()))
     }
 }
 
@@ -350,11 +350,13 @@ mod test {
     #[test]
     pub fn sparse_logical_validity() {
         let array = sparse_array(nullable_fill());
-        let LogicalValidity::Mask(mask) = array.logical_validity().unwrap() else {
-            unreachable!()
-        };
         assert_eq!(
-            mask.boolean_buffer().expect_some().iter().collect_vec(),
+            array
+                .logical_validity()
+                .unwrap()
+                .to_boolean_buffer()
+                .iter()
+                .collect_vec(),
             [false, false, true, false, false, true, false, false, true, false]
         );
     }
@@ -362,7 +364,7 @@ mod test {
     #[test]
     fn sparse_logical_validity_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(array.logical_validity().unwrap().all_valid());
+        assert!(array.logical_validity().unwrap().all_true());
     }
 
     #[test]

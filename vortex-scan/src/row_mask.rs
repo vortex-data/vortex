@@ -4,7 +4,7 @@ use std::ops::RangeBounds;
 
 use vortex_array::array::BooleanBuffer;
 use vortex_array::compute::{filter, slice, try_cast};
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
@@ -79,13 +79,7 @@ impl RowMask {
     ///
     /// True-valued positions are kept by the returned mask.
     fn from_mask_array(array: &ArrayData, begin: u64) -> VortexResult<Self> {
-        match array.logical_validity()? {
-            LogicalValidity::AllValid(_) => Ok(Self::new(Mask::try_from(array.clone())?, begin)),
-            LogicalValidity::AllInvalid(_) => {
-                Ok(Self::new_invalid_between(begin, begin + array.len() as u64))
-            }
-            LogicalValidity::Mask(mask) => Ok(Self::new(mask, begin)),
-        }
+        Ok(Self::new(array.logical_validity()?, begin))
     }
 
     /// Construct a RowMask from an integral array.

@@ -7,7 +7,7 @@ use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use vortex_array::validity::{Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -16,6 +16,7 @@ use vortex_array::{
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 mod compress;
 mod compute;
@@ -262,7 +263,7 @@ impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BitPackedArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &BitPackedArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

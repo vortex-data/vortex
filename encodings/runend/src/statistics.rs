@@ -3,11 +3,12 @@ use std::cmp;
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_array::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity as _, LogicalValidity};
+use vortex_array::validity::ArrayValidity as _;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType as _, ArrayLen as _, IntoArrayVariant as _};
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
 use crate::{RunEndArray, RunEndEncoding};
@@ -22,7 +23,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     .statistics()
                     .compute_is_sorted()
                     .unwrap_or(false)
-                    && array.logical_validity()?.all_valid(),
+                    && array.logical_validity()?.all_true(),
             )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
@@ -54,7 +55,7 @@ impl RunEndArray {
         decompressed_values: BooleanBuffer,
     ) -> VortexResult<u64> {
         Ok(match self.values().logical_validity()? {
-            LogicalValidity::AllValid(_) => {
+            Mask::AllTrue(_) => {
                 let mut begin = self.offset() as u64;
                 decompressed_ends
                     .iter()
@@ -68,9 +69,9 @@ impl RunEndArray {
                     })
                     .sum()
             }
-            LogicalValidity::AllInvalid(_) => 0,
-            LogicalValidity::Mask(mask) => {
-                let mut is_valid = mask.indices().expect_some().iter();
+            Mask::AllFalse(_) => 0,
+            Mask::Values(values) => {
+                let mut is_valid = values.indices().iter();
                 match is_valid.next() {
                     None => self.len() as u64,
                     Some(&valid_index) => {
@@ -103,10 +104,10 @@ impl RunEndArray {
     fn null_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
         let null_count = match self.values().logical_validity()? {
-            LogicalValidity::AllValid(_) => 0u64,
-            LogicalValidity::AllInvalid(_) => self.len() as u64,
-            LogicalValidity::Mask(mask) => {
-                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), mask.boolean_buffer().expect_some()))
+            Mask::AllTrue(_) => 0u64,
+            Mask::AllFalse(_) => self.len() as u64,
+            Mask::Values(mask) => {
+                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), mask.boolean_buffer()))
             }
         };
         Ok(null_count)

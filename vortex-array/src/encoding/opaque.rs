@@ -3,12 +3,13 @@ use std::fmt::{Debug, Display, Formatter};
 
 use arrow_array::ArrayRef;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_mask::Mask;
 
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
 use crate::stats::StatisticsVTable;
 use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::validity::ValidityVTable;
 use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{ArrayData, Canonical, EmptyMetadata, IntoCanonicalVTable, MetadataVTable};
@@ -78,7 +79,7 @@ impl ValidityVTable<ArrayData> for OpaqueEncoding {
         )
     }
 
-    fn logical_validity(&self, _array: &ArrayData) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, _array: &ArrayData) -> VortexResult<Mask> {
         vortex_panic!(
             "OpaqueEncoding: logical_validity cannot be called for opaque array ({})",
             self.0

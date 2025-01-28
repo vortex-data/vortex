@@ -11,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 use std::mem::discriminant;
 use std::sync::{Arc, OnceLock};
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
 use vortex_error::vortex_panic;
 
@@ -141,6 +141,11 @@ impl MaskValues {
     /// Returns the boolean buffer representation of the mask.
     pub fn boolean_buffer(&self) -> &BooleanBuffer {
         &self.buffer
+    }
+
+    /// Returns the boolean value at a given index.
+    pub fn value(&self, index: usize) -> bool {
+        self.buffer.value(index)
     }
 
     /// Constructs an indices vector from one of the other representations.
@@ -443,6 +448,25 @@ impl Mask {
             Self::AllTrue(_) => AllOr::All,
             Self::AllFalse(_) => AllOr::None,
             Self::Values(values) => AllOr::Some(&values.buffer),
+        }
+    }
+
+    /// Return a boolean buffer representation of the mask, allocating new buffers for all-true
+    /// and all-false variants.
+    pub fn to_boolean_buffer(&self) -> BooleanBuffer {
+        match self {
+            Self::AllTrue(l) => BooleanBuffer::new_set(*l),
+            Self::AllFalse(l) => BooleanBuffer::new_unset(*l),
+            Self::Values(values) => values.boolean_buffer().clone(),
+        }
+    }
+
+    /// Returns an Arrow null buffer representation of the mask.
+    pub fn to_null_buffer(&self) -> Option<NullBuffer> {
+        match self {
+            Mask::AllTrue(_) => None,
+            Mask::AllFalse(l) => Some(NullBuffer::new_null(*l)),
+            Mask::Values(values) => Some(NullBuffer::from(values.buffer.clone())),
         }
     }
 

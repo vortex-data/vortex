@@ -8,13 +8,14 @@ use num_traits::PrimInt;
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant};
 
@@ -39,12 +40,12 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
 
         let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
             match array.logical_validity()? {
-                LogicalValidity::AllValid(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
-                LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
-                LogicalValidity::Mask(m) => self.compute_statistics(
+                Mask::AllTrue(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
+                Mask::AllFalse(len) => Ok(StatsSet::nulls(len, array.dtype())),
+                Mask::Values(v) => self.compute_statistics(
                     &NullableValues(
                         array.as_slice::<$P>(),
-                        m.boolean_buffer().expect_some(),
+                        v.boolean_buffer(),
                     ),
                     stat
                 ),

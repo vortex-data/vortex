@@ -7,11 +7,12 @@ use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
+use vortex_mask::Mask;
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use crate::validity::{Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{StructArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -200,7 +201,7 @@ impl ValidityVTable<StructArray> for StructEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &StructArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &StructArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

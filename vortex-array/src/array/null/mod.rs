@@ -4,12 +4,13 @@ use serde::{Deserialize, Serialize};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityVTable};
+use crate::validity::{Validity, ValidityVTable};
 use crate::variants::{NullArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayLen, Canonical, EmptyMetadata, IntoCanonical};
@@ -43,8 +44,8 @@ impl ValidityVTable<NullArray> for NullEncoding {
         Ok(false)
     }
 
-    fn logical_validity(&self, array: &NullArray) -> VortexResult<LogicalValidity> {
-        Ok(LogicalValidity::AllInvalid(array.len()))
+    fn logical_validity(&self, array: &NullArray) -> VortexResult<Mask> {
+        Ok(Mask::AllFalse(array.len()))
     }
 }
 

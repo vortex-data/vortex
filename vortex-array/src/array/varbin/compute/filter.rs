@@ -4,7 +4,7 @@ use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
-use vortex_mask::{Mask, MaskValues};
+use vortex_mask::{AllOr, Mask, MaskValues};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
@@ -61,12 +61,12 @@ where
     usize: AsPrimitive<O>,
 {
     let logical_validity = validity.to_logical(offsets.len() - 1)?;
-    if let Some(val) = logical_validity.to_null_buffer()? {
+    if let AllOr::Some(validity) = logical_validity.boolean_buffer() {
         let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
         for (start, end) in mask.slices().expect_some().iter().copied() {
-            let null_sl = val.slice(start, end - start);
-            if null_sl.null_count() == 0 {
+            let null_sl = validity.slice(start, end - start);
+            if null_sl.count_set_bits() == 0 {
                 update_non_nullable_slice(data, offsets, &mut builder, start, end)
             } else {
                 for (idx, valid) in null_sl.iter().enumerate() {

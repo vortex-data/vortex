@@ -6,13 +6,14 @@ use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, Validity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::alp_rd::alp_rd_decode;
 
@@ -210,8 +211,7 @@ impl IntoCanonical for ALPRDArray {
                     right_parts.into_buffer_mut::<u32>(),
                     self.left_parts_patches(),
                 )?,
-                self.logical_validity()?
-                    .into_validity(self.dtype().nullability()),
+                Validity::from_mask(self.logical_validity()?, self.dtype().nullability()),
             )
         } else {
             PrimitiveArray::new(
@@ -222,8 +222,7 @@ impl IntoCanonical for ALPRDArray {
                     right_parts.into_buffer_mut::<u64>(),
                     self.left_parts_patches(),
                 )?,
-                self.logical_validity()?
-                    .into_validity(self.dtype().nullability()),
+                Validity::from_mask(self.logical_validity()?, self.dtype().nullability()),
             )
         };
 
@@ -237,7 +236,7 @@ impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
         array.left_parts().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPRDArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ALPRDArray) -> VortexResult<Mask> {
         // Use validity from left_parts
         array.left_parts().logical_validity()
     }

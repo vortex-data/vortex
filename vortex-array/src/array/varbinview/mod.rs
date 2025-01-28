@@ -12,12 +12,13 @@ use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 use crate::arrow::FromArrowArray;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use crate::validity::{ArrayValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
@@ -446,8 +447,7 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     let nulls = var_bin_view
         .logical_validity()
         .vortex_expect("VarBinViewArray: failed to get logical validity")
-        .to_null_buffer()
-        .vortex_expect("VarBinViewArray: validity child must be bool");
+        .to_null_buffer();
 
     let data = (0..var_bin_view.nbuffers())
         .map(|i| var_bin_view.buffer(i))
@@ -483,7 +483,7 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &VarBinViewArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &VarBinViewArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

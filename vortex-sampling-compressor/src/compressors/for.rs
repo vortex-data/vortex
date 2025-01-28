@@ -34,7 +34,7 @@ impl EncodingCompressor for FoRCompressor {
         }
 
         // For all-null, cannot encode.
-        if parray.logical_validity().ok()?.all_invalid() {
+        if parray.logical_validity().ok()?.all_false() {
             return None;
         }
 

@@ -6,7 +6,7 @@ use vortex_array::compute::{scalar_at, take};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -90,7 +90,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
         array.values().is_valid(values_index)
     }
 
-    fn logical_validity(&self, array: &DictArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &DictArray) -> VortexResult<Mask> {
         if array.dtype().is_nullable() {
             let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
@@ -99,10 +99,10 @@ impl ValidityVTable<DictArray> for DictEncoding {
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
                     is_valid[idx] != 0
                 });
-                Ok(LogicalValidity::Mask(Mask::from_buffer(is_valid_buffer)))
+                Ok(Mask::from_buffer(is_valid_buffer))
             })
         } else {
-            Ok(LogicalValidity::AllValid(array.len()))
+            Ok(Mask::AllTrue(array.len()))
         }
     }
 }

@@ -4,12 +4,13 @@ use vortex_array::array::{VarBinArray, VarBinEncoding};
 use vortex_array::encoding::{ids, Encoding};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 impl_encoding!("vortex.fsst", ids::FSST, FSST, SerdeMetadata<FSSTMetadata>);
 
@@ -198,7 +199,7 @@ impl ValidityVTable<FSSTArray> for FSSTEncoding {
         array.codes().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FSSTArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &FSSTArray) -> VortexResult<Mask> {
         array.codes().logical_validity()
     }
 }

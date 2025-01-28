@@ -8,7 +8,7 @@ use vortex_array::compute::{
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -181,22 +181,20 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
         array.values().is_valid(physical_idx)
     }
 
-    fn logical_validity(&self, array: &RunEndArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &RunEndArray) -> VortexResult<Mask> {
         Ok(match array.values().logical_validity()? {
-            LogicalValidity::AllValid(_) => LogicalValidity::AllValid(array.len()),
-            LogicalValidity::AllInvalid(_) => LogicalValidity::AllInvalid(array.len()),
-            LogicalValidity::Mask(validity) => {
+            Mask::AllTrue(_) => Mask::AllTrue(array.len()),
+            Mask::AllFalse(_) => Mask::AllFalse(array.len()),
+            Mask::Values(values) => {
                 let ree_validity = RunEndArray::with_offset_and_length(
                     array.ends(),
-                    validity.into_array(),
+                    values.into_array(),
                     array.offset(),
                     array.len(),
                 )
                 .vortex_expect("invalid array")
                 .into_array();
-                LogicalValidity::Mask(Mask::from_buffer(
-                    ree_validity.into_bool()?.boolean_buffer(),
-                ))
+                Mask::from_buffer(ree_validity.into_bool()?.boolean_buffer())
             }
         })
     }

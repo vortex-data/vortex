@@ -36,7 +36,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
 
     Ok(match stat {
         Stat::NullCount => {
-            let null_count = array.logical_validity()?.null_count();
+            let null_count = array.logical_validity()?.false_count();
             if null_count == array.len() {
                 return Ok(StatsSet::nulls(array.len(), array.dtype()));
             }

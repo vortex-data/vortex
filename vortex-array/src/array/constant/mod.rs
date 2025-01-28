@@ -3,12 +3,13 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::validity::ValidityVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayLen, EmptyMetadata};
 
@@ -60,10 +61,10 @@ impl ValidityVTable<ConstantArray> for ConstantEncoding {
         Ok(!array.scalar().is_null())
     }
 
-    fn logical_validity(&self, array: &ConstantArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ConstantArray) -> VortexResult<Mask> {
         Ok(match array.scalar().is_null() {
-            true => LogicalValidity::AllInvalid(array.len()),
-            false => LogicalValidity::AllValid(array.len()),
+            true => Mask::AllFalse(array.len()),
+            false => Mask::AllTrue(array.len()),
         })
     }
 }

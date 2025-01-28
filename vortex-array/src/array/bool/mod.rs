@@ -9,7 +9,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use crate::validity::{Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -23,6 +23,7 @@ mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use vortex_mask::Mask;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
 
@@ -211,7 +212,7 @@ impl ValidityVTable<BoolArray> for BoolEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BoolArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &BoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

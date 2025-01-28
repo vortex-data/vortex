@@ -6,7 +6,7 @@ use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatisticsVTable;
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -15,6 +15,7 @@ use vortex_array::{
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 use crate::alp::{alp_encode, decompress, Exponents};
 
@@ -124,7 +125,7 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ALPArray) -> VortexResult<Mask> {
         array.encoded().logical_validity()
     }
 }

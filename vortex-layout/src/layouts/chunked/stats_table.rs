@@ -94,7 +94,7 @@ impl StatsTable {
                         .as_slice::<u64>()
                         .iter()
                         .enumerate()
-                        .filter_map(|(i, v)| validity.is_valid(i).then_some(*v))
+                        .filter_map(|(i, v)| validity.value(i).then_some(*v))
                         .sum();
                     stats_set.set(*stat, sum);
                 }

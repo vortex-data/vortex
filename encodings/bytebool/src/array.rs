@@ -6,13 +6,14 @@ use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use vortex_array::validity::{Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical, SerdeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 impl_encoding!(
     "vortex.bytebool",
@@ -116,7 +117,7 @@ impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ByteBoolArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ByteBoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

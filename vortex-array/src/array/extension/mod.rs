@@ -4,11 +4,12 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use crate::validity::{ArrayValidity, ValidityVTable};
 use crate::variants::{ExtensionArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -78,7 +79,7 @@ impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
         array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ExtensionArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ExtensionArray) -> VortexResult<Mask> {
         array.storage().logical_validity()
     }
 }

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 #[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
@@ -22,7 +23,7 @@ use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use crate::validity::{Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -192,7 +193,7 @@ impl ValidityVTable<ListArray> for ListEncoding {
         array.is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ListArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &ListArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

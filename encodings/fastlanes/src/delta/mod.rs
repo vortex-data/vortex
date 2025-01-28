@@ -5,7 +5,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use vortex_array::validity::{Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -15,6 +15,7 @@ use vortex_array::{
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 mod compress;
 mod compute;
@@ -243,7 +244,7 @@ impl ValidityVTable<DeltaArray> for DeltaEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DeltaArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &DeltaArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

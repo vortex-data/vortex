@@ -6,12 +6,13 @@ use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 impl_encoding!(
     "vortex.datetimeparts",
@@ -100,10 +101,10 @@ impl DateTimePartsArray {
 
     pub fn validity(&self) -> VortexResult<Validity> {
         // FIXME(ngates): this function is weird... can we just use logical validity?
-        Ok(self
-            .days()
-            .logical_validity()?
-            .into_validity(self.dtype().nullability()))
+        Ok(Validity::from_mask(
+            self.days().logical_validity()?,
+            self.dtype().nullability(),
+        ))
     }
 }
 
@@ -140,7 +141,7 @@ impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
         array.days().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DateTimePartsArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &DateTimePartsArray) -> VortexResult<Mask> {
         array.days().logical_validity()
     }
 }

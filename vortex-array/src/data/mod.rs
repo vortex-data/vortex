@@ -8,6 +8,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -19,7 +20,7 @@ use crate::encoding::{Encoding, EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use crate::validity::{ArrayValidity, ValidityVTable};
 use crate::{
     ArrayChildrenIterator, ArrayDType, ArrayLen, ChildrenCollector, ContextRef,
     NamedChildrenCollector,
@@ -410,7 +411,7 @@ impl<A: AsRef<ArrayData>> ArrayValidity for A {
     }
 
     /// Return the logical validity of the array if nullable, and None if non-nullable.
-    fn logical_validity(&self) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self) -> VortexResult<Mask> {
         ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
     }
 }

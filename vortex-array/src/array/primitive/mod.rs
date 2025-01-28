@@ -9,12 +9,13 @@ use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::dtype::Primitive;
+use vortex_mask::Mask;
 
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
 use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
+use crate::validity::{ArrayValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -340,7 +341,7 @@ impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &PrimitiveArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &PrimitiveArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

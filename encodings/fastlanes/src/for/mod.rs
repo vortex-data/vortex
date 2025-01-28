@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -13,6 +13,7 @@ use vortex_array::{
 };
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar};
 
 mod compress;
@@ -95,7 +96,7 @@ impl ValidityVTable<FoRArray> for FoREncoding {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FoRArray) -> VortexResult<LogicalValidity> {
+    fn logical_validity(&self, array: &FoRArray) -> VortexResult<Mask> {
         array.encoded().logical_validity()
     }
 }

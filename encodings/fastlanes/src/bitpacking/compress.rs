@@ -413,7 +413,6 @@ mod test {
                 .unwrap()
                 .to_null_buffer()
                 .unwrap()
-                .unwrap()
                 .into_inner()
                 .set_indices()
                 .collect::<Vec<_>>()

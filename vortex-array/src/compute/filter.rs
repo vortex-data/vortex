@@ -144,19 +144,6 @@ impl TryFrom<ArrayData> for Mask {
     }
 }
 
-impl IntoArrayData for Mask {
-    fn into_array(self) -> ArrayData {
-        BoolArray::new(
-            self.boolean_buffer().cloned().unwrap_or_else(
-                || BooleanBuffer::new_set(self.len()),
-                || BooleanBuffer::new_unset(self.len()),
-            ),
-            Nullability::NonNullable,
-        )
-        .into_array()
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
