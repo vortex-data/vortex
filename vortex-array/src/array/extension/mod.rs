@@ -99,7 +99,6 @@ impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
-    use vortex_scalar::ScalarValue;
 
     use super::*;
     use crate::IntoArrayData;
@@ -124,8 +123,8 @@ mod tests {
             num_stats
         );
 
-        assert_eq!(stats.get(Stat::Min), Some(&ScalarValue::from(1i64)));
-        assert_eq!(stats.get(Stat::Max), Some(&ScalarValue::from(5_i64)));
-        assert_eq!(stats.get(Stat::NullCount), Some(&0u64.into()));
+        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(1i64));
+        assert_eq!(stats.get_as::<i64>(Stat::Max), Some(5_i64));
+        assert_eq!(stats.get_as::<usize>(Stat::NullCount), Some(0));
     }
 }
