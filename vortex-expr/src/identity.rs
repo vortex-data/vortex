@@ -50,6 +50,10 @@ pub fn ident() -> ExprRef {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability, PType};
+
     use crate::{ident, test_harness};
 
     #[test]
@@ -57,5 +61,15 @@ mod tests {
         let dtype = test_harness::struct_dtype();
         assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
         assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
+    }
+
+    #[test]
+    fn list_dtype() {
+        let in_dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        let packed_dtype = ident().return_dtype(&in_dtype).unwrap();
+        assert_eq!(packed_dtype, in_dtype);
     }
 }

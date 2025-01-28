@@ -213,26 +213,6 @@ mod tests {
     }
 
     #[test]
-    pub fn test_dtype_correct_nullability() {
-        let expr = Pack::try_new_expr(["one".into()].into(), vec![Identity::new_expr()]).unwrap();
-        let scope_dtype = &DType::List(
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            Nullability::Nullable,
-        );
-        let packed_dtype = expr.return_dtype(scope_dtype).unwrap();
-        assert_eq!(
-            packed_dtype,
-            DType::Struct(
-                Arc::new(StructDType::new(
-                    ["one".into()].into(),
-                    vec![scope_dtype.clone()]
-                )),
-                Nullability::NonNullable,
-            ),
-        );
-    }
-
-    #[test]
     pub fn test_nested_pack() {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
