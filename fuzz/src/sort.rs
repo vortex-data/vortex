@@ -6,6 +6,7 @@ use vortex_array::compute::scalar_at;
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::VortexExpect;
 
 use crate::take::take_canonical_array;
 
@@ -19,10 +20,8 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                 .zip(
                     bool_array
                         .logical_validity()
-                        .into_array()
-                        .into_bool()
-                        .unwrap()
-                        .boolean_buffer()
+                        .vortex_expect("Failed to get logical validity")
+                        .to_boolean_buffer()
                         .iter(),
                 )
                 .map(|(b, v)| v.then_some(b))
@@ -40,10 +39,8 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                     .zip(
                         primitive_array
                             .logical_validity()
-                            .into_array()
-                            .into_bool()
                             .unwrap()
-                            .boolean_buffer()
+                            .to_boolean_buffer()
                             .iter(),
                     )
                     .map(|(p, v)| v.then_some(p))

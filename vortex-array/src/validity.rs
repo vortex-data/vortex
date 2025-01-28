@@ -495,6 +495,15 @@ impl LogicalValidity {
         }
     }
 
+    pub fn to_boolean_buffer(&self) -> BooleanBuffer {
+        match self {
+            Self::NonNullable(l) => BooleanBuffer::new_set(*l),
+            Self::AllValid(l) => BooleanBuffer::new_set(*l),
+            Self::AllInvalid(l) => BooleanBuffer::new_unset(*l),
+            Self::Mask(a) => a.boolean_buffer().clone(),
+        }
+    }
+
     pub fn nullability(&self) -> Nullability {
         match self {
             Self::NonNullable(_) => Nullability::NonNullable,
@@ -588,6 +597,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::Nullability;
+    use vortex_mask::Mask;
 
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::{LogicalValidity, Validity};
@@ -639,7 +649,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn into_validity_nullable_array() {
-        LogicalValidity::Mask(BoolArray::from_iter(vec![true, false]).into_array())
+        LogicalValidity::Mask(Mask::from_iter(vec![true, false]))
             .into_validity(Nullability::NonNullable);
     }
 }

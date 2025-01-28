@@ -65,7 +65,7 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![42, 8, 42, 10, 42]);
-        assert!(p.logical_validity().all_valid());
+        assert!(p.logical_validity().unwrap().all_valid());
     }
 
     #[test]
@@ -78,7 +78,7 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![255, 255, 255, 255, 255]);
-        assert!(p.logical_validity().all_valid());
+        assert!(p.logical_validity().unwrap().all_valid());
     }
 
     #[test]
@@ -93,7 +93,7 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8, 10, 12, 14, 16]);
-        assert!(p.logical_validity().all_valid());
+        assert!(p.logical_validity().unwrap().all_valid());
     }
 
     #[test]
@@ -104,6 +104,6 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8u8, 10, 12, 14, 16]);
-        assert!(p.logical_validity().all_valid());
+        assert!(p.logical_validity().unwrap().all_valid());
     }
 }

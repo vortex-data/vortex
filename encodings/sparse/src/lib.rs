@@ -243,7 +243,6 @@ mod test {
     use itertools::Itertools;
     use vortex_array::array::ConstantArray;
     use vortex_array::compute::{slice, try_cast};
-    use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
@@ -355,9 +354,11 @@ mod test {
     #[test]
     pub fn sparse_logical_validity() {
         let array = sparse_array(nullable_fill());
-        let validity = array.logical_validity().into_array().into_bool().unwrap();
+        let LogicalValidity::Mask(mask) = array.logical_validity().unwrap() else {
+            unreachable!()
+        };
         assert_eq!(
-            validity.boolean_buffer().iter().collect_vec(),
+            mask.boolean_buffer().iter().collect_vec(),
             [false, false, true, false, false, true, false, false, true, false]
         );
     }
@@ -365,18 +366,10 @@ mod test {
     #[test]
     fn sparse_logical_validity_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-
-        assert_eq!(
-            array
-                .logical_validity()
-                .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>(),
-            vec![true; 10]
-        );
+        assert!(matches!(
+            array.logical_validity().unwrap(),
+            LogicalValidity::AllValid(10)
+        ));
     }
 
     #[test]

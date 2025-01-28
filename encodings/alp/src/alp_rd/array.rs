@@ -210,7 +210,7 @@ impl IntoCanonical for ALPRDArray {
                     right_parts.into_buffer_mut::<u32>(),
                     self.left_parts_patches(),
                 )?,
-                self.logical_validity()
+                self.logical_validity()?
                     .into_validity(self.dtype().nullability()),
             )
         } else {
@@ -222,7 +222,7 @@ impl IntoCanonical for ALPRDArray {
                     right_parts.into_buffer_mut::<u64>(),
                     self.left_parts_patches(),
                 )?,
-                self.logical_validity()
+                self.logical_validity()?
                     .into_validity(self.dtype().nullability()),
             )
         };
