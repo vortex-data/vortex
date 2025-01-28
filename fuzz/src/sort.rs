@@ -6,14 +6,14 @@ use vortex_array::compute::scalar_at;
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::take::take_canonical_array;
 
-pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
+pub fn sort_canonical_array(array: &ArrayData) -> VortexResult<ArrayData> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool().unwrap();
+            let bool_array = array.clone().into_bool()?;
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -27,10 +27,10 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             opt_values.sort();
-            BoolArray::from_iter(opt_values).into_array()
+            Ok(BoolArray::from_iter(opt_values).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive().unwrap();
+            let primitive_array = array.clone().into_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 let mut opt_values = primitive_array
                     .as_slice::<$P>()
@@ -38,24 +38,23 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                     .copied()
                     .zip(
                         primitive_array
-                            .logical_validity()
-                            .unwrap()
+                            .logical_validity()?
                             .to_boolean_buffer()
                             .iter(),
                     )
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
-                PrimitiveArray::from_option_iter(opt_values).into_array()
+                Ok(PrimitiveArray::from_option_iter(opt_values).into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview().unwrap();
+            let utf8 = array.clone().into_varbinview()?;
             let mut opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+                ?;
             opt_values.sort();
-            VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array()
+            Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();

@@ -42,7 +42,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
             }
             Action::SearchSorted(s, side) => {
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
-                let mut sorted = sort_canonical_array(&current_array);
+                let mut sorted = sort_canonical_array(&current_array).unwrap();
                 if !HashSet::from([
                     &PrimitiveEncoding as EncodingRef,
                     &VarBinEncoding,
@@ -85,8 +85,8 @@ fn assert_search_sorted(
 ) {
     let search_result = search_sorted(&array, s.clone(), side).unwrap();
     assert_eq!(
-        search_result,
         expected,
+        search_result,
         "Expected to find {s}({}) at {expected} in {} from {side} but instead found it at {search_result} in step {step}",
         s.dtype(),
         array.tree_display()

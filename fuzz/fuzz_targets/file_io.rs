@@ -9,7 +9,7 @@ use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
-use vortex_dtype::Nullability;
+use vortex_dtype::DType;
 use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
@@ -18,7 +18,7 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
         return Corpus::Reject;
     }
 
-    if array_data.dtype().nullability() != Nullability::NonNullable {
+    if has_nullable_struct(array_data.dtype()) {
         return Corpus::Reject;
     }
 
@@ -68,25 +68,31 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
     Corpus::Keep
 });
 
-fn compare_struct(lhs: ArrayData, rhs: ArrayData) {
-    assert!(lhs.dtype().eq_ignore_nullability(rhs.dtype()));
-    assert_eq!(lhs.len(), rhs.len(), "Arrays length isn't preserved");
+fn compare_struct(expected: ArrayData, actual: ArrayData) {
+    assert_eq!(
+        expected.dtype(),
+        actual.dtype(),
+        "DTypes aren't preserved expected {}, actual {}",
+        expected.dtype(),
+        actual.dtype()
+    );
+    assert_eq!(
+        expected.len(),
+        actual.len(),
+        "Arrays length isn't preserved expected: {}, actual: {}",
+        expected.len(),
+        actual.len()
+    );
 
-    if lhs.dtype().as_struct().unwrap().names().len() == 0
-        && lhs.dtype().as_struct().unwrap().names().len()
-            == rhs.dtype().as_struct().unwrap().names().len()
+    if expected.dtype().as_struct().unwrap().names().len() == 0
+        && expected.dtype().as_struct().unwrap().names().len()
+            == actual.dtype().as_struct().unwrap().names().len()
     {
         return;
     }
 
-    if let Some(st) = lhs.dtype().as_struct() {
-        if st.names().len() == 0 {
-            return;
-        }
-    }
-
-    let arrow_lhs = lhs.clone().into_arrow().unwrap();
-    let arrow_rhs = rhs.clone().into_arrow().unwrap();
+    let arrow_lhs = expected.clone().into_arrow().unwrap();
+    let arrow_rhs = actual.clone().into_arrow().unwrap();
 
     let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default()).unwrap();
 
@@ -100,7 +106,15 @@ fn compare_struct(lhs: ArrayData, rhs: ArrayData) {
         bool_builder.finish().count_set_bits(),
         arrow_lhs.len(),
         "\nLHS: {}RHS: {}",
-        lhs.tree_display(),
-        rhs.tree_display()
+        expected.tree_display(),
+        actual.tree_display()
     );
+}
+
+fn has_nullable_struct(dtype: &DType) -> bool {
+    dtype.is_nullable()
+        || dtype
+            .as_struct()
+            .map(|sdt| sdt.dtypes().any(|dtype| has_nullable_struct(&dtype)))
+            .unwrap_or(false)
 }

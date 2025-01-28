@@ -91,7 +91,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 1 => {
                     let start = u.choose_index(current_array.len())?;
                     let stop = u.int_in_range(start..=current_array.len())?;
-                    current_array = slice_canonical_array(&current_array, start, stop);
+                    current_array = slice_canonical_array(&current_array, start, stop).unwrap();
 
                     (
                         Action::Slice(start..stop),
@@ -104,7 +104,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
-                    current_array = take_canonical_array(&current_array, &indices);
+                    current_array = take_canonical_array(&current_array, &indices).unwrap();
                     let indices_array = indices
                         .iter()
                         .map(|i| *i as u64)
@@ -129,7 +129,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
 
-                    let sorted = sort_canonical_array(&current_array);
+                    let sorted = sort_canonical_array(&current_array).unwrap();
 
                     let side = if u.arbitrary()? {
                         SearchSortedSide::Left
@@ -147,7 +147,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
                         .collect::<Result<Vec<_>>>()?;
-                    current_array = filter_canonical_array(&current_array, &mask);
+                    current_array = filter_canonical_array(&current_array, &mask).unwrap();
                     (
                         Action::Filter(Mask::from_iter(mask)),
                         ExpectedValue::Array(current_array.clone()),

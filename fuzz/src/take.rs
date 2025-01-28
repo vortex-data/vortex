@@ -8,13 +8,12 @@ use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
-pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
+pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> VortexResult<ArrayData> {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array
-            .logical_validity()
-            .unwrap()
+            .logical_validity()?
             .to_boolean_buffer()
             .iter()
             .collect::<Vec<_>>();
@@ -26,35 +25,33 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool().unwrap();
+            let bool_array = array.clone().into_bool()?;
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
             BoolArray::try_new(indices.iter().map(|i| vec_values[*i]).collect(), validity)
-                .vortex_expect("Validity length cannot mismatch")
-                .into_array()
+                .map(|a| a.into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive().unwrap();
+            let primitive_array = array.clone().into_primitive()?;
             match_each_native_ptype!(p, |$P| {
-                take_primitive::<$P>(primitive_array, validity, indices)
+                Ok(take_primitive::<$P>(primitive_array, validity, indices))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview().unwrap();
-            let values = utf8
-                .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
-                .unwrap();
-            VarBinViewArray::from_iter(
+            let utf8 = array.clone().into_varbinview()?;
+            let values =
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
+            Ok(VarBinViewArray::from_iter(
                 indices.iter().map(|i| values[*i].clone()),
                 array.dtype().clone(),
             )
-            .into_array()
+            .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct().unwrap();
+            let struct_array = array.clone().into_struct()?;
             let taken_children = struct_array
                 .children()
                 .map(|c| take_canonical_array(&c, indices))
-                .collect::<Vec<_>>();
+                .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(
                 struct_array.names().clone(),
@@ -62,17 +59,14 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 indices.len(),
                 validity,
             )
-            .unwrap()
-            .into_array()
+            .map(|a| a.into_array())
         }
         DType::List(..) => {
             let mut builder = builder_with_capacity(array.dtype(), indices.len());
             for idx in indices {
-                builder
-                    .append_scalar(&scalar_at(array, *idx).unwrap())
-                    .unwrap();
+                builder.append_scalar(&scalar_at(array, *idx)?)?;
             }
-            builder.finish().unwrap()
+            builder.finish()
         }
         _ => unreachable!("Not a canonical array"),
     }
