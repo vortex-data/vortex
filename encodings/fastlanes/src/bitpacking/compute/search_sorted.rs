@@ -1,6 +1,5 @@
-use std::cmp;
 use std::cmp::Ordering;
-use std::cmp::Ordering::Greater;
+use std::cmp::Ordering::{Greater, Less};
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
@@ -150,22 +149,23 @@ struct BitPackedSearch<'a, T> {
     offset: u16,
     length: usize,
     bit_width: u8,
-    first_invalid_idx: usize,
+    last_null_idx: usize,
+    first_patch_index: usize,
 }
 
 impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
     pub fn new(array: &'a BitPackedArray) -> Self {
-        let min_patch_offset = array
+        let first_patch_index = array
             .patches()
             .map(|p| p.min_index())
             .transpose()
             .vortex_expect("Failed to get min patch index")
             .unwrap_or_else(|| array.len());
-        let first_null_idx = match array.validity() {
-            Validity::NonNullable | Validity::AllValid => array.len(),
-            Validity::AllInvalid => 0,
+        let last_null_idx = match array.validity() {
+            Validity::NonNullable | Validity::AllValid => 0,
+            Validity::AllInvalid => array.len(),
             Validity::Array(varray) => {
-                // In sorted order, nulls come after all the non-null values.
+                // In sorted order, nulls come before all the non-null values.
                 varray
                     .statistics()
                     .compute_true_count()
@@ -173,21 +173,23 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             }
         };
 
-        let first_invalid_idx = cmp::min(min_patch_offset, first_null_idx);
-
         Self {
             packed_as_slice: array.packed_slice::<T>(),
             offset: array.offset(),
             length: array.len(),
             bit_width: array.bit_width(),
-            first_invalid_idx,
+            last_null_idx,
+            first_patch_index,
         }
     }
 }
 
 impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
-        if idx >= self.first_invalid_idx {
+        if idx < self.last_null_idx {
+            return Some(Less);
+        }
+        if idx >= self.first_patch_index {
             return Some(Greater);
         }
 
@@ -267,7 +269,7 @@ mod test {
     #[test]
     fn test_search_sorted_nulls() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_option_iter([Some(1u64), None, None]).as_ref(),
+            PrimitiveArray::from_option_iter([None, None, Some(1u64)]).as_ref(),
             2,
         )
         .unwrap();
@@ -278,13 +280,13 @@ mod test {
             SearchSortedSide::Left,
         )
         .unwrap();
-        assert_eq!(found, SearchResult::Found(0));
+        assert_eq!(found, SearchResult::Found(2));
     }
 
     #[test]
     fn test_search_sorted_nulls_not_found() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_option_iter([Some(0u8), Some(107u8), None, None]).as_ref(),
+            PrimitiveArray::from_option_iter([None, None, Some(0u8), Some(107u8)]).as_ref(),
             0,
         )
         .unwrap();
@@ -295,7 +297,7 @@ mod test {
             SearchSortedSide::Left,
         )
         .unwrap();
-        assert_eq!(found, SearchResult::NotFound(2));
+        assert_eq!(found, SearchResult::NotFound(4));
     }
 
     #[test]
@@ -303,13 +305,13 @@ mod test {
         // Test search_sorted_many with an array that contains several null values.
         let bitpacked = BitPackedArray::encode(
             PrimitiveArray::from_option_iter([
+                None,
+                None,
+                None,
+                None,
                 Some(1u64),
                 Some(2u64),
                 Some(3u64),
-                None,
-                None,
-                None,
-                None,
             ])
             .as_ref(),
             3,
@@ -326,9 +328,9 @@ mod test {
         assert_eq!(
             results,
             vec![
-                SearchResult::Found(2),
-                SearchResult::Found(1),
-                SearchResult::Found(0),
+                SearchResult::Found(6),
+                SearchResult::Found(5),
+                SearchResult::Found(4),
             ]
         );
     }

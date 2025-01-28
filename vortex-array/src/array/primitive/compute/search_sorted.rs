@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::cmp::Ordering::Greater;
+use std::cmp::Ordering::Less;
 
 use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
@@ -31,7 +31,7 @@ impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
                 Validity::AllInvalid => Ok(SearchResult::NotFound(0)),
                 Validity::Array(_) => {
                     let pvalue: $T = value.cast(array.dtype())?.try_into()?;
-                    Ok(SearchSortedNullsLast::new(array).search_sorted(&pvalue, side))
+                    Ok(SearchSortedNullsFirst::new(array).search_sorted(&pvalue, side))
                 }
             }
         })
@@ -56,7 +56,7 @@ impl SearchSortedUsizeFn<PrimitiveArray> for PrimitiveEncoding {
                     Validity::AllInvalid => Ok(SearchResult::NotFound(0)),
                     Validity::Array(_) => {
                         // null-aware search
-                        Ok(SearchSortedNullsLast::new(array).search_sorted(&pvalue, side))
+                        Ok(SearchSortedNullsFirst::new(array).search_sorted(&pvalue, side))
                     }
                 }
             } else {
@@ -93,12 +93,12 @@ impl<T> Len for SearchSortedPrimitive<'_, T> {
     }
 }
 
-struct SearchSortedNullsLast<'a, T> {
+struct SearchSortedNullsFirst<'a, T> {
     values: SearchSortedPrimitive<'a, T>,
     validity: Validity,
 }
 
-impl<'a, T: NativePType> SearchSortedNullsLast<'a, T> {
+impl<'a, T: NativePType> SearchSortedNullsFirst<'a, T> {
     pub fn new(array: &'a PrimitiveArray) -> Self {
         Self {
             values: SearchSortedPrimitive::new(array),
@@ -107,7 +107,7 @@ impl<'a, T: NativePType> SearchSortedNullsLast<'a, T> {
     }
 }
 
-impl<T: NativePType> IndexOrd<T> for SearchSortedNullsLast<'_, T> {
+impl<T: NativePType> IndexOrd<T> for SearchSortedNullsFirst<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
         if self
             .validity
@@ -115,14 +115,14 @@ impl<T: NativePType> IndexOrd<T> for SearchSortedNullsLast<'_, T> {
             // TODO(ngates): SearchSortedPrimitive should hold canonical (logical) validity
             .vortex_expect("Failed to check null validity")
         {
-            return Some(Greater);
+            return Some(Less);
         }
 
         self.values.index_cmp(idx, elem)
     }
 }
 
-impl<T> Len for SearchSortedNullsLast<'_, T> {
+impl<T> Len for SearchSortedNullsFirst<'_, T> {
     fn len(&self) -> usize {
         self.values.len()
     }
@@ -130,9 +130,12 @@ impl<T> Len for SearchSortedNullsLast<'_, T> {
 
 #[cfg(test)]
 mod test {
+    use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
 
     use super::*;
+    use crate::array::BoolArray;
     use crate::compute::search_sorted;
     use crate::IntoArrayData;
 
@@ -151,6 +154,38 @@ mod test {
         assert_eq!(
             search_sorted(&values, 1, SearchSortedSide::Right).unwrap(),
             SearchResult::Found(1)
+        );
+        assert_eq!(
+            search_sorted(&values, 4, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(3)
+        );
+    }
+
+    #[test]
+    fn search_sorted_nulls_first() {
+        let values = PrimitiveArray::new(
+            buffer![1u16, 2, 3],
+            Validity::Array(
+                BoolArray::new(
+                    BooleanBuffer::collect_bool(3, |idx| idx != 0),
+                    Nullability::NonNullable,
+                )
+                .into_array(),
+            ),
+        )
+        .into_array();
+
+        assert_eq!(
+            search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(1)
+        );
+        assert_eq!(
+            search_sorted(&values, 1, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(1)
+        );
+        assert_eq!(
+            search_sorted(&values, 2, SearchSortedSide::Right).unwrap(),
+            SearchResult::Found(2)
         );
         assert_eq!(
             search_sorted(&values, 4, SearchSortedSide::Left).unwrap(),
