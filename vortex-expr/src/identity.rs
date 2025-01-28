@@ -69,7 +69,6 @@ mod tests {
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
             Nullability::Nullable,
         );
-        let packed_dtype = ident().return_dtype(&in_dtype).unwrap();
-        assert_eq!(packed_dtype, in_dtype);
+        assert_eq!(ident().return_dtype(&in_dtype).unwrap(), in_dtype);
     }
 }
