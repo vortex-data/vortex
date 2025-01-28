@@ -26,7 +26,7 @@ impl Mask {
             (AllOr::All, _) => mask.clone(),
             (_, AllOr::All) => self.clone(),
             (AllOr::None, _) => Self::new_false(0),
-            (_, AllOr::None) => Self::new_false(self.true_count()),
+            (_, AllOr::None) => Self::new_false(self.len()),
             (AllOr::Some(self_indices), AllOr::Some(mask_indices)) => {
                 Self::from_indices(
                     self.len(),

@@ -13,16 +13,13 @@ use std::sync::{Arc, OnceLock};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use itertools::Itertools;
 
-/// If the mask selects more than this fraction of rows, iterate over slices instead of indices.
-///
-/// Threshold of 0.8 chosen based on Arrow Rust, which is in turn based on:
-///   <https://dl.acm.org/doi/abs/10.1145/3465998.3466009>
-const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
-
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
+    /// All values are included.
     All,
+    /// No values are included.
     None,
+    /// Some values are included.
     Some(T),
 }
 
@@ -61,11 +58,15 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 /// others. Internally, these are cached.
 #[derive(Clone, Debug)]
 pub enum Mask {
+    /// All values are included.
     AllTrue(usize),
+    /// No values are included.
     AllFalse(usize),
+    /// Some values are included, represented as a [`BooleanBuffer`].
     Values(Arc<Values>),
 }
 
+/// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
 pub struct Values {
     buffer: BooleanBuffer,
@@ -94,11 +95,6 @@ impl Values {
         &self.buffer
     }
 
-    /// Returns the indices representation of the mask if one already exists.
-    pub(crate) fn maybe_indices(&self) -> Option<&[usize]> {
-        self.indices.get().map(|v| v.as_slice())
-    }
-
     /// Constructs an indices vector from one of the other representations.
     pub fn indices(&self) -> &[usize] {
         self.indices.get_or_init(|| {
@@ -124,11 +120,6 @@ impl Values {
             assert_eq!(indices.len(), self.true_count);
             return indices;
         })
-    }
-
-    /// Returns the slices representation of the mask if one exists.
-    pub(crate) fn maybe_slices(&self) -> Option<&[(usize, usize)]> {
-        self.slices.get().map(|v| v.as_slice())
     }
 
     /// Constructs a slices vector from one of the other representations.
@@ -366,17 +357,6 @@ impl Mask {
         }
     }
 
-    /// Returns the best iterator based on a selectivity threshold.
-    ///
-    /// Currently, this threshold is fixed at 0.8 based on Arrow Rust.
-    pub fn iter(&self) -> MaskIter {
-        if self.density() > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            MaskIter::Slices(self.slices())
-        } else {
-            MaskIter::Indices(self.indices())
-        }
-    }
-
     /// Slice the mask.
     pub fn slice(&self, offset: usize, length: usize) -> Self {
         assert!(offset + length <= self.len());
@@ -445,12 +425,9 @@ mod test {
         assert_eq!(mask.len(), 5);
         assert_eq!(mask.true_count(), 5);
         assert_eq!(mask.density(), 1.0);
-        assert_eq!(mask.indices(), &[0, 1, 2, 3, 4]);
-        assert_eq!(mask.slices(), &[(0, 5)]);
-        assert_eq!(
-            mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::new_set(5))
-        );
+        assert_eq!(mask.indices(), AllOr::All);
+        assert_eq!(mask.slices(), AllOr::All);
+        assert_eq!(mask.boolean_buffer(), AllOr::All,);
     }
 
     #[test]
@@ -459,12 +436,9 @@ mod test {
         assert_eq!(mask.len(), 5);
         assert_eq!(mask.true_count(), 0);
         assert_eq!(mask.density(), 0.0);
-        assert_eq!(mask.indices(), &[] as &[usize]);
-        assert_eq!(mask.slices(), &[]);
-        assert_eq!(
-            mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::new_unset(5))
-        );
+        assert_eq!(mask.indices(), AllOr::None);
+        assert_eq!(mask.slices(), AllOr::None);
+        assert_eq!(mask.boolean_buffer(), AllOr::None,);
     }
 
     #[test]
@@ -479,8 +453,8 @@ mod test {
             assert_eq!(mask.len(), 5);
             assert_eq!(mask.true_count(), 3);
             assert_eq!(mask.density(), 0.6);
-            assert_eq!(mask.indices(), &[0, 2, 3]);
-            assert_eq!(mask.slices(), &[(0, 1), (2, 4)]);
+            assert_eq!(mask.indices(), AllOr::Some(&[0, 2, 3][..]));
+            assert_eq!(mask.slices(), AllOr::Some(&[(0, 1), (2, 4)][..]));
             assert_eq!(
                 mask.boolean_buffer(),
                 AllOr::Some(&BooleanBuffer::from_iter([true, false, true, true, false]))
