@@ -131,10 +131,10 @@ mod tests {
     use vortex_array::array::{PrimitiveArray, StructArray};
     use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructDType};
+    use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-    use crate::{col, Identity, Pack, VortexExpr};
+    use crate::{col, Pack, VortexExpr};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
