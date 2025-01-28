@@ -88,7 +88,7 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
     // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
     let values = match &mask {
         Mask::AllTrue(_) => return Ok(array.clone()),
-        Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype())?.into_array()),
+        Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array()),
         Mask::Values(values) => values,
     };
 
