@@ -16,13 +16,14 @@ use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
     StructArray, TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
+use crate::builders::builder_with_capacity;
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
@@ -100,14 +101,12 @@ impl Canonical {
 
 impl Canonical {
     // Create an empty canonical array of the given dtype.
-    // TODO(ngates): why can this fail? We should use builders
-    pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
-        let arrow_dtype = infer_data_type(dtype)?;
-        ArrayData::from_arrow(
-            arrow_array::new_empty_array(&arrow_dtype),
-            dtype.is_nullable(),
-        )
-        .into_canonical()
+    pub fn empty(dtype: &DType) -> Canonical {
+        Self::try_empty(dtype).vortex_expect("Cannot build an empty array")
+    }
+
+    pub fn try_empty(dtype: &DType) -> VortexResult<Canonical> {
+        builder_with_capacity(dtype, 0).finish()?.into_canonical()
     }
 }
 

@@ -124,7 +124,7 @@ pub fn compare(
         DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into());
 
     if left.is_empty() {
-        return Ok(Canonical::empty(&result_dtype)?.into_array());
+        return Ok(Canonical::empty(&result_dtype).into_array());
     }
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
