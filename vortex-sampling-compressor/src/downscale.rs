@@ -5,7 +5,7 @@ use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
 use vortex_scalar::Scalar;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
@@ -13,7 +13,7 @@ pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
         // This can happen if e.g. the array is ConstantArray.
         return Ok(array);
     }
-    if array.len() == 0 {
+    if array.is_empty() {
         return Ok(array);
     }
     let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
