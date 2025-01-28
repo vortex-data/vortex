@@ -109,11 +109,12 @@ impl ListArray {
         })
     }
 
-    fn is_valid(&self, index: usize) -> bool {
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.validity().is_valid(index)
     }
 
     // TODO: merge logic with varbin
+    // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
         PrimitiveArray::try_from(self.offsets())
             .ok()
@@ -187,11 +188,11 @@ impl StatisticsVTable<ListArray> for ListEncoding {}
 impl ListArrayTrait for ListArray {}
 
 impl ValidityVTable<ListArray> for ListEncoding {
-    fn is_valid(&self, array: &ListArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ListArray, index: usize) -> VortexResult<bool> {
         array.is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ListArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &ListArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

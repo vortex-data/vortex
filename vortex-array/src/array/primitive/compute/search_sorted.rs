@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::cmp::Ordering::Greater;
 
 use vortex_dtype::{match_each_native_ptype, NativePType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
@@ -109,7 +109,12 @@ impl<'a, T: NativePType> SearchSortedNullsLast<'a, T> {
 
 impl<T: NativePType> IndexOrd<T> for SearchSortedNullsLast<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
-        if self.validity.is_null(idx) {
+        if self
+            .validity
+            .is_null(idx)
+            // TODO(ngates): SearchSortedPrimitive should hold canonical (logical) validity
+            .vortex_expect("Failed to check null validity")
+        {
             return Some(Greater);
         }
 

@@ -351,6 +351,22 @@ impl Mask {
         self.0.selectivity
     }
 
+    /// Returns the boolean value at a given index.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn value(&self, idx: usize) -> bool {
+        if self.all_true() {
+            return true;
+        }
+        if self.all_false() {
+            return false;
+        }
+        // NOTE(ngates): we should follow up and make BooleanBuffer the default impl for this.
+        self.0.buffer().value(idx)
+    }
+
     /// Get the canonical representation of the mask.
     pub fn boolean_buffer(&self) -> &BooleanBuffer {
         self.0.buffer()

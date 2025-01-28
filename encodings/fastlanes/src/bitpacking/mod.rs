@@ -258,11 +258,11 @@ impl IntoCanonical for BitPackedArray {
 }
 
 impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
-    fn is_valid(&self, array: &BitPackedArray, index: usize) -> bool {
+    fn is_valid(&self, array: &BitPackedArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BitPackedArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &BitPackedArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

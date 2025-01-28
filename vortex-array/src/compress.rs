@@ -1,4 +1,4 @@
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_set::HashSet;
@@ -20,8 +20,14 @@ pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     {
         use crate::validity::ArrayValidity;
 
-        let old_validity = arr.logical_validity().len();
-        let new_validity = compressed.logical_validity().len();
+        let old_validity = arr
+            .logical_validity()
+            .vortex_expect("failed to compute validity")
+            .len();
+        let new_validity = compressed
+            .logical_validity()
+            .vortex_expect("failed to compute validity ")
+            .len();
 
         debug_assert!(
             old_validity == new_validity,

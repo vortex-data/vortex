@@ -91,11 +91,11 @@ impl FoRArray {
 }
 
 impl ValidityVTable<FoRArray> for FoREncoding {
-    fn is_valid(&self, array: &FoRArray, index: usize) -> bool {
+    fn is_valid(&self, array: &FoRArray, index: usize) -> VortexResult<bool> {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FoRArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &FoRArray) -> VortexResult<LogicalValidity> {
         array.encoded().logical_validity()
     }
 }

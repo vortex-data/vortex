@@ -74,11 +74,11 @@ impl IntoCanonical for ExtensionArray {
 }
 
 impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
-    fn is_valid(&self, array: &ExtensionArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ExtensionArray, index: usize) -> VortexResult<bool> {
         array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ExtensionArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &ExtensionArray) -> VortexResult<LogicalValidity> {
         array.storage().logical_validity()
     }
 }

@@ -68,6 +68,7 @@ where
 
     fn is_valid(&self, index: usize) -> bool {
         ArrayValidity::is_valid(self, index)
+            .vortex_expect("Failed to check validity of constant array")
     }
 
     fn value_unchecked(&self, _index: usize) -> T {

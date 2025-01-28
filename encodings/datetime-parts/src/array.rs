@@ -98,10 +98,12 @@ impl DateTimePartsArray {
             .vortex_expect("DatetimePartsArray missing subsecond array")
     }
 
-    pub fn validity(&self) -> Validity {
-        self.days()
-            .logical_validity()
-            .into_validity(self.dtype().nullability())
+    pub fn validity(&self) -> VortexResult<Validity> {
+        // FIXME(ngates): this function is weird... can we just use logical validity?
+        Ok(self
+            .days()
+            .logical_validity()?
+            .into_validity(self.dtype().nullability()))
     }
 }
 
@@ -125,7 +127,8 @@ impl ExtensionArrayTrait for DateTimePartsArray {
             vec!["days".into(), "seconds".into(), "subseconds".into()].into(),
             [days, self.seconds(), self.subsecond()].into(),
             self.len(),
-            self.validity(),
+            self.validity()
+                .vortex_expect("Failed to create struct array validity"),
         )
         .vortex_expect("Failed to create struct array")
         .into_array()
@@ -133,12 +136,12 @@ impl ExtensionArrayTrait for DateTimePartsArray {
 }
 
 impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
-    fn is_valid(&self, array: &DateTimePartsArray, index: usize) -> bool {
-        array.validity().is_valid(index)
+    fn is_valid(&self, array: &DateTimePartsArray, index: usize) -> VortexResult<bool> {
+        array.days().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DateTimePartsArray) -> LogicalValidity {
-        array.validity().to_logical(array.len())
+    fn logical_validity(&self, array: &DateTimePartsArray) -> VortexResult<LogicalValidity> {
+        array.days().logical_validity()
     }
 }
 

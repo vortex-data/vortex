@@ -1,14 +1,14 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::{ConstantArray, PrimitiveArray};
 use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
-use vortex_array::validity::LogicalValidity;
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 
@@ -26,7 +26,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
             assert_eq!(usize::try_from(&min).vortex_unwrap(), 0);
-            encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
+            encoded_zero::<$T>(array.logical_validity()?, nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
             let unsigned_ptype = array.ptype().to_unsigned();
@@ -42,29 +42,23 @@ fn encoded_zero<T: NativePType>(
     logical_validity: LogicalValidity,
     nullability: Nullability,
 ) -> VortexResult<ArrayData> {
-    if nullability == Nullability::NonNullable
-        && !matches!(logical_validity, LogicalValidity::AllValid(_))
-    {
-        vortex_bail!("Must have LogicalValidity::AllValid with non-nullable DType")
-    }
-
     let encoded_ptype = T::PTYPE.to_unsigned();
     let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
 
     Ok(match logical_validity {
         LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
         LogicalValidity::AllInvalid(len) => ConstantArray::new(
-            Scalar::null(DType::Primitive(encoded_ptype, nullability)),
+            Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
             len,
         )
         .into_array(),
-        LogicalValidity::Array(a) => {
-            let len = a.len();
-            let valid_indices = a
-                .into_bool()?
-                .boolean_buffer()
-                .set_indices()
-                .map(|i| i as u64)
+        LogicalValidity::Mask(mask) => {
+            let len = mask.len();
+
+            let valid_indices = mask
+                .indices()
+                .iter()
+                .map(|&i| i as u64)
                 .collect::<Buffer<u64>>()
                 .into_array();
             let valid_len = valid_indices.len();

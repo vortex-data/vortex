@@ -4,12 +4,13 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::FillForwardFn;
-use crate::validity::{ArrayValidity, Validity};
+use crate::validity::{ArrayValidity, LogicalValidity, Validity};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
 impl FillForwardFn<BoolArray> for BoolEncoding {
     fn fill_forward(&self, array: &BoolArray) -> VortexResult<ArrayData> {
-        let validity = array.logical_validity();
+        let validity = array.logical_validity()?;
+
         // nothing to see or do in this case
         if array.dtype().nullability() == Nullability::NonNullable {
             return Ok(array.to_array());

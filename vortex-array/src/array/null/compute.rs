@@ -77,7 +77,7 @@ mod test {
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
-            sliced.logical_validity(),
+            sliced.logical_validity().unwrap(),
             LogicalValidity::AllInvalid(4)
         ));
     }
@@ -91,7 +91,7 @@ mod test {
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(
-            taken.logical_validity(),
+            taken.logical_validity().unwrap(),
             LogicalValidity::AllInvalid(5)
         ));
     }

@@ -71,14 +71,14 @@ impl StatisticsVTable<ArrayData> for OpaqueEncoding {}
 impl ValidateVTable<ArrayData> for OpaqueEncoding {}
 
 impl ValidityVTable<ArrayData> for OpaqueEncoding {
-    fn is_valid(&self, _array: &ArrayData, _index: usize) -> bool {
+    fn is_valid(&self, _array: &ArrayData, _index: usize) -> VortexResult<bool> {
         vortex_panic!(
             "OpaqueEncoding: is_valid cannot be called for opaque array ({})",
             self.0
         )
     }
 
-    fn logical_validity(&self, _array: &ArrayData) -> LogicalValidity {
+    fn logical_validity(&self, _array: &ArrayData) -> VortexResult<LogicalValidity> {
         vortex_panic!(
             "OpaqueEncoding: logical_validity cannot be called for opaque array ({})",
             self.0

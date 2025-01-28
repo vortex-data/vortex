@@ -147,7 +147,7 @@ pub fn runend_decode_primitive(
             runend_decode_typed_primitive(
                 trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
                 values.as_slice::<$P>(),
-                values.logical_validity(),
+                values.logical_validity()?,
                 values.dtype().nullability(),
                 length,
             )
@@ -165,7 +165,7 @@ pub fn runend_decode_bools(
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
             values.boolean_buffer(),
-            values.logical_validity(),
+            values.logical_validity()?,
             values.dtype().nullability(),
             length,
         )
@@ -190,14 +190,13 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         LogicalValidity::AllInvalid(_) => {
             PrimitiveArray::new(buffer![T::default(); length], Validity::AllInvalid)
         }
-        LogicalValidity::Array(array) => {
-            let validity = array.into_bool()?.boolean_buffer();
+        LogicalValidity::Mask(mask) => {
             let mut decoded = BufferMut::with_capacity(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
                 values
                     .iter()
-                    .zip(validity.iter())
+                    .zip(mask.boolean_buffer().iter())
                     .map(|(&v, is_valid)| is_valid.then_some(v)),
             ) {
                 match value {
@@ -235,14 +234,13 @@ pub fn runend_decode_typed_bool(
             BoolArray::try_new(BooleanBuffer::new_unset(length), Validity::AllInvalid)
                 .vortex_expect("invalid array")
         }
-        LogicalValidity::Array(array) => {
-            let validity = array.into_bool()?.boolean_buffer();
+        LogicalValidity::Mask(mask) => {
             let mut decoded = BooleanBufferBuilder::new(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
                 values
                     .iter()
-                    .zip(validity.iter())
+                    .zip(mask.boolean_buffer().iter())
                     .map(|(v, is_valid)| is_valid.then_some(v)),
             ) {
                 match value {

@@ -5,6 +5,8 @@
 use std::fmt::{Debug, Display};
 
 use futures_util::stream;
+use itertools::Itertools;
+use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
@@ -224,21 +226,14 @@ impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
 }
 
 impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
-    fn is_valid(&self, array: &ChunkedArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ChunkedArray, index: usize) -> VortexResult<bool> {
         let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
-        array
-            .chunk(chunk)
-            .unwrap_or_else(|e| {
-                vortex_panic!(e, "ChunkedArray: is_valid failed to find chunk {}", index)
-            })
-            .is_valid(offset_in_chunk)
+        array.chunk(chunk)?.is_valid(offset_in_chunk)
     }
 
-    fn logical_validity(&self, array: &ChunkedArray) -> LogicalValidity {
-        let validity = array
-            .chunks()
-            .map(|a| a.logical_validity())
-            .collect::<Validity>();
+    fn logical_validity(&self, array: &ChunkedArray) -> VortexResult<LogicalValidity> {
+        // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
+        let validity: Validity = array.chunks().map(|a| a.logical_validity()).try_collect()?;
         validity.to_logical(array.len())
     }
 }

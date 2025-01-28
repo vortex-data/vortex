@@ -4,9 +4,8 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
 use crate::{get_item, pack, ExprRef, Select};
 
-/// Select is a useful expression, however it can be defined in terms of get_item & pack,
-/// once the expression type is known, this simplifications pass removes the select expression.
-pub fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
+/// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
+pub(crate) fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
     let mut transform = RemoveSelectTransform {
         scope_dtype: scope_dt,
     };

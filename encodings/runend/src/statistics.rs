@@ -22,7 +22,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     .statistics()
                     .compute_is_sorted()
                     .unwrap_or(false)
-                    && array.logical_validity().all_valid(),
+                    && array.logical_validity()?.all_valid(),
             )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
@@ -53,7 +53,7 @@ impl RunEndArray {
         decompressed_ends: &[P],
         decompressed_values: BooleanBuffer,
     ) -> VortexResult<u64> {
-        Ok(match self.values().logical_validity() {
+        Ok(match self.values().logical_validity()? {
             LogicalValidity::AllValid(_) => {
                 let mut begin = self.offset() as u64;
                 decompressed_ends
@@ -69,12 +69,11 @@ impl RunEndArray {
                     .sum()
             }
             LogicalValidity::AllInvalid(_) => 0,
-            LogicalValidity::Array(is_valid) => {
-                let is_valid = is_valid.into_bool()?.boolean_buffer();
-                let mut is_valid = is_valid.set_indices();
+            LogicalValidity::Mask(mask) => {
+                let mut is_valid = mask.indices().iter();
                 match is_valid.next() {
                     None => self.len() as u64,
-                    Some(valid_index) => {
+                    Some(&valid_index) => {
                         let mut true_count: u64 = 0;
                         let offsetted_begin = self.offset() as u64;
                         let offsetted_len = (self.len() + self.offset()) as u64;
@@ -87,7 +86,7 @@ impl RunEndArray {
                         let end = cmp::min(decompressed_ends[valid_index].into(), offsetted_len);
                         true_count += decompressed_values.value(valid_index) as u64 * (end - begin);
 
-                        for valid_index in is_valid {
+                        for &valid_index in is_valid {
                             let valid_end: u64 = decompressed_ends[valid_index].into();
                             let end = cmp::min(valid_end, offsetted_len);
                             true_count +=
@@ -103,12 +102,11 @@ impl RunEndArray {
 
     fn null_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
-        let null_count = match self.values().logical_validity() {
+        let null_count = match self.values().logical_validity()? {
             LogicalValidity::AllValid(_) => 0u64,
             LogicalValidity::AllInvalid(_) => self.len() as u64,
-            LogicalValidity::Array(is_valid) => {
-                let is_valid = is_valid.into_bool()?.boolean_buffer();
-                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), is_valid))
+            LogicalValidity::Mask(mask) => {
+                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), mask.boolean_buffer()))
             }
         };
         Ok(null_count)
@@ -117,7 +115,7 @@ impl RunEndArray {
     fn null_count_with_array_validity<P: NativePType + Into<u64>>(
         &self,
         decompressed_ends: &[P],
-        is_valid: BooleanBuffer,
+        is_valid: &BooleanBuffer,
     ) -> u64 {
         let mut is_valid = is_valid.set_indices();
         match is_valid.next() {

@@ -170,7 +170,7 @@ fn bool_to_arrow(bool_array: BoolArray, data_type: &DataType) -> VortexResult<Ar
     debug_assert_eq!(data_type, &DataType::Boolean);
     Ok(Arc::new(ArrowBoolArray::new(
         bool_array.boolean_buffer(),
-        bool_array.logical_validity().to_null_buffer()?,
+        bool_array.logical_validity()?.to_null_buffer()?,
     )))
 }
 
@@ -189,7 +189,7 @@ fn primitive_to_arrow(
                 0,
                 array.len(),
             ),
-            array.logical_validity().to_null_buffer()?,
+            array.logical_validity()?.to_null_buffer()?,
         )))
     }
 
@@ -225,7 +225,7 @@ fn struct_to_arrow(struct_array: StructArray, data_type: &DataType) -> VortexRes
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
-    let nulls = struct_array.logical_validity().to_null_buffer()?;
+    let nulls = struct_array.logical_validity()?.to_null_buffer()?;
 
     if field_arrays.is_empty() {
         Ok(Arc::new(ArrowStructArray::new_empty_fields(
@@ -292,7 +292,7 @@ fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef
         list.validity().nullability().into(),
     ));
 
-    let nulls = list.logical_validity().to_null_buffer()?;
+    let nulls = list.logical_validity()?.to_null_buffer()?;
 
     Ok(match arrow_offsets.ptype() {
         PType::I32 => Arc::new(arrow_array::ListArray::try_new(
@@ -319,7 +319,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
             .into_primitive()?;
-            let nulls = temporal_values.logical_validity().to_null_buffer()?;
+            let nulls = temporal_values.logical_validity()?.to_null_buffer()?;
             let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
             (scalars, nulls)

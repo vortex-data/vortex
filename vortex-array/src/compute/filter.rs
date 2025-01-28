@@ -8,7 +8,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::ConstantArray;
+use crate::array::{BoolArray, ConstantArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
@@ -128,6 +128,12 @@ impl TryFrom<ArrayData> for Mask {
         // TODO(ngates): should we have a `to_filter_mask` compute function where encodings
         //  pick the best possible conversion? E.g. SparseArray may want from_indices.
         Ok(Self::from_buffer(array.into_bool()?.boolean_buffer()))
+    }
+}
+
+impl IntoArrayData for Mask {
+    fn into_array(self) -> ArrayData {
+        BoolArray::new(self.boolean_buffer().clone(), Nullability::NonNullable).into_array()
     }
 }
 

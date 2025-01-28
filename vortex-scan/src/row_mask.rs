@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, RangeBounds};
 
 use vortex_array::array::BooleanBuffer;
-use vortex_array::compute::{and, filter, slice, try_cast};
+use vortex_array::compute::{filter, slice, try_cast};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
@@ -79,15 +79,12 @@ impl RowMask {
     ///
     /// True-valued positions are kept by the returned mask.
     fn from_mask_array(array: &ArrayData, begin: u64) -> VortexResult<Self> {
-        match array.logical_validity() {
+        match array.logical_validity()? {
             LogicalValidity::AllValid(_) => Ok(Self::new(Mask::try_from(array.clone())?, begin)),
             LogicalValidity::AllInvalid(_) => {
                 Ok(Self::new_invalid_between(begin, begin + array.len() as u64))
             }
-            LogicalValidity::Array(validity) => {
-                let bitmask = and(array.clone(), validity)?;
-                Ok(Self::new(Mask::try_from(bitmask)?, begin))
-            }
+            LogicalValidity::Mask(mask) => Ok(Self::new(mask, begin)),
         }
     }
 

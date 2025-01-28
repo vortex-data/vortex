@@ -126,15 +126,18 @@ mod test {
         assert_eq!(flat_bools.validity(), expected.validity());
 
         assert!(flat_bools.boolean_buffer().value(0));
-        assert!(flat_bools.validity().is_valid(0));
+        assert!(flat_bools.validity().is_valid(0).unwrap());
         assert_eq!(
             flat_bools.boolean_buffer().value(1),
             fill_value.unwrap_or_default()
         );
-        assert!(!flat_bools.validity().is_valid(1));
-        assert_eq!(flat_bools.validity().is_valid(2), fill_value.is_some());
+        assert!(!flat_bools.validity().is_valid(1).unwrap());
+        assert_eq!(
+            flat_bools.validity().is_valid(2).unwrap(),
+            fill_value.is_some()
+        );
         assert!(!flat_bools.boolean_buffer().value(7));
-        assert!(flat_bools.validity().is_valid(7));
+        assert!(flat_bools.validity().is_valid(7).unwrap());
     }
 
     fn bool_array_from_nullable_vec(
@@ -189,15 +192,18 @@ mod test {
         assert_eq!(flat_ints.validity(), expected.validity());
 
         assert_eq!(flat_ints.as_slice::<i32>()[0], 0);
-        assert!(flat_ints.validity().is_valid(0));
+        assert!(flat_ints.validity().is_valid(0).unwrap());
         assert_eq!(flat_ints.as_slice::<i32>()[1], 0);
-        assert!(!flat_ints.validity().is_valid(1));
+        assert!(!flat_ints.validity().is_valid(1).unwrap());
         assert_eq!(
             flat_ints.as_slice::<i32>()[2],
             fill_value.unwrap_or_default()
         );
-        assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
+        assert_eq!(
+            flat_ints.validity().is_valid(2).unwrap(),
+            fill_value.is_some()
+        );
         assert_eq!(flat_ints.as_slice::<i32>()[7], 1);
-        assert!(flat_ints.validity().is_valid(7));
+        assert!(flat_ints.validity().is_valid(7).unwrap());
     }
 }

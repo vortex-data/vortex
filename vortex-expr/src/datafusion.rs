@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 use crate::{get_item, ident, lit, BinaryExpr, ExprRef, Like, Operator};
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
-// for that node, up to any `and` or `or` node.
+//  for that node, up to any `and` or `or` node.
 pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexResult<ExprRef> {
     if let Some(binary_expr) = physical_expr
         .as_any()

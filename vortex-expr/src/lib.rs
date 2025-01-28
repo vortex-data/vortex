@@ -15,6 +15,7 @@ mod get_item;
 mod identity;
 mod like;
 mod literal;
+mod merge;
 mod not;
 mod operators;
 mod pack;
@@ -23,11 +24,13 @@ mod select;
 pub mod transform;
 #[allow(dead_code)]
 mod traversal;
+
 pub use binary::*;
 pub use get_item::*;
 pub use identity::*;
 pub use like::*;
 pub use literal::*;
+pub use merge::*;
 pub use not::*;
 pub use operators::*;
 pub use pack::*;

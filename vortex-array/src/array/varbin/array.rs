@@ -7,11 +7,11 @@ use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::ArrayLen;
 
 impl ValidityVTable<VarBinArray> for VarBinEncoding {
-    fn is_valid(&self, array: &VarBinArray, index: usize) -> bool {
+    fn is_valid(&self, array: &VarBinArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &VarBinArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &VarBinArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

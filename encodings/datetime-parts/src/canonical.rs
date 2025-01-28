@@ -90,7 +90,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), array.validity()).into_array(),
+        PrimitiveArray::new(values.freeze(), array.validity()?).into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
@@ -129,7 +129,7 @@ mod test {
         ))
         .unwrap();
 
-        assert_eq!(date_times.validity(), validity);
+        assert_eq!(date_times.validity().unwrap(), validity);
 
         let primitive_values = decode_to_temporal(&date_times)
             .unwrap()
