@@ -43,7 +43,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         .flatten();
 
     // Short-circuit if the selectivity is high enough.
-    if mask.selectivity() > 0.8 {
+    if mask.density() > 0.8 {
         return filter(array.clone().into_primitive()?.as_ref(), mask)
             .and_then(|a| a.into_primitive());
     }

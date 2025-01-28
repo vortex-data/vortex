@@ -9,29 +9,7 @@ impl PartialEq for Mask {
             return false;
         }
 
-        // Since the true counts are the same, a full or empty mask is equal to the other mask.
-        if self.true_count() == 0 || self.true_count() == self.len() {
-            return true;
-        }
-
-        // Compare the buffer if both masks are non-empty.
-        if let (Some(buffer), Some(other)) = (self.0.buffer.get(), other.0.buffer.get()) {
-            return buffer == other;
-        }
-
-        // Compare the indices if both masks are non-empty.
-        if let (Some(indices), Some(other)) = (self.0.indices.get(), other.0.indices.get()) {
-            return indices == other;
-        }
-
-        // Compare the slices if both masks are non-empty.
-        if let (Some(slices), Some(other)) = (self.0.slices.get(), other.0.slices.get()) {
-            return slices == other;
-        }
-
-        // Otherwise, we fall back to comparison based on sparsity.
-        // We could go further an exhaustively check whose OnceLocks are initialized, but that's
-        // probably not worth the effort.
+        // TODO(ngates): we could compare by indices if density is low enough
         self.boolean_buffer() == other.boolean_buffer()
     }
 }
