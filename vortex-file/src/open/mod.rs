@@ -65,6 +65,12 @@ impl VortexOpenOptions {
         }
     }
 
+    /// Configure a layout context.
+    pub fn with_layouts(mut self, layout_ctx: LayoutContextRef) -> Self {
+        self.layout_ctx = layout_ctx;
+        self
+    }
+
     /// Configure a known file layout.
     ///
     /// If this is provided, then the Vortex file can be opened without performing any I/O.

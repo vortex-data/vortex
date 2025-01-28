@@ -7,8 +7,8 @@ use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_panic, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
@@ -18,9 +18,18 @@ use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant};
 
-trait PStatsType: NativePType + Into<Scalar> + BitWidth {}
+trait PStatsType:
+    NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
+{
+}
 
-impl<T: NativePType + Into<Scalar> + BitWidth> PStatsType for T {}
+impl<T> PStatsType for T where
+    T: NativePType
+        + Into<ScalarValue>
+        + BitWidth
+        + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
+{
+}
 
 impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -43,10 +52,10 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
         })?;
 
         if let Some(min) = stats.get(Stat::Min) {
-            stats.set(Stat::Min, min.cast(array.dtype())?);
+            stats.set(Stat::Min, min.clone());
         }
         if let Some(max) = stats.get(Stat::Max) {
-            stats.set(Stat::Max, max.cast(array.dtype())?);
+            stats.set(Stat::Max, max.clone());
         }
         Ok(stats)
     }
@@ -64,8 +73,8 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
                 stats.set(
                     Stat::IsConstant,
                     stats
-                        .get(Stat::Min)
-                        .zip(stats.get(Stat::Max))
+                        .get_as::<T>(Stat::Min)
+                        .zip(stats.get_as::<T>(Stat::Max))
                         .map(|(min, max)| min == max)
                         .unwrap_or(false),
                 );
@@ -169,7 +178,7 @@ fn compute_min_max<T: PStatsType>(
     match iter.minmax_by(|a, b| a.total_compare(*b)) {
         MinMaxResult::NoElements => StatsSet::default(),
         MinMaxResult::OneElement(x) => {
-            let scalar: Scalar = x.into();
+            let scalar = x.into();
             StatsSet::new_unchecked(vec![
                 (Stat::Min, scalar.clone()),
                 (Stat::Max, scalar),
@@ -334,8 +343,6 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
-    use vortex_scalar::Scalar;
-
     use crate::array::primitive::PrimitiveArray;
     use crate::stats::{ArrayStatistics, Stat};
 
@@ -399,9 +406,9 @@ mod test {
     #[test]
     fn all_null() {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
-        let min: Option<Scalar> = arr.statistics().compute(Stat::Min);
-        let max: Option<Scalar> = arr.statistics().compute(Stat::Max);
-        assert_eq!(min, None);
-        assert_eq!(max, None);
+        let min = arr.statistics().compute(Stat::Min);
+        let max = arr.statistics().compute(Stat::Max);
+        assert!(min.is_none());
+        assert!(max.is_none());
     }
 }

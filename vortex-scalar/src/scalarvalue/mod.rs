@@ -1,3 +1,9 @@
+mod binary;
+mod bool;
+mod list;
+mod primitive;
+mod utf8;
+
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
@@ -7,6 +13,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::pvalue::PValue;
+use crate::ScalarType;
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
 /// up with a DType to make a Scalar.
@@ -14,19 +21,17 @@ use crate::pvalue::PValue;
 /// Note that these values can be deserialized from JSON or other formats. So a PValue may not
 /// have the correct width for what the DType expects. Primitive values should therefore be
 /// read using [crate::PrimitiveScalar] which will handle the conversion.
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+#[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+#[derive(Debug, Clone)]
 pub(crate) enum InnerScalarValue {
+    Null,
     Bool(bool),
     Primitive(PValue),
-    Buffer(ByteBuffer),
-    BufferString(BufferString),
+    Buffer(Arc<ByteBuffer>),
+    BufferString(Arc<BufferString>),
     List(Arc<[ScalarValue]>),
-    // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
-    // values such that Nulls are last (greatest)
-    Null,
 }
 
 #[cfg(feature = "flatbuffers")]
@@ -79,7 +84,7 @@ impl Display for InnerScalarValue {
                         to_hex(&buf[buf.len() - 5..buf.len()])?,
                     )
                 } else {
-                    write!(f, "{}", to_hex(buf.as_slice())?)
+                    write!(f, "{}", to_hex(buf)?)
                 }
             }
             Self::BufferString(bufstr) => {
@@ -87,8 +92,8 @@ impl Display for InnerScalarValue {
                     write!(
                         f,
                         "{}..{}",
-                        &bufstr.as_str()[0..5],
-                        &bufstr.as_str()[bufstr.len() - 5..bufstr.len()],
+                        &bufstr[0..5],
+                        &bufstr[bufstr.len() - 5..bufstr.len()],
                     )
                 } else {
                     write!(f, "\"{}\"", bufstr.as_str())
@@ -103,7 +108,7 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
-    pub(crate) fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         self.0.is_null()
     }
 
@@ -194,7 +199,7 @@ impl InnerScalarValue {
     pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),
+            InnerScalarValue::Buffer(b) => Ok(Some(b.as_ref().clone())),
             _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }
@@ -202,8 +207,8 @@ impl InnerScalarValue {
     pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => Ok(Some(BufferString::try_from(b.clone())?)),
-            InnerScalarValue::BufferString(b) => Ok(Some(b.clone())),
+            InnerScalarValue::Buffer(b) => Ok(Some(BufferString::try_from(b.as_ref().clone())?)),
+            InnerScalarValue::BufferString(b) => Ok(Some(b.as_ref().clone())),
             _ => Err(vortex_err!("Expected a string scalar, found {:?}", self)),
         }
     }
@@ -214,6 +219,18 @@ impl InnerScalarValue {
             InnerScalarValue::List(l) => Ok(Some(l)),
             _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
         }
+    }
+}
+
+impl<T> From<Option<T>> for ScalarValue
+where
+    T: ScalarType,
+    ScalarValue: From<T>,
+{
+    fn from(value: Option<T>) -> Self {
+        value
+            .map(ScalarValue::from)
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null))
     }
 }
 

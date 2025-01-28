@@ -353,18 +353,9 @@ impl core::fmt::Debug for FileLayout<'_> {
 pub enum PostscriptOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// The `Postscript` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
-/// in length, and is immediately followed by an 8-byte `EndOfFile` struct.
-///
-/// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
-/// using flatbuffers, but the equivalent flatbuffer definition would be:
-///
-/// struct EndOfFile {
-///     version: uint16;
-///     footer_length: uint16;
-///     magic: [uint8; 4]; // "VTXF"
-/// }
-///
+/// The `Postscript` is guaranteed by the file format to never exceed
+/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
+/// followed by an 8-byte `EndOfFile` struct.
 pub struct Postscript<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }

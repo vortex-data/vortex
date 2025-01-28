@@ -9,6 +9,7 @@ use pyo3::types::PyDict;
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
+use vortex::error::VortexExpect;
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
@@ -190,6 +191,8 @@ impl PyVortexList {
 fn to_python_list(py: Python, scalar: ListScalar<'_>, recursive: bool) -> PyResult<PyObject> {
     Ok(scalar
         .elements()
+        .vortex_expect("non-null")
+        .into_iter()
         .map(|x| scalar_into_py(py, x, recursive))
         .collect::<PyResult<Vec<_>>>()?
         .into_py(py))

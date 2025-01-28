@@ -4,9 +4,10 @@ use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::ArrayLen;
+use vortex_array::{ArrayDType, ArrayLen};
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 pub(crate) fn chunked_array_df_stats(
     array: &ChunkedArray,
@@ -32,6 +33,7 @@ pub(crate) fn chunked_array_df_stats(
                 max_value: arr
                     .statistics()
                     .get(Stat::Max)
+                    .map(|n| Scalar::new(array.dtype().clone(), n))
                     .map(|n| {
                         ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
                     })
@@ -40,6 +42,7 @@ pub(crate) fn chunked_array_df_stats(
                 min_value: arr
                     .statistics()
                     .get(Stat::Min)
+                    .map(|n| Scalar::new(array.dtype().clone(), n))
                     .map(|n| {
                         ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
                     })

@@ -8,7 +8,7 @@ from ..substrait import extended_expression
 
 def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> list[expr.Expr]:
     substrait_object = ExtendedExpression()
-    substrait_object.ParseFromString(arrow_expression.to_substrait(schema).to_pybytes())
+    substrait_object.ParseFromString(arrow_expression.to_substrait(schema))
 
     expressions = extended_expression(substrait_object)
 

@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -7,12 +8,39 @@ use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
 
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,
+}
+
+impl PartialEq for StructScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.dtype != other.dtype {
+            return false;
+        }
+        self.fields() == other.fields()
+    }
+}
+
+impl Eq for StructScalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different DTypes
+impl PartialOrd for StructScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+        self.fields().partial_cmp(&other.fields())
+    }
+}
+
+impl Hash for StructScalar<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        self.fields().hash(state);
+    }
 }
 
 impl<'a> StructScalar<'a> {

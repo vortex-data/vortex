@@ -1,14 +1,38 @@
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::value::ScalarValue;
-use crate::Scalar;
+use crate::{Scalar, ScalarValue};
 
 pub struct ExtScalar<'a> {
     ext_dtype: &'a ExtDType,
     value: &'a ScalarValue,
+}
+
+impl PartialEq for ExtScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ext_dtype == other.ext_dtype && self.storage() == other.storage()
+    }
+}
+
+impl Eq for ExtScalar<'_> {}
+
+impl PartialOrd for ExtScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.ext_dtype != other.ext_dtype {
+            return None;
+        }
+        self.storage().partial_cmp(&other.storage())
+    }
+}
+
+impl Hash for ExtScalar<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ext_dtype.hash(state);
+        self.storage().hash(state);
+    }
 }
 
 impl<'a> ExtScalar<'a> {

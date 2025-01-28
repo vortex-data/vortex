@@ -88,8 +88,8 @@ mod tests {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert_eq!(bool_arr.statistics().compute(Stat::Min), None);
-        assert_eq!(bool_arr.statistics().compute(Stat::Max), None);
+        assert!(bool_arr.statistics().compute(Stat::Min).is_none());
+        assert!(bool_arr.statistics().compute(Stat::Max).is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
     }

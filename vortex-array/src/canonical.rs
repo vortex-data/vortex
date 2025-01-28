@@ -600,7 +600,7 @@ mod test {
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
-    use crate::array::{SparseArray, StructArray};
+    use crate::array::{ConstantArray, StructArray};
     use crate::arrow::{infer_data_type, FromArrowArray};
     use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
@@ -613,18 +613,11 @@ mod test {
                 "b",
                 StructArray::from_fields(&[(
                     "inner_a",
-                    // The nested struct contains a SparseArray representing the primitive array
-                    //   [100i64, 100i64, 100i64]
-                    // SparseArray is not a canonical type, so converting `into_arrow()` should map
-                    // this to the nearest canonical type (PrimitiveArray).
-                    SparseArray::try_new(
-                        buffer![0u64; 1].into_array(),
-                        buffer![100i64].into_array(),
-                        1,
-                        0i64.into(),
-                    )
-                    .unwrap()
-                    .into_array(),
+                    // The nested struct contains a ConstantArray representing the primitive array
+                    //   [100i64]
+                    // ConstantArray is not a canonical type, so converting `into_arrow()` should
+                    // map this to the nearest canonical type (PrimitiveArray).
+                    ConstantArray::new(100i64, 1).into_array(),
                 )])
                 .unwrap()
                 .into_array(),

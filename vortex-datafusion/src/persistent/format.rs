@@ -18,13 +18,14 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::arrow::infer_schema;
+use vortex_array::arrow::{infer_schema, FromArrowType};
 use vortex_array::stats::Stat;
 use vortex_array::ContextRef;
-use vortex_dtype::FieldPath;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
+use vortex_scalar::Scalar;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
@@ -176,15 +177,18 @@ impl FileFormat for VortexFormat {
 
         let column_statistics = stats
             .into_iter()
-            .map(|s| {
+            .zip(table_schema.fields().iter())
+            .map(|(s, f)| {
                 let null_count = s.get_as::<usize>(Stat::NullCount);
                 let min = s
                     .get(Stat::Min)
                     .cloned()
+                    .map(|n| Scalar::new(DType::from_arrow(f.as_ref()), n))
                     .and_then(|s| ScalarValue::try_from(s).ok());
                 let max = s
                     .get(Stat::Max)
                     .cloned()
+                    .map(|n| Scalar::new(DType::from_arrow(f.as_ref()), n))
                     .and_then(|s| ScalarValue::try_from(s).ok());
                 ColumnStatistics {
                     null_count: null_count

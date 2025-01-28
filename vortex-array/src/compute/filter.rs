@@ -115,7 +115,7 @@ impl TryFrom<ArrayData> for Mask {
             );
         }
 
-        if let Some(true_count) = array.statistics().get_as_cast::<u64>(Stat::TrueCount) {
+        if let Some(true_count) = array.statistics().get_as::<u64>(Stat::TrueCount) {
             let len = array.len();
             if true_count == 0 {
                 return Ok(Self::new_false(len));
@@ -133,8 +133,6 @@ impl TryFrom<ArrayData> for Mask {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
-
     use super::*;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;

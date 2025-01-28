@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::future::{ready, try_join_all};
 use futures::FutureExt;
 use vortex_array::array::{ChunkedArray, ConstantArray};
-use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_scalar::Scalar;
@@ -20,10 +20,7 @@ impl ExprEvaluator for ChunkedReader {
         expr: ExprRef,
     ) -> VortexResult<ArrayData> {
         // Compute the result dtype of the expression.
-        let dtype = expr
-            .evaluate(&Canonical::empty(self.dtype())?.into_array())?
-            .dtype()
-            .clone();
+        let dtype = expr.return_dtype(self.dtype())?;
 
         // First we need to compute the pruning mask
         let pruning_mask = self.pruning_mask(&expr).await?;

@@ -21,13 +21,9 @@ impl WriteFlatBuffer for &dyn Statistics {
             .map(|v| v.iter().copied().collect_vec())
             .map(|v| fbb.create_vector(v.as_slice()));
 
-        let min = self
-            .get(Stat::Min)
-            .map(|min| min.into_value().write_flatbuffer(fbb));
+        let min = self.get(Stat::Min).map(|min| min.write_flatbuffer(fbb));
 
-        let max = self
-            .get(Stat::Max)
-            .map(|max| max.into_value().write_flatbuffer(fbb));
+        let max = self.get(Stat::Max).map(|max| max.write_flatbuffer(fbb));
 
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,
@@ -35,12 +31,12 @@ impl WriteFlatBuffer for &dyn Statistics {
             is_sorted: self.get_as::<bool>(Stat::IsSorted),
             is_strict_sorted: self.get_as::<bool>(Stat::IsStrictSorted),
             is_constant: self.get_as::<bool>(Stat::IsConstant),
-            run_count: self.get_as_cast::<u64>(Stat::RunCount),
-            true_count: self.get_as_cast::<u64>(Stat::TrueCount),
-            null_count: self.get_as_cast::<u64>(Stat::NullCount),
+            run_count: self.get_as::<u64>(Stat::RunCount),
+            true_count: self.get_as::<u64>(Stat::TrueCount),
+            null_count: self.get_as::<u64>(Stat::NullCount),
             bit_width_freq,
             trailing_zero_freq,
-            uncompressed_size_in_bytes: self.get_as_cast::<u64>(Stat::UncompressedSizeInBytes),
+            uncompressed_size_in_bytes: self.get_as::<u64>(Stat::UncompressedSizeInBytes),
         };
 
         crate::flatbuffers::ArrayStats::create(fbb, stat_args)

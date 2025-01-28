@@ -8,15 +8,11 @@ use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
-use rkyv::from_bytes;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult, VortexUnwrap,
-};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
 
-use crate::array::{StructArray, StructMetadata, VarBinMetadata};
 use crate::arrow::FromArrowArray;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
@@ -275,7 +271,8 @@ impl VarBinViewArray {
     /// Will return a bytebuffer pointing to the underlying data without performing a copy
     #[inline]
     pub fn bytes_at(&self, index: usize) -> ByteBuffer {
-        let view = self.views()[index];
+        let views = self.views();
+        let view = &views[index];
         // Expect this to be the common case: strings > 12 bytes.
         if !view.is_inlined() {
             let view_ref = view.as_view();
@@ -283,12 +280,10 @@ impl VarBinViewArray {
                 .slice(view_ref.to_range())
         } else {
             // Return access to the range of bytes around it.
-            let view_byte_start = index * size_of::<BinaryView>() + 4;
-            let view_byte_end = view_byte_start + view.len() as usize;
-            self.0
-                .byte_buffer(0)
-                .vortex_expect("Must have views buffer")
-                .slice_with_alignment(view_byte_start..view_byte_end, Alignment::new(1))
+            views
+                .clone()
+                .into_byte_buffer()
+                .slice_ref(view.as_inlined().value())
         }
     }
 

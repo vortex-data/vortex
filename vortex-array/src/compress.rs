@@ -1,9 +1,10 @@
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
 use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
-use crate::ArrayData;
+use crate::{ArrayDType, ArrayData};
 
 pub trait CompressionStrategy {
     fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData>;
@@ -64,15 +65,18 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
             .into_iter()
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
+            let compressed_scalar = compressed
+                .statistics()
+                .get(stat)
+                .map(|sv| Scalar::new(stat.dtype(compressed.dtype()), sv));
             debug_assert_eq!(
-                compressed.statistics().get(stat),
-                Some(value.clone()),
+                compressed_scalar,
+                Some(Scalar::new(stat.dtype(arr.dtype()), value.clone())),
                 "Compression changed {stat} from {value} to {}",
-                compressed
-                    .statistics()
-                    .get(stat)
+                compressed_scalar
+                    .as_ref()
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| "null".to_string())
+                    .unwrap_or_else(|| "null".to_string()),
             );
         }
     }

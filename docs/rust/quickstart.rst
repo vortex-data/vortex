@@ -5,7 +5,6 @@ The reference implementation exposes both a Rust and Python API. A C API is curr
 
 - :ref:`Quickstart for Python <python-quickstart>`
 - :ref:`Quickstart for Rust <rust-quickstart>`
-- :ref:`Quickstart for C <c-quickstart>`
 
 .. _python-quickstart:
 
@@ -186,11 +185,3 @@ Read
        .into_array();
 
    println!("{}", cvtx.nbytes());
-
-
-.. _c-quickstart:
-
-C
--
-
-Coming soon!

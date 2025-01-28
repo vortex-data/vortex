@@ -1,5 +1,7 @@
 use std::any::type_name;
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
+use std::ops::Sub;
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
@@ -10,14 +12,31 @@ use vortex_error::{
 };
 
 use crate::pvalue::PValue;
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
     ptype: PType,
     pvalue: Option<PValue>,
+}
+
+impl PartialEq for PrimitiveScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype() == other.dtype() && self.pvalue == other.pvalue
+    }
+}
+
+impl Eq for PrimitiveScalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different nullability
+impl PartialOrd for PrimitiveScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+        self.pvalue.partial_cmp(&other.pvalue)
+    }
 }
 
 impl<'a> PrimitiveScalar<'a> {
@@ -169,7 +188,7 @@ impl<'a> TryFrom<&'a Scalar> for PrimitiveScalar<'a> {
     }
 }
 
-impl std::ops::Sub for PrimitiveScalar<'_> {
+impl Sub for PrimitiveScalar<'_> {
     type Output = VortexResult<Self>;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -216,13 +235,6 @@ impl Scalar {
                 .map(|x| ScalarValue(InnerScalarValue::Primitive(x)))
                 .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
         )
-    }
-
-    pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(T::zero().into())),
-        }
     }
 }
 
@@ -434,8 +446,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
-    use crate::value::InnerScalarValue;
-    use crate::{PValue, PrimitiveScalar, ScalarValue};
+    use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
 
     #[test]
     fn test_integer_subtract() {
