@@ -54,7 +54,7 @@ pub fn filter(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
 
     // Fast-path for empty mask.
     if true_count == 0 {
-        return Ok(Canonical::empty(array.dtype())?.into());
+        return Ok(Canonical::empty(array.dtype()).into());
     }
 
     // Fast-path for full mask

@@ -16,7 +16,7 @@ use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
@@ -101,7 +101,11 @@ impl Canonical {
 
 impl Canonical {
     // Create an empty canonical array of the given dtype.
-    pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
+    pub fn empty(dtype: &DType) -> Canonical {
+        Self::try_empty(dtype).vortex_expect("Cannot build an empty array")
+    }
+
+    pub fn try_empty(dtype: &DType) -> VortexResult<Canonical> {
         builder_with_capacity(dtype, 0).finish()?.into_canonical()
     }
 }
