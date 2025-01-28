@@ -149,7 +149,7 @@ struct BitPackedSearch<'a, T> {
     offset: u16,
     length: usize,
     bit_width: u8,
-    last_null_idx: usize,
+    first_non_null_idx: usize,
     first_patch_index: usize,
 }
 
@@ -161,7 +161,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             .transpose()
             .vortex_expect("Failed to get min patch index")
             .unwrap_or_else(|| array.len());
-        let last_null_idx = match array.validity() {
+        let first_non_null_idx = match array.validity() {
             Validity::NonNullable | Validity::AllValid => 0,
             Validity::AllInvalid => array.len(),
             Validity::Array(varray) => {
@@ -178,7 +178,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             offset: array.offset(),
             length: array.len(),
             bit_width: array.bit_width(),
-            last_null_idx,
+            first_non_null_idx,
             first_patch_index,
         }
     }
@@ -186,7 +186,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
 
 impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
-        if idx < self.last_null_idx {
+        if idx < self.first_non_null_idx {
             return Some(Less);
         }
         if idx >= self.first_patch_index {
