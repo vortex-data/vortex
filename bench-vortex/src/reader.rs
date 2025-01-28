@@ -68,8 +68,8 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
 }
 
 pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<ChunkedArray> {
-    let taxi_pq = File::open(parquet_path)?;
-    let builder = ParquetRecordBatchReaderBuilder::try_new(taxi_pq)?;
+    let pq_file = File::open(parquet_path)?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(pq_file)?;
     // FIXME(ngates): #157 the compressor should handle batch size.
     let reader = builder.with_batch_size(BATCH_SIZE).build()?;
     let dtype = DType::from_arrow(reader.schema());

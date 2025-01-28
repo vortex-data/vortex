@@ -14,9 +14,10 @@ use arrow_schema::Schema;
 use bench_vortex::data_downloads::BenchmarkDataset;
 use bench_vortex::public_bi_data::BenchmarkDatasets;
 use bench_vortex::public_bi_data::PBIDataset::*;
+use bench_vortex::reader::read_parquet_to_vortex;
 use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::{fetch_taxi_data, tpch};
+use bench_vortex::{fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
@@ -408,8 +409,27 @@ fn tpc_h_l_comment(c: &mut Criterion) {
     );
 }
 
+fn wide_table(c: &mut Criterion) {
+    let row_count = 1000;
+    let compressor = SamplingCompressor::default();
+    for chunks in [1, 50] {
+        for num_columns in [10, 100, 1000] {
+            let name = format!("wide table cols={num_columns} chunks={chunks} rows={row_count}");
+            benchmark_compress(
+                c,
+                &compressor,
+                || generate_struct_of_list_of_ints_array(num_columns, row_count, chunks).unwrap(),
+                10,
+                None,
+                &name,
+            );
+        }
+    }
+}
+
 criterion_group!(
     benches,
+    wide_table,
     yellow_taxi_trip_data,
     public_bi_benchmark,
     tpc_h_l_comment,
