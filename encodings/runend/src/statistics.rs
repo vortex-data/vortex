@@ -70,7 +70,7 @@ impl RunEndArray {
             }
             LogicalValidity::AllInvalid(_) => 0,
             LogicalValidity::Mask(mask) => {
-                let mut is_valid = mask.indices().into_iter();
+                let mut is_valid = mask.indices().iter();
                 match is_valid.next() {
                     None => self.len() as u64,
                     Some(&valid_index) => {

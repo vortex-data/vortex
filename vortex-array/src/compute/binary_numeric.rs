@@ -223,7 +223,6 @@ pub mod test_harness {
             .into_primitive()
             .unwrap();
 
-        println!("CANONICALIZED ARRAY: {:?}", canonicalized_array);
         let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
         let one = T::from(1)
