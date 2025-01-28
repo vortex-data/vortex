@@ -127,7 +127,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some((chunk.len() * 8) as usize + 1)
+                Some((chunk.len() * 8) + 1)
             );
         }
 
@@ -142,7 +142,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(chunk.len().div_ceil(8) as usize + 2)
+                Some(chunk.len().div_ceil(8) + 2)
             );
         }
 
