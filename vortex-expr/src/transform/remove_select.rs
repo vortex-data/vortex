@@ -5,7 +5,7 @@ use crate::traversal::{MutNodeVisitor, Node, TransformResult};
 use crate::{get_item, pack, ExprRef, Select};
 
 /// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
-pub fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
+pub(crate) fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
     let mut transform = RemoveSelectTransform {
         scope_dtype: scope_dt,
     };
