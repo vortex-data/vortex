@@ -49,8 +49,7 @@ fn encoded_zero<T: NativePType>(
     }
 
     let encoded_ptype = T::PTYPE.to_unsigned();
-    let zero =
-        match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(nullability));
+    let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
 
     Ok(match logical_validity {
         LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
