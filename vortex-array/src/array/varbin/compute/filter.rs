@@ -234,7 +234,7 @@ mod test {
             DType::Utf8(NonNullable),
         );
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (5, 6)], 3)
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3)
             .unwrap()
             .to_array();
 
