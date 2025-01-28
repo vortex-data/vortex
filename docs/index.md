@@ -104,7 +104,7 @@ hidden:
 caption: Project Links
 ---
 
-References <references>
+references
 Spiral <https://spiraldb.com>
 GitHub <https://github.com/spiraldb/vortex>
 PyPI <https://pypi.org/project/vortex-array>

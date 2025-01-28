@@ -116,3 +116,59 @@
     pages = {2769–2782},
     numpages = {14}
 }
+
+@article{2023/SelectionPushdown,
+    author = {Li, Yinan and Lu, Jianan and Chandramouli, Badrish},
+    title = {Selection Pushdown in Column Stores using Bit Manipulation Instructions},
+    year = {2023},
+    issue_date = {June 2023},
+    publisher = {Association for Computing Machinery},
+    address = {New York, NY, USA},
+    volume = {1},
+    number = {2},
+    url = {https://doi.org/10.1145/3589323},
+    doi = {10.1145/3589323},
+    abstract = {Modern analytical database systems predominantly rely on column-oriented storage, which offers superior compression efficiency due to the nature of the columnar layout. This compression, however, creates challenges in decoding speed during query processing. Previous research has explored predicate pushdown on encoded values to avoid decoding, but these techniques are restricted to specific encoding schemes and predicates, limiting their practical use. In this paper, we propose a generic predicate pushdown approach that supports arbitrary predicates by leveraging selection pushdown to reduce decoding costs. At the core of our approach is a fast select operator capable of directly extracting selected encoded values without decoding, by using Bit Manipulation Instructions, an instruction set extension to the X86 architecture. We empirically evaluate the proposed techniques in the context of Apache Parquet using both micro-benchmarks and the TPC-H benchmark, and show that our techniques improve the query performance of Parquet by up to one order of magnitude with representative scan queries. Further experimentation using Apache Spark demonstrates speed improvements of up to 5.5X even for end-to-end queries involving complex joins.},
+    journal = {Proc. ACM Manag. Data},
+    month = jun,
+    articleno = {178},
+    numpages = {26},
+    keywords = {BMI, column stores, compression, predicate pushdown}
+}
+
+@inproceedings{2021/JSONTiles,
+    author = {Durner, Dominik and Leis, Viktor and Neumann, Thomas},
+    title = {JSON Tiles: Fast Analytics on Semi-Structured Data},
+    year = {2021},
+    isbn = {9781450383431},
+    publisher = {Association for Computing Machinery},
+    address = {New York, NY, USA},
+    url = {https://doi.org/10.1145/3448016.3452809},
+    doi = {10.1145/3448016.3452809},
+    abstract = {Developers often prefer flexibility over upfront schema design, making semi-structured data formats such as JSON increasingly popular. Large amounts of JSON data are therefore stored and analyzed by relational database systems. In existing systems, however, JSON's lack of a fixed schema results in slow analytics. In this paper, we present JSON tiles, which, without losing the flexibility of JSON, enables relational systems to perform analytics on JSON data at native speed. JSON tiles automatically detects the most important keys and extracts them transparently - often achieving scan performance similar to columnar storage. At the same time, JSON tiles is capable of handling heterogeneous and changing data. Furthermore, we automatically collect statistics that enable the query optimizer to find good execution plans. Our experimental evaluation compares against state-of-the-art systems and research proposals and shows that our approach is both robust and efficient.},
+    booktitle = {Proceedings of the 2021 International Conference on Management of Data},
+    pages = {445–458},
+    numpages = {14},
+    keywords = {storage, semi-structured data, scan, olap, jsonb, json, analytics},
+    location = {Virtual Event, China},
+    series = {SIGMOD '21}
+}
+
+@article{2024/MementoFilter,
+    author = {Eslami, Navid and Dayan, Niv},
+    title = {Memento Filter: A Fast, Dynamic, and Robust Range Filter},
+    year = {2024},
+    issue_date = {December 2024},
+    publisher = {Association for Computing Machinery},
+    address = {New York, NY, USA},
+    volume = {2},
+    number = {6},
+    url = {https://doi.org/10.1145/3698820},
+    doi = {10.1145/3698820},
+    abstract = {Range filters are probabilistic data structures that answer approximate range emptiness queries. They aid in avoiding processing empty range queries and have use cases in many application domains such as key-value stores and social web analytics. However, current range filters do not support dynamically changing and growing datasets. Moreover, several of these designs also exhibit impractically high false positive rates under correlated workloads, which are common in practice. These impediments restrict the applicability of range filters across a wide range of use cases.We introduce Memento filter, the first range filter to simultaneously offer dynamicity, fast operations, and a robust false positive rate for any workload. Memento filter partitions the key universe and clusters its keys according to this partitioning. For each cluster, it stores a fingerprint and a list of key suffixes contiguously. The encoding of these lists makes them amenable to existing dynamic filter structures. Due to the one-to-one mapping from keys to suffixes, Memento filter supports inserts and deletes and can even expand to accommodate a growing dataset.We implement Memento filter on top of a Rank-and-Select Quotient filter and InfiniFilter and demonstrate that it achieves a competitive false positive rate and performance with the state of the art while also providing dynamicity. Due to its dynamicity, Memento filter is the first range filter applicable to B-Trees. We showcase this by integrating Memento filter into WiredTiger, a B-Tree-based key-value store, significantly boosting its performance for mixed workloads.},
+    journal = {Proc. ACM Manag. Data},
+    month = dec,
+    articleno = {244},
+    numpages = {27},
+    keywords = {data growth, dynamic data structure, range filter, scalability}
+}

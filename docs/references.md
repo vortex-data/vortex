@@ -12,6 +12,12 @@ one another to send links to the same papers over and over again).
 * ALP: Adaptive Lossless floating-Point Compression {cite:p}`2023/ALP`
 * FSST: fast random access string compression {cite:p}`2020/FSST`
 
+## Scanning & Compute
+
+* Selection Pushdown in Column Stores using Bit Manipulation Instructions {cite:p}`2023/SelectionPushdown`
+* JSON Tiles: Fast Analytics on Semi-Structured Data {cite:p}`2021/JSONTiles`
+* Memento Filter: A Fast, Dynamic, and Robust Range Filter {cite:p}`2024/MementoFilter`
+
 ## Columnar File Formats
 
 * BtrBlocks: A High-Performance In-Memory Columnar Storage Format {cite:p}`2023/BtrBlocks`
