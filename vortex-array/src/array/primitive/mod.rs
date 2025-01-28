@@ -277,7 +277,7 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
     }
 
     fn is_valid(&self, index: usize) -> bool {
-        ArrayValidity::is_valid(self, index)
+        ArrayValidity::is_valid(self, index).vortex_expect("Failed to check validity of array")
     }
 
     #[inline]
@@ -336,11 +336,11 @@ impl IntoCanonical for PrimitiveArray {
 }
 
 impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
-    fn is_valid(&self, array: &PrimitiveArray, index: usize) -> bool {
+    fn is_valid(&self, array: &PrimitiveArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &PrimitiveArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &PrimitiveArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

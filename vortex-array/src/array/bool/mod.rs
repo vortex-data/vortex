@@ -207,11 +207,11 @@ impl IntoCanonical for BoolArray {
 }
 
 impl ValidityVTable<BoolArray> for BoolEncoding {
-    fn is_valid(&self, array: &BoolArray, index: usize) -> bool {
+    fn is_valid(&self, array: &BoolArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BoolArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &BoolArray) -> VortexResult<LogicalValidity> {
         array.validity().to_logical(array.len())
     }
 }

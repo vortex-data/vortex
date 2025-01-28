@@ -400,12 +400,17 @@ impl<T: AsRef<ArrayData>> ArrayLen for T {
 
 impl<A: AsRef<ArrayData>> ArrayValidity for A {
     /// Return whether the element at the given index is valid (true) or null (false).
-    fn is_valid(&self, index: usize) -> bool {
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
         ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
     }
 
-    /// Return the logical validity of the array.
-    fn logical_validity(&self) -> LogicalValidity {
+    /// Return the number of null elements in the array.
+    fn null_count(&self) -> VortexResult<usize> {
+        ValidityVTable::<ArrayData>::null_count(self.as_ref().encoding(), self.as_ref())
+    }
+
+    /// Return the logical validity of the array if nullable, and None if non-nullable.
+    fn logical_validity(&self) -> VortexResult<LogicalValidity> {
         ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
     }
 }

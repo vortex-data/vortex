@@ -13,6 +13,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
     let validity = if array.dtype().is_nullable() {
         let validity_buff = array
             .logical_validity()
+            .vortex_expect("Failed to get logical validity")
             .into_array()
             .into_bool()
             .unwrap()

@@ -29,7 +29,7 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
         vortex_bail!(OutOfBounds: index, 0, array.len());
     }
 
-    if !array.is_valid(index) {
+    if !array.is_valid(index)? {
         return Ok(Scalar::null(array.dtype().clone()));
     }
 

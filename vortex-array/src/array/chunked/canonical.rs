@@ -19,7 +19,7 @@ use crate::{
 impl IntoCanonical for ChunkedArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         let validity = self
-            .logical_validity()
+            .logical_validity()?
             .into_validity(self.dtype().nullability());
         try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
     }

@@ -383,6 +383,19 @@ impl Mask {
         }
     }
 
+    /// Returns the boolean value at a given index.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn value(&self, idx: usize) -> bool {
+        match self {
+            Mask::AllTrue(_) => true,
+            Mask::AllFalse(_) => false,
+            Mask::Values(values) => values.buffer.value(idx),
+        }
+    }
+
     /// Returns the first true index in the mask.
     pub fn first(&self) -> Option<usize> {
         match &self {

@@ -138,9 +138,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     };
                     (
                         Action::SearchSorted(scalar.clone(), side),
-                        ExpectedValue::Search(search_sorted_canonical_array(
-                            &sorted, &scalar, side,
-                        )),
+                        ExpectedValue::Search(
+                            search_sorted_canonical_array(&sorted, &scalar, side).unwrap(),
+                        ),
                     )
                 }
                 4 => {

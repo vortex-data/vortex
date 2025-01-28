@@ -1,6 +1,6 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::{ComputeVTable, FillForwardFn, ScalarAtFn, SliceFn, TakeFn};
-use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
@@ -48,12 +48,14 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
-        let validity = array.validity();
+        let validity = array.logical_validity()?;
         let indices = indices.clone().into_primitive()?;
         let bools = array.as_slice();
 
+        // FIXME(ngates): we should be operating over canonical validity, which doesn't
+        //  have fallible is_valid function.
         let arr = match validity {
-            Validity::AllValid | Validity::NonNullable => {
+            LogicalValidity::AllValid(_) => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
                     indices.as_slice::<$I>()
                     .iter()
@@ -66,15 +68,16 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
 
                 ByteBoolArray::from(bools).into_array()
             }
-            Validity::AllInvalid => ByteBoolArray::from(vec![None; indices.len()]).into_array(),
-
-            Validity::Array(_) => {
+            LogicalValidity::AllInvalid(_) => {
+                ByteBoolArray::from(vec![None; indices.len()]).into_array()
+            }
+            LogicalValidity::Mask(mask) => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
                     indices.as_slice::<$I>()
                     .iter()
                     .map(|&idx| {
                         let idx = idx.as_();
-                        if validity.is_valid(idx) {
+                        if mask.value(idx) {
                             Some(bools[idx])
                         } else {
                             None
@@ -93,7 +96,7 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
 
 impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
     fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayData> {
-        let validity = array.logical_validity();
+        let validity = array.logical_validity()?;
         if array.dtype().nullability() == Nullability::NonNullable {
             return Ok(array.to_array());
         }
@@ -152,7 +155,7 @@ mod tests {
         assert_eq!(s.as_bool().value(), Some(true));
 
         let s = scalar_at(sliced_arr.as_ref(), 1).unwrap();
-        assert!(!sliced_arr.is_valid(1));
+        assert!(!sliced_arr.is_valid(1).unwrap());
         assert!(s.is_null());
         assert_eq!(s.as_bool().value(), None);
 

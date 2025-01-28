@@ -10,7 +10,7 @@ use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -172,11 +172,12 @@ pub fn gather_patches(
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };
+
     match_each_integer_ptype!(parray.ptype(), |$T| {
         let mut indices: BufferMut<u64> = BufferMut::with_capacity(num_exceptions_hint);
         let mut values: BufferMut<$T> = BufferMut::with_capacity(num_exceptions_hint);
         for (i, v) in parray.as_slice::<$T>().iter().enumerate() {
-            if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i) {
+            if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i).vortex_expect("validity") {
                 indices.push(i as u64);
                 values.push(*v);
             }
@@ -409,6 +410,7 @@ mod test {
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .logical_validity()
+                .unwrap()
                 .to_null_buffer()
                 .unwrap()
                 .unwrap()

@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::BoolArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
@@ -11,11 +10,12 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical, SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
+    SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 impl_encoding!("vortex.dict", ids::DICT, Dict, SerdeMetadata<DictMetadata>);
 
@@ -79,7 +79,7 @@ impl IntoCanonical for DictArray {
 }
 
 impl ValidityVTable<DictArray> for DictEncoding {
-    fn is_valid(&self, array: &DictArray, index: usize) -> bool {
+    fn is_valid(&self, array: &DictArray, index: usize) -> VortexResult<bool> {
         let values_index = scalar_at(array.codes(), index)
             .unwrap_or_else(|err| {
                 vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
@@ -90,22 +90,19 @@ impl ValidityVTable<DictArray> for DictEncoding {
         array.values().is_valid(values_index)
     }
 
-    fn logical_validity(&self, array: &DictArray) -> LogicalValidity {
+    fn logical_validity(&self, array: &DictArray) -> VortexResult<LogicalValidity> {
         if array.dtype().is_nullable() {
-            let primitive_codes = array
-                .codes()
-                .into_primitive()
-                .vortex_expect("Failed to convert DictArray codes to primitive array");
+            let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                 let is_valid = primitive_codes
                     .as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
                     is_valid[idx] != 0
                 });
-                LogicalValidity::Array(BoolArray::from(is_valid_buffer).into_array())
+                Ok(LogicalValidity::Mask(Mask::from_buffer(is_valid_buffer)))
             })
         } else {
-            LogicalValidity::AllValid(array.len())
+            Ok(LogicalValidity::AllValid(array.len()))
         }
     }
 }

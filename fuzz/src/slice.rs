@@ -11,10 +11,8 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
     let validity = if array.dtype().is_nullable() {
         let bool_buff = array
             .logical_validity()
-            .into_array()
-            .into_bool()
-            .unwrap()
-            .boolean_buffer();
+            .vortex_expect("Failed to compute validity")
+            .to_boolean_buffer();
 
         Validity::from(bool_buff.slice(start, stop - start))
     } else {

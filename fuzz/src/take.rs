@@ -14,10 +14,8 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array
             .logical_validity()
-            .into_array()
-            .into_bool()
             .unwrap()
-            .boolean_buffer()
+            .to_boolean_buffer()
             .iter()
             .collect::<Vec<_>>();
 

@@ -88,11 +88,13 @@ impl StatsTable {
                     let parray =
                         try_cast(array, &DType::Primitive(PType::U64, Nullability::Nullable))?
                             .into_primitive()?;
+                    let validity = parray.logical_validity()?;
+
                     let sum: u64 = parray
                         .as_slice::<u64>()
                         .iter()
                         .enumerate()
-                        .filter_map(|(i, v)| parray.validity().is_valid(i).then_some(*v))
+                        .filter_map(|(i, v)| validity.is_valid(i).then_some(*v))
                         .sum();
                     stats_set.set(*stat, sum);
                 }
@@ -174,7 +176,7 @@ impl StatsAccumulator {
                 .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
 
             // We drop any all-null stats columns
-            if values.logical_validity().null_count()? == values.len() {
+            if values.null_count()? == values.len() {
                 continue;
             }
 

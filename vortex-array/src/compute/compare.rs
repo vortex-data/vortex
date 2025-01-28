@@ -247,6 +247,7 @@ mod tests {
         let null_buffer = indices_bits
             .validity()
             .to_logical(indices_bits.len())
+            .unwrap()
             .to_null_buffer()
             .unwrap();
         let is_valid = |idx: usize| match null_buffer.as_ref() {

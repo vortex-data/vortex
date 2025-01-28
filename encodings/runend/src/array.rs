@@ -18,6 +18,7 @@ use vortex_array::{
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
 
@@ -173,28 +174,31 @@ impl PrimitiveArrayTrait for RunEndArray {}
 impl BoolArrayTrait for RunEndArray {}
 
 impl ValidityVTable<RunEndArray> for RunEndEncoding {
-    fn is_valid(&self, array: &RunEndArray, index: usize) -> bool {
+    fn is_valid(&self, array: &RunEndArray, index: usize) -> VortexResult<bool> {
         let physical_idx = array
             .find_physical_index(index)
             .vortex_expect("Invalid index");
         array.values().is_valid(physical_idx)
     }
 
-    fn logical_validity(&self, array: &RunEndArray) -> LogicalValidity {
-        match array.values().logical_validity() {
+    fn logical_validity(&self, array: &RunEndArray) -> VortexResult<LogicalValidity> {
+        Ok(match array.values().logical_validity()? {
             LogicalValidity::AllValid(_) => LogicalValidity::AllValid(array.len()),
             LogicalValidity::AllInvalid(_) => LogicalValidity::AllInvalid(array.len()),
-            LogicalValidity::Array(validity) => LogicalValidity::Array(
-                RunEndArray::with_offset_and_length(
+            LogicalValidity::Mask(validity) => {
+                let ree_validity = RunEndArray::with_offset_and_length(
                     array.ends(),
-                    validity,
+                    validity.into_array(),
                     array.offset(),
                     array.len(),
                 )
                 .vortex_expect("invalid array")
-                .into_array(),
-            ),
-        }
+                .into_array();
+                LogicalValidity::Mask(Mask::from_buffer(
+                    ree_validity.into_bool()?.boolean_buffer(),
+                ))
+            }
+        })
     }
 }
 

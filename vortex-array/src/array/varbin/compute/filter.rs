@@ -60,7 +60,7 @@ where
     O: NativePType + PrimInt + Zero,
     usize: AsPrimitive<O>,
 {
-    let logical_validity = validity.to_logical(offsets.len() - 1);
+    let logical_validity = validity.to_logical(offsets.len() - 1)?;
     if let Some(val) = logical_validity.to_null_buffer()? {
         let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
@@ -153,12 +153,13 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
     offsets: &[O],
     data: &[u8],
     mask: &Mask,
+    // TODO(ngates): pass LogicalValidity instead
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     for idx in mask.indices().expect_some().iter().copied() {
-        if validity.is_valid(idx) {
+        if validity.is_valid(idx)? {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx])
