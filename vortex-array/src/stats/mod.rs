@@ -7,6 +7,7 @@ use std::sync::Arc;
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
+use futures_util::TryStreamExt;
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -14,7 +15,7 @@ pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::Encoding;
 use crate::ArrayData;
@@ -167,13 +168,13 @@ impl Display for Stat {
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<Scalar>;
+    fn get(&self, stat: Stat) -> Option<ScalarValue>;
 
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: Scalar);
+    fn set(&self, stat: Stat, value: ScalarValue);
 
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
@@ -182,7 +183,7 @@ pub trait Statistics {
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute(&self, stat: Stat) -> Option<Scalar>;
+    fn compute(&self, stat: Stat) -> Option<ScalarValue>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
@@ -225,7 +226,13 @@ where
 }
 
 impl dyn Statistics + '_ {
-    pub fn get_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+    /// Get the provided stat if present in the underlying array, converting the `ScalarValue` into a typed value.
+    /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the conversion fails.
+    pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<U> {
@@ -242,24 +249,13 @@ impl dyn Statistics + '_ {
             })
     }
 
-    pub fn get_as_cast<U: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<U> {
-        self.get(stat)
-            .filter(|s| s.is_valid())
-            .map(|s| s.cast(&DType::Primitive(U::PTYPE, NonNullable)))
-            .transpose()
-            .and_then(|maybe| maybe.as_ref().map(U::try_from).transpose())
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to cast stat {} to {}", stat, U::PTYPE)
-            })
-    }
-
-    /// Get or calculate the provided stat, converting the `Scalar` into a typed value.
+    /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
+    /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
+    ///
+    /// # Panics
     ///
     /// This function will panic if the conversion fails.
-    pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+    pub fn compute_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<U> {
@@ -276,31 +272,21 @@ impl dyn Statistics + '_ {
             })
     }
 
-    pub fn compute_as_cast<U: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<U> {
-        self.compute(stat)
-            .filter(|s| s.is_valid())
-            .map(|s| s.cast(&DType::Primitive(U::PTYPE, NonNullable)))
-            .transpose()
-            .and_then(|maybe| maybe.as_ref().map(U::try_from).transpose())
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to compute stat {} as cast {}", stat, U::PTYPE)
-            })
-    }
-
     /// Get or calculate the minimum value in the array, returning as a typed value.
     ///
     /// This function will panic if the conversion fails.
-    pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
+    pub fn compute_min<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+        &self,
+    ) -> Option<U> {
         self.compute_as(Stat::Min)
     }
 
     /// Get or calculate the maximum value in the array, returning as a typed value.
     ///
     /// This function will panic if the conversion fails.
-    pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
+    pub fn compute_max<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+        &self,
+    ) -> Option<U> {
         self.compute_as(Stat::Max)
     }
 
@@ -367,7 +353,7 @@ mod test {
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as_cast::<i64>(Stat::Min);
+            .compute_as::<i64>(Stat::Min);
 
         assert_eq!(min, None);
     }

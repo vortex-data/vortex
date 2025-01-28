@@ -8,7 +8,7 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 
@@ -21,10 +21,12 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
         .compute(Stat::Min)
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
+    let dtype = array.dtype().clone();
+    let nullability = dtype.nullability();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
-            assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()));
-            encoded_zero::<$T>(array.logical_validity()?, array.dtype().nullability())
+            assert_eq!(usize::try_from(&min).vortex_unwrap(), 0);
+            encoded_zero::<$T>(array.logical_validity()?, nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
             let unsigned_ptype = array.ptype().to_unsigned();
@@ -33,7 +35,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
                 .into_array()
         }
     });
-    FoRArray::try_new(encoded, min, shift)
+    FoRArray::try_new(encoded, Scalar::new(dtype, min), shift)
 }
 
 fn encoded_zero<T: NativePType>(
@@ -41,8 +43,7 @@ fn encoded_zero<T: NativePType>(
     nullability: Nullability,
 ) -> VortexResult<ArrayData> {
     let encoded_ptype = T::PTYPE.to_unsigned();
-    let zero =
-        match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(nullability));
+    let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
 
     Ok(match logical_validity {
         LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),

@@ -24,6 +24,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_inline_tabs",
+    "sphinxcontrib.bibtex",
     "sphinxext.opengraph",
 ]
 
@@ -70,3 +71,7 @@ html_theme_options = {
 
 ogp_site_url = "https://docs.vortex.dev"
 ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"
+
+# -- Options for Sphinx BibTEX -------------------------------------------
+
+bibtex_bibfiles = ["references.bib"]

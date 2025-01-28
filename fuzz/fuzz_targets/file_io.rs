@@ -9,11 +9,16 @@ use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use vortex_dtype::Nullability;
 use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 fuzz_target!(|array_data: ArrayData| -> Corpus {
     if !array_data.dtype().is_struct() {
+        return Corpus::Reject;
+    }
+
+    if array_data.dtype().nullability() != Nullability::NonNullable {
         return Corpus::Reject;
     }
 

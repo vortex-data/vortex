@@ -148,13 +148,13 @@ impl SparseArray {
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        let fill_value = ScalarValue::from_flexbytes(
+        let sv = ScalarValue::from_flexbytes(
             self.as_ref()
                 .byte_buffer(0)
                 .vortex_expect("Missing fill value buffer"),
         )
         .vortex_expect("Failed to deserialize fill value");
-        Scalar::new(self.dtype().clone(), fill_value)
+        Scalar::new(self.dtype().clone(), sv)
     }
 }
 
@@ -178,14 +178,14 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
         let fill_stats = if array.fill_scalar().is_null() {
             StatsSet::nulls(fill_len, array.dtype())
         } else {
-            StatsSet::constant(&array.fill_scalar(), fill_len)
+            StatsSet::constant(array.fill_scalar(), fill_len)
         };
 
         if values.is_empty() {
             return Ok(fill_stats);
         }
 
-        Ok(stats.merge_unordered(&fill_stats))
+        Ok(stats.merge_unordered(&fill_stats, array.dtype()))
     }
 }
 

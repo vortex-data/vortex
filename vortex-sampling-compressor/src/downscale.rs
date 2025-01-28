@@ -4,7 +4,7 @@ use vortex_array::encoding::EncodingVTable;
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
@@ -12,7 +12,7 @@ pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
         // This can happen if e.g. the array is ConstantArray.
         return Ok(array);
     }
-    let array = PrimitiveArray::try_from(array)?;
+    let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
 
     let min = array
         .statistics()
@@ -25,15 +25,14 @@ pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
 
     // If we can't cast to i64, then leave the array as its original type.
     // It's too big to downcast anyway.
-    let Ok(min) = min.cast(&DType::Primitive(PType::I64, array.dtype().nullability())) else {
+    let Ok(min) = i64::try_from(&min) else {
         return Ok(array.into_array());
     };
-    let Ok(max) = max.cast(&DType::Primitive(PType::I64, array.dtype().nullability())) else {
+    let Ok(max) = i64::try_from(&max) else {
         return Ok(array.into_array());
     };
 
-    downscale_primitive_integer_array(array, i64::try_from(min)?, i64::try_from(max)?)
-        .map(|a| a.into_array())
+    downscale_primitive_integer_array(array, min, max).map(|a| a.into_array())
 }
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.

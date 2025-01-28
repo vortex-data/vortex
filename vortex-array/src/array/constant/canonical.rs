@@ -113,6 +113,7 @@ fn canonical_byte_view(
 
 #[cfg(test)]
 mod tests {
+    use enum_iterator::all;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
@@ -120,8 +121,8 @@ mod tests {
     use crate::array::ConstantArray;
     use crate::canonical::IntoArrayVariant;
     use crate::compute::scalar_at;
-    use crate::stats::{ArrayStatistics as _, StatsSet};
-    use crate::{ArrayLen, IntoArrayData as _, IntoCanonical};
+    use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
+    use crate::{ArrayDType, ArrayLen, IntoArrayData as _, IntoCanonical};
 
     #[test]
     fn test_canonicalize_null() {
@@ -154,8 +155,23 @@ mod tests {
         let canonical = const_array.into_canonical().unwrap();
         let canonical_stats = canonical.statistics().to_set();
 
-        assert_eq!(canonical_stats, StatsSet::constant(&scalar, 4));
-        assert_eq!(canonical_stats, stats);
+        let reference = StatsSet::constant(scalar, 4);
+        for stat in all::<Stat>() {
+            let canonical_stat = canonical_stats
+                .get(stat)
+                .cloned()
+                .map(|sv| Scalar::new(stat.dtype(canonical.dtype()), sv));
+            let reference_stat = reference
+                .get(stat)
+                .cloned()
+                .map(|sv| Scalar::new(stat.dtype(canonical.dtype()), sv));
+            let original_stat = stats
+                .get(stat)
+                .cloned()
+                .map(|sv| Scalar::new(stat.dtype(canonical.dtype()), sv));
+            assert_eq!(canonical_stat, reference_stat);
+            assert_eq!(canonical_stat, original_stat);
+        }
     }
 
     #[test]

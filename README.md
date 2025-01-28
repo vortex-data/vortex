@@ -6,14 +6,17 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
 > [!TIP]
-> Check out the [Docs](https://spiraldb.github.io/vortex/docs/) or jump straight into the [Getting Started Guide](https://spiraldb.github.io/vortex/docs/quickstart.html)
+> Check out the [Docs](https://docs.vortex.dev/)
 
-Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache Arrow arrays
+Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache
+Arrow arrays
 in-memory, on-disk, and over-the-wire.
 
-Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and scans (2-10x faster),
+Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and
+scans (2-10x faster),
 while preserving approximately the same compression ratio and write throughput as Parquet with zstd.
-It is designed to support very wide tables (at least 10s of thousands of columns) and (eventually) on-device decompression on GPUs.
+It is designed to support very wide tables (at least 10s of thousands of columns) and (eventually) on-device
+decompression on GPUs.
 
 Vortex is intended to be to columnar file formats what Apache DataFusion is to query engines: highly extensible,
 extremely fast, & batteries-included.
@@ -21,32 +24,40 @@ extremely fast, & batteries-included.
 > [!CAUTION]
 > This library is still under rapid development and is a work in progress!
 >
-> Some key features are not yet implemented, both the API and the serialized format are likely to change in breaking ways,
+> Some key features are not yet implemented, both the API and the serialized format are likely to change in breaking
+> ways,
 > and we cannot yet guarantee correctness in all cases.
 
 The major features of Vortex are:
 
 * **Logical Types** - a schema definition that makes no assertions about physical layout.
-* **Zero-Copy to Arrow** - "canonicalized" (i.e., fully decompressed) Vortex arrays can be zero-copy converted to/from Apache Arrow arrays.
-* **Extensible Encodings** - a pluggable set of physical layouts. In addition to the builtin set of Arrow-compatible encodings,
-  the Vortex repository includes a number of state-of-the-art encodings (e.g., FastLanes, ALP, FSST, etc.) that are implemented
+* **Zero-Copy to Arrow** - "canonicalized" (i.e., fully decompressed) Vortex arrays can be zero-copy converted to/from
+  Apache Arrow arrays.
+* **Extensible Encodings** - a pluggable set of physical layouts. In addition to the builtin set of Arrow-compatible
+  encodings,
+  the Vortex repository includes a number of state-of-the-art encodings (e.g., FastLanes, ALP, FSST, etc.) that are
+  implemented
   as extensions. While arbitrary encodings can be implemented as extensions, we have intentionally chosen a small set
-  of encodings that are highly data-parallel, which in turn allows for efficient vectorized decoding, random access reads,
+  of encodings that are highly data-parallel, which in turn allows for efficient vectorized decoding, random access
+  reads,
   and (in the future) decompression on GPUs.
 * **Cascading Compression** - data can be recursively compressed with multiple nested encodings.
-* **Pluggable Compression Strategies** - the built-in Compressor is based on BtrBlocks, but other strategies can trivially be used instead.
+* **Pluggable Compression Strategies** - the built-in Compressor is based on BtrBlocks, but other strategies can
+  trivially be used instead.
 * **Compute** - basic compute kernels that can operate over encoded data (e.g., for filter pushdown).
 * **Statistics** - each array carries around lazily computed summary statistics, optionally populated at read-time.
   These are available to compute kernels as well as to the compressor.
 * **Serialization** - Zero-copy serialization of arrays, both for IPC and for file formats.
-* **Columnar File Format (in progress)** - A modern file format that uses the Vortex serde library to store compressed array data.
+* **Columnar File Format (in progress)** - A modern file format that uses the Vortex serde library to store compressed
+  array data.
   Optimized for random access reads and extremely fast scans; an aspiring successor to Apache Parquet.
 
 ## Overview: Logical vs Physical
 
 One of the core design principles in Vortex is strict separation of logical and physical concerns.
 
-For example, a Vortex array is defined by a logical data type (i.e., the type of scalar elements) as well as a physical encoding
+For example, a Vortex array is defined by a logical data type (i.e., the type of scalar elements) as well as a physical
+encoding
 (the type of the array itself). Vortex ships with several built-in encodings, as well as several extension encodings.
 
 The built-in encodings are primarily designed to model the Apache Arrow in-memory format, enabling us to construct
@@ -54,19 +65,24 @@ Vortex arrays with zero-copy from Arrow arrays. There are also several built-in 
 `chunked`) that are useful building blocks for other encodings. The included extension encodings are mostly designed
 to model compressed in-memory arrays, such as run-length or dictionary encoding.
 
-Analogously, `vortex-serde` is designed to handle the low-level physical details of reading and writing Vortex arrays. Choices
+Analogously, `vortex-serde` is designed to handle the low-level physical details of reading and writing Vortex arrays.
+Choices
 about which encodings to use or how to logically chunk data are left up to the `Compressor` implementation.
 
-One of the unique attributes of the (in-progress) Vortex file format is that it encodes the physical layout of the data within the
+One of the unique attributes of the (in-progress) Vortex file format is that it encodes the physical layout of the data
+within the
 file's footer. This allows the file format to be effectively self-describing and to evolve without breaking changes to
 the file format specification.
 
 For example, the Compressor implementation can choose to chunk data into a Parquet-like layout with
-row groups and aligned pages (ChunkedArray of StructArray of ChunkedArrays with equal chunk sizes). Alternatively, it can choose
-to chunk different columns differently based on their compressed size and data distributions (e.g., a column that is constant
+row groups and aligned pages (ChunkedArray of StructArray of ChunkedArrays with equal chunk sizes). Alternatively, it
+can choose
+to chunk different columns differently based on their compressed size and data distributions (e.g., a column that is
+constant
 across all rows can be a single chunk, whereas a large string column may be split arbitrarily many times).
 
-In the same vein, the format is designed to support forward compatibility by optionally embedding WASM decoders directly into the files
+In the same vein, the format is designed to support forward compatibility by optionally embedding WASM decoders directly
+into the files
 themselves. This should help avoid the rapid calcification that has plagued other columnar file formats.
 
 ## Components
@@ -239,7 +255,8 @@ Licensed under the Apache License, Version 2.0 (the "License").
 ## Governance
 
 Vortex is and will remain an open-source project. Our intent is to model its governance structure after the
-[Substrait project](https://substrait.io/governance/), which in turn is based on the model of the Apache Software Foundation.
+[Substrait project](https://substrait.io/governance/), which in turn is based on the model of the Apache Software
+Foundation.
 Expect more details on this in Q4 2024.
 
 ## Acknowledgments 🏆
@@ -252,7 +269,8 @@ In particular, the following academic papers have strongly influenced developmen
 * Maximilian Kuschewski, David Sauerwein, Adnan Alhomssi, and Viktor Leis.
   [BtrBlocks: Efficient Columnar Compression for Data Lakes](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf).
   Proc. ACM Manag. Data 1, 2, Article 118 (June 2023), 14 pages.
-* Azim Afroozeh and Peter Boncz. [The FastLanes Compression Layout: Decoding >100 Billion Integers per Second with Scalar
+* Azim Afroozeh and Peter
+  Boncz. [The FastLanes Compression Layout: Decoding >100 Billion Integers per Second with Scalar
   Code](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf). PVLDB, 16(9): 2132 - 2144, 2023.
 * Peter Boncz, Thomas Neumann, and Viktor Leis. [FSST: Fast Random Access String
   Compression](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf).
@@ -270,10 +288,12 @@ Additionally, we benefited greatly from:
 
 * the existence, ideas, & implementations of both [Apache Arrow](https://arrow.apache.org) and
   [Apache DataFusion](https://github.com/apache/datafusion).
-* the [parquet2](https://github.com/jorgecarleitao/parquet2) project by [Jorge Leitao](https://github.com/jorgecarleitao).
+* the [parquet2](https://github.com/jorgecarleitao/parquet2) project
+  by [Jorge Leitao](https://github.com/jorgecarleitao).
 * the public discussions around choices of compression codecs, as well as the C++ implementations thereof,
   from [duckdb](https://github.com/duckdb/duckdb).
-* the [Velox](https://github.com/facebookincubator/velox) and [Nimble](https://github.com/facebookincubator/nimble) projects,
+* the [Velox](https://github.com/facebookincubator/velox) and [Nimble](https://github.com/facebookincubator/nimble)
+  projects,
   and discussions with their maintainers.
 
 Thanks to all of the aforementioned for sharing their work and knowledge with the world! 🚀

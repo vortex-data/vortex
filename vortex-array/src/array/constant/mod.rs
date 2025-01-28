@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::num::IntErrorKind::Empty;
 
 use serde::{Deserialize, Serialize};
 use vortex_error::{VortexExpect, VortexResult};
@@ -25,7 +24,7 @@ impl ConstantArray {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        let stats = StatsSet::constant(&scalar, length);
+        let stats = StatsSet::constant(scalar.clone(), length);
         let (dtype, scalar_value) = scalar.into_parts();
 
         // Serialize the scalar_value into a FlatBuffer
@@ -44,13 +43,13 @@ impl ConstantArray {
 
     /// Returns the [`Scalar`] value of this constant array.
     pub fn scalar(&self) -> Scalar {
-        let value = ScalarValue::from_flexbytes(
+        let sv = ScalarValue::from_flexbytes(
             self.as_ref()
                 .byte_buffer(0)
                 .vortex_expect("Missing scalar value buffer"),
         )
         .vortex_expect("Failed to deserialize scalar value");
-        Scalar::new(self.dtype().clone(), value)
+        Scalar::new(self.dtype().clone(), sv)
     }
 }
 
@@ -71,7 +70,7 @@ impl ValidityVTable<ConstantArray> for ConstantEncoding {
 
 impl StatisticsVTable<ConstantArray> for ConstantEncoding {
     fn compute_statistics(&self, array: &ConstantArray, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::constant(&array.scalar(), array.len()))
+        Ok(StatsSet::constant(array.scalar(), array.len()))
     }
 }
 

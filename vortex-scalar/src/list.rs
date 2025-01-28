@@ -8,8 +8,7 @@ use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
 
-use crate::value::{InnerScalarValue, ScalarValue};
-use crate::Scalar;
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 pub struct ListScalar<'a> {
     dtype: &'a DType,

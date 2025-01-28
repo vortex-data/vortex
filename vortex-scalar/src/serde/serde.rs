@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vortex_buffer::{BufferString, ByteBuffer};
 
 use crate::pvalue::PValue;
-use crate::value::{InnerScalarValue, ScalarValue};
+use crate::{InnerScalarValue, ScalarValue};
 
 impl Serialize for ScalarValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

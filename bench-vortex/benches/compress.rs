@@ -103,12 +103,6 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
     nbytes
 }
 
-fn parquet_compressed_written_size(array: &ArrayData, compression: Compression) -> usize {
-    let chunked = ChunkedArray::maybe_from(array).unwrap();
-    let (batches, schema) = chunked_to_vec_record_batch(chunked);
-    parquet_compress_write(batches, schema, compression, &mut Vec::new())
-}
-
 #[inline(never)]
 fn vortex_compress_write(
     runtime: &Runtime,
@@ -197,6 +191,8 @@ fn benchmark_compress<F, U>(
         group.finish();
     }
 
+    let mut parquet_compressed_size = 0;
+
     {
         let mut group = c.benchmark_group("parquet_rs-zstd compress time");
         group.sample_size(sample_size);
@@ -208,7 +204,7 @@ fn benchmark_compress<F, U>(
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
 
             b.iter_with_large_drop(|| {
-                black_box(parquet_compress_write(
+                parquet_compressed_size = black_box(parquet_compress_write(
                     batches.clone(),
                     schema.clone(),
                     Compression::ZSTD(ZstdLevel::default()),
@@ -271,19 +267,11 @@ fn benchmark_compress<F, U>(
         .map(|x| Regex::new(&x).unwrap().is_match(bench_name))
         .unwrap_or(false)
     {
-        let vortex_nbytes =
-            vortex_compressed_written_size(runtime, compressor, uncompressed.as_ref()).unwrap();
-
-        let parquet_zstd_nbytes = parquet_compressed_written_size(
-            uncompressed.as_ref(),
-            Compression::ZSTD(ZstdLevel::default()),
-        );
-
         eprintln!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex:parquet-zstd size/{}", bench_name),
-                value: (vortex_nbytes as f64) / (parquet_zstd_nbytes as f64),
+                value: (compressed_size as f64) / (parquet_compressed_size as f64),
                 unit: "ratio",
                 range: 0.0,
             })

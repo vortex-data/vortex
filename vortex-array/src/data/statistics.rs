@@ -1,17 +1,14 @@
-use std::sync::Arc;
-
 use enum_iterator::all;
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::ScalarValue;
 
 use crate::data::InnerArrayData;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 impl Statistics for ArrayData {
-    fn get(&self, stat: Stat) -> Option<Scalar> {
+    fn get(&self, stat: Stat) -> Option<ScalarValue> {
         match &self.0 {
             InnerArrayData::Owned(o) => o
                 .stats_set
@@ -28,12 +25,10 @@ impl Statistics for ArrayData {
                 Stat::Max => {
                     let max = v.flatbuffer().stats()?.max();
                     max.and_then(|v| ScalarValue::try_from(v).ok())
-                        .map(|v| Scalar::new(self.dtype().clone(), v))
                 }
                 Stat::Min => {
                     let min = v.flatbuffer().stats()?.min();
                     min.and_then(|v| ScalarValue::try_from(v).ok())
-                        .map(|v| Scalar::new(self.dtype().clone(), v))
                 }
                 Stat::IsConstant => v.flatbuffer().stats()?.is_constant().map(bool::into),
                 Stat::IsSorted => v.flatbuffer().stats()?.is_sorted().map(bool::into),
@@ -41,21 +36,18 @@ impl Statistics for ArrayData {
                 Stat::RunCount => v.flatbuffer().stats()?.run_count().map(u64::into),
                 Stat::TrueCount => v.flatbuffer().stats()?.true_count().map(u64::into),
                 Stat::NullCount => v.flatbuffer().stats()?.null_count().map(u64::into),
-                Stat::BitWidthFreq => {
-                    let element_dtype =
-                        Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable));
-                    v.flatbuffer()
-                        .stats()?
-                        .bit_width_freq()
-                        .map(|v| v.iter().map(Scalar::from).collect_vec())
-                        .map(|v| Scalar::list(element_dtype, v, Nullability::NonNullable))
-                }
+                Stat::BitWidthFreq => v
+                    .flatbuffer()
+                    .stats()?
+                    .bit_width_freq()
+                    .map(|v| v.iter().collect_vec())
+                    .map(ScalarValue::from),
                 Stat::TrailingZeroFreq => v
                     .flatbuffer()
                     .stats()?
                     .trailing_zero_freq()
                     .map(|v| v.iter().collect_vec())
-                    .map(|v| v.into()),
+                    .map(ScalarValue::from),
                 Stat::UncompressedSizeInBytes => v
                     .flatbuffer()
                     .stats()?
@@ -78,7 +70,7 @@ impl Statistics for ArrayData {
         }
     }
 
-    fn set(&self, stat: Stat, value: Scalar) {
+    fn set(&self, stat: Stat, value: ScalarValue) {
         match &self.0 {
             InnerArrayData::Owned(o) => o
                 .stats_set
@@ -111,7 +103,7 @@ impl Statistics for ArrayData {
         }
     }
 
-    fn compute(&self, stat: Stat) -> Option<Scalar> {
+    fn compute(&self, stat: Stat) -> Option<ScalarValue> {
         if let Some(s) = self.get(stat) {
             return Some(s);
         }

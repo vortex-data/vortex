@@ -5,8 +5,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
 
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 #[derive(Debug, Hash)]
 pub struct Utf8Scalar<'a> {

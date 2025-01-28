@@ -1,34 +1,47 @@
-# Vortex: a State-of-the-Art Columnar File Format
+# Vortex: the columnar data toolkit
 
-Vortex is a fast & extensible columnar file format that is based around the latest research from the
-database community. It is built around cascading compression with lightweight, vectorized encodings
-(i.e., no block compression), allowing for both efficient random access and extremely fast
-decompression.
+Vortex is a general purpose toolkit for working with columnar data built around the latest research from the
+database community.
 
-Vortex includes an accompanying in-memory format for these (recursively) compressed arrays,
-that is zero-copy compatible with Apache Arrow in uncompressed form. Taken together, the Vortex
-library is a useful toolkit with compressed Arrow data in-memory, on-disk, & over-the-wire.
+## In-memory
 
-Vortex consolidates the metadata in a series of flatbuffers in the footer, in order to minimize
-the number of reads (important when reading from object storage) & the deserialization overhead
-(important for wide tables with many columns).
+Vortex in-memory arrays support:
 
-Vortex aspires to succeed Apache Parquet by pushing the Pareto frontier outwards: 1-2x faster
-writes, 2-10x faster scans, and 100-200x faster random access reads, while preserving the same
-approximate compression ratio as Parquet v2 with zstd.
+* Zero-copy interoperability with [Apache Arrow](https://arrow.apache.org).
+* Cascading compression with lightweight, vectorized encodings such as
+  [FastLanes](https://github.com/spiraldb/fastlanes),
+  [FSST](https://github.com/spiraldb/fsst),
+  and [ALP](https://github.com/spiraldb/alp).
+* Fast random access to compressed data.
+* Compute push-down over compressed data.
+* Array statistics for efficient compute.
 
-Its features include:
+## On-disk
 
-- A zero-copy data layout for disk, memory, and the wire.
-- Kernels for computing on, filtering, slicing, indexing, and projecting compressed arrays.
-- Builtin state-of-the-art codecs including FastLanes (integer bit-packing), ALP (floating point),
-  and FSST (strings).
-- Support for custom user-implemented codecs.
-- Support for, but no requirement for, row groups.
-- A read sub-system supporting filter and projection pushdown.
+Vortex ships with an extensible file format supporting:
 
-Vortex's flexible layout empowers writers to choose the right layout for their setting: fast writes,
-fast reads, small files, few columns, many columns, over-sized columns, etc.
+* Zero-allocation reads, deferring both deserialization and decompression.
+* Zero-copy reads from memory-mapped files.
+* FlatBuffer metadata to support ultra-wide schemas (>>100k columns).
+* Fully customizable layouts and encodings (row-groups, column-groups, writer decides).
+* Forwards compatibility by optionally embedding [WASM](https://webassembly.org/) decompression kernels.
+
+## Over-the-wire
+
+Vortex defines a work-in-progress IPC format for sending possibly compressed arrays over the wire.
+
+* Zero-copy serialization and deserialization.
+* Support for both compressed and uncompressed data.
+* Enables partial compute push-down to storage servers.
+* Enables client-side browser decompression with Vortex WASM.
+
+## Extensibility
+
+Vortex is designed to be incredibly extensible. Almost all reader and writer logic is extensible at compile-time
+by providing various implementations of Rust traits, and encodings and layouts are extensible at runtime with
+dynamically loaded libraries or WebAssembly kernels.
+
+Please reach out to us if you'd like to extend Vortex with your own encodings, layouts, or other functionality.
 
 ## Concepts
 
@@ -91,6 +104,7 @@ hidden:
 caption: Project Links
 ---
 
+references
 Spiral <https://spiraldb.com>
 GitHub <https://github.com/spiraldb/vortex>
 PyPI <https://pypi.org/project/vortex-array>

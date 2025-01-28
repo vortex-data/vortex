@@ -10,9 +10,7 @@ use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{
-    vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult, VortexUnwrap,
-};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};

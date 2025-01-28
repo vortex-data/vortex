@@ -1,3 +1,9 @@
+mod binary;
+mod bool;
+mod list;
+mod primitive;
+mod utf8;
+
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
@@ -7,6 +13,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::pvalue::PValue;
+use crate::ScalarType;
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
 /// up with a DType to make a Scalar.
@@ -101,7 +108,7 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
-    pub(crate) fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         self.0.is_null()
     }
 
@@ -212,6 +219,18 @@ impl InnerScalarValue {
             InnerScalarValue::List(l) => Ok(Some(l)),
             _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
         }
+    }
+}
+
+impl<T> From<Option<T>> for ScalarValue
+where
+    T: ScalarType,
+    ScalarValue: From<T>,
+{
+    fn from(value: Option<T>) -> Self {
+        value
+            .map(ScalarValue::from)
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null))
     }
 }
 

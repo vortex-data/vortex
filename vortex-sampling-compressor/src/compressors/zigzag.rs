@@ -35,7 +35,7 @@ impl EncodingCompressor for ZigZagCompressor {
         // TODO(ngates): also check that Stat::Max is less than half the max value of the type
         parray
             .statistics()
-            .compute_as_cast::<i64>(Stat::Min)
+            .compute_as::<i64>(Stat::Min)
             .filter(|&min| min < 0)
             .map(|_| self as &dyn EncodingCompressor)
     }
