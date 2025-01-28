@@ -236,13 +236,6 @@ impl Scalar {
                 .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
         )
     }
-
-    pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(T::zero().into())),
-        }
-    }
 }
 
 macro_rules! primitive_scalar {
