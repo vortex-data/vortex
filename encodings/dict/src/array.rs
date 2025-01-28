@@ -55,18 +55,6 @@ impl DictArray {
             .vortex_expect("DictArray is missing its codes child array")
     }
 
-    // TODO: remove once take supports validity
-    pub(crate) fn non_nullable_codes(&self) -> ArrayData {
-        // let codes = self
-        //     .codes()
-        //     .into_primitive()
-        //     .vortex_expect("Failed to convert DictArray codes to primitive array");
-        // let ptype = codes.ptype();
-        // PrimitiveArray::from_byte_buffer(codes.into_byte_buffer(), ptype, Validity::NonNullable)
-        //     .into_array()
-        self.codes()
-    }
-
     #[inline]
     pub fn values(&self) -> ArrayData {
         self.as_ref()
@@ -79,8 +67,6 @@ impl ValidateVTable<DictArray> for DictEncoding {}
 
 impl IntoCanonical for DictArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        // We can drop the nullability from the dict, since it is also in the values.
-        let non_null = self.non_nullable_codes();
         match self.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
@@ -88,10 +74,10 @@ impl IntoCanonical for DictArray {
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: ArrayData = self.values().into_canonical()?.into();
-                take(canonical_values, non_null)?.into_canonical()
+                take(canonical_values, self.codes())?.into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => take(self.values(), non_null)?.into_canonical(),
+            _ => take(self.values(), self.codes())?.into_canonical(),
         }
     }
 }

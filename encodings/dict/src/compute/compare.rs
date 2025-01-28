@@ -26,7 +26,7 @@ impl CompareFn<DictArray> for DictEncoding {
                 ConstantArray::new(const_scalar, lhs.values().len()),
                 operator,
             )?;
-            return take(compare_result, lhs.non_nullable_codes()).map(Some);
+            return take(compare_result, lhs.codes()).map(Some);
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary
