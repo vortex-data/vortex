@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
 use crate::{get_item, pack, ExprRef, Merge, VortexExpr};
@@ -21,17 +21,22 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
         if let Some(merge) = node.as_any().downcast_ref::<Merge>() {
-            let mut names = Vec::new();
-            let mut children = Vec::new();
+            // Try to guess the capacity.
+            let mut names = Vec::with_capacity(merge.children().len() * 2);
+            let mut children = Vec::with_capacity(merge.children().len() * 2);
 
             for child in merge.children() {
                 let child_dtype = child.return_dtype(self.scope_dtype)?;
-                let child_dtype = child_dtype.as_struct().ok_or_else(|| {
-                    vortex_err!(
-                        "Merge child must return a struct dtype, however it was a {}",
+                if child_dtype.is_nullable() {
+                    todo!("merge nullable structs");
+                }
+                if !child_dtype.is_struct() {
+                    return Err(vortex_err!(
+                        "Merge child must return a non-nullable struct dtype, got {}",
                         child_dtype
-                    )
-                })?;
+                    ));
+                }
+                let child_dtype = child_dtype.as_struct().vortex_expect("expected struct");
 
                 for name in child_dtype.names().iter() {
                     if let Some(idx) = names.iter().position(|n| n == name) {

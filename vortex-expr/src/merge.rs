@@ -63,9 +63,11 @@ impl VortexExpr for Merge {
         let mut arrays = Vec::new();
 
         for value_array in value_arrays.iter() {
-            // Expect non-nullable struct input, for now.r
             // TODO(marko): When nullable, we need to merge struct validity into field validity.
-            if !value_array.dtype().is_struct() || value_array.dtype().is_nullable() {
+            if value_array.dtype().is_nullable() {
+                todo!("merge nullable structs");
+            }
+            if !value_array.dtype().is_struct() {
                 vortex_bail!("merge expects non-nullable struct input");
             }
 
