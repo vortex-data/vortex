@@ -270,15 +270,35 @@ impl<T> Buffer<T> {
     ///
     /// # Panics:
     /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    #[inline(always)]
     pub fn slice_ref(&self, subset: &[T]) -> Self {
+        self.slice_ref_with_alignment(subset, Alignment::of::<T>())
+    }
+
+    /// Returns a slice of self that is equivalent to the given subset.
+    ///
+    /// When processing the buffer you will often end up with &\[T\] that is a subset
+    /// of the underlying buffer. This function turns the slice into a slice of the buffer
+    /// it has been taken from.
+    ///
+    /// # Panics:
+    /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    /// Also requires that the given alignment aligns to the type of slice and is smaller or equal to the buffers alignment
+    pub fn slice_ref_with_alignment(&self, subset: &[T], alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("slice_ref alignment must at least align to type T")
+        }
+
+        if !self.alignment.is_aligned_to(alignment) {
+            vortex_panic!("slice_ref subset alignment must at least align to the buffer alignment")
+        }
+
+        if subset.as_ptr().align_offset(*alignment) != 0 {
+            vortex_panic!("slice_ref subset must be aligned to {:?}", alignment);
+        }
+
         let subset_u8 =
             unsafe { std::slice::from_raw_parts(subset.as_ptr().cast(), size_of_val(subset)) };
-
-        let alignment = if subset.as_ptr().align_offset(*self.alignment) == 0 {
-            self.alignment
-        } else {
-            Alignment::of::<T>()
-        };
 
         Self {
             bytes: self.bytes.slice_ref(subset_u8),

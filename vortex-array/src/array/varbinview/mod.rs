@@ -283,7 +283,7 @@ impl VarBinViewArray {
             views
                 .clone()
                 .into_byte_buffer()
-                .slice_ref(view.as_inlined().value())
+                .slice_ref_with_alignment(view.as_inlined().value(), Alignment::new(1))
         }
     }
 
