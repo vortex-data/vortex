@@ -15,10 +15,11 @@ impl FilterFn<BoolArray> for BoolEncoding {
     fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(mask)?;
 
-        let buffer = match mask
-            .threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD)
-            .expect_some()
-        {
+        let mask_values = mask
+            .values()
+            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+
+        let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
             MaskIter::Indices(indices) => filter_indices(
                 &array.boolean_buffer(),
                 mask.true_count(),

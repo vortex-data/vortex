@@ -14,12 +14,13 @@ const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<ChunkedArray> for ChunkedEncoding {
     fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayData> {
+        let mask_values = mask
+            .values()
+            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
-        let chunks = match mask
-            .threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD)
-            .expect_some()
-        {
+        let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
             MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
             MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
         }?;

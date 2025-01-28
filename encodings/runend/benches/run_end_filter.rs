@@ -68,7 +68,7 @@ fn evenly_spaced(c: &mut Criterion) {
                     |b| {
                         b.iter(|| {
                             black_box(
-                                take_indices_unchecked(&array, mask.indices().expect_some())
+                                take_indices_unchecked(&array, mask.values().unwrap().indices())
                                     .unwrap(),
                             )
                         });

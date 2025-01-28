@@ -8,12 +8,10 @@ mod iter_bools;
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
-use std::mem::discriminant;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
-use vortex_error::vortex_panic;
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -26,18 +24,6 @@ pub enum AllOr<T> {
 }
 
 impl<T> AllOr<T> {
-    /// Returns the `Some` variant of the enum.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the variant is not `Some`.
-    pub fn expect_some(self) -> T {
-        match self {
-            Self::Some(v) => v,
-            _ => vortex_panic!("Expected Some variant, got {:?}", discriminant(&self)),
-        }
-    }
-
     /// Returns the `Some` variant of the enum, or a default value.
     pub fn unwrap_or_else<F, G>(self, all_true: F, all_false: G) -> T
     where
@@ -494,6 +480,14 @@ impl Mask {
             Self::AllTrue(_) => AllOr::All,
             Self::AllFalse(_) => AllOr::None,
             Self::Values(values) => AllOr::Some(values.threshold_iter(threshold)),
+        }
+    }
+
+    /// Return [`MaskValues`] if the mask is not all true or all false.
+    pub fn values(&self) -> Option<&MaskValues> {
+        match self {
+            Self::Values(values) => Some(values),
+            _ => None,
         }
     }
 }

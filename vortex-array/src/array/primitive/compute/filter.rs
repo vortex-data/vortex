@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter, MaskValues};
 
 use crate::array::primitive::PrimitiveArray;
@@ -18,10 +18,11 @@ impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
     fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayData> {
         let validity = array.validity().filter(mask)?;
 
-        match mask
-            .threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD)
-            .expect_some()
-        {
+        let mask_values = mask
+            .values()
+            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+
+        match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
             MaskIter::Indices(indices) => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let values = filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied());

@@ -6,7 +6,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use super::chunked_indices;
@@ -51,7 +51,11 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     let values: Buffer<T> = filter_indices(
         array,
         mask.true_count(),
-        mask.indices().expect_some().iter().copied(),
+        mask.values()
+            .vortex_expect("AllTrue and AllFalse handled by filter fn")
+            .indices()
+            .iter()
+            .copied(),
     );
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
