@@ -52,6 +52,20 @@ impl<T> AllOr<T> {
     }
 }
 
+impl<T> AllOr<&T> {
+    /// Clone the inner value.
+    pub fn cloned(self) -> AllOr<T>
+    where
+        T: Clone,
+    {
+        match self {
+            Self::All => AllOr::All,
+            Self::None => AllOr::None,
+            Self::Some(v) => AllOr::Some(v.clone()),
+        }
+    }
+}
+
 impl<T> Debug for AllOr<T>
 where
     T: Debug,

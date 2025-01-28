@@ -70,7 +70,7 @@ impl RunEndArray {
             }
             LogicalValidity::AllInvalid(_) => 0,
             LogicalValidity::Mask(mask) => {
-                let mut is_valid = mask.indices().iter();
+                let mut is_valid = mask.indices().expect_some().iter();
                 match is_valid.next() {
                     None => self.len() as u64,
                     Some(&valid_index) => {
@@ -106,7 +106,7 @@ impl RunEndArray {
             LogicalValidity::AllValid(_) => 0u64,
             LogicalValidity::AllInvalid(_) => self.len() as u64,
             LogicalValidity::Mask(mask) => {
-                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), mask.boolean_buffer()))
+                match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), mask.boolean_buffer().expect_some()))
             }
         };
         Ok(null_count)

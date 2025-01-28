@@ -354,7 +354,7 @@ mod test {
             unreachable!()
         };
         assert_eq!(
-            mask.boolean_buffer().iter().collect_vec(),
+            mask.boolean_buffer().expect_some().iter().collect_vec(),
             [false, false, true, false, false, true, false, false, true, false]
         );
     }

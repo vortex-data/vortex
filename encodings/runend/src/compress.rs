@@ -196,7 +196,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             for (end, value) in run_ends.zip_eq(
                 values
                     .iter()
-                    .zip(mask.boolean_buffer().iter())
+                    .zip(mask.boolean_buffer().cloned().expect_some().iter())
                     .map(|(&v, is_valid)| is_valid.then_some(v)),
             ) {
                 match value {
@@ -240,7 +240,7 @@ pub fn runend_decode_typed_bool(
             for (end, value) in run_ends.zip_eq(
                 values
                     .iter()
-                    .zip(mask.boolean_buffer().iter())
+                    .zip(mask.boolean_buffer().cloned().expect_some().iter())
                     .map(|(v, is_valid)| is_valid.then_some(v)),
             ) {
                 match value {

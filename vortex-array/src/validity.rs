@@ -441,7 +441,7 @@ impl FromIterator<LogicalValidity> for Validity {
                 LogicalValidity::AllValid(count) => buffer.append_n(count, true),
                 LogicalValidity::AllInvalid(count) => buffer.append_n(count, false),
                 LogicalValidity::Mask(mask) => {
-                    buffer.append_buffer(mask.boolean_buffer());
+                    buffer.append_buffer(mask.boolean_buffer().expect_some());
                 }
             };
         }
@@ -478,7 +478,9 @@ impl LogicalValidity {
         match self {
             Self::AllValid(_) => Ok(None),
             Self::AllInvalid(l) => Ok(Some(NullBuffer::new_null(*l))),
-            Self::Mask(a) => Ok(Some(NullBuffer::new(a.boolean_buffer().clone()))),
+            Self::Mask(a) => Ok(Some(NullBuffer::new(
+                a.boolean_buffer().cloned().expect_some(),
+            ))),
         }
     }
 
@@ -486,7 +488,7 @@ impl LogicalValidity {
         match self {
             Self::AllValid(l) => BooleanBuffer::new_set(*l),
             Self::AllInvalid(l) => BooleanBuffer::new_unset(*l),
-            Self::Mask(a) => a.boolean_buffer().clone(),
+            Self::Mask(a) => a.boolean_buffer().cloned().expect_some(),
         }
     }
 

@@ -44,7 +44,7 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
                 LogicalValidity::Mask(m) => self.compute_statistics(
                     &NullableValues(
                         array.as_slice::<$P>(),
-                        m.boolean_buffer(),
+                        m.boolean_buffer().expect_some(),
                     ),
                     stat
                 ),

@@ -57,6 +57,7 @@ fn encoded_zero<T: NativePType>(
 
             let valid_indices = mask
                 .indices()
+                .expect_some()
                 .iter()
                 .map(|&i| i as u64)
                 .collect::<Buffer<u64>>()
