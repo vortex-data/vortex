@@ -1,12 +1,14 @@
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
+use num_traits::{AsPrimitive, NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
@@ -14,8 +16,8 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
-    take, SearchResult, SearchSortedSide,
+    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
+    sub_scalar, take, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
@@ -210,36 +212,18 @@ impl Patches {
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
-        match mask.boolean_buffer() {
+        match mask.indices() {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
-            AllOr::Some(buffer) => {
-                // TODO(ngates): add functions to operate with Mask directly
-                let mut coordinate_indices = BufferMut::<u64>::empty();
-                let mut value_indices = BufferMut::<u64>::empty();
-                let mut last_inserted_index: usize = 0;
-
+            AllOr::Some(mask_indices) => {
                 let flat_indices = self.indices().clone().into_primitive()?;
                 match_each_integer_ptype!(flat_indices.ptype(), |$I| {
-                    for (value_idx, coordinate) in flat_indices.as_slice::<$I>().iter().enumerate() {
-                        if buffer.value(*coordinate as usize) {
-                            // We count the number of truthy values between this coordinate and the previous truthy one
-                            let adjusted_coordinate = buffer.slice(last_inserted_index, (*coordinate as usize) - last_inserted_index).count_set_bits() as u64;
-                            coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
-                            last_inserted_index = *coordinate as usize;
-                            value_indices.push(value_idx as u64);
-                        }
-                    }
-                });
-
-                if coordinate_indices.is_empty() {
-                    return Ok(None);
-                }
-
-                let indices = coordinate_indices.into_array();
-                let values = take(self.values(), value_indices.into_array())?;
-
-                Ok(Some(Self::new(mask.len(), indices, values)))
+                    filter_patches_with_mask(
+                        flat_indices.as_slice::<$I>(),
+                        self.values(),
+                        mask_indices,
+                    )
+                })
             }
         }
     }
@@ -397,6 +381,96 @@ impl Patches {
         }
         Ok(Some(Self::new(self.array_len, self.indices, values)))
     }
+}
+
+/// Filter patches with the provided mask (in flattened space).
+///
+/// The filter mask may contain indices that are non-patched. The return value of this function
+/// is a new set of `Patches` with the indices relative to the provided `mask` rank, and the
+/// patch values.
+fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
+    patch_indices: &[T],
+    patch_values: &ArrayData,
+    mask_indices: &[usize],
+) -> VortexResult<Option<Patches>> {
+    let true_count = mask_indices.len();
+    let mut new_patch_indices = BufferMut::<u64>::with_capacity(true_count);
+    let mut new_mask_indices = Vec::with_capacity(true_count);
+
+    // Attempt to move the window by `STRIDE` elements on each iteration. This assumes that
+    // the patches are relatively sparse compared to the overall mask, and so many indices in the
+    // mask will end up being skipped.
+    const STRIDE: usize = 4;
+
+    let mut mask_idx = 0usize;
+    let mut true_idx = 0usize;
+
+    while mask_idx < patch_indices.len() && true_idx < true_count {
+        // NOTE: we are searching for overlaps between sorted, unaligned indices in `patch_indices`
+        //  and `mask_indices`. We assume that Patches are sparse relative to the global space of
+        //  the mask (which covers both patch and non-patch values of the parent array), and so to
+        //  quickly jump through regions with no overlap, we attempt to move our pointers by STRIDE
+        //  elements on each iteration. If we cannot rule out overlap due to min/max values, we
+        //  fallback to performing a two-way iterator merge.
+        if (mask_idx + STRIDE) < patch_indices.len() && (true_idx + STRIDE) < mask_indices.len() {
+            // Load a vector of each into our registers.
+            let left_min = patch_indices[mask_idx].to_usize().vortex_expect("left_min");
+            let left_max = patch_indices[mask_idx + STRIDE]
+                .to_usize()
+                .vortex_expect("left_max");
+            let right_min = mask_indices[true_idx];
+            let right_max = mask_indices[true_idx + STRIDE];
+
+            if left_min > right_max {
+                // Advance right side
+                true_idx += STRIDE;
+                continue;
+            } else if right_min > left_max {
+                mask_idx += STRIDE;
+                continue;
+            } else {
+                // Fallthrough to direct comparison path.
+            }
+        }
+
+        // Two-way sorted iterator merge:
+
+        let left = patch_indices[mask_idx].to_usize().vortex_expect("left");
+        let right = mask_indices[true_idx];
+
+        match left.cmp(&right) {
+            Ordering::Less => {
+                mask_idx += 1;
+            }
+            Ordering::Greater => {
+                true_idx += 1;
+            }
+            Ordering::Equal => {
+                // Save the mask index as well as the positional index.
+                new_mask_indices.push(mask_idx);
+                new_patch_indices.push(true_idx as u64);
+
+                mask_idx += 1;
+                true_idx += 1;
+            }
+        }
+    }
+
+    if new_mask_indices.is_empty() {
+        return Ok(None);
+    }
+
+    let new_patch_indices = new_patch_indices.into_array();
+    let new_patch_values = filter(
+        patch_values,
+        &Mask::from_indices(patch_values.len(), new_mask_indices),
+    )?;
+
+    Ok(Some(Patches::new(
+        true_count,
+        new_patch_indices,
+        new_patch_values,
+    )))
 }
 
 #[cfg(test)]

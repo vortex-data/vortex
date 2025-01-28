@@ -22,8 +22,7 @@ mod pack;
 pub mod pruning;
 mod select;
 pub mod transform;
-#[allow(dead_code)]
-mod traversal;
+pub mod traversal;
 
 pub use binary::*;
 pub use get_item::*;

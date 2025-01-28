@@ -229,3 +229,7 @@ debug = true
 [profile.benchtest]
 inherits = "bench"
 debug-assertions = true
+
+[profile.samply]
+inherits = "release"
+debug = true
