@@ -50,9 +50,8 @@ pub fn sort_canonical_array(array: &ArrayData) -> VortexResult<ArrayData> {
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview()?;
-            let mut opt_values = utf8
-                .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
-                ?;
+            let mut opt_values =
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             opt_values.sort();
             Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
