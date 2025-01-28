@@ -1,6 +1,7 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -52,18 +53,22 @@ fn compare_by_value(
     // Couldn't find a value match, so the result is all false
     let Some(code) = bool.boolean_buffer().set_indices().next() else {
         return Ok(Some(
-            ConstantArray::new(false, lhs.codes().len()).into_array(),
+            ConstantArray::new(
+                Scalar::bool(false, lhs.dtype().nullability()),
+                lhs.codes().len(),
+            )
+            .into_array(),
         ));
     };
 
-    // Ensure the other is the same length as the dictionary
-    let compare_result = compare(
-        lhs.codes(),
-        try_cast(
-            ConstantArray::new(code, lhs.codes().len()),
-            lhs.codes().dtype(),
+    // The codes include nullability so we can just compare the codes directly, to the found code.
+    let compare_result = try_cast(
+        compare(
+            lhs.codes(),
+            try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
+            operator,
         )?,
-        operator,
+        &DType::Bool(lhs.dtype().nullability()),
     )?;
     Ok(Some(compare_result))
 }

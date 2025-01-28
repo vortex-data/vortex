@@ -1,5 +1,6 @@
 use std::hash::{BuildHasher, Hash, Hasher};
 
+use arrow_buffer::BooleanBufferBuilder;
 use num_traits::AsPrimitive;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, Entry, HashMap, HashTable, RandomState};
@@ -106,20 +107,30 @@ impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T> {
         }
 
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
-
         let primitive = array.clone().into_primitive()?;
-        primitive.with_iterator(|it| {
-            for value in it {
-                let code = if let Some(&v) = value {
-                    self.encode_value(v)
-                } else {
-                    NULL_CODE
-                };
-                unsafe { codes.push_unchecked(code) }
-            }
-        })?;
 
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
+        let (codes, validity) = if array.dtype().is_nullable() {
+            let mut bool_buf = BooleanBufferBuilder::new(array.len());
+            primitive.with_iterator(|it| {
+                for value in it {
+                    let (code, validity) = value
+                        .map(|v| (self.encode_value(*v), true))
+                        .unwrap_or((NULL_CODE, false));
+                    bool_buf.append(validity);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (codes, Validity::Array(bool_buf.finish().into()))
+        } else {
+            primitive.with_iterator(|it| {
+                for value in it {
+                    let code = value.map(|v| self.encode_value(*v)).unwrap_or(NULL_CODE);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (codes, Validity::NonNullable)
+        };
+        Ok(PrimitiveArray::new(codes, validity).into_array())
     }
 
     fn values(&mut self) -> ArrayData {
@@ -198,20 +209,34 @@ impl BytesDictBuilder {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
-        accessor.with_iterator(|it| {
-            for value in it {
-                let code = if let Some(v) = value {
-                    self.encode_value(&mut local_lookup, v)
-                } else {
-                    NULL_CODE
-                };
-                unsafe { codes.push_unchecked(code) }
-            }
-        })?;
+        let (codes, validity) = if self.dtype.is_nullable() {
+            let mut bool_buf = BooleanBufferBuilder::new(len);
+
+            accessor.with_iterator(|it| {
+                for value in it {
+                    let (code, validity) = value
+                        .map(|v| (self.encode_value(&mut local_lookup, v), true))
+                        .unwrap_or((NULL_CODE, false));
+                    bool_buf.append(validity);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (codes, Validity::Array(bool_buf.finish().into()))
+        } else {
+            accessor.with_iterator(|it| {
+                for value in it {
+                    let code = value
+                        .map(|v| self.encode_value(&mut local_lookup, v))
+                        .unwrap_or(NULL_CODE);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (codes, Validity::NonNullable)
+        };
 
         // Restore lookup dictionary back into the struct
         self.lookup = Some(local_lookup);
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
+        Ok(PrimitiveArray::new(codes, validity).into_array())
     }
 }
 

@@ -2,12 +2,12 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::BoolArray;
+use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -27,7 +27,7 @@ pub struct DictMetadata {
 
 impl DictArray {
     pub fn try_new(codes: ArrayData, values: ArrayData) -> VortexResult<Self> {
-        if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
+        if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
         }
         Self::try_from_parts(
@@ -47,7 +47,11 @@ impl DictArray {
     #[inline]
     pub fn codes(&self) -> ArrayData {
         self.as_ref()
-            .child(0, &DType::from(self.metadata().codes_ptype), self.len())
+            .child(
+                0,
+                &DType::Primitive(self.metadata().codes_ptype, self.dtype().nullability()),
+                self.len(),
+            )
             .vortex_expect("DictArray is missing its codes child array")
     }
 
@@ -63,6 +67,14 @@ impl ValidateVTable<DictArray> for DictEncoding {}
 
 impl IntoCanonical for DictArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
+        let codes = self.codes().into_primitive()?;
+        let ptype_codes = codes.ptype();
+        // We can drop the nullability from the dict, since it is also in the values.
+        let non_null = PrimitiveArray::from_byte_buffer(
+            codes.into_byte_buffer(),
+            ptype_codes,
+            Validity::NonNullable,
+        );
         match self.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
@@ -70,20 +82,23 @@ impl IntoCanonical for DictArray {
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: ArrayData = self.values().into_canonical()?.into();
-                take(canonical_values, self.codes())?.into_canonical()
+                take(canonical_values, non_null)?.into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => take(self.values(), self.codes())?.into_canonical(),
+            _ => take(self.values(), non_null)?.into_canonical(),
         }
     }
 }
 
 impl ValidityVTable<DictArray> for DictEncoding {
     fn is_valid(&self, array: &DictArray, index: usize) -> bool {
-        let values_index = scalar_at(array.codes(), index)
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
-            })
+        let scalar = scalar_at(array.codes(), index).unwrap_or_else(|err| {
+            vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
+        });
+        if scalar.is_null() {
+            return false;
+        };
+        let values_index: usize = scalar
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert dictionary code to usize");
@@ -97,6 +112,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
                 .into_primitive()
                 .vortex_expect("Failed to convert DictArray codes to primitive array");
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+                // This is correct since the code will be 0 if the value is null.
                 let is_valid = primitive_codes
                     .as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
