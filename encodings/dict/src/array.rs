@@ -55,6 +55,20 @@ impl DictArray {
             .vortex_expect("DictArray is missing its codes child array")
     }
 
+    // TODO: remove once take supports validity
+    pub(crate) fn non_nullable_codes(&self) -> ArrayData {
+        let codes = self
+            .codes()
+            .into_primitive()
+            .vortex_expect("Failed to convert DictArray codes to primitive array");
+        PrimitiveArray::from_byte_buffer(
+            codes.into_byte_buffer(),
+            self.ptype(),
+            Validity::NonNullable,
+        )
+        .into_array()
+    }
+
     #[inline]
     pub fn values(&self) -> ArrayData {
         self.as_ref()
@@ -67,14 +81,8 @@ impl ValidateVTable<DictArray> for DictEncoding {}
 
 impl IntoCanonical for DictArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let codes = self.codes().into_primitive()?;
-        let ptype_codes = codes.ptype();
         // We can drop the nullability from the dict, since it is also in the values.
-        let non_null = PrimitiveArray::from_byte_buffer(
-            codes.into_byte_buffer(),
-            ptype_codes,
-            Validity::NonNullable,
-        );
+        let non_null = self.non_nullable_codes();
         match self.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
