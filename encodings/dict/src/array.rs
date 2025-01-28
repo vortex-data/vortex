@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
@@ -11,8 +11,8 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityV
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
-    SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -98,10 +98,9 @@ impl IntoCanonical for DictArray {
 
 impl ValidityVTable<DictArray> for DictEncoding {
     fn is_valid(&self, array: &DictArray, index: usize) -> VortexResult<bool> {
-        let scalar = scalar_at(array.codes(), index)
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
-            });
+        let scalar = scalar_at(array.codes(), index).unwrap_or_else(|err| {
+            vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
+        });
 
         if scalar.is_null() {
             return Ok(false);
