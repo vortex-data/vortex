@@ -32,6 +32,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::varbin::builder::VarBinBuilder;
+    use crate::canonical::IntoArrayVariant;
     use crate::IntoArrayData;
 
     #[rstest]
@@ -47,7 +48,7 @@ mod test {
         varbin.push_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.into_array().into_varbinview().unwrap();
+        let canonical = varbin.into_varbinview().unwrap();
         assert_eq!(canonical.dtype(), &dtype);
 
         assert!(!canonical.is_valid(0).unwrap());

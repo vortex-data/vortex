@@ -13,11 +13,7 @@ use crate::array::{
 use crate::arrow::IntoArrowArray;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-<<<<<<< HEAD
-use crate::{Canonical, IntoArrayData};
-=======
-use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
->>>>>>> develop
+use crate::{Canonical, IntoArrayData, IntoCanonical};
 
 impl CanonicalVTable<ConstantArray> for ConstantEncoding {
     fn into_canonical(&self, array: ConstantArray) -> VortexResult<Canonical> {
@@ -82,9 +78,7 @@ impl CanonicalVTable<ConstantArray> for ConstantEncoding {
 
                 let storage_scalar = s.storage();
                 let storage_array = ConstantArray::new(storage_scalar, array.len()).into_array();
-                ExtensionArray::new(ext_dtype.clone(), storage_array)
-                    .into_array()
-                    .into_canonical()?
+                ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
             }
         })
     }
@@ -137,7 +131,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::array::ConstantArray;
-    use crate::canonical::IntoArrayVariant;
+    use crate::canonical::{IntoArrayVariant, IntoCanonical};
     use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsSet};
     use crate::IntoArrayData as _;
@@ -145,12 +139,7 @@ mod tests {
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null
-            .into_array()
-            .into_canonical()
-            .unwrap()
-            .into_null()
-            .unwrap();
+        let actual = const_null.into_null().unwrap();
         assert_eq!(actual.len(), 42);
         assert_eq!(scalar_at(actual, 33).unwrap(), Scalar::null(DType::Null));
     }

@@ -4,7 +4,7 @@ use divan::Bencher;
 use vortex_alp::{ALPFloat, ALPRDFloat, Exponents, RDEncoder};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoCanonical;
 use vortex_buffer::{buffer, Buffer};
 
 fn main() {
@@ -40,5 +40,5 @@ fn decompress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
 
     bencher
         .with_inputs(move || encoded.clone())
-        .bench_local_values(|encoded| encoded.into_array().into_canonical().unwrap());
+        .bench_local_values(|encoded| encoded.into_canonical().unwrap());
 }

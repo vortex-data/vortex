@@ -354,9 +354,6 @@ mod test {
         assert!(packed_with_patches.patches().is_some());
         assert_eq!(
             packed_with_patches
-                .into_array()
-                .into_canonical()
-                .unwrap()
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i32>(),

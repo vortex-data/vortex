@@ -1,7 +1,7 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{ArrayDType, Canonical, IntoArrayData as _, IntoArrayVariant as _};
+use vortex_array::{Canonical, IntoArrayData as _, IntoArrayVariant as _};
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::NonNullable;

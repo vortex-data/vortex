@@ -200,7 +200,7 @@ pub mod test_harness {
 
     use crate::array::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{ArrayData, IntoArrayData as _};
+    use crate::{ArrayData, IntoArrayData as _, IntoCanonical};
 
     #[allow(clippy::unwrap_used)]
     fn to_vec_of_scalar(array: &ArrayData) -> Vec<Scalar> {
@@ -297,6 +297,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::PrimitiveArray;
+    use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, sub_scalar};
     use crate::IntoArrayData;
 

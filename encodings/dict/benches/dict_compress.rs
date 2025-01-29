@@ -7,7 +7,7 @@ use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoCanonical;
 use vortex_buffer::Buffer;
 use vortex_dict::dict_encode;
 
@@ -65,21 +65,21 @@ fn decode(c: &mut Criterion) {
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     group.throughput(Throughput::Bytes(primitive_arr.nbytes() as u64));
     group.bench_function("dict_decode_primitives", |b| {
-        b.iter(|| black_box(dict.clone().into_array().into_canonical().unwrap()));
+        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
     });
 
     let varbin_arr = VarBinArray::from(gen_varbin_words(1_000_000, 0.00005));
     let dict = dict_encode(varbin_arr.as_ref()).unwrap();
     group.throughput(Throughput::Bytes(varbin_arr.nbytes() as u64));
     group.bench_function("dict_decode_varbin", |b| {
-        b.iter(|| black_box(dict.clone().into_array().into_canonical().unwrap()));
+        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
     });
 
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
     let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
     group.throughput(Throughput::Bytes(varbin_arr.nbytes() as u64));
     group.bench_function("dict_decode_view", |b| {
-        b.iter(|| black_box(dict.clone().into_array().into_canonical().unwrap()));
+        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
     });
 }
 

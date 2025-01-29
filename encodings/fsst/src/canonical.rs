@@ -2,7 +2,7 @@ use arrow_array::builder::make_view;
 use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::Canonical;
+use vortex_array::{Canonical, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -27,10 +27,7 @@ impl CanonicalVTable<FSSTArray> for FSSTEncoding {
             // Bulk-decompress the entire array.
             let uncompressed_bytes = decompressor.decompress(bytes.as_slice());
 
-            let uncompressed_lens_array = array
-                .uncompressed_lengths()
-                .into_canonical()?
-                .into_primitive()?;
+            let uncompressed_lens_array = array.uncompressed_lengths().into_primitive()?;
 
             // Directly create the binary views.
             let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());

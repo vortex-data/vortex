@@ -2,7 +2,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::stats::Stat;
-use crate::{ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData, IntoCanonical};
 
 pub trait TakeFn<Array> {
     /// Create a new array by taking the values from the `array` at the

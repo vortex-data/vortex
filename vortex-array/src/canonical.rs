@@ -136,6 +136,22 @@ impl Canonical {
     }
 }
 
+/// Canonicalize an [`ArrayData`] into one of the [`Canonical`] array forms.
+///
+/// # Invariants
+///
+/// The DType of the array will be unchanged by canonicalization.
+pub trait IntoCanonical {
+    /// Canonicalize the array.
+    fn into_canonical(self) -> VortexResult<Canonical>;
+}
+
+impl<A: IntoArrayData> IntoCanonical for A {
+    fn into_canonical(self) -> VortexResult<Canonical> {
+        self.into_array().into_canonical()
+    }
+}
+
 /// Trait for types that can be converted from an owned type into an owned array variant.
 ///
 /// # Canonicalization
@@ -159,44 +175,44 @@ pub trait IntoArrayVariant {
 
 impl<T> IntoArrayVariant for T
 where
-    T: AsRef<ArrayData>,
+    T: IntoCanonical,
 {
     fn into_null(self) -> VortexResult<NullArray> {
-        self.as_ref().clone().into_canonical()?.into_null()
+        self.into_canonical()?.into_null()
     }
 
     fn into_bool(self) -> VortexResult<BoolArray> {
-        self.as_ref().clone().into_canonical()?.into_bool()
+        self.into_canonical()?.into_bool()
     }
 
     fn into_primitive(self) -> VortexResult<PrimitiveArray> {
-        self.as_ref().clone().into_canonical()?.into_primitive()
+        self.into_canonical()?.into_primitive()
     }
 
     fn into_struct(self) -> VortexResult<StructArray> {
-        self.as_ref().clone().into_canonical()?.into_struct()
+        self.into_canonical()?.into_struct()
     }
 
     fn into_list(self) -> VortexResult<ListArray> {
-        self.as_ref().clone().into_canonical()?.into_list()
+        self.into_canonical()?.into_list()
     }
 
     fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
-        self.as_ref().clone().into_canonical()?.into_varbinview()
+        self.into_canonical()?.into_varbinview()
     }
 
     fn into_extension(self) -> VortexResult<ExtensionArray> {
-        self.as_ref().clone().into_canonical()?.into_extension()
+        self.into_canonical()?.into_extension()
     }
 }
 
-impl ArrayData {
+impl IntoCanonical for ArrayData {
     /// Canonicalize an [`ArrayData`] into one of the [`Canonical`] array forms.
     ///
     /// # Invariants
     ///
     /// The DType of the array will be unchanged by canonicalization.
-    pub fn into_canonical(self) -> VortexResult<Canonical> {
+    fn into_canonical(self) -> VortexResult<Canonical> {
         // We only care to know when we canonicalize something non-trivial.
         if !self.is_canonical() && self.len() > 1 {
             log::trace!("Canonicalizing array with encoding {:?}", self.encoding());

@@ -23,7 +23,9 @@ use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, ArrayData, DeserializeMetadata, IntoArrayData, RkyvMetadata};
+use crate::{
+    impl_encoding, ArrayData, DeserializeMetadata, IntoArrayData, IntoCanonical, RkyvMetadata,
+};
 
 mod canonical;
 mod compute;
@@ -170,8 +172,6 @@ impl ChunkedArray {
             {
                 new_chunks.push(
                     ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
-                        .as_ref()
-                        .clone()
                         .into_canonical()?
                         .into(),
                 );

@@ -524,6 +524,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::varbinview::{BinaryView, VarBinViewArray};
+    use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, slice};
     use crate::{Canonical, IntoArrayData};
 

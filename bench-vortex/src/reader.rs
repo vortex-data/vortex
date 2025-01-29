@@ -32,7 +32,7 @@ use vortex::file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::stream::ArrayStreamExt;
-use vortex::{ArrayData, IntoArrayData};
+use vortex::{ArrayData, IntoArrayData, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;
 

@@ -162,12 +162,7 @@ mod test {
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
-            filtered
-                .into_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered.into_primitive().unwrap().as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

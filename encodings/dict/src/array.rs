@@ -8,7 +8,10 @@ use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, Canonical, IntoArrayVariant, SerdeMetadata};
+use vortex_array::{
+    impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    SerdeMetadata,
+};
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -65,7 +68,7 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayData = array.values().into_canonical()?.into();
+                let canonical_values: ArrayData = array.values().into_canonical()?.into_array();
                 take(canonical_values, array.codes())?.into_canonical()
             }
             // Non-string case: take and then canonicalize

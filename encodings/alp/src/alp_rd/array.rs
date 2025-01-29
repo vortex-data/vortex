@@ -10,7 +10,7 @@ use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable,
 };
-use vortex_array::{impl_encoding, ArrayData, Canonical, SerdeMetadata};
+use vortex_array::{impl_encoding, ArrayData, Canonical, IntoArrayVariant, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
@@ -196,8 +196,8 @@ impl ALPRDArray {
 
 impl CanonicalVTable<ALPRDArray> for ALPRDEncoding {
     fn into_canonical(&self, array: ALPRDArray) -> VortexResult<Canonical> {
-        let left_parts = array.left_parts().into_canonical()?.into_primitive()?;
-        let right_parts = array.right_parts().into_canonical()?.into_primitive()?;
+        let left_parts = array.left_parts().into_primitive()?;
+        let right_parts = array.right_parts().into_primitive()?;
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = &array.metadata().dict[0..array.metadata().dict_len as usize];
@@ -264,7 +264,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{IntoArrayData, SerdeMetadata};
+    use vortex_array::{IntoArrayVariant, SerdeMetadata};
     use vortex_dtype::PType;
 
     use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};
@@ -306,12 +306,7 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array
-            .into_array()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let decoded = rd_array.into_primitive().unwrap();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
         assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);
