@@ -1,34 +1,72 @@
 include "vortex-layout/layout.fbs";
 
-// [file layout]
-/// The `FileLayout` stores the root `Layout` as well as location information for each referenced segment.
-table FileLayout {
-    root_layout: Layout;
-    segments: [Segment];
-}
-
-/// A `Segment` acts as the locator for a buffer within the file.
-struct Segment {
-    offset: uint64;
-    length: uint32;
-    alignment_exponent: uint8;
-    // These two fields are reserved for future use and act as pointers
-    // into `FileLayout::compression_schemes` and `FileLayout::encryption_schemes`
-    // respectively. They are not used in the current version of the file format.
-    _compression: uint8;
-    _encryption: uint16;
-}
-// [file layout]
-
 // [postscript]
 /// The `Postscript` is guaranteed by the file format to never exceed
 /// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
 /// followed by an 8-byte `EndOfFile` struct.
 table Postscript {
+    /// The encodings used within the file
+    encodings: [EncodingVTable];
+    /// The layouts used within the file
+    layouts: [LayoutVTable];
+    /// A FlatBuffer of type vortex_dtype::DType
     dtype: Segment;
-    file_layout: Segment;
+    /// A FlatBuffer of type vortex_layout::Layout
+    layout: Segment;
+    /// A FlatBuffer of type SegmentMap
+    segment_map: Segment;
+
 }
 // [postscript]
+
+// [segment_map]
+table SegmentMap {
+    segments: [Segment];
+    /// The encryption schemes used within the file
+    encryption_schemes: [EncryptionScheme];
+    /// The compression schemes used within the file
+    compression_schemes: [CompressionScheme];
+}
+
+/// A `Segment` acts as the locator for a buffer within the file.
+table Segment {
+    offset: uint64;
+    length: uint32;
+    alignment_exponent: uint8 = null;
+    compression_scheme: uint32 = null;
+    encryption_scheme: uint32 = null;
+}
+
+/// Defines an encryption scheme used within the file
+table EncryptionScheme {
+    key_id: string;
+    algorithm: EncryptionAlgorithm;
+}
+
+/// The encryption algorithms supported by Vortex.
+enum EncryptionAlgorithm {
+}
+
+/// The compression schemes supported by Vortex.
+union CompressionScheme {
+}
+// [segment_map]
+
+// [vtables]
+table EncodingVTable {
+    /// URI for the encoding
+    id: string;
+    /// Optionally embedded WebAssembly implementation.
+    wasm_v1: Segment = null;
+}
+
+table LayoutVTable {
+    /// URI for the layout
+    id: string;
+    /// Optionally embedded WebAssembly implementation.
+    wasm_v1: Segment = null;
+}
+// [vtables]
 
 /// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
 /// using flatbuffers, but the equivalent flatbuffer definition would be:
