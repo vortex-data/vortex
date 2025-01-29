@@ -101,6 +101,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
+    use crate::stats::{exact, Precision};
     use crate::IntoArrayData;
 
     #[test]
@@ -123,8 +124,8 @@ mod tests {
             num_stats
         );
 
-        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(1i64));
-        assert_eq!(stats.get_as::<i64>(Stat::Max), Some(5_i64));
-        assert_eq!(stats.get_as::<usize>(Stat::NullCount), Some(0));
+        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(exact(1i64)));
+        assert_eq!(stats.get_as::<i64>(Stat::Max), Some(exact(5_i64)));
+        assert_eq!(stats.get_as::<usize>(Stat::NullCount), Some(exact(0usize)));
     }
 }

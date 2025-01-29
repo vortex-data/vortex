@@ -9,7 +9,7 @@ use vortex_error::{
 };
 
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{exact, ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{StructArrayTrait, VariantsVTable};
@@ -225,9 +225,9 @@ impl StatisticsVTable<StructArray> for StructEncoding {
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
-                .map(|size| StatsSet::of(stat, size))
+                .map(|size| StatsSet::of(stat, exact(size)))
                 .unwrap_or_default(),
-            Stat::NullCount => StatsSet::of(stat, array.validity().null_count(array.len())?),
+            Stat::NullCount => StatsSet::of(stat, exact(array.validity().null_count(array.len())?)),
             _ => StatsSet::default(),
         })
     }

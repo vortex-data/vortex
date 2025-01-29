@@ -1,6 +1,7 @@
 //! Traits and utilities to compute and access array statistics.
 
-use std::fmt::{Display, Formatter};
+use std::cmp::Ordering;
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -14,10 +15,11 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::Encoding;
+use crate::stats::Precision::{Bound, Exact};
 use crate::ArrayData;
 
 pub mod flatbuffers;
@@ -38,6 +40,272 @@ pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::IsStrictSorted,
     Stat::UncompressedSizeInBytes,
 ];
+
+#[derive(Debug, Clone)]
+pub enum Precision<T> {
+    Exact(T),
+    Bound(T),
+}
+
+pub fn exact<S: Into<T>, T>(s: S) -> Precision<T> {
+    Exact(s.into())
+}
+
+pub fn bound<S: Into<T>, T>(s: S) -> Precision<T> {
+    Bound(s.into())
+}
+
+impl<T: Debug> Precision<T> {
+    // This panics if the precision value is not exact
+    pub fn unwrap_exact(self) -> T {
+        match self {
+            Exact(val) => val,
+            _ => vortex_panic!("Expected exact value, got value {:?}", self),
+        }
+    }
+}
+
+impl<T: PartialEq> PartialEq for Precision<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Exact(lhs), Exact(rhs)) | (Bound(lhs), Bound(rhs)) => lhs == rhs,
+            _ => false,
+        }
+    }
+}
+
+impl<T> Precision<Option<T>> {
+    pub const fn transpose(self) -> Option<Precision<T>> {
+        match self {
+            Exact(Some(x)) => Some(Exact(x)),
+            Bound(Some(x)) => Some(Bound(x)),
+            _ => None,
+        }
+    }
+}
+
+impl<T> Precision<T> {
+    pub fn ok_exact(self) -> Option<T> {
+        match self {
+            Exact(val) => Some(val),
+            _ => None,
+        }
+    }
+
+    pub fn is_exact(&self) -> bool {
+        matches!(self, Precision::Exact(_))
+    }
+
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Precision<U> {
+        match self {
+            Precision::Exact(value) => Precision::Exact(f(value)),
+            Precision::Bound(value) => Precision::Bound(f(value)),
+        }
+    }
+
+    // Similar to option and then, but if either value is bound, then the whole value is bound.
+    pub fn and_then_prefer_bound<U, F: FnOnce(T) -> Precision<U>>(self, f: F) -> Precision<U> {
+        match self {
+            Precision::Exact(value) => f(value),
+            Precision::Bound(value) => match f(value) {
+                Precision::Exact(value) | Precision::Bound(value) => Precision::Bound(value),
+            },
+        }
+    }
+
+    fn try_map<U, F: FnOnce(T) -> VortexResult<U>>(self, f: F) -> VortexResult<Precision<U>> {
+        let prec = match self {
+            Precision::Exact(value) => Precision::Exact(f(value)?),
+            Precision::Bound(value) => Precision::Bound(f(value)?),
+        };
+        Ok(prec)
+    }
+
+    fn as_ref(&self) -> Precision<&T> {
+        match self {
+            Precision::Exact(val) => Precision::Exact(val),
+            Precision::Bound(val) => Precision::Bound(val),
+        }
+    }
+
+    pub fn value(&self) -> &T {
+        match self {
+            Precision::Exact(val) | Precision::Bound(val) => val,
+        }
+    }
+
+    pub fn into_value(self) -> T {
+        match self {
+            Precision::Exact(val) | Precision::Bound(val) => val,
+        }
+    }
+}
+
+impl<T: Display> Display for Precision<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Precision::Exact(v) => {
+                write!(f, "exact({})", v)
+            }
+            Precision::Bound(v) => {
+                write!(f, "bound({})", v)
+            }
+        }
+    }
+}
+
+impl<T: PartialEq> PartialEq<T> for Precision<T> {
+    fn eq(&self, other: &T) -> bool {
+        match self {
+            Precision::Exact(v) => v == other,
+            _ => false,
+        }
+    }
+}
+
+impl Precision<ScalarValue> {
+    pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
+        self.map(|v| Scalar::new(dtype, v))
+    }
+}
+
+impl Precision<&ScalarValue> {
+    pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
+        self.map(|v| Scalar::new(dtype, v.clone()))
+    }
+}
+
+pub trait PartialOrder<T: PartialOrd> {
+    fn ordered(lhs: &T, other: &T) -> Option<bool>;
+
+    fn lift(value: Precision<T>) -> Self;
+
+    fn into_value(self) -> Precision<T>;
+}
+
+pub struct LowerBound<T>(Precision<T>);
+
+impl<T> LowerBound<T> {
+    pub fn is_exact(&self) -> bool {
+        self.0.is_exact()
+    }
+}
+
+impl<T: PartialOrd> LowerBound<T> {
+    pub fn le(&self, value: &LowerBound<T>) -> Option<bool> {
+        Some(match self.0.value().partial_cmp(&value.0.value())? {
+            Ordering::Less => true,
+            Ordering::Equal => {
+                // for a fixed value v. exact(v) <= bound(v) is true
+                match (&self.0, &value.0) {
+                    (Precision::Exact(_), _) | (Precision::Bound(_), Precision::Bound(_)) => true,
+                    _ => false,
+                }
+            }
+            Ordering::Greater => false,
+        })
+    }
+}
+
+impl<T: PartialOrd> PartialOrder<T> for LowerBound<T> {
+    fn ordered(lhs: &T, rhs: &T) -> Option<bool> {
+        PartialOrd::partial_cmp(lhs, rhs).map(|o| o != Ordering::Greater)
+    }
+
+    fn lift(value: Precision<T>) -> Self {
+        Self(value)
+    }
+
+    fn into_value(self) -> Precision<T> {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpperBound<T>(Precision<T>);
+
+impl<T: PartialOrd> UpperBound<T> {
+    pub fn ge(&self, value: &UpperBound<T>) -> Option<bool> {
+        Some(match self.0.value().partial_cmp(&value.0.value())? {
+            Ordering::Less => false,
+            Ordering::Equal => {
+                // for a fixed value v. exact(v) >= bound(v) is true
+                match (&self.0, &value.0) {
+                    (Precision::Exact(_), _) | (Precision::Bound(_), Precision::Bound(_)) => true,
+                    _ => false,
+                }
+            }
+            Ordering::Greater => true,
+        })
+    }
+
+    pub fn ge2(&self, value: &T) -> bool {
+        self.0.value() >= value
+        // Some(match self.0.value().partial_cmp(&value.0.value())? {
+        //     Ordering::Less => false,
+        //     Ordering::Equal => {
+        //         // for a fixed value v. exact(v) >= bound(v) is true
+        //         match (&self, &value) {
+        //             (Precision::Exact(_), _) | (Precision::Bound(_), Precision::Bound(_)) => true,
+        //             _ => false,
+        //         }
+        //     }
+        //     Ordering::Greater => true,
+        // })
+    }
+}
+
+impl<T: PartialOrd> PartialOrder<T> for UpperBound<T> {
+    fn ordered(lhs: &T, rhs: &T) -> Option<bool> {
+        PartialOrd::partial_cmp(lhs, rhs).map(|o| o != Ordering::Less)
+    }
+
+    fn lift(value: Precision<T>) -> Self {
+        Self(value)
+    }
+
+    fn into_value(self) -> Precision<T> {
+        self.0
+    }
+}
+
+pub trait StatOrder<T: PartialOrd> {
+    type BoundDirection: PartialOrder<T>;
+
+    const STAT: Stat;
+}
+
+pub struct Max;
+pub struct TrueCount;
+pub struct NullCount;
+pub struct UncompressedSizeInBytes;
+
+impl<T: PartialOrd> StatOrder<T> for Max {
+    type BoundDirection = UpperBound<T>;
+    const STAT: Stat = Stat::Max;
+}
+
+impl<T: PartialOrd> StatOrder<T> for TrueCount {
+    type BoundDirection = UpperBound<T>;
+    const STAT: Stat = Stat::TrueCount;
+}
+
+impl<T: PartialOrd> StatOrder<T> for NullCount {
+    type BoundDirection = UpperBound<T>;
+    const STAT: Stat = Stat::NullCount;
+}
+
+impl<T: PartialOrd> StatOrder<T> for UncompressedSizeInBytes {
+    type BoundDirection = UpperBound<T>;
+    const STAT: Stat = Stat::UncompressedSizeInBytes;
+}
+
+pub struct Min;
+
+impl<T: PartialOrd> StatOrder<T> for Min {
+    type BoundDirection = LowerBound<T>;
+    const STAT: Stat = Stat::Min;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
@@ -166,20 +434,108 @@ impl Display for Stat {
     }
 }
 
+pub struct StatisticsCompare<'a>(&'a dyn Statistics);
+
+impl<'a> StatisticsCompare<'a> {
+    pub fn get_compare<S: StatOrder<Scalar>>(
+        &self,
+        _stat: S,
+        dtype: &DType,
+        other: &Scalar,
+    ) -> VortexResult<Option<bool>> {
+        self.0
+            .get(S::STAT)
+            .map(|s| Self::compare::<S::BoundDirection>(s.into_value(), dtype, other))
+            .transpose()
+    }
+
+    pub fn get_as<S, U>(&self) -> Option<S::BoundDirection>
+    where
+        U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
+        S: StatOrder<U>,
+    {
+        self.0
+            .get_as::<U>(S::STAT)
+            .map(|s| S::BoundDirection::lift(s))
+    }
+
+    pub fn get<S>(&self, dtype: &DType) -> Option<S::BoundDirection>
+    where
+        // U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
+        S: StatOrder<Scalar>,
+    {
+        self.0
+            .get(S::STAT)
+            .map(|s| S::BoundDirection::lift(s.into_scalar(dtype.clone())))
+    }
+
+    //    pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+    //         &self,
+    //         stat: Stat,
+    //     ) -> Option<Precision<U>> {
+
+    // pub fn get_as_compare<S: StatOrder<Scalar>, U>(&self, other: U) -> VortexResult<Option<bool>>
+    // where
+    //     U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
+    // {
+    //     self.0
+    //         .get_as::<U>(S::STAT)
+    //         .map(|s| Self::compare_as::<U, S::BoundDirection>(s.into_value(), other))
+    //         .transpose()
+    // }
+
+    // fn compare_as<
+    //     U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
+    //     S: PartialOrder<Scalar>,
+    // >(
+    //     value: &U,
+    //     other: &U,
+    // ) -> VortexResult<bool>
+    // where
+    //     <S as StatOrder<Scalar>>::BoundDirection:
+    //         for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
+    // {
+    //     S::ordered(value, other)
+    //         .ok_or_else(|| vortex_err!("Failed to compare scalar values: {} and {}", value, other))
+    // }
+
+    fn compare<S: PartialOrder<Scalar>>(
+        value: ScalarValue,
+        dtype: &DType,
+        other: &Scalar,
+    ) -> VortexResult<bool> {
+        let scalar = Scalar::new(dtype.clone(), value);
+        S::ordered(other, &scalar)
+            .ok_or_else(|| vortex_err!("Failed to compare scalar values: {} and {}", scalar, other))
+    }
+
+    // fn compute_compare<S: StatOrder<Scalar>>(
+    //     &self,
+    //     _stat: S,
+    //     dtype: &DType,
+    //     other: &Scalar,
+    // ) -> VortexResult<Option<bool>> {
+    //     self.0
+    //         .compute(S::STAT)
+    //         .map(|s| Self::compare::<S::BoundDirection>(s, dtype, other))
+    //         .transpose()
+    // }
+}
+
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<ScalarValue>;
+    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
 
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: ScalarValue);
+    fn set(&self, stat: Stat, value: Precision<ScalarValue>);
 
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present.
+    /// Computes the value of the stat if it's not present and not exact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
@@ -191,7 +547,7 @@ pub trait Statistics {
         let mut stats_set = StatsSet::default();
         for stat in stats {
             if let Some(s) = self.compute(*stat) {
-                stats_set.set(*stat, s)
+                stats_set.set(*stat, exact(s))
             }
         }
         Ok(stats_set)
@@ -202,6 +558,10 @@ pub trait Statistics {
 
 pub trait ArrayStatistics {
     fn statistics(&self) -> &dyn Statistics;
+
+    fn comp_stats(&self) -> StatisticsCompare<'_> {
+        StatisticsCompare(self.statistics())
+    }
 
     fn inherit_statistics(&self, parent: &dyn Statistics);
 }
@@ -235,9 +595,9 @@ impl dyn Statistics + '_ {
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<U> {
+    ) -> Option<Precision<U>> {
         self.get(stat)
-            .map(|s| U::try_from(&s))
+            .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
             .unwrap_or_else(|err| {
                 vortex_panic!(

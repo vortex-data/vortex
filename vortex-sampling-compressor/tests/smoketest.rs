@@ -13,7 +13,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 mod tests {
     use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
     use vortex_array::encoding::Encoding;
-    use vortex_array::stats::{ArrayStatistics, Stat};
+    use vortex_array::stats::{exact, ArrayStatistics, Stat};
     use vortex_array::variants::StructArrayTrait;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
@@ -127,7 +127,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some((chunk.len() * 8) + 1)
+                Some(exact((chunk.len() * 8) + 1))
             );
         }
 
@@ -142,7 +142,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(chunk.len().div_ceil(8) + 2)
+                Some(exact(chunk.len().div_ceil(8) + 2))
             );
         }
 
@@ -160,7 +160,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(1392641_usize)
+                Some(exact(1392641_usize))
             );
         }
 
@@ -175,7 +175,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(134357007_usize)
+                Some(exact(134357007_usize))
             );
         }
 
@@ -190,7 +190,7 @@ mod tests {
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(chunk.len() * 8 + 4)
+                Some(exact(chunk.len() * 8 + 4))
             )
         }
     }

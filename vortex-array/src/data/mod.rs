@@ -17,7 +17,7 @@ use crate::array::{
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, Statistics, StatisticsCompare, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{

@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::stats::{exact, Stat, StatisticsVTable, StatsSet};
 use crate::validate::ValidateVTable;
 use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::variants::{NullArrayTrait, VariantsVTable};
@@ -51,7 +51,7 @@ impl ValidityVTable<NullArray> for NullEncoding {
 impl StatisticsVTable<NullArray> for NullEncoding {
     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, exact(array.nbytes())));
         }
 
         Ok(StatsSet::nulls(array.len(), &DType::Null))

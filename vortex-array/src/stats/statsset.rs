@@ -4,11 +4,14 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::Stat;
+use crate::stats::{
+    exact, Max, Min, NullCount, PartialOrder, Precision, Stat, StatOrder, StatisticsCompare,
+    TrueCount, UncompressedSizeInBytes,
+};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
-    values: Option<Vec<(Stat, ScalarValue)>>,
+    values: Option<Vec<(Stat, Precision<ScalarValue>)>>,
 }
 
 impl StatsSet {
@@ -17,7 +20,7 @@ impl StatsSet {
     /// # Safety
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
-    pub fn new_unchecked(values: Vec<(Stat, ScalarValue)>) -> Self {
+    pub fn new_unchecked(values: Vec<(Stat, Precision<ScalarValue>)>) -> Self {
         Self {
             values: Some(values),
         }
@@ -27,27 +30,33 @@ impl StatsSet {
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
         let mut stats = Self::new_unchecked(vec![
-            (Stat::RunCount, 1.into()),
-            (Stat::NullCount, len.into()),
+            (Stat::RunCount, exact(1)),
+            (Stat::NullCount, exact(len)),
         ]);
 
         if len > 0 {
-            stats.set(Stat::IsConstant, true);
-            stats.set(Stat::IsSorted, true);
-            stats.set(Stat::IsStrictSorted, len < 2);
+            stats.set(Stat::IsConstant, exact(true));
+            stats.set(Stat::IsSorted, exact(true));
+            stats.set(Stat::IsStrictSorted, exact(len < 2));
         }
 
         // Add any DType-specific stats.
         match dtype {
             DType::Bool(_) => {
-                stats.set(Stat::TrueCount, 0);
+                stats.set(Stat::TrueCount, exact(0));
             }
             DType::Primitive(ptype, _) => {
                 ptype.byte_width();
-                stats.set(Stat::BitWidthFreq, vec![0u64; ptype.byte_width() * 8 + 1]);
+                stats.set(
+                    Stat::BitWidthFreq,
+                    exact(vec![0u64; ptype.byte_width() * 8 + 1]),
+                );
                 stats.set(
                     Stat::TrailingZeroFreq,
-                    vec![ptype.byte_width() as u64 * 8; ptype.byte_width() * 8 + 1],
+                    exact(vec![
+                        ptype.byte_width() as u64 * 8;
+                        ptype.byte_width() * 8 + 1
+                    ]),
                 );
             }
             _ => {}
@@ -60,20 +69,24 @@ impl StatsSet {
         let (dtype, sv) = scalar.into_parts();
         let mut stats = Self::default();
         if length > 0 {
-            stats.set(Stat::IsConstant, true);
-            stats.set(Stat::IsSorted, true);
-            stats.set(Stat::IsStrictSorted, length <= 1);
+            stats.extend([
+                (Stat::IsConstant, exact(true)),
+                (Stat::IsSorted, exact(true)),
+                (Stat::IsStrictSorted, exact(length <= 1)),
+            ]);
         }
 
         let run_count = if length == 0 { 0u64 } else { 1 };
-        stats.set(Stat::RunCount, run_count);
+        stats.set(Stat::RunCount, exact(run_count));
 
         let null_count = if sv.is_null() { length as u64 } else { 0 };
-        stats.set(Stat::NullCount, null_count);
+        stats.set(Stat::NullCount, exact(null_count));
 
         if !sv.is_null() {
-            stats.set(Stat::Min, sv.clone());
-            stats.set(Stat::Max, sv.clone());
+            stats.extend([
+                (Stat::Min, exact(sv.clone())),
+                (Stat::Max, exact(sv.clone())),
+            ]);
         }
 
         if matches!(dtype, DType::Bool(_)) {
@@ -81,7 +94,7 @@ impl StatsSet {
             let true_count = bool_val
                 .map(|b| if b { length as u64 } else { 0 })
                 .unwrap_or(0);
-            stats.set(Stat::TrueCount, true_count);
+            stats.set(Stat::TrueCount, exact(true_count));
         }
 
         stats
@@ -93,19 +106,19 @@ impl StatsSet {
         len: usize,
     ) -> Self {
         StatsSet::new_unchecked(vec![
-            (Stat::TrueCount, true_count.into()),
-            (Stat::NullCount, null_count.into()),
-            (Stat::Min, (true_count == len).into()),
-            (Stat::Max, (true_count > 0).into()),
+            (Stat::TrueCount, exact(true_count)),
+            (Stat::NullCount, exact(null_count)),
+            (Stat::Min, exact(true_count == len)),
+            (Stat::Max, exact(true_count > 0)),
             (
                 Stat::IsConstant,
-                ((true_count == 0 && null_count == 0) || true_count == len).into(),
+                exact((true_count == 0 && null_count == 0) || true_count == len),
             ),
         ])
     }
 
-    pub fn of<S: Into<ScalarValue>>(stat: Stat, value: S) -> Self {
-        Self::new_unchecked(vec![(stat, value.into())])
+    pub fn of(stat: Stat, value: Precision<ScalarValue>) -> Self {
+        Self::new_unchecked(vec![(stat, value)])
     }
 }
 
@@ -121,30 +134,58 @@ impl StatsSet {
         self.values.as_ref().is_none_or(|v| v.is_empty())
     }
 
-    pub fn get(&self, stat: Stat) -> Option<&ScalarValue> {
+    pub fn get(&self, stat: Stat) -> Option<&Precision<ScalarValue>> {
         self.values
             .as_ref()
             .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v))
     }
 
+    pub fn getb<S>(&self, dtype: &DType) -> Option<S::BoundDirection>
+    where
+        // U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
+        S: StatOrder<Scalar>,
+    {
+        self.get(S::STAT)
+            .map(|s| S::BoundDirection::lift(s.as_ref().into_scalar(dtype.clone())))
+    }
+
+    pub fn getv<S>(&self, dtype: &DType) -> Option<Precision<Scalar>>
+    where
+        S: StatOrder<Scalar>,
+    {
+        self.get(S::STAT)
+            .map(|s| s.as_ref().into_scalar(dtype.clone()))
+    }
+
+    pub fn get_asv<S, T>(&self) -> Option<Precision<T>>
+    where
+        T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
+        S: StatOrder<T>,
+    {
+        self.get_as::<T>(S::STAT)
+    }
+
     pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<T> {
+    ) -> Option<Precision<T>> {
         self.get(stat).map(|v| {
-            T::try_from(v).unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to get stat {} as {}",
-                    stat,
-                    std::any::type_name::<T>()
-                )
+            v.as_ref().map(|v| {
+                T::try_from(v).unwrap_or_else(|err| {
+                    vortex_panic!(
+                        err,
+                        "Failed to get stat {} as {}",
+                        stat,
+                        std::any::type_name::<T>()
+                    )
+                })
             })
         })
     }
 
+    // TODO(joe): Add a replace at _i
     /// Set the stat `stat` to `value`.
-    pub fn set<S: Into<ScalarValue>>(&mut self, stat: Stat, value: S) {
+    pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
         if self.values.is_none() {
             self.values = Some(Vec::with_capacity(Stat::CARDINALITY));
         }
@@ -172,7 +213,7 @@ impl StatsSet {
     /// Iterate over the statistic names and values in-place.
     ///
     /// See [Iterator].
-    pub fn iter(&self) -> impl Iterator<Item = &(Stat, ScalarValue)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(Stat, Precision<ScalarValue>)> {
         self.values.iter().flat_map(|v| v.iter())
     }
 }
@@ -182,10 +223,10 @@ impl StatsSet {
 /// Owned iterator over the stats.
 ///
 /// See [IntoIterator].
-pub struct StatsSetIntoIter(Option<std::vec::IntoIter<(Stat, ScalarValue)>>);
+pub struct StatsSetIntoIter(Option<std::vec::IntoIter<(Stat, Precision<ScalarValue>)>>);
 
 impl Iterator for StatsSetIntoIter {
-    type Item = (Stat, ScalarValue);
+    type Item = (Stat, Precision<ScalarValue>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.as_mut().and_then(|i| i.next())
@@ -193,7 +234,7 @@ impl Iterator for StatsSetIntoIter {
 }
 
 impl IntoIterator for StatsSet {
-    type Item = (Stat, ScalarValue);
+    type Item = (Stat, Precision<ScalarValue>);
     type IntoIter = StatsSetIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -201,8 +242,8 @@ impl IntoIterator for StatsSet {
     }
 }
 
-impl FromIterator<(Stat, ScalarValue)> for StatsSet {
-    fn from_iter<T: IntoIterator<Item = (Stat, ScalarValue)>>(iter: T) -> Self {
+impl FromIterator<(Stat, Precision<ScalarValue>)> for StatsSet {
+    fn from_iter<T: IntoIterator<Item = (Stat, Precision<ScalarValue>)>>(iter: T) -> Self {
         let iter = iter.into_iter();
         let (lower_bound, _) = iter.size_hint();
         let mut this = Self {
@@ -213,9 +254,9 @@ impl FromIterator<(Stat, ScalarValue)> for StatsSet {
     }
 }
 
-impl Extend<(Stat, ScalarValue)> for StatsSet {
+impl Extend<(Stat, Precision<ScalarValue>)> for StatsSet {
     #[inline]
-    fn extend<T: IntoIterator<Item = (Stat, ScalarValue)>>(&mut self, iter: T) {
+    fn extend<T: IntoIterator<Item = (Stat, Precision<ScalarValue>)>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         let (lower_bound, _) = iter.size_hint();
         if let Some(v) = &mut self.values {
@@ -275,10 +316,10 @@ impl StatsSet {
     }
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
-        match (self.get(Stat::Min), other.get(Stat::Min)) {
+        match (self.getb::<Min>(dtype), other.getb::<Min>(dtype)) {
             (Some(m1), Some(m2)) => {
-                if Scalar::new(dtype.clone(), m2.clone()) < Scalar::new(dtype.clone(), m1.clone()) {
-                    self.set(Stat::Min, m2.clone());
+                if m2.le(&m1).vortex_expect("can compare min stats") {
+                    self.set(Stat::Min, m2.0.clone().map(|s| s.into_value()));
                 }
             }
             _ => self.clear(Stat::Min),
@@ -286,96 +327,123 @@ impl StatsSet {
     }
 
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
-        match (self.get(Stat::Max), other.get(Stat::Max)) {
+        match (self.getb::<Max>(dtype), other.getb::<Max>(dtype)) {
             (Some(m1), Some(m2)) => {
-                if Scalar::new(dtype.clone(), m2.clone()) > Scalar::new(dtype.clone(), m1.clone()) {
-                    self.set(Stat::Max, m2.clone());
+                if m2.ge(&m1).vortex_expect("can compare max stats") {
+                    self.set(Stat::Max, m2.0.clone().map(|s| s.into_value()));
                 }
+                // if Scalar::new(dtype.clone(), m2.clone()) > Scalar::new(dtype.clone(), m1.clone()) {
+                //     self.set(Stat::Max, m2.clone());
+                // }
             }
             _ => self.clear(Stat::Max),
         }
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
-        if let Some(is_constant) = self.get_as(Stat::IsConstant) {
-            if let Some(other_is_constant) = other.get_as(Stat::IsConstant) {
-                if is_constant
-                    && other_is_constant
-                    && self
-                        .get(Stat::Min)
-                        .cloned()
-                        .map(|sv| Scalar::new(dtype.clone(), sv))
-                        == other
-                            .get(Stat::Min)
-                            .cloned()
-                            .map(|sv| Scalar::new(dtype.clone(), sv))
-                {
-                    return;
-                }
+        if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
+            == (
+                self.get_as(Stat::IsConstant),
+                other.get_as(Stat::IsConstant),
+            )
+        {
+            if self.getv::<Min>(dtype) == other.getv::<Min>(dtype) {
+                return;
             }
-            self.set(Stat::IsConstant, false);
         }
+        // TODO(joe): this is not true, what is the correct thing to do here? Maybe bound(false)?
+        self.set(Stat::IsConstant, exact(false));
     }
 
     fn merge_is_sorted(&mut self, other: &Self, dtype: &DType) {
-        self.merge_sortedness_stat(other, Stat::IsSorted, dtype, |own, other| own <= other)
+        self.merge_sortedness_stat(other, Stat::IsSorted, dtype, PartialOrd::le)
     }
 
     fn merge_is_strict_sorted(&mut self, other: &Self, dtype: &DType) {
-        self.merge_sortedness_stat(other, Stat::IsStrictSorted, dtype, |own, other| own < other)
+        self.merge_sortedness_stat(other, Stat::IsStrictSorted, dtype, PartialOrd::lt)
     }
 
-    fn merge_sortedness_stat<F: Fn(Option<Scalar>, Option<Scalar>) -> bool>(
+    fn merge_sortedness_stat<F: Fn(&Scalar, &Scalar) -> bool>(
         &mut self,
         other: &Self,
         stat: Stat,
         dtype: &DType,
         cmp: F,
     ) {
-        if let Some(is_sorted) = self.get_as(stat) {
-            if let Some(other_is_sorted) = other.get_as(stat) {
-                if !(self.get(Stat::Max).is_some() && other.get(Stat::Min).is_some()) {
-                    self.clear(stat);
-                } else if is_sorted
-                    && other_is_sorted
-                    && cmp(
-                        self.get(Stat::Max)
-                            .cloned()
-                            .map(|sv| Scalar::new(dtype.clone(), sv)),
-                        other
-                            .get(Stat::Min)
-                            .cloned()
-                            .map(|sv| Scalar::new(dtype.clone(), sv)),
-                    )
-                {
-                    return;
+        if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
+            == (self.get_as(stat), other.get_as(stat))
+        {
+            // There might be no stat because it was dropped, or it doesn't exist
+            // (e.g. an all null array).
+            // We assume that it was the dropped case since the doesn't exist might imply sorted,
+            // but this in-precision is correct.
+            if let (Some(self_max), Some(other_min)) =
+                (self.getv::<Max>(dtype), self.getv::<Min>(dtype))
+            {
+                if cmp(self_max.value(), other_min.value()) {
+                    // keep value
                 } else {
-                    self.set(stat, false);
+                    // TODO(joe): this might not be false, I guess this might be a bound.
+                    self.set(stat, exact(false));
                 }
-            } else {
-                self.clear(stat)
+                // if max <= min
+                // return
+                // else
+                // set false
             }
+        } else {
+            self.clear(stat);
         }
+        // // TODO(joe): this is not true, what is the correct thing to do here? Maybe bound(false)?
+        // self.set(Stat::IsConstant, exact(false));
+        //
+        // if let Some(is_sorted) = self.get_as(stat) {
+        //     if let Some(other_is_sorted) = other.get_as(stat) {
+        //         if !(self.get(Stat::Max).is_some() && other.get(Stat::Min).is_some()) {
+        //             self.clear(stat);
+        //         } else if is_sorted
+        //             && other_is_sorted
+        //             && cmp(
+        //                 self.get(Stat::Max)
+        //                     .cloned()
+        //                     .map(|sv| Scalar::new(dtype.clone(), sv)),
+        //                 other
+        //                     .get(Stat::Min)
+        //                     .cloned()
+        //                     .map(|sv| Scalar::new(dtype.clone(), sv)),
+        //             )
+        //         {
+        //             return;
+        //         } else {
+        //             self.set(stat, false);
+        //         }
+        //     } else {
+        //         self.clear(stat)
+        //     }
+        // }
     }
 
     fn merge_true_count(&mut self, other: &Self) {
-        self.merge_sum_stat(other, Stat::TrueCount)
+        self.merge_sum_stat::<TrueCount>(other)
     }
 
     fn merge_null_count(&mut self, other: &Self) {
-        self.merge_sum_stat(other, Stat::NullCount)
+        self.merge_sum_stat::<NullCount>(other)
     }
 
     fn merge_uncompressed_size_in_bytes(&mut self, other: &Self) {
-        self.merge_sum_stat(other, Stat::UncompressedSizeInBytes)
+        self.merge_sum_stat::<UncompressedSizeInBytes>(other)
     }
 
-    fn merge_sum_stat(&mut self, other: &Self, stat: Stat) {
-        match (self.get_as::<usize>(stat), other.get_as::<usize>(stat)) {
+    fn merge_sum_stat<S: StatOrder<usize>>(&mut self, other: &Self) {
+        match (self.get_asv::<S, usize>(), other.get_asv::<S, usize>()) {
             (Some(nc1), Some(nc2)) => {
-                self.set(stat, nc1 + nc2);
+                self.set(
+                    S::STAT,
+                    nc1.and_then_prefer_bound(|nc1| nc2.map(|nc2| ScalarValue::from(nc1 + nc2))),
+                );
             }
-            _ => self.clear(stat),
+            _ => self.clear(S::STAT),
         }
     }
 
@@ -393,15 +461,19 @@ impl StatsSet {
             other.get_as::<Vec<usize>>(stat),
         ) {
             (Some(f1), Some(f2)) => {
-                let combined_freq = f1
-                    .iter()
-                    .zip_longest(f2.iter())
-                    .map(|pair| match pair {
-                        EitherOrBoth::Both(a, b) => a + b,
-                        EitherOrBoth::Left(a) => *a,
-                        EitherOrBoth::Right(b) => *b,
+                let combined_freq = f1.and_then_prefer_bound(|f1| {
+                    f2.map(|f2| {
+                        ScalarValue::from(
+                            f1.iter()
+                                .zip_longest(f2.iter())
+                                .map(|pair| match pair {
+                                    EitherOrBoth::Both(a, b) => a + b,
+                                    EitherOrBoth::Left(v) | EitherOrBoth::Right(v) => *v,
+                                })
+                                .collect_vec(),
+                        )
                     })
-                    .collect_vec();
+                });
                 self.set(stat, combined_freq);
             }
             _ => self.clear(stat),
@@ -415,7 +487,10 @@ impl StatsSet {
             other.get_as::<usize>(Stat::RunCount),
         ) {
             (Some(r1), Some(r2)) => {
-                self.set(Stat::RunCount, r1 + r2 + 1);
+                self.set(
+                    Stat::RunCount,
+                    r1.and_then_prefer_bound(|r1| r2.map(|r2| ScalarValue::from(r1 + r2 + 1))),
+                );
             }
             _ => self.clear(Stat::RunCount),
         }
@@ -429,37 +504,37 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
+    use crate::stats::{exact, ArrayStatistics as _, Stat, StatsSet};
     use crate::IntoArrayData as _;
 
     #[test]
     fn test_iter() {
-        let set = StatsSet::new_unchecked(vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
+        let set = StatsSet::new_unchecked(vec![(Stat::Max, exact(100)), (Stat::Min, exact(42))]);
         let mut iter = set.iter();
-        let first = iter.next().unwrap();
+        let first = iter.next().unwrap().clone();
         assert_eq!(first.0, Stat::Max);
-        assert_eq!(i32::try_from(&first.1).unwrap(), 100);
-        let snd = iter.next().unwrap();
+        assert_eq!(first.1.map(|f| i32::try_from(&f).unwrap()), exact(100));
+        let snd = iter.next().unwrap().clone();
         assert_eq!(snd.0, Stat::Min);
-        assert_eq!(i32::try_from(&snd.1).unwrap(), 42);
+        assert_eq!(snd.1.map(|s| i32::try_from(&s).unwrap()), 42);
     }
 
     #[test]
     fn into_iter() {
         let mut set =
-            StatsSet::new_unchecked(vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())])
+            StatsSet::new_unchecked(vec![(Stat::Max, exact(100)), (Stat::Min, exact(42))])
                 .into_iter();
-        let first = set.next().unwrap();
-        assert_eq!(first.0, Stat::Max);
-        assert_eq!(i32::try_from(&first.1).unwrap(), 100);
+        let (stat, first) = set.next().unwrap();
+        assert_eq!(stat, Stat::Max);
+        assert_eq!(first.map(|f| i32::try_from(&f).unwrap()), exact(100));
         let snd = set.next().unwrap();
         assert_eq!(snd.0, Stat::Min);
-        assert_eq!(i32::try_from(&snd.1).unwrap(), 42);
+        assert_eq!(snd.1.map(|s| i32::try_from(&s).unwrap()), exact(42));
     }
 
     #[test]
     fn merge_into_min() {
-        let first = StatsSet::of(Stat::Min, 42).merge_ordered(
+        let first = StatsSet::of(Stat::Min, exact(42)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
@@ -469,7 +544,7 @@ mod test {
     #[test]
     fn merge_from_min() {
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::Min, 42),
+            &StatsSet::of(Stat::Min, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert!(first.get(Stat::Min).is_none());
@@ -477,16 +552,16 @@ mod test {
 
     #[test]
     fn merge_mins() {
-        let first = StatsSet::of(Stat::Min, 37).merge_ordered(
-            &StatsSet::of(Stat::Min, 42),
+        let first = StatsSet::of(Stat::Min, exact(37)).merge_ordered(
+            &StatsSet::of(Stat::Min, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<i32>(Stat::Min), Some(37));
+        assert_eq!(first.get_as::<i32>(Stat::Min), Some(exact(37)));
     }
 
     #[test]
     fn merge_into_max() {
-        let first = StatsSet::of(Stat::Max, 42).merge_ordered(
+        let first = StatsSet::of(Stat::Max, exact(42)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
@@ -496,7 +571,7 @@ mod test {
     #[test]
     fn merge_from_max() {
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::Max, 42),
+            &StatsSet::of(Stat::Max, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert!(first.get(Stat::Max).is_none());
@@ -504,16 +579,16 @@ mod test {
 
     #[test]
     fn merge_maxes() {
-        let first = StatsSet::of(Stat::Max, 37).merge_ordered(
-            &StatsSet::of(Stat::Max, 42),
+        let first = StatsSet::of(Stat::Max, exact(37)).merge_ordered(
+            &StatsSet::of(Stat::Max, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<i32>(Stat::Max), Some(42));
+        assert_eq!(first.get_as::<i32>(Stat::Max), Some(exact(42)));
     }
 
     #[test]
     fn merge_into_scalar() {
-        let first = StatsSet::of(Stat::TrueCount, 42).merge_ordered(
+        let first = StatsSet::of(Stat::TrueCount, exact(42)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
@@ -523,7 +598,7 @@ mod test {
     #[test]
     fn merge_from_scalar() {
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::TrueCount, 42),
+            &StatsSet::of(Stat::TrueCount, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert!(first.get(Stat::TrueCount).is_none());
@@ -531,17 +606,17 @@ mod test {
 
     #[test]
     fn merge_scalars() {
-        let first = StatsSet::of(Stat::TrueCount, 37).merge_ordered(
-            &StatsSet::of(Stat::TrueCount, 42),
+        let first = StatsSet::of(Stat::TrueCount, exact(37)).merge_ordered(
+            &StatsSet::of(Stat::TrueCount, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<usize>(Stat::TrueCount), Some(79));
+        assert_eq!(first.get_as::<usize>(Stat::TrueCount), Some(exact(79usize)));
     }
 
     #[test]
     fn merge_into_freq() {
         let vec = (0usize..255).collect_vec();
-        let first = StatsSet::of(Stat::BitWidthFreq, vec).merge_ordered(
+        let first = StatsSet::of(Stat::BitWidthFreq, exact(vec)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
@@ -552,7 +627,7 @@ mod test {
     fn merge_from_freq() {
         let vec = (0usize..255).collect_vec();
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::BitWidthFreq, vec),
+            &StatsSet::of(Stat::BitWidthFreq, exact(vec)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert!(first.get(Stat::BitWidthFreq).is_none());
@@ -562,16 +637,19 @@ mod test {
     fn merge_freqs() {
         let vec_in = vec![5u64; 256];
         let vec_out = vec![10u64; 256];
-        let first = StatsSet::of(Stat::BitWidthFreq, vec_in.clone()).merge_ordered(
-            &StatsSet::of(Stat::BitWidthFreq, vec_in),
+        let first = StatsSet::of(Stat::BitWidthFreq, exact(vec_in.clone())).merge_ordered(
+            &StatsSet::of(Stat::BitWidthFreq, exact(vec_in)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<Vec<u64>>(Stat::BitWidthFreq), Some(vec_out));
+        assert_eq!(
+            first.get_as::<Vec<u64>>(Stat::BitWidthFreq),
+            Some(exact(vec_out))
+        );
     }
 
     #[test]
     fn merge_into_sortedness() {
-        let first = StatsSet::of(Stat::IsStrictSorted, true).merge_ordered(
+        let first = StatsSet::of(Stat::IsStrictSorted, exact(true)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
@@ -581,7 +659,7 @@ mod test {
     #[test]
     fn merge_from_sortedness() {
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::IsStrictSorted, true),
+            &StatsSet::of(Stat::IsStrictSorted, exact(true)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert!(first.get(Stat::IsStrictSorted).is_none());
@@ -589,48 +667,57 @@ mod test {
 
     #[test]
     fn merge_sortedness() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Max, 1);
-        let mut second = StatsSet::of(Stat::IsStrictSorted, true);
-        second.set(Stat::Min, 2);
+        let mut first = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        first.set(Stat::Max, exact(1));
+        let mut second = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        second.set(Stat::Min, exact(2));
         first = first.merge_ordered(
             &second,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<bool>(Stat::IsStrictSorted), Some(true));
+        assert_eq!(
+            first.get_as::<bool>(Stat::IsStrictSorted),
+            Some(exact(true))
+        );
     }
 
     #[test]
     fn merge_sortedness_out_of_order() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Min, 1);
-        let mut second = StatsSet::of(Stat::IsStrictSorted, true);
-        second.set(Stat::Max, 2);
+        let mut first = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        first.set(Stat::Min, exact(1));
+        let mut second = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        second.set(Stat::Max, exact(2));
         second = second.merge_ordered(
             &first,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(second.get_as::<bool>(Stat::IsStrictSorted), Some(false));
+        assert_eq!(
+            second.get_as::<bool>(Stat::IsStrictSorted),
+            Some(exact(false))
+        );
     }
 
     #[test]
     fn merge_sortedness_only_one_sorted() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Max, 1);
-        let mut second = StatsSet::of(Stat::IsStrictSorted, false);
-        second.set(Stat::Min, 2);
+        let mut first = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        first.set(Stat::Max, exact(1));
+        let mut second = StatsSet::of(Stat::IsStrictSorted, exact(false));
+        second.set(Stat::Min, exact(2));
         first.merge_ordered(
             &second,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(second.get_as::<bool>(Stat::IsStrictSorted), Some(false));
+        assert_eq!(
+            second.get_as::<bool>(Stat::IsStrictSorted),
+            Some(exact(false))
+        );
     }
 
     #[test]
     fn merge_sortedness_missing_min() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Max, 1);
-        let second = StatsSet::of(Stat::IsStrictSorted, true);
+        let mut first = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        first.set(Stat::Max, exact(1));
+        let second = StatsSet::of(Stat::IsStrictSorted, exact(true));
         first = first.merge_ordered(
             &second,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
@@ -676,7 +763,7 @@ mod test {
         );
         assert_eq!(
             merged.get_as::<u64>(Stat::NullCount).unwrap(),
-            2 * stats.get_as::<u64>(Stat::NullCount).unwrap()
+            stats.get_as::<u64>(Stat::NullCount).unwrap().map(|s| s * 2)
         );
     }
 }

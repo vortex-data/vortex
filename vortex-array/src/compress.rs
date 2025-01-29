@@ -3,7 +3,7 @@ use vortex_scalar::Scalar;
 
 use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
-use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
+use crate::stats::{exact, ArrayStatistics as _, PRUNING_STATS};
 use crate::{ArrayDType, ArrayData};
 
 pub trait CompressionStrategy {
@@ -74,10 +74,11 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
             let compressed_scalar = compressed
                 .statistics()
                 .get(stat)
-                .map(|sv| Scalar::new(stat.dtype(compressed.dtype()), sv));
+                .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(
                 compressed_scalar,
-                Some(Scalar::new(stat.dtype(arr.dtype()), value.clone())),
+                Some(value.clone().into_scalar(stat.dtype(arr.dtype()))),
+                // Some(exact(Scalar::new(stat.dtype(arr.dtype()), value.clone()))),
                 "Compression changed {stat} from {value} to {}",
                 compressed_scalar
                     .as_ref()

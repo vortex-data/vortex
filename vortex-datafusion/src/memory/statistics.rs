@@ -7,7 +7,8 @@ use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen};
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+
+use crate::converter::precision_to_df_precision;
 
 pub(crate) fn chunked_array_df_stats(
     array: &ChunkedArray,
@@ -24,30 +25,21 @@ pub(crate) fn chunked_array_df_stats(
         .map_ok(|arr| {
             nbytes += arr.nbytes();
             ColumnStatistics {
-                null_count: arr
-                    .statistics()
-                    .get_as::<u64>(Stat::NullCount)
-                    .map(|n| n as usize)
-                    .map(Precision::Exact)
-                    .unwrap_or(Precision::Absent),
-                max_value: arr
-                    .statistics()
-                    .get(Stat::Max)
-                    .map(|n| Scalar::new(array.dtype().clone(), n))
-                    .map(|n| {
+                null_count: precision_to_df_precision(
+                    arr.statistics()
+                        .get_as::<u64>(Stat::NullCount)
+                        .map(|n| n.map(|n| n as usize)),
+                ),
+                max_value: precision_to_df_precision(arr.statistics().get(Stat::Max).map(|n| {
+                    n.into_scalar(array.dtype().clone()).map(|n| {
                         ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
                     })
-                    .map(Precision::Exact)
-                    .unwrap_or(Precision::Absent),
-                min_value: arr
-                    .statistics()
-                    .get(Stat::Min)
-                    .map(|n| Scalar::new(array.dtype().clone(), n))
-                    .map(|n| {
+                })),
+                min_value: precision_to_df_precision(arr.statistics().get(Stat::Min).map(|n| {
+                    n.into_scalar(array.dtype().clone()).map(|n| {
                         ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
                     })
-                    .map(Precision::Exact)
-                    .unwrap_or(Precision::Absent),
+                })),
                 distinct_count: Precision::Absent,
             }
         })

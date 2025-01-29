@@ -7,21 +7,22 @@ use vortex_error::VortexResult;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::stats::Precision::Exact;
+use crate::stats::{exact, Precision, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, exact(array.nbytes())));
         }
 
         if array.is_empty() {
             return Ok(StatsSet::new_unchecked(vec![
-                (Stat::TrueCount, 0.into()),
-                (Stat::NullCount, 0.into()),
-                (Stat::RunCount, 0.into()),
+                (Stat::TrueCount, exact(0)),
+                (Stat::NullCount, exact(0)),
+                (Stat::RunCount, exact(0)),
             ]));
         }
 
@@ -154,14 +155,13 @@ impl BoolStatsAccumulator {
 
     pub fn finish(self) -> StatsSet {
         StatsSet::new_unchecked(vec![
-            (Stat::NullCount, self.null_count.into()),
-            (Stat::IsSorted, self.is_sorted.into()),
+            (Stat::NullCount, exact(self.null_count)),
+            (Stat::IsSorted, exact(self.is_sorted)),
             (
                 Stat::IsStrictSorted,
-                (self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)))
-                    .into(),
+                exact(self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1))),
             ),
-            (Stat::RunCount, self.run_count.into()),
+            (Stat::RunCount, exact(self.run_count)),
         ])
     }
 }

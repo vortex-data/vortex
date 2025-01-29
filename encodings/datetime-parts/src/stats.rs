@@ -1,4 +1,4 @@
-use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
+use vortex_array::stats::{exact, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::ArrayValidity;
 use vortex_error::VortexResult;
 use vortex_scalar::ScalarValue;
@@ -14,7 +14,7 @@ impl StatisticsVTable<DateTimePartsArray> for DateTimePartsEncoding {
 
         let mut stats = StatsSet::default();
         if let Some(value) = maybe_stat {
-            stats.set(stat, value);
+            stats.set(stat, exact(value));
         }
         Ok(stats)
     }

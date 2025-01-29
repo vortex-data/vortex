@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{ArrayStatistics as _, Stat, StatsSet};
+use vortex_array::stats::{exact, ArrayStatistics as _, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
@@ -79,7 +79,7 @@ impl StatsTable {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max => {
                     if let Some(s) = array.statistics().compute(*stat) {
-                        stats_set.set(*stat, s)
+                        stats_set.set(*stat, exact(s))
                     }
                 }
                 // These stats sum up
@@ -96,7 +96,7 @@ impl StatsTable {
                         .enumerate()
                         .filter_map(|(i, v)| validity.is_valid(i).then_some(*v))
                         .sum();
-                    stats_set.set(*stat, sum);
+                    stats_set.set(*stat, exact(sum));
                 }
                 // We could implement these aggregations in the future, but for now they're unused
                 Stat::BitWidthFreq

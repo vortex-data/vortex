@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{ArrayStatistics, Stat};
+use crate::stats::{exact, ArrayStatistics, Max, Stat};
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 pub trait TakeFn<Array> {
@@ -58,9 +58,11 @@ pub fn take(
 
     // If the indices are all within bounds, we can skip bounds checking.
     let checked_indices = indices
-        .statistics()
-        .get_as::<usize>(Stat::Max)
-        .is_some_and(|max| max < array.len());
+        .comp_stats()
+        // .get_as_compare::<Max, usize>(array.len())?
+        // .unwrap_or(false);
+        .get_as::<Max, usize>()
+        .is_some_and(|max| max.ge2(&array.len()));
 
     let taken = take_impl(array, indices, checked_indices)?;
 

@@ -5,7 +5,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{vortex_panic, VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
@@ -17,6 +17,9 @@ impl CompareFn<FoRArray> for FoREncoding {
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
+        if operator != Operator::Eq && operator != Operator::NotEq {
+            vortex_panic!("here {}", operator)
+        }
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
                 match_each_integer_ptype!(constant.ptype(), |$T| {

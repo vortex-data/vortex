@@ -1,6 +1,6 @@
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::stats::{exact, ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validate::ValidateVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -11,7 +11,6 @@ use vortex_array::{
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_scalar::ScalarValue;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compress::zigzag_encode;
@@ -95,7 +94,7 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
         // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
             if let Some(val) = array.encoded().statistics().compute(stat) {
-                stats.set(stat, val);
+                stats.set(stat, exact(val));
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
             let encoded_max = array.encoded().statistics().compute_as::<u64>(Stat::Max);
@@ -103,7 +102,7 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
                 // the max of the encoded array is the element with the highest absolute value (so either min if negative, or max if positive)
                 let decoded = <i64 as ExternalZigZag>::decode(val);
                 let decoded_stat = if decoded < 0 { Stat::Min } else { Stat::Max };
-                stats.set(decoded_stat, ScalarValue::from(decoded));
+                stats.set(decoded_stat, exact(decoded));
             }
         }
 

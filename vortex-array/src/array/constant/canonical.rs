@@ -160,15 +160,15 @@ mod tests {
             let canonical_stat = canonical_stats
                 .get(stat)
                 .cloned()
-                .map(|sv| Scalar::new(stat.dtype(canonical.dtype()), sv));
+                .map(|sv| sv.into_scalar(canonical.dtype().clone()));
             let reference_stat = reference
                 .get(stat)
                 .cloned()
-                .map(|sv| Scalar::new(stat.dtype(canonical.dtype()), sv));
+                .map(|sv| sv.into_scalar(canonical.dtype().clone()));
             let original_stat = stats
                 .get(stat)
                 .cloned()
-                .map(|sv| Scalar::new(stat.dtype(canonical.dtype()), sv));
+                .map(|sv| sv.into_scalar(canonical.dtype().clone()));
             assert_eq!(canonical_stat, reference_stat);
             assert_eq!(canonical_stat, original_stat);
         }
