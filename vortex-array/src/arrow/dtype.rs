@@ -116,6 +116,8 @@ pub fn infer_schema(dtype: &DType) -> VortexResult<Schema> {
 }
 
 /// Try to convert a Vortex [`DType`] into an Arrow [`DataType`]
+/// Top level nulltability from the DType is dropped, Arrow represents
+/// nullability for a DataType in [`Field`]
 pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
     Ok(match dtype {
         DType::Null => DataType::Null,
