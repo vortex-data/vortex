@@ -5,13 +5,7 @@ use std::ops::Deref;
 
 use crate::array::StructMetadata;
 use crate::encoding::{Encoding, EncodingRef};
-use crate::{ArrayData, ArrayMetadata, ToArrayData};
-
-impl<A: AsRef<ArrayData>> ToArrayData for A {
-    fn to_array(&self) -> ArrayData {
-        self.as_ref().clone()
-    }
-}
+use crate::{ArrayData, ArrayMetadata};
 
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
 /// 1. New Array type that implements `AsRef<ArrayData>`, `GetArrayMetadata`, `ToArray`, `IntoArray`, and multiple useful `From`/`TryFrom` implementations.

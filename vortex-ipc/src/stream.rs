@@ -188,7 +188,7 @@ mod test {
     use futures_util::io::Cursor;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use super::*;
 
@@ -196,7 +196,8 @@ mod test {
     async fn test_async_stream() {
         let array = PrimitiveArray::from_iter([1, 2, 3]);
         let ipc_buffer = array
-            .to_array()
+            .clone()
+            .into_array()
             .into_array_stream()
             .into_ipc()
             .collect_to_buffer()

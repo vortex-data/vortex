@@ -278,7 +278,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{IntoArrayData, IntoArrayVariant, ToArrayData};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])
@@ -317,7 +317,7 @@ mod tests {
         let dtype = struct_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
-                ChunkedArray::try_new(vec![struct_array.to_array()], dtype.clone())
+                ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
                     .unwrap()
                     .into_array(),
             ],

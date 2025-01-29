@@ -9,7 +9,7 @@ use crate::array::ChunkedEncoding;
 use crate::compute::{
     scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast, SearchSortedSide, TakeFn,
 };
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn<ChunkedArray> for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
@@ -20,7 +20,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
             .unwrap_or(false)
         {
             if array.len() == indices.len() {
-                return Ok(array.to_array());
+                return Ok(array.clone().into_array());
             }
 
             return take_strict_sorted(array, indices);

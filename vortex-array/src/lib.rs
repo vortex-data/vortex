@@ -79,10 +79,6 @@ impl Iterator for ArrayChildrenIterator {
     }
 }
 
-pub trait ToArrayData {
-    fn to_array(&self) -> ArrayData;
-}
-
 /// Consume `self` and turn it into an [`ArrayData`] infallibly.
 ///
 /// Implementation of this array should never fail.

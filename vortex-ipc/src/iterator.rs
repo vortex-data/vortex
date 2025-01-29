@@ -154,7 +154,7 @@ mod test {
 
     use vortex_array::array::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use super::*;
 
@@ -162,7 +162,8 @@ mod test {
     fn test_sync_stream() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let ipc_buffer = array
-            .to_array()
+            .clone()
+            .into_array()
             .into_array_iterator()
             .into_ipc()
             .collect_to_buffer()

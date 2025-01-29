@@ -46,13 +46,13 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
-    use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
     }

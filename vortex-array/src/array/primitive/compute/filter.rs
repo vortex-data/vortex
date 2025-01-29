@@ -67,14 +67,14 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::compute::filter;
-    use crate::{IntoArrayVariant, ToArrayData};
+    use crate::IntoArrayVariant;
 
     #[test]
     fn filter_run_variant_mixed_test() {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
-        let filtered = filter(&arr.to_array(), &Mask::from_iter(mask))
+        let filtered = filter(&arr, &Mask::from_iter(mask))
             .unwrap()
             .into_primitive()
             .unwrap();

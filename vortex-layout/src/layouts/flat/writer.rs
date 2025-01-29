@@ -100,7 +100,7 @@ mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::ToArrayData;
+    use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
     use vortex_scan::RowMask;
@@ -117,7 +117,7 @@ mod tests {
             assert!(array.statistics().compute_bit_width_freq().is_some());
             assert!(array.statistics().compute_trailing_zero_freq().is_some());
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.into_array())
                 .unwrap();
 
             let result = layout
