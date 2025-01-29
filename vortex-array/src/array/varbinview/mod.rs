@@ -441,7 +441,6 @@ impl IntoCanonical for VarBinViewArray {
     }
 }
 
-
 pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     let views = var_bin_view.views();
 

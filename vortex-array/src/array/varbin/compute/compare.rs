@@ -1,8 +1,9 @@
 use arrow_array::{BinaryArray, StringArray};
 use arrow_ord::cmp;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
+use crate::array::varbin::compute::to_arrow::{varbin_to_arrow, varbin_to_arrow_inferred};
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
@@ -19,7 +20,8 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
-            let lhs = unsafe { Datum::try_new(lhs.clone().into_array())? };
+
+            let lhs = varbin_to_arrow_inferred(lhs)?;
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
@@ -40,13 +42,14 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             };
 
             let array = match operator {
-                Operator::Eq => cmp::eq(&lhs, arrow_rhs)?,
-                Operator::NotEq => cmp::neq(&lhs, arrow_rhs)?,
-                Operator::Gt => cmp::gt(&lhs, arrow_rhs)?,
-                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs)?,
-                Operator::Lt => cmp::lt(&lhs, arrow_rhs)?,
-                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs)?,
-            };
+                Operator::Eq => cmp::eq(&lhs, arrow_rhs),
+                Operator::NotEq => cmp::neq(&lhs, arrow_rhs),
+                Operator::Gt => cmp::gt(&lhs, arrow_rhs),
+                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
+                Operator::Lt => cmp::lt(&lhs, arrow_rhs),
+                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
+            }
+            .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
         } else {

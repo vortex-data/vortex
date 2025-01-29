@@ -73,7 +73,6 @@ impl IntoCanonical for ConstantArray {
     }
 }
 
-
 fn canonical_byte_view(
     scalar_bytes: Option<&[u8]>,
     dtype: &DType,

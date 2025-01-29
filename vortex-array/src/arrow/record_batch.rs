@@ -4,9 +4,9 @@ use arrow_schema::{DataType, Schema};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::array::StructArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TryFrom<RecordBatch> for ArrayData {
     type Error = VortexError;
@@ -46,13 +46,14 @@ impl TryFrom<ArrayData> for RecordBatch {
 
 impl StructArray {
     pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
-        let array_ref = self.into_array().into_arrow()?;
+        let data_type = infer_data_type(self.dtype())?;
+        let array_ref = self.into_array().into_arrow(&data_type)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 
     pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.fields.clone());
-        let array_ref = self.into_array().into_arrow_with_data_type(&data_type)?;
+        let array_ref = self.into_array().into_arrow(&data_type)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

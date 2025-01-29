@@ -2,9 +2,9 @@ use arrow_array::{Array, ArrayRef, Datum as ArrowDatum};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::array::ConstantArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
-use crate::{ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
@@ -15,7 +15,6 @@ pub struct Datum {
 
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayData`], which can then be passed to Arrow compute.
-    /// This is unsafe because it does not preserve the length of the array.
     ///
     /// # Safety
     /// The caller must ensure that the length of the array is preserved, and when processing
@@ -27,12 +26,12 @@ impl Datum {
     pub unsafe fn try_new(array: ArrayData) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: slice(array, 0, 1)?.into_arrow()?,
+                array: slice(array, 0, 1)?.into_arrow_inferred()?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.into_arrow()?,
+                array: array.into_arrow_inferred()?,
                 is_scalar: false,
             })
         }

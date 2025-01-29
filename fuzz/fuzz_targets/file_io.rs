@@ -92,8 +92,8 @@ fn compare_struct(expected: ArrayData, actual: ArrayData) {
         return;
     }
 
-    let arrow_lhs = expected.clone().into_arrow().unwrap();
-    let arrow_rhs = actual.clone().into_arrow().unwrap();
+    let arrow_lhs = expected.clone().into_arrow_inferred().unwrap();
+    let arrow_rhs = actual.clone().into_arrow_inferred().unwrap();
 
     let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default()).unwrap();
 

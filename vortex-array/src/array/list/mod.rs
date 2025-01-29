@@ -186,7 +186,6 @@ impl IntoCanonical for ListArray {
     }
 }
 
-
 impl StatisticsVTable<ListArray> for ListEncoding {}
 
 impl ListArrayTrait for ListArray {}

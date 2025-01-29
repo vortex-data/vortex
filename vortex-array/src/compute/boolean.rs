@@ -164,14 +164,8 @@ pub(crate) fn arrow_boolean(
 ) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
-    let lhs = lhs
-        .into_arrow_with_data_type(&DataType::Boolean)?
-        .as_boolean()
-        .clone();
-    let rhs = rhs
-        .into_arrow_with_data_type(&DataType::Boolean)?
-        .as_boolean()
-        .clone();
+    let lhs = lhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
+    let rhs = rhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
 
     let array = match operator {
         BinaryOperator::And => arrow_arith::boolean::and(&lhs, &rhs)?,

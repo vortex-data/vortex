@@ -28,7 +28,7 @@ pub trait TryFromArrowType<T>: Sized {
 }
 
 pub trait IntoArrowArray {
-    fn into_arrow(self) -> VortexResult<ArrayRef>;
+    fn into_arrow_inferred(self) -> VortexResult<ArrayRef>;
 
-    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef>;
+    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrayRef>;
 }

@@ -1,0 +1,113 @@
+use std::sync::Arc;
+
+use arrow_array::types::GenericBinaryType;
+use arrow_array::{
+    ArrayRef, BinaryArray, GenericBinaryArray, GenericStringArray, LargeBinaryArray,
+    LargeStringArray, OffsetSizeTrait, StringArray,
+};
+use arrow_buffer::ArrowNativeType;
+use arrow_schema::DataType;
+use vortex_dtype::{DType, NativePType, Nullability, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+
+use crate::array::{VarBinArray, VarBinEncoding};
+use crate::compute::{try_cast, ToArrowFn};
+use crate::encoding::ArrayEncodingRef;
+use crate::validity::ArrayValidity;
+use crate::variants::PrimitiveArrayTrait;
+use crate::{ArrayDType, IntoArrayVariant, ToArrayData};
+
+impl ToArrowFn<VarBinArray> for VarBinEncoding {
+    fn to_arrow(
+        &self,
+        array: &VarBinArray,
+        data_type: &DataType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let array_ref = match data_type {
+            DataType::BinaryView | DataType::FixedSizeBinary(_) | DataType::Utf8View => {
+                // TODO(ngates): we should support converting VarBin into these Arrow arrays.
+                return Ok(None);
+            }
+            DataType::Binary | DataType::Utf8 => {
+                // These are both supported with a zero-copy cast, see below
+                varbin_to_arrow::<i32>(array)
+            }
+            DataType::LargeBinary | DataType::LargeUtf8 => {
+                // These are both supported with a zero-copy cast, see below
+                varbin_to_arrow::<i64>(array)
+            }
+            _ => {
+                // Everything else is unsupported
+                return Ok(None);
+            }
+        }?;
+
+        Ok(Some(if array_ref.data_type() != data_type {
+            arrow_cast::cast(array_ref.as_ref(), data_type)?
+        } else {
+            array_ref
+        }))
+    }
+}
+
+/// Return the recommended Arrow data type for this var bin array.
+pub(crate) fn varbin_arrow_type(varbin_array: &VarBinArray) -> VortexResult<DataType> {
+    let offsets_ptype = PType::try_from(varbin_array.offsets().dtype())?;
+
+    Ok(match varbin_array.dtype() {
+        DType::Utf8(_) => match offsets_ptype {
+            PType::I64 | PType::U64 => DataType::LargeUtf8,
+            _ => DataType::Utf8,
+        },
+        DType::Binary(_) => match offsets_ptype {
+            PType::I64 | PType::U64 => DataType::LargeBinary,
+            _ => DataType::Binary,
+        },
+        _ => vortex_bail!("Unsupported DType"),
+    })
+}
+
+/// Convert the array to Arrow variable length binary array type, inferring the offset size.
+pub(crate) fn varbin_to_arrow_inferred(varbin_array: &VarBinArray) -> VortexResult<ArrayRef> {
+    let data_type = varbin_arrow_type(varbin_array)?;
+    VarBinEncoding::to_arrow(&VarBinEncoding, varbin_array, &data_type)
+        .transpose()
+        .vortex_expect("We know DType is supported")
+}
+
+/// Convert the array to Arrow variable length binary array type.
+pub(crate) fn varbin_to_arrow<O: NativePType + OffsetSizeTrait>(
+    varbin_array: &VarBinArray,
+) -> VortexResult<ArrayRef> {
+    let offsets = try_cast(
+        varbin_array.offsets(),
+        &DType::Primitive(O::PTYPE, Nullability::NonNullable),
+    )?
+    .into_primitive()
+    .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
+
+    let nulls = varbin_array.logical_validity()?.to_null_buffer();
+    let data = varbin_array.bytes();
+
+    // Switch on DType.
+    Ok(match varbin_array.dtype() {
+        DType::Binary(_) => Arc::new(unsafe {
+            GenericBinaryArray::new_unchecked(
+                offsets.buffer::<O>().into_arrow_offset_buffer(),
+                data.into_arrow_buffer(),
+                nulls,
+            )
+        }),
+        DType::Utf8(_) => Arc::new(unsafe {
+            GenericStringArray::new_unchecked(
+                offsets.buffer::<O>().into_arrow_offset_buffer(),
+                data.into_arrow_buffer(),
+                nulls,
+            )
+        }),
+        _ => vortex_bail!(
+            "expected utf8 or binary instead of {}",
+            varbin_array.dtype()
+        ),
+    })
+}

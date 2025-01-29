@@ -335,7 +335,6 @@ impl IntoCanonical for PrimitiveArray {
     }
 }
 
-
 impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
     fn is_valid(&self, array: &PrimitiveArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)

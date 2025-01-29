@@ -161,7 +161,7 @@ impl Stream for RowIndicesStream {
             .conjunction_expr
             .evaluate(vortex_struct.as_ref())
             .map_err(|e| DataFusionError::External(e.into()))?
-            .into_arrow()?;
+            .into_arrow_inferred()?;
 
         // Convert the `selection` BooleanArray into a UInt64Array of indices.
         let selection_indices = selection
@@ -366,7 +366,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded = take(projected_for_output, &row_indices)?.into_arrow()?;
+        let decoded = take(projected_for_output, &row_indices)?.into_arrow_inferred()?;
 
         // Send back a single record batch of the decoded data.
         let output_batch = RecordBatch::from(decoded.as_struct());

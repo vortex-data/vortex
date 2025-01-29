@@ -19,6 +19,7 @@ use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{fetch_taxi_data, tpch};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use datafusion::logical_expr::type_coercion::functions::data_types;
 use futures::TryStreamExt;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -29,7 +30,7 @@ use regex::Regex;
 use simplelog::*;
 use tokio::runtime::{Handle, Runtime};
 use vortex::array::{ChunkedArray, StructArray};
-use vortex::arrow::IntoArrowArray;
+use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
@@ -132,7 +133,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
             .try_collect::<Vec<_>>()
             .await?
             .into_iter()
-            .map(|a| a.into_arrow())
+            .map(|a| a.into_arrow_inferred())
             .collect::<VortexResult<Vec<_>>>()
     })
 }

@@ -42,17 +42,17 @@ impl ToArrowFn<PrimitiveArray> for PrimitiveEncoding {
         }
 
         match primitive_array.ptype() {
-            PType::U8 => as_arrow_array_primitive::<UInt8Type>(&primitive_array, data_type),
-            PType::U16 => as_arrow_array_primitive::<UInt16Type>(&primitive_array, data_type),
-            PType::U32 => as_arrow_array_primitive::<UInt32Type>(&primitive_array, data_type),
-            PType::U64 => as_arrow_array_primitive::<UInt64Type>(&primitive_array, data_type),
-            PType::I8 => as_arrow_array_primitive::<Int8Type>(&primitive_array, data_type),
-            PType::I16 => as_arrow_array_primitive::<Int16Type>(&primitive_array, data_type),
-            PType::I32 => as_arrow_array_primitive::<Int32Type>(&primitive_array, data_type),
-            PType::I64 => as_arrow_array_primitive::<Int64Type>(&primitive_array, data_type),
-            PType::F16 => as_arrow_array_primitive::<Float16Type>(&primitive_array, data_type),
-            PType::F32 => as_arrow_array_primitive::<Float32Type>(&primitive_array, data_type),
-            PType::F64 => as_arrow_array_primitive::<Float64Type>(&primitive_array, data_type),
+            PType::U8 => as_arrow_array_primitive::<UInt8Type>(primitive_array, data_type),
+            PType::U16 => as_arrow_array_primitive::<UInt16Type>(primitive_array, data_type),
+            PType::U32 => as_arrow_array_primitive::<UInt32Type>(primitive_array, data_type),
+            PType::U64 => as_arrow_array_primitive::<UInt64Type>(primitive_array, data_type),
+            PType::I8 => as_arrow_array_primitive::<Int8Type>(primitive_array, data_type),
+            PType::I16 => as_arrow_array_primitive::<Int16Type>(primitive_array, data_type),
+            PType::I32 => as_arrow_array_primitive::<Int32Type>(primitive_array, data_type),
+            PType::I64 => as_arrow_array_primitive::<Int64Type>(primitive_array, data_type),
+            PType::F16 => as_arrow_array_primitive::<Float16Type>(primitive_array, data_type),
+            PType::F32 => as_arrow_array_primitive::<Float32Type>(primitive_array, data_type),
+            PType::F64 => as_arrow_array_primitive::<Float64Type>(primitive_array, data_type),
         }
     }
 }

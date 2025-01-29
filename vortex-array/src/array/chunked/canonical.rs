@@ -24,7 +24,6 @@ impl IntoCanonical for ChunkedArray {
     }
 }
 
-
 pub(crate) fn try_canonicalize_chunks(
     chunks: Vec<ArrayData>,
     validity: Validity,

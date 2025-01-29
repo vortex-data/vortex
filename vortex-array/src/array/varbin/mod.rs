@@ -25,7 +25,6 @@ use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata,
 
 mod accessor;
 mod array;
-mod arrow;
 pub mod builder;
 mod canonical;
 mod compute;

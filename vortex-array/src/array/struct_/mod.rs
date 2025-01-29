@@ -196,7 +196,6 @@ impl IntoCanonical for StructArray {
     }
 }
 
-
 impl ValidityVTable<StructArray> for StructEncoding {
     fn is_valid(&self, array: &StructArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)

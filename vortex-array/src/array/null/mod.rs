@@ -41,7 +41,6 @@ impl IntoCanonical for NullArray {
     }
 }
 
-
 impl ValidityVTable<NullArray> for NullEncoding {
     fn is_valid(&self, _array: &NullArray, _idx: usize) -> VortexResult<bool> {
         Ok(false)

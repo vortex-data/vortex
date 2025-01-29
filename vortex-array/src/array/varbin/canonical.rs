@@ -1,43 +1,29 @@
 use arrow_array::ArrayRef;
 use arrow_schema::DataType;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
-use crate::array::varbin::arrow::varbin_to_arrow;
+use crate::array::varbin::compute::to_arrow::varbin_to_arrow_inferred;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinViewArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
+use crate::compute::to_arrow;
+use crate::encoding::ArrayEncodingRef;
 use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         let nullable = self.dtype().is_nullable();
-        let array_ref = varbin_to_arrow(&self)?;
+
+        let array_ref = varbin_to_arrow_inferred(&self)?;
+
         let array = match self.dtype() {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
-
         VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
-    }
-}
-
-impl IntoArrowArray for VarBinArray {
-    fn into_arrow(self) -> VortexResult<ArrayRef> {
-        // Specialized implementation of `into_arrow` for VarBin since it has a direct
-        // Arrow representation.
-        varbin_to_arrow(&self)
-    }
-    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
-        let array_ref = self.into_arrow()?;
-
-        Ok(if array_ref.data_type() != data_type {
-            arrow_cast::cast(array_ref.as_ref(), data_type)?
-        } else {
-            array_ref
-        })
     }
 }
 

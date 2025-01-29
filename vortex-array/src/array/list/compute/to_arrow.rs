@@ -32,7 +32,7 @@ impl ToArrowFn<ListArray> for ListEncoding {
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray"))?
             .into_primitive()?;
 
-        let values = array.elements().into_arrow_with_data_type(element_dtype)?;
+        let values = array.elements().into_arrow(element_dtype)?;
 
         let field_ref = FieldRef::new(Field::new_list_field(
             values.data_type().clone(),

@@ -210,12 +210,14 @@ impl IntoCanonical for ArrayData {
 }
 
 impl IntoArrowArray for ArrayData {
-    fn into_arrow(self) -> VortexResult<ArrayRef> {
+    /// Convert this [`ArrayData`] into an Arrow [`ArrayRef`] by inferring a canonical
+    /// result DataType.
+    fn into_arrow_inferred(self) -> VortexResult<ArrayRef> {
         let data_type = infer_data_type(self.dtype())?;
-        self.into_arrow_with_data_type(&data_type)
+        self.into_arrow(&data_type)
     }
 
-    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
+    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrayRef> {
         to_arrow(self, data_type)
     }
 }
@@ -380,10 +382,7 @@ mod test {
 
         assert_eq!(
             &arrow_struct,
-            vortex_struct
-                .into_arrow_with_data_type(&data_type)
-                .unwrap()
-                .as_struct()
+            vortex_struct.into_arrow(&data_type).unwrap().as_struct()
         );
     }
 
@@ -405,7 +404,7 @@ mod test {
 
         let vortex_list = ArrayData::from_arrow(&arrow_list, true);
 
-        let rt_arrow_list = cast(&vortex_list.into_arrow().unwrap(), list_data_type).unwrap();
+        let rt_arrow_list = vortex_list.into_arrow(&list_data_type).unwrap();
 
         assert_eq!(
             (Arc::new(arrow_list.clone()) as ArrayRef).as_ref(),
