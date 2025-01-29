@@ -12,7 +12,6 @@ pub trait CanonicalVTable<Array> {
     fn into_canonical(&self, array: Array) -> VortexResult<Canonical>;
 }
 
-/// Implement the [CanonicalVTable] for all encodings with arrays implementing [IntoCanonical].
 impl<E: Encoding> CanonicalVTable<ArrayData> for E
 where
     E: CanonicalVTable<E::Array>,
