@@ -12,8 +12,6 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
-use std::ops::Deref;
-
 pub use canonical::*;
 pub use children::*;
 pub use context::*;

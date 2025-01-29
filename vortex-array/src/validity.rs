@@ -4,8 +4,6 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
-use rkyv::bytecheck::CheckBytes;
-use rkyv::traits::NoUndef;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -13,9 +11,7 @@ use vortex_mask::{Mask, MaskValues};
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take};
-use crate::encoding::Encoding;
 use crate::patches::Patches;
-use crate::vtable::ValidityVTable;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ArrayData {

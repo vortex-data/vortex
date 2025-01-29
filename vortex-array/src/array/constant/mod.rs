@@ -1,8 +1,4 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 

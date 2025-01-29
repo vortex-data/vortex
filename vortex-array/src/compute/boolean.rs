@@ -182,6 +182,7 @@ mod tests {
 
     use super::*;
     use crate::array::BoolArray;
+    use crate::canonical::IntoArrayVariant;
     use crate::compute::scalar_at;
     use crate::IntoArrayData;
 

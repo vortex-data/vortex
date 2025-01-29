@@ -12,7 +12,7 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{CanonicalVTable, ValidateVTable};
-use crate::{impl_encoding, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata};
+use crate::{impl_encoding, Canonical, IntoArrayData, RkyvMetadata};
 
 pub mod compute;
 mod patch;

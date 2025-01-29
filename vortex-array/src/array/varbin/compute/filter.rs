@@ -1,4 +1,3 @@
-
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
@@ -184,7 +183,6 @@ mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;

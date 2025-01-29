@@ -2,24 +2,17 @@
 
 use std::ops::Deref;
 
-use arrow_array::types::*;
-use arrow_array::{
-    Array, ArrayRef, ArrowPrimitiveType,
-};
+use arrow_array::ArrayRef;
 use arrow_schema::DataType;
-use itertools::Itertools;
-use vortex_dtype::{DType, NativePType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::array::{
-    BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
-    StructArray, VarBinViewArray,
+    BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::IntoArrowArray;
 use crate::builders::builder_with_capacity;
 use crate::compute::{preferred_arrow_data_type, to_arrow};
-use crate::encoding::Encoding;
-use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use crate::{ArrayData, IntoArrayData};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
@@ -291,13 +284,11 @@ mod test {
         StringArray, StringViewArray, StructArray as ArrowStructArray,
     };
     use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
-    use arrow_cast::cast;
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
     use crate::array::{ConstantArray, StructArray};
-    use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
-    use crate::compute::to_arrow;
+    use crate::arrow::{FromArrowArray, IntoArrowArray};
     use crate::{ArrayData, IntoArrayData};
 
     #[test]

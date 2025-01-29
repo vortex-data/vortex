@@ -6,8 +6,7 @@ pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult,
-    VortexUnwrap as _,
+    vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
 };
 use vortex_scalar::Scalar;
 
@@ -19,7 +18,7 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ValidateVTable;
-use crate::{impl_encoding, ArrayData, DeserializeMetadata, RkyvMetadata};
+use crate::{impl_encoding, ArrayData, RkyvMetadata};
 
 mod accessor;
 mod array;

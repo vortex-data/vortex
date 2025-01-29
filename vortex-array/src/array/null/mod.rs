@@ -1,11 +1,7 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::arrow::IntoArrowArray;
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;

@@ -9,7 +9,6 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PTy
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::arrow::IntoArrowArray;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -19,9 +18,7 @@ use crate::visitor::ArrayVisitor;
 use crate::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use crate::{
-    impl_encoding, ArrayData, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata,
-};
+use crate::{impl_encoding, ArrayData, Canonical, IntoArrayData, RkyvMetadata};
 
 mod compute;
 mod patch;

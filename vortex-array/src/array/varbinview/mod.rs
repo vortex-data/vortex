@@ -2,25 +2,23 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::ScalarBuffer;
-use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::FromArrowArray;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, ArrayData, Canonical, DeserializeMetadata, RkyvMetadata};
+use crate::{impl_encoding, ArrayData, Canonical, RkyvMetadata};
 
 mod accessor;
 mod compute;

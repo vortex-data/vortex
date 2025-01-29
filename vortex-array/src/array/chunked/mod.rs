@@ -13,7 +13,6 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, V
 use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::arrow::IntoArrowArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -22,10 +21,8 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{EncodingVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayData, DeserializeMetadata, IntoArrayData, IntoCanonical, RkyvMetadata,
-};
+use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
+use crate::{impl_encoding, ArrayData, IntoArrayData, IntoCanonical, RkyvMetadata};
 
 mod canonical;
 mod compute;

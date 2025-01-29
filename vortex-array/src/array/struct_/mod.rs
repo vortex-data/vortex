@@ -6,7 +6,6 @@ use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::arrow::IntoArrowArray;
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
@@ -16,9 +15,7 @@ use crate::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use crate::{
-    impl_encoding, ArrayData, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata,
-};
+use crate::{impl_encoding, ArrayData, Canonical, IntoArrayData, RkyvMetadata};
 
 mod compute;
 

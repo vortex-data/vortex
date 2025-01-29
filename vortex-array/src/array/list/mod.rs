@@ -16,7 +16,6 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
-use crate::arrow::IntoArrowArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
@@ -29,7 +28,7 @@ use crate::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use crate::{impl_encoding, ArrayData, Canonical, DeserializeMetadata, RkyvMetadata};
+use crate::{impl_encoding, ArrayData, Canonical, RkyvMetadata};
 
 impl_encoding!(
     "vortex.list",

@@ -1,4 +1,3 @@
-use arrow_array::Array;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;

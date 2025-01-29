@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use itertools::Itertools as _;
-use num_traits::{NumCast, ToPrimitive};
+use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;

@@ -6,7 +6,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ChunkedEncoding;
-use crate::compute::Len;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::EncodingVTable;
 use crate::ArrayData;

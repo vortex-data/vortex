@@ -31,7 +31,6 @@ mod test {
 
     use crate::array::varbin::builder::VarBinBuilder;
     use crate::canonical::IntoArrayVariant;
-    use crate::IntoArrayData;
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]

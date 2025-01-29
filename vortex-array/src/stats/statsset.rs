@@ -1,7 +1,7 @@
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
+use vortex_error::{vortex_panic, VortexError, VortexExpect};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::Stat;
