@@ -75,7 +75,7 @@ impl<T: PartialEq> PartialEq for Precision<T> {
 }
 
 impl<T> Precision<Option<T>> {
-    pub const fn transpose(self) -> Option<Precision<T>> {
+    pub fn transpose(self) -> Option<Precision<T>> {
         match self {
             Exact(Some(x)) => Some(Exact(x)),
             Bound(Some(x)) => Some(Bound(x)),
