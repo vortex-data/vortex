@@ -110,13 +110,13 @@ pub fn binary_boolean(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
-            lhs.vtable().id()
+            lhs.encoding()
         );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
-            lhs.vtable().id()
+            lhs.encoding()
         );
         return Ok(result);
     }
@@ -131,21 +131,21 @@ pub fn binary_boolean(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
-            rhs.vtable().id()
+            rhs.encoding()
         );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
-            rhs.vtable().id()
+            rhs.encoding()
         );
         return Ok(result);
     }
 
     log::debug!(
         "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
-        rhs.vtable().id(),
-        lhs.vtable().id(),
+        rhs.encoding(),
+        lhs.encoding(),
         op,
     );
 

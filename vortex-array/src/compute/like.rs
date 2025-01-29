@@ -65,15 +65,15 @@ pub fn like(
         vortex_bail!(
             "Length mismatch lhs len {} ({}) != rhs len {} ({})",
             array.len(),
-            array.vtable().id(),
+            array.encoding(),
             pattern.len(),
-            pattern.vtable().id()
+            pattern.encoding()
         );
     }
 
     let expected_dtype =
         DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into());
-    let array_encoding = array.vtable().id();
+    let array_encoding = array.encoding();
 
     let result = array
         .vtable()
@@ -83,7 +83,7 @@ pub fn like(
             // Otherwise, we canonicalize into a UTF8 array.
             log::debug!(
                 "No like implementation found for encoding {}",
-                array.vtable().id(),
+                array.encoding(),
             );
             arrow_like(array, pattern, options)
         })?;
@@ -116,7 +116,7 @@ pub(crate) fn arrow_like(
         array.len(),
         pattern.len(),
         "Arrow Like: length mismatch for {}",
-        array.vtable().id()
+        array.encoding()
     );
     let lhs = Datum::try_new(array)?;
     let rhs = Datum::try_new(pattern.clone())?;

@@ -46,7 +46,7 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
         .unwrap_or_else(|| {
             Err(vortex_err!(
                 NotImplemented: "slice",
-                array.vtable().id()
+                array.encoding()
             ))
         })?;
 
@@ -54,13 +54,13 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
         sliced.len(),
         stop - start,
         "Slice length mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
     debug_assert_eq!(
         sliced.dtype(),
         array.dtype(),
         "Slice dtype mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
 
     Ok(sliced)

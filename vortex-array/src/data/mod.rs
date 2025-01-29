@@ -124,7 +124,7 @@ impl ArrayData {
                 DType::Extension(..) => array.as_extension_array().is_some(),
             },
             "Encoding {} does not implement the variant trait for {}",
-            array.vtable().id(),
+            array.encoding(),
             array.dtype()
         );
 
@@ -335,7 +335,7 @@ impl ArrayData {
 
     /// Checks whether array is of a given encoding.
     pub fn is_encoding(&self, id: EncodingId) -> bool {
-        self.vtable().id() == id
+        self.encoding() == id
     }
 
     #[cfg(feature = "canonical_counter")]
@@ -384,7 +384,7 @@ impl Display for ArrayData {
             f,
             "{}{}({}, len={})",
             prefix,
-            self.vtable().id(),
+            self.encoding(),
             self.dtype(),
             self.len()
         )

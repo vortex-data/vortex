@@ -68,13 +68,13 @@ pub fn take(
         taken.len(),
         indices.len(),
         "Take length mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
     debug_assert_eq!(
         array.dtype(),
         taken.dtype(),
         "Take dtype mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
 
     Ok(taken)
@@ -98,7 +98,7 @@ fn take_impl(
         if array.dtype() != result.dtype() {
             vortex_bail!(
                 "TakeFn {} changed array dtype from {} to {}",
-                array.vtable().id(),
+                array.encoding(),
                 array.dtype(),
                 result.dtype()
             );
@@ -107,12 +107,12 @@ fn take_impl(
     }
 
     // Otherwise, flatten and try again.
-    log::debug!("No take implementation found for {}", array.vtable().id());
+    log::debug!("No take implementation found for {}", array.encoding());
     let canonical = array.clone().into_canonical()?.into_array();
     let canonical_take_fn = canonical
         .vtable()
         .take_fn()
-        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.vtable().id()))?;
+        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 
     if checked_indices {
         // SAFETY: indices are known to be in-bound from stats

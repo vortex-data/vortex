@@ -33,13 +33,13 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
             inverted.len(),
             array.len(),
             "Invert length mismatch {}",
-            array.vtable().id()
+            array.encoding()
         );
         debug_assert_eq!(
             inverted.dtype(),
             array.dtype(),
             "Invert dtype mismatch {}",
-            array.vtable().id()
+            array.encoding()
         );
 
         return Ok(inverted);
@@ -48,7 +48,7 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
     // Otherwise, we canonicalize into a boolean array and invert.
     log::debug!(
         "No invert implementation found for encoding {}",
-        array.vtable().id(),
+        array.encoding(),
     );
     invert(&array.clone().into_bool()?.into_array())
 }

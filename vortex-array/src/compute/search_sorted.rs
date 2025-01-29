@@ -231,7 +231,7 @@ pub fn search_sorted<T: Into<Scalar>>(
 
     vortex_bail!(
         NotImplemented: "search_sorted",
-        array.vtable().id()
+        array.encoding()
     )
 }
 
@@ -266,7 +266,7 @@ pub fn search_sorted_usize(
 
     vortex_bail!(
     NotImplemented: "search_sorted_usize",
-        array.vtable().id()
+        array.encoding()
     )
 }
 

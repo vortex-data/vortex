@@ -71,13 +71,13 @@ pub fn filter(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         filtered.len(),
         true_count,
         "Filter length mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
     debug_assert_eq!(
         filtered.dtype(),
         array.dtype(),
         "Filter dtype mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
 
     Ok(filtered)
@@ -105,7 +105,7 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
     }
 
     // Fallback: implement using Arrow kernels.
-    log::debug!("No filter implementation found for {}", array.vtable().id(),);
+    log::debug!("No filter implementation found for {}", array.encoding(),);
 
     let array_ref = array.clone().into_arrow_preferred()?;
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);

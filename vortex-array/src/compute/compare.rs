@@ -157,8 +157,8 @@ pub fn compare(
     if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-            right.vtable().id(),
-            left.vtable().id(),
+            right.encoding(),
+            left.encoding(),
             operator.swap(),
         );
     }
@@ -197,9 +197,9 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         lhs.len(),
         "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
         result.len(),
-        lhs.vtable().id(),
+        lhs.encoding(),
         lhs.len(),
-        rhs.vtable().id(),
+        rhs.encoding(),
         rhs.len()
     );
     debug_assert_eq!(
@@ -207,8 +207,8 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
         "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
         result.dtype(),
-        lhs.vtable().id(),
-        rhs.vtable().id(),
+        lhs.encoding(),
+        rhs.encoding(),
     );
 }
 

@@ -43,13 +43,13 @@ pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResu
         filled.len(),
         array.len(),
         "FillNull length mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
     debug_assert_eq!(
         filled.dtype(),
         &array.dtype().with_nullability(fill_value_nullability),
         "FillNull dtype mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
 
     Ok(filled)
@@ -60,7 +60,7 @@ fn fill_null_impl(array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayDa
         return fill_null_fn.fill_null(array, fill_value);
     }
 
-    log::debug!("FillNullFn not implemented for {}", array.vtable().id());
+    log::debug!("FillNullFn not implemented for {}", array.encoding());
     let canonical_arr = array.clone().into_canonical()?.into_array();
     if let Some(fill_null_fn) = canonical_arr.vtable().fill_null_fn() {
         return fill_null_fn.fill_null(&canonical_arr, fill_value);
@@ -68,7 +68,7 @@ fn fill_null_impl(array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayDa
 
     vortex_bail!(
         "fill null not implemented for canonical encoding {}, fallback from {}",
-        canonical_arr.vtable().id(),
-        array.vtable().id()
+        canonical_arr.encoding(),
+        array.encoding()
     )
 }

@@ -34,13 +34,13 @@ pub fn try_cast(array: impl AsRef<ArrayData>, dtype: &DType) -> VortexResult<Arr
         casted.len(),
         array.len(),
         "Cast length mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
     debug_assert_eq!(
         casted.dtype(),
         dtype,
         "Cast dtype mismatch {}",
-        array.vtable().id()
+        array.encoding()
     );
 
     Ok(casted)
@@ -55,7 +55,7 @@ fn try_cast_impl(array: &ArrayData, dtype: &DType) -> VortexResult<ArrayData> {
     // Otherwise, we fall back to the canonical implementations.
     log::debug!(
         "Falling back to canonical cast for encoding {} and dtype {} to {}",
-        array.vtable().id(),
+        array.encoding(),
         array.dtype(),
         dtype
     );

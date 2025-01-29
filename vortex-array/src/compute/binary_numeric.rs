@@ -133,8 +133,8 @@ pub fn binary_numeric(
 
     log::debug!(
         "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
-        lhs.vtable().id(),
-        rhs.vtable().id(),
+        lhs.encoding(),
+        rhs.encoding(),
         op,
     );
 
@@ -177,7 +177,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         result.len(),
         lhs.len(),
         "Numeric operation length mismatch {}",
-        rhs.vtable().id()
+        rhs.encoding()
     );
     debug_assert_eq!(
         result.dtype(),
@@ -187,7 +187,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
             (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
         ),
         "Numeric operation dtype mismatch {}",
-        rhs.vtable().id()
+        rhs.encoding()
     );
 }
 

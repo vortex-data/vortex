@@ -84,7 +84,7 @@ pub fn to_arrow<A: AsRef<ArrayData>>(array: A, data_type: &DataType) -> VortexRe
         .ok_or_else(|| {
             vortex_err!(
                 "Failed to convert array {} to Arrow {}",
-                array.vtable().id(),
+                array.encoding(),
                 data_type
             )
         })
