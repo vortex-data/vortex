@@ -10,8 +10,9 @@ use super::BinaryView;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
+use crate::vtable::ComputeVTable;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for VarBinViewEncoding {

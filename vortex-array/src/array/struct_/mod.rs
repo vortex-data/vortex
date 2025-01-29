@@ -1,20 +1,19 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use rkyv::from_bytes;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
-};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{StructArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::validity::{Validity, ValidityMetadata};
+use crate::variants::StructArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
     IntoCanonical, RkyvMetadata,

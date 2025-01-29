@@ -6,7 +6,6 @@ use std::fmt::{Debug, Display};
 
 use futures_util::stream;
 use itertools::Itertools;
-use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
@@ -15,14 +14,14 @@ use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use crate::encoding::{ids, EncodingVTable};
+use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validate::ValidateVTable;
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, Validity, ValidityVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::validity::{ArrayValidity, Validity};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{EncodingVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
     IntoCanonical, RkyvMetadata,

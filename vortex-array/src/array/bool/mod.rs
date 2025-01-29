@@ -8,10 +8,10 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
-use crate::validity::{Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{BoolArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::validity::{Validity, ValidityMetadata};
+use crate::variants::BoolArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::ValidateVTable;
 use crate::{
     impl_encoding, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData, IntoCanonical,
     RkyvMetadata,
@@ -24,6 +24,8 @@ mod stats;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_mask::Mask;
+
+use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
 

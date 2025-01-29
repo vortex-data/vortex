@@ -8,8 +8,9 @@ use crate::iter::Accessor;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
+use crate::vtable::VariantsVTable;
 use crate::{ArrayData, ArrayLen, IntoArrayData};
 
 /// Constant arrays support all DTypes

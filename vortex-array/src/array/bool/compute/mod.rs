@@ -1,8 +1,8 @@
 use crate::array::BoolEncoding;
 use crate::compute::{
-    BinaryBooleanFn, ComputeVTable, FillForwardFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn,
-    SliceFn, TakeFn,
+    BinaryBooleanFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
+use crate::vtable::ComputeVTable;
 use crate::ArrayData;
 
 mod fill_forward;

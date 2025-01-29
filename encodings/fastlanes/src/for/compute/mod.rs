@@ -4,10 +4,11 @@ use std::ops::AddAssign;
 
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::{
-    filter, scalar_at, search_sorted, slice, take, CompareFn, ComputeVTable, FilterFn, ScalarAtFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
+    filter, scalar_at, search_sorted, slice, take, CompareFn, FilterFn, ScalarAtFn, SearchResult,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::vtable::compute::ComputeVTable;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};

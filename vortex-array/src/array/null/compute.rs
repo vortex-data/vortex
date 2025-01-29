@@ -4,8 +4,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
+use crate::vtable::ComputeVTable;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {

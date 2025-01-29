@@ -8,7 +8,8 @@ use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
 use crate::array::{varbin_scalar, VarBinEncoding};
 use crate::compute::scalar_at;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::stats::{Stat, StatsSet};
+use crate::vtable::StatisticsVTable;
 use crate::{ArrayDType, ArrayTrait};
 
 impl StatisticsVTable<VarBinArray> for VarBinEncoding {

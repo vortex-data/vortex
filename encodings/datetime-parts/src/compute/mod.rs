@@ -2,10 +2,9 @@ mod cast;
 mod filter;
 mod take;
 
-use vortex_array::compute::{
-    scalar_at, slice, CastFn, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
-};
+use vortex_array::compute::{scalar_at, slice, CastFn, FilterFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::validity::ArrayValidity;
+use vortex_array::vtable::compute::ComputeVTable;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::{NonNullable, Nullable};

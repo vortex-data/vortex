@@ -18,9 +18,9 @@ use crate::array::{StructMetadata, VarBinViewArray, VarBinViewMetadata};
 use crate::compute::scalar_at;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
+use crate::vtable::ValidateVTable;
 use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, RkyvMetadata};
 
 mod accessor;

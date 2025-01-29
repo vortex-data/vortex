@@ -61,7 +61,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::encoding::EncodingVTable;
+    use vortex_array::vtable::EncodingVTable;
     use vortex_array::IntoArrayVariant as _;
 
     use super::*;

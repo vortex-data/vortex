@@ -4,15 +4,11 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use crate::compute::ComputeVTable;
-use crate::stats::StatisticsVTable;
-use crate::validate::ValidateVTable;
-use crate::validity::ValidityVTable;
-use crate::variants::VariantsVTable;
-use crate::visitor::VisitorVTable;
-use crate::{
-    ArrayData, DeserializeMetadata, IntoCanonicalVTable, MetadataVTable, SerializeMetadata,
+use crate::vtable::{
+    CanonicalVTable, ComputeVTable, EncodingVTable, MetadataVTable, StatisticsVTable,
+    ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
+use crate::{DeserializeMetadata, SerializeMetadata};
 
 pub mod opaque;
 
@@ -71,38 +67,6 @@ pub trait Encoding: 'static {
 }
 
 pub type EncodingRef = &'static dyn EncodingVTable;
-
-/// Object-safe encoding trait for an array.
-pub trait EncodingVTable:
-    'static
-    + Sync
-    + Send
-    + Debug
-    + IntoCanonicalVTable
-    + ComputeVTable
-    + MetadataVTable<ArrayData>
-    + StatisticsVTable<ArrayData>
-    + ValidateVTable<ArrayData>
-    + ValidityVTable<ArrayData>
-    + VariantsVTable<ArrayData>
-    + VisitorVTable<ArrayData>
-{
-    fn id(&self) -> EncodingId;
-
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl PartialEq for dyn EncodingVTable + '_ {
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
-    }
-}
-impl Eq for dyn EncodingVTable + '_ {}
-impl Hash for dyn EncodingVTable + '_ {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id().hash(state)
-    }
-}
 
 pub trait ArrayEncodingRef {
     fn encoding(&self) -> EncodingRef;

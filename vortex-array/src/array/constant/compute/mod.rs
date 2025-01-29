@@ -4,18 +4,17 @@ mod compare;
 mod invert;
 mod search_sorted;
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
-use vortex_mask::{Mask, MaskValues};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn,
-    SearchSortedFn, SliceFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CompareFn, FilterFn, InvertFn, ScalarAtFn, SearchSortedFn,
+    SliceFn, TakeFn,
 };
+use crate::vtable::ComputeVTable;
 use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ConstantEncoding {

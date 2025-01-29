@@ -7,10 +7,9 @@ use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::ids;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::ValidityVTable;
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::stats::{Stat, StatsSet};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayLen, EmptyMetadata};
 
 mod canonical;

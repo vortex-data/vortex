@@ -7,14 +7,17 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, ValidityVTable};
-use crate::variants::{ExtensionArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
+use crate::validity::ArrayValidity;
+use crate::variants::ExtensionArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoCanonical,
 };
+
 mod compute;
 
 impl_encoding!("vortex.ext", ids::EXTENSION, Extension, EmptyMetadata);

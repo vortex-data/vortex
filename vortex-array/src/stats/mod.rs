@@ -206,25 +206,6 @@ pub trait ArrayStatistics {
     fn inherit_statistics(&self, parent: &dyn Statistics);
 }
 
-/// Encoding VTable for computing array statistics.
-pub trait StatisticsVTable<Array: ?Sized> {
-    /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
-    }
-}
-
-impl<E: Encoding + 'static> StatisticsVTable<ArrayData> for E
-where
-    E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        StatisticsVTable::compute_statistics(encoding, array_ref, stat)
-    }
-}
-
 impl dyn Statistics + '_ {
     /// Get the provided stat if present in the underlying array, converting the `ScalarValue` into a typed value.
     /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.

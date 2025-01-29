@@ -8,9 +8,9 @@ mod slice;
 pub(crate) mod take;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, ComputeVTable, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn,
-    TakeFn,
+    BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
+use vortex_array::vtable::compute::ComputeVTable;
 use vortex_array::ArrayData;
 
 use crate::RunEndEncoding;

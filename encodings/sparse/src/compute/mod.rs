@@ -1,8 +1,9 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{
-    BinaryNumericFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
+    BinaryNumericFn, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
     SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
+use vortex_array::vtable::compute::ComputeVTable;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;

@@ -1,4 +1,5 @@
-use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatsSet};
+use vortex_array::vtable::statistics::StatisticsVTable;
 use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};

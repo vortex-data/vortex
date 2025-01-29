@@ -1,8 +1,9 @@
 use crate::array::PrimitiveEncoding;
 use crate::compute::{
-    CastFn, ComputeVTable, FillForwardFn, FillNullFn, FilterFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn,
+    CastFn, FillForwardFn, FillNullFn, FilterFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn,
+    SliceFn, TakeFn,
 };
+use crate::vtable::ComputeVTable;
 use crate::ArrayData;
 
 mod cast;

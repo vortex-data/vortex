@@ -1,18 +1,19 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{Validity, ValidityVTable};
-use crate::variants::{NullArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::stats::{Stat, StatsSet};
+use crate::validity::Validity;
+use crate::variants::NullArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use crate::{impl_encoding, ArrayLen, Canonical, EmptyMetadata, IntoCanonical};
 
 mod compute;

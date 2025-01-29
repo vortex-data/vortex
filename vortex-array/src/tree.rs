@@ -7,8 +7,8 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ChunkedEncoding;
 use crate::compute::Len;
-use crate::encoding::EncodingVTable;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::EncodingVTable;
 use crate::ArrayData;
 
 impl ArrayData {

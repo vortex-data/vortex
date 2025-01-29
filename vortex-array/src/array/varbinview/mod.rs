@@ -17,9 +17,9 @@ use vortex_mask::Mask;
 use crate::arrow::FromArrowArray;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::validity::{ArrayValidity, Validity, ValidityMetadata};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
     RkyvMetadata,

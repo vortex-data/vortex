@@ -8,8 +8,9 @@ use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
+use crate::vtable::VariantsVTable;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// Chunked arrays support all DTypes

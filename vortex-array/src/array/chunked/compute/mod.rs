@@ -4,9 +4,10 @@ use vortex_error::VortexResult;
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
-    try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, ComputeVTable, FillNullFn,
-    FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
+    try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
+    ScalarAtFn, SliceFn, TakeFn,
 };
+use crate::vtable::ComputeVTable;
 use crate::{ArrayData, IntoArrayData};
 
 mod binary_numeric;

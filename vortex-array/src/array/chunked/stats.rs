@@ -2,7 +2,8 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::vtable::StatisticsVTable;
 use crate::ArrayDType;
 
 impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {

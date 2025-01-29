@@ -14,9 +14,10 @@ use vortex_scalar::ScalarValue;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
+use crate::vtable::StatisticsVTable;
 use crate::{ArrayDType, IntoArrayVariant};
 
 trait PStatsType:

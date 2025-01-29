@@ -3,8 +3,8 @@ use vortex_mask::Mask;
 
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
-use crate::validity::ValidityVTable;
-use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{ValidityVTable, VisitorVTable};
 use crate::ArrayLen;
 
 impl ValidityVTable<VarBinArray> for VarBinEncoding {

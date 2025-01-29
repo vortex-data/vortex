@@ -8,8 +8,9 @@ use vortex_mask::Mask;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::validity::ArrayValidity;
+use crate::vtable::StatisticsVTable;
 use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {

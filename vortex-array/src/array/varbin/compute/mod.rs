@@ -3,7 +3,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
-use crate::compute::{CompareFn, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn};
+use crate::vtable::ComputeVTable;
 use crate::{ArrayDType, ArrayData};
 
 mod compare;

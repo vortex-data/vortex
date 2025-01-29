@@ -120,7 +120,7 @@ macro_rules! impl_encoding {
                 type Metadata = $Metadata;
             }
 
-            impl $crate::encoding::EncodingVTable for [<$Name Encoding>] {
+            impl $crate::vtable::EncodingVTable for [<$Name Encoding>] {
                 #[inline]
                 fn id(&self) -> $crate::encoding::EncodingId {
                     <[<$Name Encoding>] as $crate::encoding::Encoding>::ID
