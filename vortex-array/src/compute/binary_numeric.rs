@@ -5,7 +5,7 @@ use vortex_scalar::{BinaryNumericOperator, Scalar};
 use crate::array::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, IntoArrayData as _};
+use crate::{ArrayData, IntoArrayData as _};
 
 pub trait BinaryNumericFn<Array> {
     fn binary_numeric(
@@ -116,7 +116,7 @@ pub fn binary_numeric(
     }
 
     // Check if LHS supports the operation directly.
-    if let Some(fun) = lhs.encoding().binary_numeric_fn() {
+    if let Some(fun) = lhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {
             check_numeric_result(&result, lhs, rhs);
             return Ok(result);
@@ -124,7 +124,7 @@ pub fn binary_numeric(
     }
 
     // Check if RHS supports the operation directly.
-    if let Some(fun) = rhs.encoding().binary_numeric_fn() {
+    if let Some(fun) = rhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
             check_numeric_result(&result, lhs, rhs);
             return Ok(result);
@@ -133,8 +133,8 @@ pub fn binary_numeric(
 
     log::debug!(
         "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
-        lhs.encoding().id(),
-        rhs.encoding().id(),
+        lhs.encoding(),
+        rhs.encoding(),
         op,
     );
 
@@ -154,8 +154,8 @@ fn arrow_numeric(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = unsafe { Datum::try_new(lhs.clone())? };
-    let right = unsafe { Datum::try_new(rhs.clone())? };
+    let left = Datum::try_new(lhs.clone())?;
+    let right = Datum::try_new(rhs.clone())?;
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
@@ -177,7 +177,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         result.len(),
         lhs.len(),
         "Numeric operation length mismatch {}",
-        rhs.encoding().id()
+        rhs.encoding()
     );
     debug_assert_eq!(
         result.dtype(),
@@ -187,7 +187,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
             (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
         ),
         "Numeric operation dtype mismatch {}",
-        rhs.encoding().id()
+        rhs.encoding()
     );
 }
 
@@ -200,7 +200,7 @@ pub mod test_harness {
 
     use crate::array::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{ArrayDType as _, ArrayData, IntoArrayData as _, IntoCanonical as _};
+    use crate::{ArrayData, IntoArrayData as _, IntoCanonical};
 
     #[allow(clippy::unwrap_used)]
     fn to_vec_of_scalar(array: &ArrayData) -> Vec<Scalar> {
@@ -297,8 +297,9 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::PrimitiveArray;
+    use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, sub_scalar};
-    use crate::{ArrayLen as _, IntoArrayData, IntoCanonical};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_scalar_subtract_unsigned() {

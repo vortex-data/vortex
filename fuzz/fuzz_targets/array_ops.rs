@@ -9,8 +9,7 @@ use vortex_array::array::{
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
-use vortex_array::encoding::EncodingRef;
-use vortex_array::{ArrayData, IntoCanonical};
+use vortex_array::{ArrayData, Encoding, IntoCanonical};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
@@ -44,12 +43,12 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
                 let mut sorted = sort_canonical_array(&current_array).unwrap();
                 if !HashSet::from([
-                    &PrimitiveEncoding as EncodingRef,
-                    &VarBinEncoding,
-                    &VarBinViewEncoding,
-                    &BoolEncoding,
-                    &StructEncoding,
-                    &ListEncoding,
+                    PrimitiveEncoding::ID,
+                    VarBinEncoding::ID,
+                    VarBinViewEncoding::ID,
+                    BoolEncoding::ID,
+                    StructEncoding::ID,
+                    ListEncoding::ID,
                 ])
                 .contains(&current_array.encoding())
                 {

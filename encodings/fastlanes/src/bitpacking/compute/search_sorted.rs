@@ -8,10 +8,8 @@ use vortex_array::compute::{
     IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
     SearchSortedUsizeFn,
 };
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayLen};
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;

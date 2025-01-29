@@ -1,9 +1,8 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::{ConstantArray, PrimitiveArray};
-use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
-use vortex_array::validity::ArrayValidity;
+use vortex_array::stats::{trailing_zeros, Stat};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,

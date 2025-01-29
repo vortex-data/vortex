@@ -7,8 +7,9 @@ use bytes::Bytes;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
@@ -91,8 +92,8 @@ fn compare_struct(expected: ArrayData, actual: ArrayData) {
         return;
     }
 
-    let arrow_lhs = expected.clone().into_arrow().unwrap();
-    let arrow_rhs = actual.clone().into_arrow().unwrap();
+    let arrow_lhs = expected.clone().into_arrow_preferred().unwrap();
+    let arrow_rhs = actual.clone().into_arrow_preferred().unwrap();
 
     let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default()).unwrap();
 

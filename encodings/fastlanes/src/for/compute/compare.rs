@@ -3,7 +3,7 @@ use std::ops::Shr;
 use num_traits::WrappingSub;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
@@ -77,7 +77,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoCanonical;
+    use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
 
     use super::*;
@@ -152,13 +152,7 @@ mod tests {
         result: VortexResult<Option<ArrayData>>,
         expected: T,
     ) {
-        let result = result
-            .unwrap()
-            .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap();
+        let result = result.unwrap().unwrap().into_bool().unwrap();
         assert_eq!(result.boolean_buffer(), BooleanBuffer::from_iter(expected));
     }
 }

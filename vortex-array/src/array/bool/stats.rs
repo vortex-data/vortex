@@ -7,11 +7,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatsSet};
-use crate::validity::ArrayValidity;
 use crate::vtable::StatisticsVTable;
-use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
+use crate::IntoArrayVariant;
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -174,7 +172,7 @@ mod test {
     use vortex_dtype::Nullability;
 
     use crate::array::BoolArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     #[test]
     fn bool_stats() {

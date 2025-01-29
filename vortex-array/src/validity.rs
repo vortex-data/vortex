@@ -15,13 +15,24 @@ use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take};
 use crate::encoding::Encoding;
 use crate::patches::Patches;
-use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::vtable::ValidityVTable;
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
-pub trait ArrayValidity {
-    fn is_valid(&self, index: usize) -> VortexResult<bool>;
-    fn null_count(&self) -> VortexResult<usize>;
-    fn logical_validity(&self) -> VortexResult<Mask>;
+impl ArrayData {
+    /// Return whether the element at the given index is valid (true) or null (false).
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.vtable().is_valid(self, index)
+    }
+
+    /// Return the number of null elements in the array.
+    pub fn null_count(&self) -> VortexResult<usize> {
+        self.vtable().null_count(self)
+    }
+
+    /// Return the logical validity of the array if nullable, and None if non-nullable.
+    pub fn logical_validity(&self) -> VortexResult<Mask> {
+        self.vtable().logical_validity(self)
+    }
 }
 
 #[derive(
@@ -198,7 +209,7 @@ impl Validity {
             Self::AllValid => Ok(Self::AllValid),
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(a) => {
-                let taken = if let Some(take_fn) = a.encoding().take_fn() {
+                let taken = if let Some(take_fn) = a.vtable().take_fn() {
                     unsafe { take_fn.take_unchecked(a, indices) }
                 } else {
                     take(a, indices)

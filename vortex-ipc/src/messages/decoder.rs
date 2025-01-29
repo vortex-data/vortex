@@ -224,7 +224,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::array::ConstantArray;
-    use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+    use vortex_array::{ArrayData, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 

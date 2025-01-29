@@ -2,10 +2,9 @@ use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::stats::ArrayStatistics;
-use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
+use vortex_array::IntoArrayData;
 use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -379,7 +378,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_array::IntoArrayVariant;
     use vortex_error::VortexError;
 
     use super::*;
@@ -435,7 +434,7 @@ mod test {
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.to_array().into_primitive().unwrap();
+        let decompressed = compressed.clone().into_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
         values

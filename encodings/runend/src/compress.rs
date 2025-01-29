@@ -1,9 +1,9 @@
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
 use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
-use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};

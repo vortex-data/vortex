@@ -66,15 +66,9 @@ pub trait Encoding: 'static {
     type Metadata: SerializeMetadata + DeserializeMetadata;
 }
 
-pub type EncodingRef = &'static dyn EncodingVTable;
-
-pub trait ArrayEncodingRef {
-    fn encoding(&self) -> EncodingRef;
-}
-
 #[doc = "Encoding ID constants for all Vortex-provided encodings"]
 #[allow(dead_code)]
-pub mod ids {
+pub mod encoding_ids {
     // reserved - 0x0000
     pub(crate) const RESERVED: u16 = 0;
 
@@ -118,45 +112,45 @@ pub mod ids {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use super::{ids, EncodingId};
+    use super::{encoding_ids, EncodingId};
     use crate::aliases::hash_set::HashSet;
 
     #[test]
-    fn test_encoding_id() {
+    fn test_encoding() {
         let all_ids = [
-            ids::RESERVED,
-            ids::NULL,
-            ids::BOOL,
-            ids::PRIMITIVE,
-            ids::STRUCT,
-            ids::VAR_BIN,
-            ids::VAR_BIN_VIEW,
-            ids::EXTENSION,
-            ids::SPARSE,
-            ids::CONSTANT,
-            ids::CHUNKED,
-            ids::LIST,
-            ids::RESERVED_12,
-            ids::RESERVED_13,
-            ids::RESERVED_14,
-            ids::RESERVED_15,
-            ids::RESERVED_16,
-            ids::ALP,
-            ids::ALP_RD,
-            ids::BYTE_BOOL,
-            ids::DATE_TIME_PARTS,
-            ids::DICT,
-            ids::FL_BITPACKED,
-            ids::FL_DELTA,
-            ids::FL_FOR,
-            ids::FL_RLE,
-            ids::FSST,
-            ids::RUN_END,
-            ids::ZIGZAG,
+            encoding_ids::RESERVED,
+            encoding_ids::NULL,
+            encoding_ids::BOOL,
+            encoding_ids::PRIMITIVE,
+            encoding_ids::STRUCT,
+            encoding_ids::VAR_BIN,
+            encoding_ids::VAR_BIN_VIEW,
+            encoding_ids::EXTENSION,
+            encoding_ids::SPARSE,
+            encoding_ids::CONSTANT,
+            encoding_ids::CHUNKED,
+            encoding_ids::LIST,
+            encoding_ids::RESERVED_12,
+            encoding_ids::RESERVED_13,
+            encoding_ids::RESERVED_14,
+            encoding_ids::RESERVED_15,
+            encoding_ids::RESERVED_16,
+            encoding_ids::ALP,
+            encoding_ids::ALP_RD,
+            encoding_ids::BYTE_BOOL,
+            encoding_ids::DATE_TIME_PARTS,
+            encoding_ids::DICT,
+            encoding_ids::FL_BITPACKED,
+            encoding_ids::FL_DELTA,
+            encoding_ids::FL_FOR,
+            encoding_ids::FL_RLE,
+            encoding_ids::FSST,
+            encoding_ids::RUN_END,
+            encoding_ids::ZIGZAG,
         ];
 
         // make sure we didn't forget any ids
-        assert_eq!(all_ids.len(), ids::ZIGZAG as usize + 1);
+        assert_eq!(all_ids.len(), encoding_ids::ZIGZAG as usize + 1);
 
         let mut ids_set = HashSet::with_capacity(all_ids.len());
         ids_set.extend(all_ids);

@@ -14,7 +14,7 @@ use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, LayoutData, LayoutEncoding};
+use crate::{ExprEvaluator, LayoutData, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {

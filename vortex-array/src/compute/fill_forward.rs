@@ -1,7 +1,7 @@
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 /// Trait for filling forward on an array, i.e., replacing nulls with the last non-null value.
 ///
@@ -30,13 +30,13 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     }
 
     let filled = array
-        .encoding()
+        .vtable()
         .fill_forward_fn()
         .map(|f| f.fill_forward(array))
         .unwrap_or_else(|| {
             Err(vortex_err!(
                 NotImplemented: "fill_forward",
-                array.encoding().id()
+                array.encoding()
             ))
         })?;
 
@@ -44,13 +44,13 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
         filled.len(),
         array.len(),
         "FillForward length mismatch {}",
-        array.encoding().id()
+        array.encoding()
     );
     debug_assert_eq!(
         filled.dtype(),
         array.dtype(),
         "FillForward dtype mismatch {}",
-        array.encoding().id()
+        array.encoding()
     );
 
     Ok(filled)

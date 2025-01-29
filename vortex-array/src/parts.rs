@@ -9,7 +9,6 @@ use vortex_flatbuffers::{
     array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt,
 };
 
-use crate::stats::ArrayStatistics;
 use crate::{ArrayData, ContextRef};
 
 /// [`ArrayParts`] represents the information from an [`ArrayData`] that makes up the serialized
@@ -127,7 +126,7 @@ impl WriteFlatBuffer for ArrayPartsFlatBuffer<'_> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.array.encoding().id().code();
+        let encoding = self.array.encoding().code();
         let metadata = self
             .array
             .metadata_bytes()

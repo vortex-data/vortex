@@ -1,5 +1,5 @@
 use vortex_array::parts::ArrayPartsFlatBuffer;
-use vortex_array::stats::{ArrayStatistics, Stat, STATS_TO_WRITE};
+use vortex_array::stats::{Stat, STATS_TO_WRITE};
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
@@ -8,7 +8,7 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::LayoutWriter;
-use crate::LayoutData;
+use crate::{LayoutData, LayoutVTableRef};
 
 pub struct FlatLayoutOptions {
     /// Stats to preserve when writing arrays
@@ -75,7 +75,7 @@ impl LayoutWriter for FlatLayoutWriter {
         segment_ids.push(segments.put(flatbuffer.into_inner()));
 
         self.layout = Some(LayoutData::new_owned(
-            &FlatLayout,
+            LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
             Some(segment_ids),
@@ -98,9 +98,9 @@ mod tests {
 
     use futures::executor::block_on;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::stats::{ArrayStatistics, Stat};
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, ToArrayData};
+    use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
     use vortex_scan::RowMask;
@@ -117,7 +117,7 @@ mod tests {
             assert!(array.statistics().compute_bit_width_freq().is_some());
             assert!(array.statistics().compute_trailing_zero_freq().is_some());
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.into_array())
                 .unwrap();
 
             let result = layout

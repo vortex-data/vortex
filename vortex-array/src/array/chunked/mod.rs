@@ -13,18 +13,18 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, V
 use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
+use crate::arrow::IntoArrowArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, Validity};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
+    impl_encoding, ArrayData, DeserializeMetadata, IntoArrayData, IntoCanonical, RkyvMetadata,
 };
 
 mod canonical;
@@ -34,7 +34,7 @@ mod variants;
 
 impl_encoding!(
     "vortex.chunked",
-    ids::CHUNKED,
+    encoding_ids::CHUNKED,
     Chunked,
     RkyvMetadata<ChunkedMetadata>
 );
@@ -193,6 +193,7 @@ impl ChunkedArray {
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
                 ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                    .into_array()
                     .into_canonical()?
                     .into(),
             );
@@ -247,7 +248,7 @@ mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{assert_arrays_eq, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

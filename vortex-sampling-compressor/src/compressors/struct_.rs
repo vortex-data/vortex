@@ -2,9 +2,8 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{StructArray, StructEncoding};
 use vortex_array::compress::compute_precompression_stats;
-use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -69,7 +68,7 @@ impl EncodingCompressor for StructCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&StructEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([StructEncoding::ID])
     }
 }

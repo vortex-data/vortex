@@ -5,8 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::compute::{
     scalar_at, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide,
 };
-use vortex_array::validity::ArrayValidity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayVariant};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;

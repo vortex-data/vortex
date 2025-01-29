@@ -1,0 +1,30 @@
+[package]
+name = "vortex-cli"
+description = "a small but might tool for working with Vortex files"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+vortex = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vx"
+path = "src/main.rs"

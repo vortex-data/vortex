@@ -14,16 +14,13 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
-use crate::arrow::FromArrowArray;
-use crate::encoding::ids;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
-use crate::validity::{ArrayValidity, Validity, ValidityMetadata};
+use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    RkyvMetadata,
-};
+use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
+use crate::{impl_encoding, ArrayData, Canonical, DeserializeMetadata, RkyvMetadata};
 
 mod accessor;
 mod compute;
@@ -203,7 +200,7 @@ impl Display for VarBinViewMetadata {
 
 impl_encoding!(
     "vortex.varbinview",
-    ids::VAR_BIN_VIEW,
+    encoding_ids::VAR_BIN_VIEW,
     VarBinView,
     RkyvMetadata<VarBinViewMetadata>
 );
@@ -429,11 +426,11 @@ where
 
 impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
-impl IntoCanonical for VarBinViewArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let arrow_self = varbinview_as_arrow(&self);
-        let vortex_array = ArrayData::from_arrow(arrow_self, nullable);
+impl CanonicalVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn into_canonical(&self, array: VarBinViewArray) -> VortexResult<Canonical> {
+        let nullable = array.dtype().is_nullable();
+        let arrow_array = varbinview_as_arrow(&array);
+        let vortex_array = ArrayData::from_arrow(arrow_array, nullable);
 
         Ok(Canonical::VarBinView(VarBinViewArray::try_from(
             vortex_array,
@@ -527,8 +524,9 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::varbinview::{BinaryView, VarBinViewArray};
+    use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, slice};
-    use crate::{ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+    use crate::{Canonical, IntoArrayData};
 
     #[test]
     pub fn varbin_view() {

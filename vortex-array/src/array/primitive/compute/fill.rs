@@ -8,14 +8,14 @@ use vortex_scalar::Scalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillForwardFn;
-use crate::validity::{ArrayValidity, Validity};
+use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
     fn fill_forward(&self, array: &PrimitiveArray) -> VortexResult<ArrayData> {
         if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.to_array());
+            return Ok(array.clone().into_array());
         }
 
         match array.logical_validity()?.boolean_buffer() {
@@ -61,7 +61,7 @@ mod test {
     use crate::array::primitive::PrimitiveArray;
     use crate::array::BoolArray;
     use crate::compute::fill_forward;
-    use crate::validity::{ArrayValidity, Validity};
+    use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]

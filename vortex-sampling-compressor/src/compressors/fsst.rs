@@ -5,8 +5,7 @@ use std::sync::Arc;
 use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinEncoding, VarBinViewEncoding};
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, IntoArrayData};
+use vortex_array::{Encoding, EncodingId, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray, FSSTEncoding};
@@ -88,7 +87,7 @@ impl EncodingCompressor for FSSTCompressor {
             } else {
                 vortex_bail!(
                     "Unsupported encoding for FSSTCompressor: {}",
-                    array.encoding().id()
+                    array.encoding()
                 )
             };
 
@@ -131,7 +130,7 @@ impl EncodingCompressor for FSSTCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&FSSTEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([FSSTEncoding::ID])
     }
 }

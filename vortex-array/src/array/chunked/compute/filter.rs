@@ -7,7 +7,7 @@ use vortex_mask::{Mask, MaskIter, MaskValues};
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -49,7 +49,7 @@ fn filter_slices(
 
     // Pre-materialize the chunk ends for performance.
     // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
-    let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
+    let chunk_ends = array.chunk_offsets().into_primitive()?;
     let chunk_ends = chunk_ends.as_slice::<u64>();
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
@@ -130,7 +130,7 @@ fn filter_indices(
 
     // Avoid find_chunk_idx and use our own to avoid the overhead.
     // The array should only be some thousands of values in the general case.
-    let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
+    let chunk_ends = array.chunk_offsets().into_primitive()?;
     let chunk_ends = chunk_ends.as_slice::<u64>();
 
     for set_index in indices {

@@ -200,10 +200,19 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 }
 
-pub trait ArrayStatistics {
-    fn statistics(&self) -> &dyn Statistics;
+impl ArrayData {
+    pub fn statistics(&self) -> &(dyn Statistics + '_) {
+        self
+    }
 
-    fn inherit_statistics(&self, parent: &dyn Statistics);
+    // FIXME(ngates): this is really slow...
+    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
+        let stats = self.statistics();
+        // The to_set call performs a slow clone of the stats
+        for (stat, scalar) in parent.to_set() {
+            stats.set(stat, scalar);
+        }
+    }
 }
 
 impl dyn Statistics + '_ {
@@ -328,7 +337,7 @@ mod test {
     use enum_iterator::all;
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     #[test]
     fn min_of_nulls_is_not_panic() {

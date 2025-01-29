@@ -2,14 +2,14 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_set::HashSet;
-use crate::encoding::EncodingRef;
-use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
-use crate::{ArrayDType, ArrayData};
+use crate::stats::PRUNING_STATS;
+use crate::vtable::VTableRef;
+use crate::{ArrayData, EncodingId};
 
 pub trait CompressionStrategy {
     fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData>;
 
-    fn used_encodings(&self) -> HashSet<EncodingRef>;
+    fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 
 /// Check that compression did not alter the length of the validity array.
@@ -18,8 +18,6 @@ pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::validity::ArrayValidity;
-
         let old_validity = arr
             .logical_validity()
             .vortex_expect("failed to compute validity")
@@ -44,7 +42,6 @@ pub fn check_dtype_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::ArrayDType;
         debug_assert!(
             arr.dtype() == compressed.dtype(),
             "Compression changed dtype: {} -> {}\nFrom array: {}Into array {}",

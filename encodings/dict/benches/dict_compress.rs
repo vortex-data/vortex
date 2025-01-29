@@ -6,9 +6,8 @@ use rand::distributions::{Alphanumeric, Uniform};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::validity::Validity;
-use vortex_array::IntoCanonical as _;
+use vortex_array::IntoCanonical;
 use vortex_buffer::Buffer;
 use vortex_dict::dict_encode;
 

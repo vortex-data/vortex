@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::ops::Deref;
 
 use itertools::{Itertools, MinMaxResult};
 use vortex_buffer::ByteBuffer;
@@ -10,7 +11,7 @@ use crate::array::{varbin_scalar, VarBinEncoding};
 use crate::compute::scalar_at;
 use crate::stats::{Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
-use crate::{ArrayDType, ArrayTrait};
+use crate::ArrayData;
 
 impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -18,7 +19,7 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     }
 }
 
-pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
+pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = ArrayData>>(
     array: &T,
     stat: Stat,
 ) -> VortexResult<StatsSet> {
@@ -53,7 +54,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             let is_constant = array.with_iterator(compute_is_constant)?;
             if is_constant {
                 // we know that the array is not empty
-                StatsSet::constant(scalar_at(array, 0)?, array.len())
+                StatsSet::constant(scalar_at(array.deref(), 0)?, array.len())
             } else {
                 StatsSet::of(Stat::IsConstant, is_constant)
             }
@@ -103,7 +104,7 @@ fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     true
 }
 
-fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> {
+fn compute_min_max<T: ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> {
     let mut stats = StatsSet::default();
     if array.is_empty() {
         return Ok(stats);
@@ -152,7 +153,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::varbin::VarBinArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     fn array(dtype: DType) -> VarBinArray {
         VarBinArray::from_vec(

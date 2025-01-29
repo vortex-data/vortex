@@ -2,17 +2,15 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
-    SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayData, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -20,7 +18,12 @@ use vortex_mask::Mask;
 
 use crate::alp::{alp_encode, decompress, Exponents};
 
-impl_encoding!("vortex.alp", ids::ALP, ALP, SerdeMetadata<ALPMetadata>);
+impl_encoding!(
+    "vortex.alp",
+    encoding_ids::ALP,
+    ALP,
+    SerdeMetadata<ALPMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
@@ -131,9 +134,9 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
     }
 }
 
-impl IntoCanonical for ALPArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<ALPArray> for ALPEncoding {
+    fn into_canonical(&self, array: ALPArray) -> VortexResult<Canonical> {
+        decompress(array).map(Canonical::Primitive)
     }
 }
 

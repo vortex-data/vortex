@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn<BoolArray> for BoolEncoding {
     fn take(&self, array: &BoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {

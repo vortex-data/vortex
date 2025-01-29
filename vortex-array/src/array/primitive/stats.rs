@@ -13,12 +13,10 @@ use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatsSet};
-use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
-use crate::{ArrayDType, IntoArrayVariant};
+use crate::IntoArrayVariant;
 
 trait PStatsType:
     NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
@@ -346,7 +344,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 #[cfg(test)]
 mod test {
     use crate::array::primitive::PrimitiveArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     #[test]
     fn stats() {

@@ -10,16 +10,16 @@ use vortex_array::ContextRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
-use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
+use crate::vtable::{LayoutId, LayoutVTable};
 use crate::{LayoutData, FLAT_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct FlatLayout;
 
-impl LayoutEncoding for FlatLayout {
+impl LayoutVTable for FlatLayout {
     fn id(&self) -> LayoutId {
         FLAT_LAYOUT_ID
     }

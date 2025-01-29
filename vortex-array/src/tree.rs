@@ -57,7 +57,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
         )?;
         self.indent(|i| {
             write!(i.fmt, "{}metadata: ", i.indent)?;
-            array.encoding().display_metadata(array, i.fmt)?;
+            array.vtable().display_metadata(array, i.fmt)?;
             writeln!(i.fmt)
         })?;
 
@@ -69,13 +69,8 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             self.total_size = Some(total_size);
         }
 
-        self.indent(|i| {
-            array
-                .encoding()
-                .accept(array, i)
-                .map_err(fmt::Error::custom)
-        })
-        .map_err(VortexError::from)?;
+        self.indent(|i| array.vtable().accept(array, i).map_err(fmt::Error::custom))
+            .map_err(VortexError::from)?;
 
         self.total_size = old_total_size;
         Ok(())

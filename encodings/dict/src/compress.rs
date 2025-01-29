@@ -8,7 +8,7 @@ use vortex_array::array::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, ToBytes};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};

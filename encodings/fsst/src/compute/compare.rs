@@ -1,7 +1,7 @@
 use fsst::Symbol;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -87,7 +87,7 @@ fn compare_fsst_constant(
 mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
     use vortex_array::compute::{compare, scalar_at, Operator};
-    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

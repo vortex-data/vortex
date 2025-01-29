@@ -3,7 +3,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{slice, SliceFn};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl SliceFn<ChunkedArray> for ChunkedEncoding {
     fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayData> {

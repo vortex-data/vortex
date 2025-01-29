@@ -70,7 +70,7 @@ mod test {
     #[test]
     fn test_compress_i8() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
         assert_eq!(
             compressed.into_primitive().unwrap().as_slice::<i8>(),
             (-100_i8..100).collect::<Vec<_>>()
@@ -79,7 +79,7 @@ mod test {
     #[test]
     fn test_compress_i16() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
         assert_eq!(
             compressed.into_primitive().unwrap().as_slice::<i16>(),
             (-100_i16..100).collect::<Vec<_>>()
@@ -88,7 +88,7 @@ mod test {
     #[test]
     fn test_compress_i32() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
         assert_eq!(
             compressed.into_primitive().unwrap().as_slice::<i32>(),
             (-100_i32..100).collect::<Vec<_>>()
@@ -97,7 +97,7 @@ mod test {
     #[test]
     fn test_compress_i64() {
         let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
-        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(compressed.as_ref().encoding(), ZigZagEncoding.id());
         assert_eq!(
             compressed.into_primitive().unwrap().as_slice::<i64>(),
             (-100_i64..100).collect::<Vec<_>>()

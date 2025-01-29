@@ -7,7 +7,7 @@ use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
-use crate::{ArrayData, ArrayLen, IntoArrayData, SparseArray, SparseEncoding};
+use crate::{ArrayData, IntoArrayData, SparseArray, SparseEncoding};
 
 /// Sparse arrays support all DTypes
 impl VariantsVTable<SparseArray> for SparseEncoding {

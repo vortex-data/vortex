@@ -82,7 +82,7 @@ mod test {
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
-    use vortex_array::{ArrayData, ArrayLen, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -93,7 +93,7 @@ mod test {
         let reference =
             PrimitiveArray::from_option_iter([Some(42), Some(-9), None, Some(42), None, Some(-9)]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        let flattened_dict = dict.to_array().into_primitive().unwrap();
+        let flattened_dict = dict.into_array().into_primitive().unwrap();
         assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
     }
 
@@ -105,7 +105,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        let flattened_dict = dict.to_array().into_varbinview().unwrap();
+        let flattened_dict = dict.into_array().into_varbinview().unwrap();
         assert_eq!(
             flattened_dict
                 .with_iterator(|iter| iter

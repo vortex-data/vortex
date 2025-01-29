@@ -6,7 +6,6 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::ScalarAtFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::ArrayDType;
 
 impl ScalarAtFn<PrimitiveArray> for PrimitiveEncoding {
     fn scalar_at(&self, array: &PrimitiveArray, index: usize) -> VortexResult<Scalar> {

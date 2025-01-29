@@ -1,9 +1,9 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::{FillForwardFn, ScalarAtFn, SliceFn, TakeFn};
-use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -98,7 +98,7 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
     fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayData> {
         let validity = array.logical_validity()?;
         if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.to_array());
+            return Ok(array.clone().into_array());
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_true() {

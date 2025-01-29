@@ -429,7 +429,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
+    use crate::stats::{Stat, StatsSet};
     use crate::IntoArrayData as _;
 
     #[test]

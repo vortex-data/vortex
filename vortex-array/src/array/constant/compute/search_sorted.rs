@@ -5,7 +5,6 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::{SearchResult, SearchSortedFn, SearchSortedSide};
-use crate::{ArrayDType, ArrayLen};
 
 impl SearchSortedFn<ConstantArray> for ConstantEncoding {
     fn search_sorted(

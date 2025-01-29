@@ -1,13 +1,15 @@
+use arrow_array::{new_null_array, ArrayRef};
+use arrow_schema::DataType;
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
@@ -19,6 +21,10 @@ impl ComputeVTable for NullEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
         Some(self)
     }
 }
@@ -60,6 +66,15 @@ impl TakeFn<NullArray> for NullEncoding {
     }
 }
 
+impl ToArrowFn<NullArray> for NullEncoding {
+    fn to_arrow(&self, array: &NullArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
+        if data_type != &DataType::Null {
+            vortex_bail!("Unsupported data type: {data_type}");
+        }
+        Ok(Some(new_null_array(data_type, array.len())))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
@@ -68,8 +83,7 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
-    use crate::validity::ArrayValidity;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_slice_nulls() {

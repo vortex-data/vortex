@@ -4,8 +4,7 @@ use std::ops::RangeBounds;
 
 use vortex_array::array::BooleanBuffer;
 use vortex_array::compute::{filter, slice, try_cast};
-use vortex_array::validity::ArrayValidity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};

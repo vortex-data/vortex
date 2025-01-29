@@ -1,8 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
 
@@ -61,7 +60,7 @@ impl EncodingCompressor for DeltaCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&DeltaEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([DeltaEncoding::ID])
     }
 }

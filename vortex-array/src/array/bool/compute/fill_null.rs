@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::array::{BoolArray, BoolEncoding, ConstantArray};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FillNullFn<BoolArray> for BoolEncoding {
     fn fill_null(&self, array: &BoolArray, fill_value: Scalar) -> VortexResult<ArrayData> {
@@ -38,7 +38,7 @@ mod tests {
     use crate::array::BoolArray;
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayVariant};
+    use crate::IntoArrayVariant;
 
     #[rstest]
     #[case(true, vec![true, true, false, true])]

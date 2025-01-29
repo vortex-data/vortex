@@ -3,7 +3,7 @@ use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{binary_numeric, slice, BinaryNumericFn};
-use crate::{ArrayDType as _, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
     fn binary_numeric(

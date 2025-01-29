@@ -35,7 +35,7 @@ pub use operators::*;
 pub use pack::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
+use vortex_array::{ArrayData, Canonical, IntoArrayData as _};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
 

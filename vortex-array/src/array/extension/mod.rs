@@ -6,21 +6,25 @@ use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::encoding::ids;
-use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
-use crate::validity::ArrayValidity;
+use crate::arrow::IntoArrowArray;
+use crate::encoding::encoding_ids;
+use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayData, Canonical, EmptyMetadata};
 
 mod compute;
 
-impl_encoding!("vortex.ext", ids::EXTENSION, Extension, EmptyMetadata);
+impl_encoding!(
+    "vortex.ext",
+    encoding_ids::EXTENSION,
+    Extension,
+    EmptyMetadata
+);
 
 impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
@@ -71,9 +75,9 @@ impl ExtensionArrayTrait for ExtensionArray {
     }
 }
 
-impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
+impl CanonicalVTable<ExtensionArray> for ExtensionEncoding {
+    fn into_canonical(&self, array: ExtensionArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array))
     }
 }
 

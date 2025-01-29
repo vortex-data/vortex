@@ -9,11 +9,11 @@ use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexR
 use vortex_mask::{Mask, MaskValues};
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::stats::{ArrayStatistics, Stat};
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use crate::stats::Stat;
+use crate::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 
 pub trait FilterFn<Array> {
     /// Filter an array by the provided predicate.
@@ -71,13 +71,13 @@ pub fn filter(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         filtered.len(),
         true_count,
         "Filter length mismatch {}",
-        array.encoding().id()
+        array.encoding()
     );
     debug_assert_eq!(
         filtered.dtype(),
         array.dtype(),
         "Filter dtype mismatch {}",
-        array.encoding().id()
+        array.encoding()
     );
 
     Ok(filtered)
@@ -92,25 +92,22 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         Mask::Values(values) => values,
     };
 
-    if let Some(filter_fn) = array.encoding().filter_fn() {
+    if let Some(filter_fn) = array.vtable().filter_fn() {
         let result = filter_fn.filter(array, mask)?;
         debug_assert_eq!(result.len(), mask.true_count());
         return Ok(result);
     }
 
     // We can use scalar_at if the mask has length 1.
-    if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
+    if mask.true_count() == 1 && array.vtable().scalar_at_fn().is_some() {
         let idx = mask.first().vortex_expect("true_count == 1");
         return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
     }
 
     // Fallback: implement using Arrow kernels.
-    log::debug!(
-        "No filter implementation found for {}",
-        array.encoding().id(),
-    );
+    log::debug!("No filter implementation found for {}", array.encoding(),);
 
-    let array_ref = array.clone().into_arrow()?;
+    let array_ref = array.clone().into_arrow_preferred()?;
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
@@ -149,7 +146,7 @@ mod test {
     use super::*;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
-    use crate::{IntoArrayData, IntoCanonical};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_filter() {
@@ -162,12 +159,7 @@ mod test {
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
-            filtered
-                .into_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered.into_primitive().unwrap().as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

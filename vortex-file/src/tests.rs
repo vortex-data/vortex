@@ -14,10 +14,7 @@ use vortex_array::compute::scalar_at;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, Context, ContextRef, IntoArrayData, IntoArrayVariant,
-    ToArrayData,
-};
+use vortex_array::{ArrayData, Context, ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
@@ -372,7 +369,7 @@ async fn filter_or() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
-        vec![names.to_array(), ages.to_array()],
+        vec![names.into_array(), ages.into_array()],
         5,
         Validity::NonNullable,
     )
@@ -441,7 +438,7 @@ async fn filter_and() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
-        vec![names.to_array(), ages.to_array()],
+        vec![names.into_array(), ages.into_array()],
         5,
         Validity::NonNullable,
     )

@@ -5,16 +5,16 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
-    use vortex_array::encoding::Encoding;
-    use vortex_array::stats::{ArrayStatistics, Stat};
+    use vortex_array::stats::Stat;
     use vortex_array::variants::StructArrayTrait;
+    use vortex_array::Encoding;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimePartsEncoding;
@@ -122,7 +122,7 @@ mod tests {
             .unwrap();
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
-            assert_eq!(chunk.encoding().id(), BitPackedEncoding::ID);
+            assert_eq!(chunk.encoding(), BitPackedEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -137,7 +137,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in bool_col.chunks() {
-            assert_eq!(chunk.encoding().id(), BoolEncoding::ID);
+            assert_eq!(chunk.encoding(), BoolEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -152,10 +152,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in varbin_col.chunks() {
-            assert!(
-                chunk.encoding().id() == DictEncoding::ID
-                    || chunk.encoding().id() == FSSTEncoding::ID
-            );
+            assert!(chunk.encoding() == DictEncoding::ID || chunk.encoding() == FSSTEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -170,7 +167,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in binary_col.chunks() {
-            assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
+            assert_eq!(chunk.encoding(), VarBinEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -185,7 +182,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in timestamp_col.chunks() {
-            assert_eq!(chunk.encoding().id(), DateTimePartsEncoding::ID);
+            assert_eq!(chunk.encoding(), DateTimePartsEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()

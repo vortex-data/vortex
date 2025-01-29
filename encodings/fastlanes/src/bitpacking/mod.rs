@@ -3,18 +3,16 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, RkyvMetadata,
-};
+use vortex_array::{encoding_ids, impl_encoding, ArrayData, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -25,7 +23,7 @@ mod compute;
 
 impl_encoding!(
     "fastlanes.bitpacked",
-    ids::FL_BITPACKED,
+    encoding_ids::FL_BITPACKED,
     BitPacked,
     RkyvMetadata<BitPackedMetadata>
 );
@@ -254,9 +252,9 @@ impl BitPackedArray {
     }
 }
 
-impl IntoCanonical for BitPackedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        unpack(self).map(Canonical::Primitive)
+impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
+    fn into_canonical(&self, array: BitPackedArray) -> VortexResult<Canonical> {
+        unpack(array).map(Canonical::Primitive)
     }
 }
 
@@ -301,7 +299,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical, RkyvMetadata};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, RkyvMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 
@@ -355,8 +353,6 @@ mod test {
         assert!(packed_with_patches.patches().is_some());
         assert_eq!(
             packed_with_patches
-                .into_canonical()
-                .unwrap()
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i32>(),

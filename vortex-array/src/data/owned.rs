@@ -4,14 +4,14 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::encoding::EncodingRef;
 use crate::stats::StatsSet;
-use crate::{ArrayDType, ArrayData};
+use crate::vtable::VTableRef;
+use crate::ArrayData;
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Debug)]
 pub(super) struct OwnedArrayData {
-    pub(super) encoding: EncodingRef,
+    pub(super) encoding: VTableRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Option<ByteBuffer>,

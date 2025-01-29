@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
@@ -16,16 +17,12 @@ use crate::array::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
-use crate::encoding::{Encoding, EncodingId, EncodingRef};
+use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
+use crate::stats::{Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validity::ArrayValidity;
-use crate::vtable::{EncodingVTable, ValidityVTable};
-use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ChildrenCollector, ContextRef,
-    NamedChildrenCollector,
-};
+use crate::vtable::{EncodingVTable, VTableRef, ValidityVTable};
+use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
 mod owned;
 mod statistics;
@@ -59,7 +56,7 @@ impl From<ViewedArrayData> for ArrayData {
 
 impl ArrayData {
     pub fn try_new_owned(
-        encoding: EncodingRef,
+        encoding: VTableRef,
         dtype: DType,
         len: usize,
         metadata: Option<ByteBuffer>,
@@ -127,26 +124,31 @@ impl ArrayData {
                 DType::Extension(..) => array.as_extension_array().is_some(),
             },
             "Encoding {} does not implement the variant trait for {}",
-            array.encoding().id(),
+            array.encoding(),
             array.dtype()
         );
 
         // First, we validate the metadata.
-        array.encoding().validate_metadata(array.metadata_bytes())?;
+        array.vtable().validate_metadata(array.metadata_bytes())?;
         // Then perform additional custom validation
         // This is called for both Owned and Viewed array data since there are public functions
         // for constructing an ArrayData, e.g. `try_new_owned`.
-        array.encoding().validate(&array)?;
+        array.vtable().validate(&array)?;
 
         Ok(array)
     }
 
-    /// Return the array's encoding
-    pub fn encoding(&self) -> EncodingRef {
+    /// Return the array's encoding VTable.
+    pub fn vtable(&self) -> &VTableRef {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.encoding,
-            InnerArrayData::Viewed(v) => v.encoding,
+            InnerArrayData::Owned(d) => &d.encoding,
+            InnerArrayData::Viewed(v) => &v.encoding,
         }
+    }
+
+    /// Return the array's encoding ID.
+    pub fn encoding(&self) -> EncodingId {
+        self.vtable().id()
     }
 
     /// Returns the number of logical elements in the array.
@@ -161,6 +163,14 @@ impl ArrayData {
     /// Check whether the array has any data
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Return the array's dtype
+    pub fn dtype(&self) -> &DType {
+        match &self.0 {
+            InnerArrayData::Owned(d) => &d.dtype,
+            InnerArrayData::Viewed(v) => &v.dtype,
+        }
     }
 
     /// Whether the array is of a canonical encoding.
@@ -213,7 +223,7 @@ impl ArrayData {
             InnerArrayData::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
             InnerArrayData::Viewed(_) => {
                 let mut collector = ChildrenCollector::default();
-                self.encoding()
+                self.vtable()
                     .accept(self, &mut collector)
                     .vortex_expect("Failed to get children");
                 collector.children()
@@ -224,7 +234,7 @@ impl ArrayData {
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn named_children(&self) -> Vec<(String, ArrayData)> {
         let mut collector = NamedChildrenCollector::default();
-        self.encoding()
+        self.vtable()
             .accept(&self.clone(), &mut collector)
             .vortex_expect("Failed to get children");
         collector.children()
@@ -325,7 +335,7 @@ impl ArrayData {
 
     /// Checks whether array is of a given encoding.
     pub fn is_encoding(&self, id: EncodingId) -> bool {
-        self.encoding().id() == id
+        self.encoding() == id
     }
 
     #[cfg(feature = "canonical_counter")]
@@ -356,7 +366,7 @@ impl ArrayData {
     {
         let array_ref = <&E::Array>::try_from(self)?;
         let encoding = self
-            .encoding()
+            .vtable()
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
@@ -374,61 +384,10 @@ impl Display for ArrayData {
             f,
             "{}{}({}, len={})",
             prefix,
-            self.encoding().id(),
+            self.encoding(),
             self.dtype(),
             self.len()
         )
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayDType for T {
-    fn dtype(&self) -> &DType {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => &d.dtype,
-            InnerArrayData::Viewed(v) => &v.dtype,
-        }
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayLen for T {
-    fn len(&self) -> usize {
-        self.as_ref().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.as_ref().is_empty()
-    }
-}
-
-impl<A: AsRef<ArrayData>> ArrayValidity for A {
-    /// Return whether the element at the given index is valid (true) or null (false).
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
-    }
-
-    /// Return the number of null elements in the array.
-    fn null_count(&self) -> VortexResult<usize> {
-        ValidityVTable::<ArrayData>::null_count(self.as_ref().encoding(), self.as_ref())
-    }
-
-    /// Return the logical validity of the array if nullable, and None if non-nullable.
-    fn logical_validity(&self) -> VortexResult<Mask> {
-        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayStatistics for T {
-    fn statistics(&self) -> &(dyn Statistics + '_) {
-        self.as_ref()
-    }
-
-    // FIXME(ngates): this is really slow...
-    fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        // The to_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.to_set() {
-            stats.set(stat, scalar);
-        }
     }
 }
 

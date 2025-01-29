@@ -1,5 +1,5 @@
 use vortex_array::compute::{invert, InvertFn};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::{RunEndArray, RunEndEncoding};

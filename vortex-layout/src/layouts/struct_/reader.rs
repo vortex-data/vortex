@@ -10,7 +10,7 @@ use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutEncoding, LayoutReader, LayoutReaderExt};
+use crate::{LayoutData, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 #[derive(Clone)]
 pub struct StructReader {

@@ -3,7 +3,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{fill_null, FillNullFn};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl FillNullFn<ChunkedArray> for ChunkedEncoding {
     fn fill_null(&self, array: &ChunkedArray, fill_value: Scalar) -> VortexResult<ArrayData> {
@@ -26,7 +26,7 @@ mod tests {
     use crate::array::{BoolArray, ChunkedArray};
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn fill_null_chunks() {

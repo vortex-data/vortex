@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
+use arrow_schema::DataType;
+use vortex_datetime_dtype::TimeUnit::D;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayVariant};
+use crate::{ArrayData, Canonical, IntoArrayVariant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
@@ -99,7 +101,7 @@ pub fn binary_boolean(
 
     // Check if either LHS or RHS supports the operation directly.
     if let Some(result) = lhs
-        .encoding()
+        .vtable()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
         .transpose()?
@@ -108,19 +110,19 @@ pub fn binary_boolean(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
-            lhs.encoding().id()
+            lhs.encoding()
         );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
-            lhs.encoding().id()
+            lhs.encoding()
         );
         return Ok(result);
     }
 
     if let Some(result) = rhs
-        .encoding()
+        .vtable()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
         .transpose()?
@@ -129,21 +131,21 @@ pub fn binary_boolean(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
-            rhs.encoding().id()
+            rhs.encoding()
         );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
-            rhs.encoding().id()
+            rhs.encoding()
         );
         return Ok(result);
     }
 
     log::debug!(
         "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
-        rhs.encoding().id(),
-        lhs.encoding().id(),
+        rhs.encoding(),
+        lhs.encoding(),
         op,
     );
 
@@ -162,14 +164,8 @@ pub(crate) fn arrow_boolean(
 ) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
-    let lhs = Canonical::Bool(lhs.into_bool()?)
-        .into_arrow()?
-        .as_boolean()
-        .clone();
-    let rhs = Canonical::Bool(rhs.into_bool()?)
-        .into_arrow()?
-        .as_boolean()
-        .clone();
+    let lhs = lhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
+    let rhs = rhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
 
     let array = match operator {
         BinaryOperator::And => arrow_arith::boolean::and(&lhs, &rhs)?,

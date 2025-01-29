@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SearchSortedSide {
@@ -220,18 +220,18 @@ pub fn search_sorted<T: Into<Scalar>>(
         vortex_bail!("Search sorted with null value is not supported");
     }
 
-    if let Some(f) = array.encoding().search_sorted_fn() {
+    if let Some(f) = array.vtable().search_sorted_fn() {
         return f.search_sorted(array, &scalar, side);
     }
 
     // Fallback to a generic search_sorted using scalar_at
-    if array.encoding().scalar_at_fn().is_some() {
+    if array.vtable().scalar_at_fn().is_some() {
         return Ok(SearchSorted::search_sorted(array, &scalar, side));
     }
 
     vortex_bail!(
         NotImplemented: "search_sorted",
-        array.encoding().id()
+        array.encoding()
     )
 }
 
@@ -240,7 +240,7 @@ pub fn search_sorted_usize(
     target: usize,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
-    if let Some(f) = array.encoding().search_sorted_usize_fn() {
+    if let Some(f) = array.vtable().search_sorted_usize_fn() {
         return f.search_sorted_usize(array, target, side);
     }
 
@@ -250,12 +250,12 @@ pub fn search_sorted_usize(
     };
 
     // Try the non-usize search sorted
-    if let Some(f) = array.encoding().search_sorted_fn() {
+    if let Some(f) = array.vtable().search_sorted_fn() {
         return f.search_sorted(array, &target, side);
     }
 
     // Or fallback all the way to a generic search_sorted using scalar_at
-    if array.encoding().scalar_at_fn().is_some() {
+    if array.vtable().scalar_at_fn().is_some() {
         // Try to downcast the usize to the array type, if the downcast fails, then we know the
         // usize is too large and the value is greater than the highest value in the array.
         let Ok(target) = target.cast(array.dtype()) else {
@@ -266,7 +266,7 @@ pub fn search_sorted_usize(
 
     vortex_bail!(
     NotImplemented: "search_sorted_usize",
-        array.encoding().id()
+        array.encoding()
     )
 }
 
@@ -276,7 +276,7 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
     targets: &[T],
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
-    if let Some(f) = array.encoding().search_sorted_fn() {
+    if let Some(f) = array.vtable().search_sorted_fn() {
         let mut too_big_cast_idxs = Vec::new();
         let values = targets
             .iter()
@@ -311,7 +311,7 @@ pub fn search_sorted_usize_many(
     targets: &[usize],
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
-    if let Some(f) = array.encoding().search_sorted_usize_fn() {
+    if let Some(f) = array.vtable().search_sorted_usize_fn() {
         return f.search_sorted_usize_many(array, targets, side);
     }
 

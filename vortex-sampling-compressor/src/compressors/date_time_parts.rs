@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::TemporalArray;
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
     split_temporal, DateTimePartsArray, DateTimePartsEncoding, TemporalParts,
@@ -76,7 +75,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&DateTimePartsEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([DateTimePartsEncoding::ID])
     }
 }

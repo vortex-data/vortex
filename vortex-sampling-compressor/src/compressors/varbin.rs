@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinArray, VarBinEncoding};
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -48,7 +47,7 @@ impl EncodingCompressor for VarBinCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&VarBinEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([VarBinEncoding::ID])
     }
 }

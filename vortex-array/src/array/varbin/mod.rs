@@ -16,16 +16,15 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::{StructMetadata, VarBinViewArray, VarBinViewMetadata};
 use crate::compute::scalar_at;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ValidateVTable;
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, RkyvMetadata};
+use crate::{impl_encoding, ArrayData, DeserializeMetadata, RkyvMetadata};
 
 mod accessor;
 mod array;
-mod arrow;
 pub mod builder;
 mod canonical;
 mod compute;
@@ -34,7 +33,7 @@ mod variants;
 
 impl_encoding!(
     "vortex.varbin",
-    ids::VAR_BIN,
+    encoding_ids::VAR_BIN,
     VarBin,
     RkyvMetadata<VarBinMetadata>
 );

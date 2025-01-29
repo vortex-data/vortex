@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::BinaryNumericOperator;
 

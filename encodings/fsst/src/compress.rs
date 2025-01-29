@@ -4,7 +4,7 @@ use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -36,7 +36,7 @@ pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResu
 
     vortex_bail!(
         "cannot fsst_compress array with unsupported encoding {:?}",
-        strings.encoding().id()
+        strings.encoding()
     )
 }
 
@@ -57,7 +57,7 @@ pub fn fsst_train_compressor(array: &ArrayData) -> VortexResult<Compressor> {
     } else {
         vortex_bail!(
             "cannot fsst_compress array with unsupported encoding {:?}",
-            array.encoding().id()
+            array.encoding()
         )
     }
 }

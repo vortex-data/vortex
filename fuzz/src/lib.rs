@@ -14,8 +14,7 @@ pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;
@@ -178,8 +177,8 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
 
 const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
 
-fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
-    if ListEncoding::ID == encoding.id() {
+fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
+    if ListEncoding::ID == encoding_id {
         // compress, slice
         vec![0, 1].into_iter().collect()
     } else {

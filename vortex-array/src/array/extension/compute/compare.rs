@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{compare, CompareFn, Operator};
-use crate::{ArrayData, ArrayLen};
+use crate::ArrayData;
 
 impl CompareFn<ExtensionArray> for ExtensionEncoding {
     fn compare(

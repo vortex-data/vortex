@@ -2,8 +2,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
-use crate::validity::ArrayValidity;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 /// Implementation of scalar_at for an encoding.
 ///
@@ -34,16 +33,16 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
     }
 
     let scalar = array
-        .encoding()
+        .vtable()
         .scalar_at_fn()
         .map(|f| f.scalar_at(array, index))
-        .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "scalar_at", array.encoding().id())))?;
+        .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "scalar_at", array.encoding())))?;
 
     debug_assert_eq!(
         scalar.dtype(),
         array.dtype(),
         "ScalarAt dtype mismatch {}",
-        array.encoding().id()
+        array.encoding()
     );
 
     Ok(scalar)

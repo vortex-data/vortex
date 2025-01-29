@@ -1,10 +1,8 @@
 #![allow(clippy::cast_possible_truncation)]
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
@@ -155,8 +153,8 @@ impl EncodingCompressor for BitPackedCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&BitPackedEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([BitPackedEncoding::ID])
     }
 }
 

@@ -5,7 +5,6 @@ use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{ValidityVTable, VisitorVTable};
-use crate::ArrayLen;
 
 impl ValidityVTable<VarBinArray> for VarBinEncoding {
     fn is_valid(&self, array: &VarBinArray, index: usize) -> VortexResult<bool> {

@@ -8,13 +8,13 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::encoding::opaque::OpaqueEncoding;
-use crate::encoding::EncodingRef;
+use crate::vtable::VTableRef;
 use crate::{flatbuffers as fb, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
 pub(super) struct ViewedArrayData {
-    pub(super) encoding: EncodingRef,
+    pub(super) encoding: VTableRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) flatbuffer: FlatBuffer,

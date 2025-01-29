@@ -11,7 +11,7 @@ use crate::variants::{
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use crate::vtable::VariantsVTable;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 /// Chunked arrays support all DTypes
 impl VariantsVTable<ChunkedArray> for ChunkedEncoding {

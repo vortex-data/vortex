@@ -6,24 +6,25 @@ use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::arrow::IntoArrowArray;
+use crate::encoding::encoding_ids;
+use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
+    impl_encoding, ArrayData, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata,
 };
 
 mod compute;
 
 impl_encoding!(
     "vortex.struct",
-    ids::STRUCT,
+    encoding_ids::STRUCT,
     Struct,
     RkyvMetadata<StructMetadata>
 );
@@ -188,10 +189,10 @@ impl StructArrayTrait for StructArray {
     }
 }
 
-impl IntoCanonical for StructArray {
+impl CanonicalVTable<StructArray> for StructEncoding {
     /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self))
+    fn into_canonical(&self, array: StructArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(array))
     }
 }
 
@@ -244,7 +245,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_project() {

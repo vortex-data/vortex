@@ -124,7 +124,6 @@ mod tests {
 
     use crate::builders::struct_::StructBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::ArrayDType;
 
     #[test]
     fn test_struct_builder() {

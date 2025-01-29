@@ -7,6 +7,7 @@ members = [
     "vortex",
     "vortex-array",
     "vortex-buffer",
+    "vortex-cli",
     "vortex-datafusion",
     "vortex-datetime-dtype",
     "vortex-dtype",
@@ -67,10 +68,11 @@ bytes = "1.6.0"
 bzip2 = "0.5.0"
 cfg-if = "1"
 chrono = "0.4.38"
-clap = "4.5.13"
+clap = "4"
 compio = "0.13"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 croaring = "2.1.0"
+crossterm = "0.28"
 datafusion = { version = "44.0.0", default-features = false }
 datafusion-common = "44"
 datafusion-execution = "44"
@@ -118,11 +120,17 @@ pyo3-log = ">= 0.11"
 rancor = "0.1.0"
 rand = "0.8.5"
 rand_distr = "0.4"
+ratatui = "0.29"
 rayon = "1.10.0"
 regex = "1.11.0"
 reqwest = { version = "0.12.0", features = ["blocking"] }
 # TODO(ngates): remove the unaligned rkyv feature when we move to 8-byte metadata.
-rkyv = { version = "0.8", features = ["little_endian", "pointer_width_32", "bytecheck", "unaligned"] }
+rkyv = { version = "0.8", features = [
+    "little_endian",
+    "pointer_width_32",
+    "bytecheck",
+    "unaligned",
+] }
 rstest = "0.24"
 serde = "1.0.197"
 serde_json = "1.0.116"
@@ -223,7 +231,6 @@ lto = "thin"      # attempts to perform optimizations across all crates within t
 
 [profile.bench]
 codegen-units = 16 # default for "release", which "bench" inherits
-lto = false        # default
 debug = true
 
 [profile.benchtest]

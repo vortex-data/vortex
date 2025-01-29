@@ -5,10 +5,8 @@ use std::sync::Arc;
 
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::tree::TreeFormatter;
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::{ArrayData, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::SamplingCompressor;
@@ -44,7 +42,7 @@ pub trait EncodingCompressor: Sync + Send + Debug {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>>;
 
-    fn used_encodings(&self) -> HashSet<EncodingRef>;
+    fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 
 pub type CompressorRef<'a> = &'a dyn EncodingCompressor;
@@ -215,13 +213,13 @@ impl<'a> CompressedArray<'a> {
             compressed.len(),
             uncompressed.len(),
             "Compressed array {} has different length to uncompressed",
-            compressed.encoding().id(),
+            compressed.encoding(),
         );
         assert_eq!(
             compressed.dtype(),
             uncompressed.dtype(),
             "Compressed array {} has different dtype to uncompressed",
-            compressed.encoding().id(),
+            compressed.encoding(),
         );
 
         // eagerly compute uncompressed size in bytes at compression time, since it's

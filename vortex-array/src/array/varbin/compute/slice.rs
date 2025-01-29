@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
 use crate::compute::{slice, SliceFn};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl SliceFn<VarBinArray> for VarBinEncoding {
     fn slice(&self, array: &VarBinArray, start: usize, stop: usize) -> VortexResult<ArrayData> {

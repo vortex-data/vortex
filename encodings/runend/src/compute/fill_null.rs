@@ -1,5 +1,5 @@
 use vortex_array::compute::{fill_null, FillNullFn};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 

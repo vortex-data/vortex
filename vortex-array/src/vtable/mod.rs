@@ -3,6 +3,8 @@
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
+use std::sync::Arc;
 
 mod canonical;
 mod compute;
@@ -25,6 +27,37 @@ pub use visitor::*;
 use crate::encoding::EncodingId;
 use crate::ArrayData;
 
+/// A reference to an array VTable, either static or arc'd.
+#[derive(Debug, Clone)]
+pub struct VTableRef(Inner);
+
+#[derive(Debug, Clone)]
+enum Inner {
+    Static(&'static dyn EncodingVTable),
+    Arc(Arc<dyn EncodingVTable>),
+}
+
+impl VTableRef {
+    pub const fn from_static(vtable: &'static dyn EncodingVTable) -> Self {
+        VTableRef(Inner::Static(vtable))
+    }
+
+    pub fn from_arc(vtable: Arc<dyn EncodingVTable>) -> Self {
+        VTableRef(Inner::Arc(vtable))
+    }
+}
+
+impl Deref for VTableRef {
+    type Target = dyn EncodingVTable;
+
+    fn deref(&self) -> &Self::Target {
+        match &self.0 {
+            Inner::Static(vtable) => *vtable,
+            Inner::Arc(vtable) => vtable.deref(),
+        }
+    }
+}
+
 /// Dyn-compatible VTable trait for a Vortex array encoding.
 ///
 /// This trait provides extension points for arrays to implement various features of Vortex.
@@ -39,7 +72,7 @@ pub trait EncodingVTable:
     + Sync
     + Send
     + Debug
-    + CanonicalVTable
+    + CanonicalVTable<ArrayData>
     + ComputeVTable
     + MetadataVTable<ArrayData>
     + StatisticsVTable<ArrayData>

@@ -16,23 +16,27 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
+use crate::arrow::IntoArrowArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    RkyvMetadata,
-};
+use crate::{impl_encoding, ArrayData, Canonical, DeserializeMetadata, RkyvMetadata};
 
-impl_encoding!("vortex.list", ids::LIST, List, RkyvMetadata<ListMetadata>);
+impl_encoding!(
+    "vortex.list",
+    encoding_ids::LIST,
+    List,
+    RkyvMetadata<ListMetadata>
+);
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -179,9 +183,9 @@ impl VisitorVTable<ListArray> for ListEncoding {
     }
 }
 
-impl IntoCanonical for ListArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self))
+impl CanonicalVTable<ListArray> for ListEncoding {
+    fn into_canonical(&self, array: ListArray) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array))
     }
 }
 
@@ -243,7 +247,7 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_empty_list_array() {

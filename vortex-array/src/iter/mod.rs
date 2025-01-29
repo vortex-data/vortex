@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 
 pub use adapter::*;
@@ -22,14 +23,12 @@ pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayData>> {
 pub type AccessorRef<T> = Arc<dyn Accessor<T>>;
 
 /// Define the basic behavior required for batched iterators
-pub trait Accessor<T>: Send + Sync {
+pub trait Accessor<T>: Send + Sync + Deref<Target = ArrayData> {
     fn batch_size(&self, start_idx: usize) -> usize {
-        usize::min(ITER_BATCH_SIZE, self.array_len() - start_idx)
+        usize::min(ITER_BATCH_SIZE, self.len() - start_idx)
     }
-    fn array_len(&self) -> usize;
-    fn is_valid(&self, index: usize) -> bool;
+
     fn value_unchecked(&self, index: usize) -> T;
-    fn array_validity(&self) -> Validity;
 
     #[inline]
     fn decode_batch(&self, start_idx: usize) -> Vec<T> {

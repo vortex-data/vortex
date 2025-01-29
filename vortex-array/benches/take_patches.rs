@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::patches::Patches;
-use vortex_array::{ArrayData, IntoArrayData, IntoCanonical as _};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
@@ -50,8 +50,6 @@ fn bench_take(c: &mut Criterion) {
                         patches.take_search(
                             <&ArrayData>::clone(indices)
                                 .clone()
-                                .into_canonical()
-                                .unwrap()
                                 .into_primitive()
                                 .unwrap(),
                         )
@@ -73,8 +71,6 @@ fn bench_take(c: &mut Criterion) {
                         patches.take_map(
                             <&ArrayData>::clone(indices)
                                 .clone()
-                                .into_canonical()
-                                .unwrap()
                                 .into_primitive()
                                 .unwrap(),
                         )

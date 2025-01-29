@@ -1,17 +1,8 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
-use crate::array::StructMetadata;
-use crate::encoding::{ArrayEncodingRef, Encoding, EncodingRef};
-use crate::{ArrayData, ArrayMetadata, ToArrayData};
-
-impl<A: AsRef<ArrayData>> ToArrayData for A {
-    fn to_array(&self) -> ArrayData {
-        self.as_ref().clone()
-    }
-}
-
+use crate::ArrayData;
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
 /// 1. New Array type that implements `AsRef<ArrayData>`, `GetArrayMetadata`, `ToArray`, `IntoArray`, and multiple useful `From`/`TryFrom` implementations.
 /// 2. New Encoding type that implements `ArrayEncoding`.
@@ -49,7 +40,7 @@ macro_rules! impl_encoding {
                     use $crate::SerializeMetadata;
 
                     Self::try_from($crate::ArrayData::try_new_owned(
-                            &[<$Name Encoding>],
+                            [<$Name Encoding>]::vtable(),
                             dtype,
                             len,
                             metadata.serialize()?,
@@ -72,21 +63,27 @@ macro_rules! impl_encoding {
                 /// down different code paths.
                 pub fn maybe_from(data: impl AsRef<$crate::ArrayData>) -> Option<Self> {
                     let data = data.as_ref();
-                    (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data.clone()))
+                    (data.encoding() == <[<$Name Encoding>] as $crate::Encoding>::ID).then_some(Self(data.clone()))
                 }
             }
 
-            impl $crate::ArrayTrait for [<$Name Array>] {}
+            impl std::ops::Deref for [<$Name Array>] {
+                type Target = $crate::ArrayData;
+
+                fn deref(&self) -> &Self::Target {
+                    &self.0
+                }
+            }
 
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
-                    if data.encoding().id() != <[<$Name Encoding>] as $crate::encoding::Encoding>::ID {
+                    if data.encoding() != <[<$Name Encoding>] as $crate::Encoding>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
-                            data.encoding().id().as_ref(),
-                            <[<$Name Encoding>] as $crate::encoding::Encoding>::ID,
+                            data.encoding().as_ref(),
+                            <[<$Name Encoding>] as $crate::Encoding>::ID,
                         );
                     }
                     Ok(Self(data))
@@ -99,11 +96,11 @@ macro_rules! impl_encoding {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: &'a $crate::ArrayData) -> vortex_error::VortexResult<Self> {
-                    if data.encoding().id() != <[<$Name Encoding>] as $crate::encoding::Encoding>::ID {
+                    if data.encoding() != <[<$Name Encoding>] as $crate::Encoding>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
-                            data.encoding().id().as_ref(),
-                            <[<$Name Encoding>] as $crate::encoding::Encoding>::ID,
+                            data.encoding().as_ref(),
+                            <[<$Name Encoding>] as $crate::Encoding>::ID,
                         );
                     }
                     Ok(unsafe { std::mem::transmute::<&$crate::ArrayData, &[<$Name Array>]>(data) })
@@ -114,16 +111,22 @@ macro_rules! impl_encoding {
             #[derive(std::fmt::Debug)]
             pub struct [<$Name Encoding>];
 
-            impl $crate::encoding::Encoding for [<$Name Encoding>] {
-                const ID: $crate::encoding::EncodingId = $crate::encoding::EncodingId::new($id, $code);
+            impl [<$Name Encoding>] {
+                pub const fn vtable() -> $crate::vtable::VTableRef {
+                    $crate::vtable::VTableRef::from_static(&Self)
+                }
+            }
+
+            impl $crate::Encoding for [<$Name Encoding>] {
+                const ID: $crate::EncodingId = $crate::EncodingId::new($id, $code);
                 type Array = [<$Name Array>];
                 type Metadata = $Metadata;
             }
 
             impl $crate::vtable::EncodingVTable for [<$Name Encoding>] {
                 #[inline]
-                fn id(&self) -> $crate::encoding::EncodingId {
-                    <[<$Name Encoding>] as $crate::encoding::Encoding>::ID
+                fn id(&self) -> $crate::EncodingId {
+                    <[<$Name Encoding>] as $crate::Encoding>::ID
                 }
 
                 fn as_any(&self) -> &dyn std::any::Any {
@@ -132,12 +135,6 @@ macro_rules! impl_encoding {
             }
         }
     };
-}
-
-impl<T: AsRef<ArrayData>> ArrayEncodingRef for T {
-    fn encoding(&self) -> EncodingRef {
-        self.as_ref().encoding()
-    }
 }
 
 impl AsRef<ArrayData> for ArrayData {

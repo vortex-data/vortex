@@ -3,9 +3,8 @@
 //! We aim to provide a basic set of compute kernels that can be used to efficiently index, slice,
 //! and filter Vortex Arrays in their encoded forms.
 //!
-//! Every [array variant][crate::ArrayTrait] has the ability to implement their own efficient
-//! implementations of these operators, else we will decode, and perform the equivalent operator
-//! from Arrow.
+//! Every array encoding has the ability to implement their own efficient implementations of these
+//! operators, else we will decode, and perform the equivalent operator from Arrow.
 
 pub use binary_numeric::{
     add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub, sub_scalar,
@@ -25,6 +24,7 @@ pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::{take, TakeFn};
+pub use to_arrow::*;
 
 mod binary_numeric;
 mod boolean;
@@ -39,6 +39,7 @@ mod scalar_at;
 mod search_sorted;
 mod slice;
 mod take;
+mod to_arrow;
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {

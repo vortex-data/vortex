@@ -78,7 +78,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
     use vortex_scan::RowMask;
@@ -93,7 +93,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.clone().into_array())
                 .unwrap();
 
             let result = layout
@@ -118,7 +118,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.into_array())
                 .unwrap();
 
             let expr = gt(Identity::new_expr(), lit(3i32));
@@ -144,7 +144,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.clone().into_array())
                 .unwrap();
 
             let result = layout

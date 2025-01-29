@@ -12,7 +12,7 @@ use crate::array::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayData> {
@@ -196,7 +196,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::scalar_at;
     use crate::validity::Validity;
-    use crate::ToArrayData;
+    use crate::IntoArrayData;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
         Scalar::utf8(s.to_owned(), Nullable)
@@ -214,7 +214,7 @@ mod test {
         );
         let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2)
             .unwrap()
-            .to_array();
+            .into_array();
 
         assert_eq!(buf.len(), 2);
         assert_eq!(scalar_at(&buf, 0).unwrap(), "hello".into());
@@ -236,7 +236,7 @@ mod test {
 
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3)
             .unwrap()
-            .to_array();
+            .into_array();
 
         assert_eq!(buf.len(), 3);
         assert_eq!(scalar_at(&buf, 0).unwrap(), "hello".into());
@@ -258,14 +258,15 @@ mod test {
         .flat_map(|x| x.iter().cloned())
         .collect::<ByteBuffer>();
 
-        let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).to_array();
-        let validity =
-            Validity::Array(BoolArray::from_iter([true, false, true, true, true, true]).to_array());
+        let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).into_array();
+        let validity = Validity::Array(
+            BoolArray::from_iter([true, false, true, true, true, true]).into_array(),
+        );
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
         let buf = filter_select_var_bin_by_slice(&arr, &[(0, 3), (4, 6)], 5)
             .unwrap()
-            .to_array();
+            .into_array();
 
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 5);

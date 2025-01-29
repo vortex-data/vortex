@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 

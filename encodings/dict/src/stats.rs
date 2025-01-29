@@ -1,4 +1,4 @@
-use vortex_array::stats::{ArrayStatistics, Stat, StatsSet};
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::vtable::StatisticsVTable;
 use vortex_error::VortexResult;
 
