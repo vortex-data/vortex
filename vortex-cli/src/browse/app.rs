@@ -80,7 +80,8 @@ impl LayoutCursor {
             // Find the DType of the child based on the DType of the current node.
             dtype = match layout.encoding().id() {
                 CHUNKED_LAYOUT_ID => {
-                    if component == 0 && layout.metadata().is_some() {
+                    // If metadata is present, last child is stats table
+                    if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
                         let stats = stats_from_bitset_bytes(
                             layout.metadata().expect("extracting stats").as_ref(),
                         );
@@ -190,7 +191,6 @@ impl AppState {
             .read_exact_at(&mut buf, range.start)
             .expect("read_exact_at sync");
 
-        // align to 8 bytes
         buf.freeze()
     }
 }

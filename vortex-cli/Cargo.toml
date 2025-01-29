@@ -15,9 +15,9 @@ categories.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
-clap = { version = "4", features = ["derive"] }
-crossterm = "0.28"
-ratatui = "0.29"
+clap = { workspace = true, features = ["derive"] }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true }
