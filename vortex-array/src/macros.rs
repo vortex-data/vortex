@@ -1,6 +1,5 @@
 //! The core Vortex macro to create new encodings and array types.
 
-
 use crate::ArrayData;
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
 /// 1. New Array type that implements `AsRef<ArrayData>`, `GetArrayMetadata`, `ToArray`, `IntoArray`, and multiple useful `From`/`TryFrom` implementations.

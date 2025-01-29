@@ -1,4 +1,3 @@
-
 use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};

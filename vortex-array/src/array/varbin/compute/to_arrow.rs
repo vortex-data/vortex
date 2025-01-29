@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use arrow_array::{
-    ArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait,
-};
+use arrow_array::{ArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait};
 use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};

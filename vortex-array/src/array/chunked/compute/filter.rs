@@ -1,4 +1,3 @@
-
 use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};

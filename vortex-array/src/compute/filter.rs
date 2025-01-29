@@ -1,4 +1,3 @@
-
 use arrow_array::BooleanArray;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};

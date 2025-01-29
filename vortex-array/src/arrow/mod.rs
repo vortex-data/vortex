@@ -12,7 +12,6 @@ mod dtype;
 mod record_batch;
 pub use datum::*;
 
-
 pub trait FromArrowArray<A> {
     fn from_arrow(array: A, nullable: bool) -> Self;
 }

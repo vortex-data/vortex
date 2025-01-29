@@ -1,4 +1,3 @@
-
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
