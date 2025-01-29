@@ -15,19 +15,6 @@ impl ArrayData {
     }
 }
 
-pub trait ArrayNBytes {
-    /// Total size of the array in bytes, including all children and buffers.
-    fn nbytes(&self) -> usize;
-}
-
-// Implement ArrayNBytes for all concrete arrays.
-impl<A: AsRef<ArrayData>> ArrayNBytes for A {
-    #[inline(always)]
-    fn nbytes(&self) -> usize {
-        self.as_ref().nbytes()
-    }
-}
-
 #[derive(Default)]
 struct NBytesVisitor(usize);
 

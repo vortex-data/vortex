@@ -68,10 +68,6 @@ pub trait Encoding: 'static {
 
 pub type EncodingRef = &'static dyn EncodingVTable;
 
-pub trait ArrayEncodingRef {
-    fn encoding(&self) -> EncodingRef;
-}
-
 #[doc = "Encoding ID constants for all Vortex-provided encodings"]
 #[allow(dead_code)]
 pub mod ids {

@@ -1,9 +1,10 @@
 //! The core Vortex macro to create new encodings and array types.
 
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 
 use crate::array::StructMetadata;
-use crate::encoding::{ArrayEncodingRef, Encoding, EncodingRef};
+use crate::encoding::{Encoding, EncodingRef};
 use crate::{ArrayData, ArrayMetadata, ToArrayData};
 
 impl<A: AsRef<ArrayData>> ToArrayData for A {
@@ -76,6 +77,14 @@ macro_rules! impl_encoding {
                 }
             }
 
+            impl std::ops::Deref for [<$Name Array>] {
+                type Target = $crate::ArrayData;
+
+                fn deref(&self) -> &Self::Target {
+                    &self.0
+                }
+            }
+
             impl $crate::ArrayTrait for [<$Name Array>] {}
 
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
@@ -132,12 +141,6 @@ macro_rules! impl_encoding {
             }
         }
     };
-}
-
-impl<T: AsRef<ArrayData>> ArrayEncodingRef for T {
-    fn encoding(&self) -> EncodingRef {
-        self.as_ref().encoding()
-    }
 }
 
 impl AsRef<ArrayData> for ArrayData {

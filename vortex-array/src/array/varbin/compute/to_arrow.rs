@@ -12,7 +12,6 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::compute::{try_cast, ToArrowFn};
-use crate::encoding::ArrayEncodingRef;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant, ToArrayData};

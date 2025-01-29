@@ -13,6 +13,8 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
+use std::ops::Deref;
+
 pub use canonical::*;
 pub use children::*;
 pub use context::*;
@@ -21,7 +23,6 @@ pub use metadata::*;
 pub use paste;
 use vortex_dtype::DType;
 
-use crate::encoding::ArrayEncodingRef;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
@@ -94,25 +95,4 @@ pub trait IntoArrayData {
 }
 
 /// Collects together the behavior of an array.
-pub trait ArrayTrait:
-    AsRef<ArrayData>
-    + ArrayEncodingRef
-    + ArrayDType
-    + ArrayLen
-    + ArrayNBytes
-    + IntoCanonical
-    + ArrayValidity
-    + ArrayStatistics
-{
-}
-
-pub trait ArrayDType {
-    // TODO(ngates): move into ArrayTrait?
-    fn dtype(&self) -> &DType;
-}
-
-pub trait ArrayLen {
-    fn len(&self) -> usize;
-
-    fn is_empty(&self) -> bool;
-}
+pub trait ArrayTrait: AsRef<ArrayData> + IntoCanonical + ArrayValidity + ArrayStatistics {}

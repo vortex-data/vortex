@@ -6,7 +6,7 @@ use rand::Rng;
 use vortex::array::PrimitiveArray;
 use vortex::compute::filter;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::encoding::{ArrayEncodingRef, Encoding};
+use vortex::encoding::Encoding;
 use vortex::encodings::alp::{ALPArray, ALPEncoding};
 use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::bitpacked::{

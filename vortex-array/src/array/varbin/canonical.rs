@@ -7,7 +7,6 @@ use crate::array::varbin::VarBinArray;
 use crate::array::VarBinViewArray;
 use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
-use crate::encoding::ArrayEncodingRef;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
