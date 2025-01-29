@@ -69,7 +69,7 @@ impl TakeFn<NullArray> for NullEncoding {
 impl ToArrowFn<NullArray> for NullEncoding {
     fn to_arrow(&self, array: &NullArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
         if data_type != &DataType::Null {
-            return Ok(None);
+            vortex_bail!("Unsupported data type: {data_type}");
         }
         Ok(Some(new_null_array(data_type, array.len())))
     }

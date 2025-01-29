@@ -9,7 +9,7 @@ use arrow_buffer::ScalarBuffer;
 use arrow_schema::DataType;
 use log::Level::Error;
 use vortex_dtype::PType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::ToArrowFn;
@@ -28,7 +28,7 @@ impl ToArrowFn<PrimitiveArray> for PrimitiveEncoding {
             data_type: &DataType,
         ) -> VortexResult<Option<ArrayRef>> {
             if data_type != &T::DATA_TYPE {
-                return Ok(None);
+                vortex_bail!("Unsupported data type: {data_type}");
             }
 
             Ok(Some(Arc::new(ArrowPrimitiveArray::<T>::new(

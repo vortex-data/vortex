@@ -18,8 +18,7 @@ impl ToArrowFn<ListArray> for ListEncoding {
             DataType::List(field) => (PType::I32, field.data_type()),
             DataType::LargeList(field) => (PType::I64, field.data_type()),
             _ => {
-                // Unsupported
-                return Ok(None);
+                vortex_bail!("Unsupported data type: {data_type}");
             }
         };
 

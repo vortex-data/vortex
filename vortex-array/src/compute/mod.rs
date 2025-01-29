@@ -7,7 +7,6 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use arrow::*;
 pub use binary_numeric::{
     add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub, sub_scalar,
     BinaryNumericFn,
@@ -26,8 +25,8 @@ pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::{take, TakeFn};
+pub use to_arrow::*;
 
-mod arrow;
 mod binary_numeric;
 mod boolean;
 mod cast;
@@ -41,6 +40,7 @@ mod scalar_at;
 mod search_sorted;
 mod slice;
 mod take;
+mod to_arrow;
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {

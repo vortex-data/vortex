@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, BooleanArray as ArrowBoolArray};
 use arrow_schema::DataType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::ToArrowFn;
@@ -12,7 +12,7 @@ use crate::IntoArrayData;
 impl ToArrowFn<BoolArray> for BoolEncoding {
     fn to_arrow(&self, array: &BoolArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
         if data_type != &DataType::Boolean {
-            return Ok(None);
+            vortex_bail!("Unsupported data type: {data_type}");
         }
 
         Ok(Some(Arc::new(ArrowBoolArray::new(

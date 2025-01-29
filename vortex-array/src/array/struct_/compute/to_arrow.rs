@@ -19,7 +19,7 @@ impl ToArrowFn<StructArray> for StructEncoding {
     ) -> VortexResult<Option<ArrayRef>> {
         let target_fields = match data_type {
             DataType::Struct(fields) => fields,
-            _ => return Ok(None),
+            _ => vortex_bail!("Unsupported data type: {data_type}"),
         };
 
         let field_arrays = target_fields

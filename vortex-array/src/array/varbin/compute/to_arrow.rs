@@ -53,7 +53,7 @@ impl ToArrowFn<VarBinArray> for VarBinEncoding {
             }
             _ => {
                 // Everything else is unsupported
-                return Ok(None);
+                vortex_bail!("Unsupported data type: {data_type}")
             }
         }?;
 
