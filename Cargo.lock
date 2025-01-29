@@ -5419,6 +5419,7 @@ dependencies = [
  "criterion",
  "num-traits",
  "rand",
+ "rustc-hash",
  "serde",
  "vortex-array",
  "vortex-buffer",
