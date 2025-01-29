@@ -1,5 +1,4 @@
 use vortex_array::array::PrimitiveArray;
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatsSet};
 use vortex_array::validity::ArrayValidity;
@@ -120,7 +119,6 @@ impl IntoCanonical for ZigZagArray {
         zigzag_decode(self.encoded().into_primitive()?).map(Canonical::Primitive)
     }
 }
-
 
 #[cfg(test)]
 mod test {

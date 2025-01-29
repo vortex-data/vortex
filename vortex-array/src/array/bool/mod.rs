@@ -25,7 +25,6 @@ mod stats;
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_mask::Mask;
 
-use crate::arrow::IntoArrowArray;
 use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
@@ -209,7 +208,6 @@ impl IntoCanonical for BoolArray {
         Ok(Canonical::Bool(self))
     }
 }
-
 
 impl ValidityVTable<BoolArray> for BoolEncoding {
     fn is_valid(&self, array: &BoolArray, index: usize) -> VortexResult<bool> {

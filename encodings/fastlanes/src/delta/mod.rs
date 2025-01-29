@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
@@ -241,7 +240,6 @@ impl IntoCanonical for DeltaArray {
         delta_decompress(self).map(Canonical::Primitive)
     }
 }
-
 
 impl ValidityVTable<DeltaArray> for DeltaEncoding {
     fn is_valid(&self, array: &DeltaArray, index: usize) -> VortexResult<bool> {

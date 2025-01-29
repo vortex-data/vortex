@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
@@ -78,7 +77,6 @@ impl IntoCanonical for DictArray {
         }
     }
 }
-
 
 impl ValidityVTable<DictArray> for DictEncoding {
     fn is_valid(&self, array: &DictArray, index: usize) -> VortexResult<bool> {

@@ -1,6 +1,5 @@
 use arrow_array::builder::make_view;
 use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer};
@@ -63,4 +62,3 @@ impl IntoCanonical for FSSTArray {
         })
     }
 }
-

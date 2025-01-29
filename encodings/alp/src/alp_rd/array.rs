@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
@@ -230,7 +229,6 @@ impl IntoCanonical for ALPRDArray {
         Ok(Canonical::Primitive(decoded_array))
     }
 }
-
 
 impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
     fn is_valid(&self, array: &ALPRDArray, index: usize) -> VortexResult<bool> {

@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
-use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
@@ -112,7 +111,6 @@ impl IntoCanonical for ByteBoolArray {
         )?))
     }
 }
-
 
 impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
     fn is_valid(&self, array: &ByteBoolArray, index: usize) -> VortexResult<bool> {

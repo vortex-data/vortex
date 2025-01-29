@@ -540,6 +540,7 @@ mod test {
 
     use crate::array::{ConstantArray, StructArray};
     use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
+    use crate::compute::to_arrow;
     use crate::{ArrayDType, ArrayData, IntoArrayData};
 
     #[test]
@@ -564,8 +565,7 @@ mod test {
         .unwrap();
 
         let data_type = infer_data_type(nested_struct_array.dtype()).unwrap();
-        let arrow_struct = nested_struct_array
-            .into_arrow_with_data_type(&data_type)
+        let arrow_struct = to_arrow(nested_struct_array.into_array(), &data_type)
             .unwrap()
             .as_any()
             .downcast_ref::<ArrowStructArray>()

@@ -11,6 +11,7 @@ mod compare;
 mod filter;
 mod slice;
 mod take;
+mod to_arrow;
 
 impl ComputeVTable for VarBinEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
