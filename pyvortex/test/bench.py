@@ -1,6 +1,7 @@
 """
 Simple benchmarks
 """
+
 import io
 
 import pyarrow as pa
