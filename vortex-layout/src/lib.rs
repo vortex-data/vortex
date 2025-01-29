@@ -4,13 +4,13 @@ mod data;
 pub use data::*;
 mod context;
 pub use context::*;
-mod encoding;
 pub mod layouts;
-pub use encoding::*;
+pub use vtable::*;
 mod reader;
 pub use reader::*;
 pub mod segments;
 pub mod strategies;
+pub mod vtable;
 
 /// The layout ID for a flat layout
 pub(crate) const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);

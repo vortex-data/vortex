@@ -6,7 +6,7 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutEncoding};
+use crate::{LayoutData, LayoutVTable};
 
 pub struct FlatReader {
     layout: LayoutData,

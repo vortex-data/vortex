@@ -12,15 +12,15 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::data::LayoutData;
-use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
+use crate::vtable::{LayoutId, LayoutVTable};
 use crate::COLUMNAR_LAYOUT_ID;
 
 #[derive(Debug)]
 pub struct StructLayout;
 
-impl LayoutEncoding for StructLayout {
+impl LayoutVTable for StructLayout {
     fn id(&self) -> LayoutId {
         COLUMNAR_LAYOUT_ID
     }

@@ -11,9 +11,9 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexRe
 use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::context::LayoutContextRef;
-use crate::encoding::{LayoutEncodingRef, LayoutId};
 use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId};
+use crate::vtable::{LayoutId, LayoutVTableRef};
 
 /// [`LayoutData`] is the lazy equivalent to [`vortex_array::ArrayData`], providing a hierarchical
 /// structure.
@@ -29,7 +29,7 @@ enum Inner {
 /// A layout that is fully deserialized and heap-allocated.
 #[derive(Debug, Clone)]
 pub struct OwnedLayoutData {
-    encoding: LayoutEncodingRef,
+    vtable: LayoutVTableRef,
     dtype: DType,
     row_count: u64,
     segments: Option<Vec<SegmentId>>,
@@ -40,7 +40,7 @@ pub struct OwnedLayoutData {
 /// A layout that is lazily deserialized from a flatbuffer message.
 #[derive(Debug, Clone)]
 struct ViewedLayoutData {
-    encoding: LayoutEncodingRef,
+    vtable: LayoutVTableRef,
     dtype: DType,
     flatbuffer: ByteBuffer,
     flatbuffer_loc: usize,
@@ -57,7 +57,7 @@ impl ViewedLayoutData {
 impl LayoutData {
     /// Create a new owned layout.
     pub fn new_owned(
-        encoding: LayoutEncodingRef,
+        vtable: LayoutVTableRef,
         dtype: DType,
         row_count: u64,
         segments: Option<Vec<SegmentId>>,
@@ -65,7 +65,7 @@ impl LayoutData {
         metadata: Option<Bytes>,
     ) -> Self {
         Self(Inner::Owned(OwnedLayoutData {
-            encoding,
+            vtable,
             dtype,
             row_count,
             segments,
@@ -76,7 +76,7 @@ impl LayoutData {
 
     /// Create a new viewed layout from a flatbuffer root message.
     pub fn try_new_viewed(
-        encoding: LayoutEncodingRef,
+        vtable: LayoutVTableRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
         flatbuffer_loc: usize,
@@ -89,16 +89,16 @@ impl LayoutData {
 
         // SAFETY: we just verified the buffer contains a valid layout message.
         let fb_layout = unsafe { fb::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) };
-        if fb_layout.encoding() != encoding.id().0 {
+        if fb_layout.encoding() != vtable.id().0 {
             vortex_bail!(
                 "Mismatched encoding, flatbuffer contains {}, given {}",
                 fb_layout.encoding(),
-                encoding.id(),
+                vtable.id(),
             );
         }
 
         Ok(Self(Inner::Viewed(ViewedLayoutData {
-            encoding,
+            vtable,
             dtype,
             flatbuffer,
             flatbuffer_loc,
@@ -112,14 +112,14 @@ impl LayoutData {
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
-        encoding: LayoutEncodingRef,
+        encoding: LayoutVTableRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
     ) -> Self {
         Self(Inner::Viewed(ViewedLayoutData {
-            encoding,
+            vtable: encoding,
             dtype,
             flatbuffer,
             flatbuffer_loc,
@@ -127,18 +127,18 @@ impl LayoutData {
         }))
     }
 
-    /// Returns the [`crate::LayoutEncoding`] for this layout.
-    pub fn encoding(&self) -> LayoutEncodingRef {
+    /// Returns the [`crate::LayoutVTable`] for this layout.
+    pub fn encoding(&self) -> &LayoutVTableRef {
         match &self.0 {
-            Inner::Owned(owned) => owned.encoding,
-            Inner::Viewed(viewed) => viewed.encoding,
+            Inner::Owned(owned) => &owned.vtable,
+            Inner::Viewed(viewed) => &viewed.vtable,
         }
     }
 
     /// Returns the ID of the layout.
     pub fn id(&self) -> LayoutId {
         match &self.0 {
-            Inner::Owned(owned) => owned.encoding.id(),
+            Inner::Owned(owned) => owned.vtable.id(),
             Inner::Viewed(viewed) => LayoutId(viewed.flatbuffer().encoding()),
         }
     }
@@ -204,7 +204,7 @@ impl LayoutData {
                         vortex_err!("Child layout encoding {} not found", fb.encoding())
                     })?;
                 Ok(Self(Inner::Viewed(ViewedLayoutData {
-                    encoding,
+                    vtable: encoding,
                     dtype,
                     flatbuffer: v.flatbuffer.clone(),
                     flatbuffer_loc: fb._tab.loc(),
@@ -330,7 +330,7 @@ impl WriteFlatBuffer for LayoutData {
                 layout::Layout::create(
                     fbb,
                     &layout::LayoutArgs {
-                        encoding: layout.encoding.id().0,
+                        encoding: layout.vtable.id().0,
                         row_count: layout.row_count,
                         metadata,
                         children,

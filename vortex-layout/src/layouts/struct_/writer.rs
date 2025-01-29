@@ -7,6 +7,7 @@ use crate::data::LayoutData;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::LayoutVTableRef;
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
@@ -84,7 +85,7 @@ impl LayoutWriter for StructLayoutWriter {
             column_layouts.push(writer.finish(segments)?);
         }
         Ok(LayoutData::new_owned(
-            &StructLayout,
+            LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
             self.row_count,
             None,

@@ -8,7 +8,7 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::LayoutWriter;
-use crate::LayoutData;
+use crate::{LayoutData, LayoutVTableRef};
 
 pub struct FlatLayoutOptions {
     /// Stats to preserve when writing arrays
@@ -75,7 +75,7 @@ impl LayoutWriter for FlatLayoutWriter {
         segment_ids.push(segments.put(flatbuffer.into_inner()));
 
         self.layout = Some(LayoutData::new_owned(
-            &FlatLayout,
+            LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
             Some(segment_ids),

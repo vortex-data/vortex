@@ -12,10 +12,10 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
-use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
+use crate::vtable::{LayoutId, LayoutVTable};
 use crate::CHUNKED_LAYOUT_ID;
 
 #[derive(Default, Debug)]
@@ -25,7 +25,7 @@ pub struct ChunkedLayout;
 ///
 /// First child in the list is the metadata table
 /// Subsequent children are consecutive chunks of this layout
-impl LayoutEncoding for ChunkedLayout {
+impl LayoutVTable for ChunkedLayout {
     fn id(&self) -> LayoutId {
         CHUNKED_LAYOUT_ID
     }

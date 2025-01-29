@@ -11,6 +11,7 @@ use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::LayoutVTableRef;
 
 pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
@@ -95,7 +96,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         };
 
         Ok(LayoutData::new_owned(
-            &ChunkedLayout,
+            LayoutVTableRef::from_static(&ChunkedLayout),
             self.dtype.clone(),
             self.row_count,
             None,
