@@ -13,7 +13,11 @@ use crate::array::{
 use crate::arrow::IntoArrowArray;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
+<<<<<<< HEAD
 use crate::{Canonical, IntoArrayData};
+=======
+use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+>>>>>>> develop
 
 impl CanonicalVTable<ConstantArray> for ConstantEncoding {
     fn into_canonical(&self, array: ConstantArray) -> VortexResult<Canonical> {

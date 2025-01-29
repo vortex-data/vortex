@@ -89,3 +89,29 @@ pub trait ToArrayData {
 pub trait IntoArrayData {
     fn into_array(self) -> ArrayData;
 }
+<<<<<<< HEAD
+=======
+
+/// Collects together the behavior of an array.
+pub trait ArrayTrait:
+    AsRef<ArrayData>
+    + ArrayEncodingRef
+    + ArrayDType
+    + ArrayLen
+    + ArrayNBytes
+    + ArrayValidity
+    + ArrayStatistics
+{
+}
+
+pub trait ArrayDType {
+    // TODO(ngates): move into ArrayTrait?
+    fn dtype(&self) -> &DType;
+}
+
+pub trait ArrayLen {
+    fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool;
+}
+>>>>>>> develop
