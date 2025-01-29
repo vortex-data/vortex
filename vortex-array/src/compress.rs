@@ -2,8 +2,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_set::HashSet;
-use crate::encoding::EncodingRef;
 use crate::stats::PRUNING_STATS;
+use crate::vtable::EncodingRef;
 use crate::ArrayData;
 
 pub trait CompressionStrategy {

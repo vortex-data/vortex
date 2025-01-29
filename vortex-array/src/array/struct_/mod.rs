@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 use vortex_mask::Mask;
 
 use crate::arrow::IntoArrowArray;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
@@ -24,7 +24,7 @@ mod compute;
 
 impl_encoding!(
     "vortex.struct",
-    ids::STRUCT,
+    encoding_ids::STRUCT,
     Struct,
     RkyvMetadata<StructMetadata>
 );

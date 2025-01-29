@@ -6,7 +6,7 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
@@ -16,7 +16,12 @@ mod canonical;
 mod compute;
 mod variants;
 
-impl_encoding!("vortex.constant", ids::CONSTANT, Constant, EmptyMetadata);
+impl_encoding!(
+    "vortex.constant",
+    encoding_ids::CONSTANT,
+    Constant,
+    EmptyMetadata
+);
 
 impl ConstantArray {
     pub fn new<S>(scalar: S, length: usize) -> Self

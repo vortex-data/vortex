@@ -2,13 +2,14 @@ use std::fmt::{Debug, Display};
 
 use vortex_array::array::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, IntoArrayData, IntoArrayVariant, RkyvMetadata};
+use vortex_array::{
+    encoding_ids, impl_encoding, ArrayData, IntoArrayData, IntoArrayVariant, RkyvMetadata,
+};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -20,7 +21,7 @@ mod variants;
 
 impl_encoding!(
     "vortex.sparse",
-    ids::SPARSE,
+    encoding_ids::SPARSE,
     Sparse,
     RkyvMetadata<SparseMetadata>
 );

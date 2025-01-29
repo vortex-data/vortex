@@ -6,7 +6,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrow::IntoArrowArray;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
@@ -19,7 +19,7 @@ use crate::{impl_encoding, Canonical, EmptyMetadata};
 
 mod compute;
 
-impl_encoding!("vortex.null", ids::NULL, Null, EmptyMetadata);
+impl_encoding!("vortex.null", encoding_ids::NULL, Null, EmptyMetadata);
 
 impl NullArray {
     pub fn new(len: usize) -> Self {

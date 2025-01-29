@@ -68,3 +68,5 @@ impl Hash for dyn EncodingVTable + '_ {
         self.id().hash(state)
     }
 }
+
+pub type EncodingRef = &'static dyn EncodingVTable;

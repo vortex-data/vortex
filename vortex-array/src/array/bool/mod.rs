@@ -6,7 +6,7 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::BoolArrayTrait;
@@ -24,7 +24,12 @@ use vortex_mask::Mask;
 
 use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
 
-impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
+impl_encoding!(
+    "vortex.bool",
+    encoding_ids::BOOL,
+    Bool,
+    RkyvMetadata<BoolMetadata>
+);
 
 #[derive(
     Clone,

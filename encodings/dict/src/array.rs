@@ -3,20 +3,24 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::compute::{scalar_at, take};
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
-    SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant,
+    IntoCanonical, SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-impl_encoding!("vortex.dict", ids::DICT, Dict, SerdeMetadata<DictMetadata>);
+impl_encoding!(
+    "vortex.dict",
+    encoding_ids::DICT,
+    Dict,
+    SerdeMetadata<DictMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictMetadata {

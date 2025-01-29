@@ -6,7 +6,6 @@ use rand::Rng;
 use vortex::array::PrimitiveArray;
 use vortex::compute::filter;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::encoding::Encoding;
 use vortex::encodings::alp::{ALPArray, ALPEncoding};
 use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::bitpacked::{
@@ -16,7 +15,7 @@ use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex::sampling_compressor::compressors::EncodingCompressor;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::PrimitiveArrayTrait;
-use vortex::{ArrayData, IntoArrayData, IntoCanonical};
+use vortex::{ArrayData, Encoding, IntoArrayData, IntoCanonical};
 use vortex_mask::Mask;
 
 // criterion benchmark setup:

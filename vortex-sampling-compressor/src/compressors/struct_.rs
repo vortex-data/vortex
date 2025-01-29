@@ -2,9 +2,9 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{StructArray, StructEncoding};
 use vortex_array::compress::compute_precompression_stats;
-use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::vtable::EncodingRef;
+use vortex_array::{ArrayData, Encoding, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

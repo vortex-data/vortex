@@ -6,7 +6,7 @@ use crate::array::{
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::encoding::opaque::OpaqueEncoding;
-use crate::encoding::EncodingRef;
+use crate::vtable::EncodingRef;
 
 /// A mapping between an encoding's ID to an [`EncodingRef`], used to have a shared view of all available encoding schemes.
 #[derive(Debug, Clone)]

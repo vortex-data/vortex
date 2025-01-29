@@ -3,20 +3,19 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
 use vortex_array::compute::try_cast;
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, IntoArrayData, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayData, IntoArrayData, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
 impl_encoding!(
     "vortex.datetimeparts",
-    ids::DATE_TIME_PARTS,
+    encoding_ids::DATE_TIME_PARTS,
     DateTimeParts,
     SerdeMetadata<DateTimePartsMetadata>
 );

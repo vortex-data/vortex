@@ -8,7 +8,7 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::encoding::opaque::OpaqueEncoding;
-use crate::encoding::EncodingRef;
+use crate::vtable::EncodingRef;
 use crate::{flatbuffers as fb, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.

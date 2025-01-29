@@ -10,7 +10,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrow::IntoArrowArray;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
@@ -29,7 +29,7 @@ mod stats;
 
 impl_encoding!(
     "vortex.primitive",
-    ids::PRIMITIVE,
+    encoding_ids::PRIMITIVE,
     Primitive,
     RkyvMetadata<PrimitiveMetadata>
 );

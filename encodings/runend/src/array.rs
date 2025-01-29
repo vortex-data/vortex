@@ -5,7 +5,6 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{
     scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
 };
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::visitor::ArrayVisitor;
@@ -13,7 +12,8 @@ use vortex_array::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
 use vortex_array::{
-    impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant,
+    SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -24,7 +24,7 @@ use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encod
 
 impl_encoding!(
     "vortex.runend",
-    ids::RUN_END,
+    encoding_ids::RUN_END,
     RunEnd,
     SerdeMetadata<RunEndMetadata>
 );

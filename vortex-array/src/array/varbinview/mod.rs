@@ -15,7 +15,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, Vortex
 use vortex_mask::Mask;
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
@@ -200,7 +200,7 @@ impl Display for VarBinViewMetadata {
 
 impl_encoding!(
     "vortex.varbinview",
-    ids::VAR_BIN_VIEW,
+    encoding_ids::VAR_BIN_VIEW,
     VarBinView,
     RkyvMetadata<VarBinViewMetadata>
 );

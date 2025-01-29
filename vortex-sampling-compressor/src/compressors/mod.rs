@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::encoding::EncodingRef;
 use vortex_array::tree::TreeFormatter;
+use vortex_array::vtable::EncodingRef;
 use vortex_array::ArrayData;
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 

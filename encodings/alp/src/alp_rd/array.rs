@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
@@ -10,7 +9,9 @@ use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable,
 };
-use vortex_array::{impl_encoding, ArrayData, Canonical, IntoArrayVariant, SerdeMetadata};
+use vortex_array::{
+    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayVariant, SerdeMetadata,
+};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
@@ -19,7 +20,7 @@ use crate::alp_rd::alp_rd_decode;
 
 impl_encoding!(
     "vortex.alprd",
-    ids::ALP_RD,
+    encoding_ids::ALP_RD,
     ALPRD,
     SerdeMetadata<ALPRDMetadata>
 );

@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
@@ -13,7 +12,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{impl_encoding, ArrayData, Canonical, RkyvMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayData, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -24,7 +23,7 @@ mod compute;
 
 impl_encoding!(
     "fastlanes.bitpacked",
-    ids::FL_BITPACKED,
+    encoding_ids::FL_BITPACKED,
     BitPacked,
     RkyvMetadata<BitPackedMetadata>
 );

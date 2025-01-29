@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
@@ -10,7 +9,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{impl_encoding, ArrayData, Canonical, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayData, Canonical, SerdeMetadata};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -21,7 +20,7 @@ mod compute;
 
 impl_encoding!(
     "fastlanes.for",
-    ids::FL_FOR,
+    encoding_ids::FL_FOR,
     FoR,
     SerdeMetadata<FoRMetadata>
 );

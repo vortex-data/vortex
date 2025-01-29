@@ -12,7 +12,7 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
     ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::encoding::EncodingRef;
+use vortex_array::vtable::EncodingRef;
 use vortex_array::{Context, ContextRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;

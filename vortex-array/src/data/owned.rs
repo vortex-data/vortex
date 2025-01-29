@@ -4,8 +4,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::encoding::EncodingRef;
 use crate::stats::StatsSet;
+use crate::vtable::EncodingRef;
 use crate::ArrayData;
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.

@@ -1,12 +1,8 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use std::fmt::{Display, Formatter};
-use std::ops::Deref;
+use std::fmt::Display;
 
-use crate::array::StructMetadata;
-use crate::encoding::{Encoding, EncodingRef};
-use crate::{ArrayData, ArrayMetadata};
-
+use crate::ArrayData;
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
 /// 1. New Array type that implements `AsRef<ArrayData>`, `GetArrayMetadata`, `ToArray`, `IntoArray`, and multiple useful `From`/`TryFrom` implementations.
 /// 2. New Encoding type that implements `ArrayEncoding`.
@@ -67,7 +63,7 @@ macro_rules! impl_encoding {
                 /// down different code paths.
                 pub fn maybe_from(data: impl AsRef<$crate::ArrayData>) -> Option<Self> {
                     let data = data.as_ref();
-                    (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data.clone()))
+                    (data.encoding().id() == <[<$Name Encoding>] as $crate::Encoding>::ID).then_some(Self(data.clone()))
                 }
             }
 
@@ -83,11 +79,11 @@ macro_rules! impl_encoding {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
-                    if data.encoding().id() != <[<$Name Encoding>] as $crate::encoding::Encoding>::ID {
+                    if data.encoding().id() != <[<$Name Encoding>] as $crate::Encoding>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
                             data.encoding().id().as_ref(),
-                            <[<$Name Encoding>] as $crate::encoding::Encoding>::ID,
+                            <[<$Name Encoding>] as $crate::Encoding>::ID,
                         );
                     }
                     Ok(Self(data))
@@ -100,11 +96,11 @@ macro_rules! impl_encoding {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: &'a $crate::ArrayData) -> vortex_error::VortexResult<Self> {
-                    if data.encoding().id() != <[<$Name Encoding>] as $crate::encoding::Encoding>::ID {
+                    if data.encoding().id() != <[<$Name Encoding>] as $crate::Encoding>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
                             data.encoding().id().as_ref(),
-                            <[<$Name Encoding>] as $crate::encoding::Encoding>::ID,
+                            <[<$Name Encoding>] as $crate::Encoding>::ID,
                         );
                     }
                     Ok(unsafe { std::mem::transmute::<&$crate::ArrayData, &[<$Name Array>]>(data) })
@@ -115,16 +111,16 @@ macro_rules! impl_encoding {
             #[derive(std::fmt::Debug)]
             pub struct [<$Name Encoding>];
 
-            impl $crate::encoding::Encoding for [<$Name Encoding>] {
-                const ID: $crate::encoding::EncodingId = $crate::encoding::EncodingId::new($id, $code);
+            impl $crate::Encoding for [<$Name Encoding>] {
+                const ID: $crate::EncodingId = $crate::EncodingId::new($id, $code);
                 type Array = [<$Name Array>];
                 type Metadata = $Metadata;
             }
 
             impl $crate::vtable::EncodingVTable for [<$Name Encoding>] {
                 #[inline]
-                fn id(&self) -> $crate::encoding::EncodingId {
-                    <[<$Name Encoding>] as $crate::encoding::Encoding>::ID
+                fn id(&self) -> $crate::EncodingId {
+                    <[<$Name Encoding>] as $crate::Encoding>::ID
                 }
 
                 fn as_any(&self) -> &dyn std::any::Any {

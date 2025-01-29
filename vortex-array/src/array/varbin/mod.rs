@@ -16,7 +16,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::{StructMetadata, VarBinViewArray, VarBinViewMetadata};
 use crate::compute::scalar_at;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
@@ -33,7 +33,7 @@ mod variants;
 
 impl_encoding!(
     "vortex.varbin",
-    ids::VAR_BIN,
+    encoding_ids::VAR_BIN,
     VarBin,
     RkyvMetadata<VarBinMetadata>
 );

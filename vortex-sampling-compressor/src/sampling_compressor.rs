@@ -10,10 +10,10 @@ use vortex_array::compress::{
     CompressionStrategy,
 };
 use vortex_array::compute::slice;
-use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoCanonical};
+use vortex_array::vtable::EncodingRef;
+use vortex_array::{ArrayData, Encoding, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -373,8 +373,7 @@ pub(crate) fn find_best_compression<'a>(
 mod tests {
     use vortex_alp::ALPRDEncoding;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::encoding::Encoding;
-    use vortex_array::IntoArrayData;
+    use vortex_array::{Encoding, IntoArrayData};
 
     use crate::SamplingCompressor;
 

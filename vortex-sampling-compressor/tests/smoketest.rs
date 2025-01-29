@@ -12,9 +12,9 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
-    use vortex_array::encoding::Encoding;
     use vortex_array::stats::Stat;
     use vortex_array::variants::StructArrayTrait;
+    use vortex_array::Encoding;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimePartsEncoding;

@@ -1,5 +1,4 @@
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
@@ -7,7 +6,9 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{impl_encoding, ArrayData, Canonical, EmptyMetadata, IntoArrayVariant};
+use vortex_array::{
+    encoding_ids, impl_encoding, ArrayData, Canonical, EmptyMetadata, IntoArrayVariant,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -17,7 +18,7 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
 
-impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag, EmptyMetadata);
+impl_encoding!("vortex.zigzag", encoding_ids::ZIGZAG, ZigZag, EmptyMetadata);
 
 impl ZigZagArray {
     pub fn try_new(encoded: ArrayData) -> VortexResult<Self> {

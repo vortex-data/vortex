@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -11,7 +10,9 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{impl_encoding, ArrayData, Canonical, IntoArrayData, RkyvMetadata};
+use vortex_array::{
+    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayData, RkyvMetadata,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -22,7 +23,7 @@ mod compute;
 
 impl_encoding!(
     "fastlanes.delta",
-    ids::FL_DELTA,
+    encoding_ids::FL_DELTA,
     Delta,
     RkyvMetadata<DeltaMetadata>
 );

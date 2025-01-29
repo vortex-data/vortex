@@ -20,7 +20,7 @@ use crate::arrow::IntoArrowArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
@@ -31,7 +31,12 @@ use crate::vtable::{
 };
 use crate::{impl_encoding, ArrayData, Canonical, DeserializeMetadata, RkyvMetadata};
 
-impl_encoding!("vortex.list", ids::LIST, List, RkyvMetadata<ListMetadata>);
+impl_encoding!(
+    "vortex.list",
+    encoding_ids::LIST,
+    List,
+    RkyvMetadata<ListMetadata>
+);
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,

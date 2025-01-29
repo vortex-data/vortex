@@ -17,11 +17,11 @@ use crate::array::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
-use crate::encoding::{Encoding, EncodingId, EncodingRef};
+use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::vtable::{EncodingVTable, ValidityVTable};
+use crate::vtable::{EncodingRef, EncodingVTable, ValidityVTable};
 use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
 mod owned;

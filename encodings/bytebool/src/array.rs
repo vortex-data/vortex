@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::BoolArrayTrait;
@@ -11,7 +10,7 @@ use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use vortex_array::{impl_encoding, Canonical, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, Canonical, SerdeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -19,7 +18,7 @@ use vortex_mask::Mask;
 
 impl_encoding!(
     "vortex.bytebool",
-    ids::BYTE_BOOL,
+    encoding_ids::BYTE_BOOL,
     ByteBool,
     SerdeMetadata<ByteBoolMetadata>
 );

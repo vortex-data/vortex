@@ -15,7 +15,7 @@ use vortex_mask::Mask;
 use crate::array::primitive::PrimitiveArray;
 use crate::arrow::IntoArrowArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
@@ -34,7 +34,7 @@ mod variants;
 
 impl_encoding!(
     "vortex.chunked",
-    ids::CHUNKED,
+    encoding_ids::CHUNKED,
     Chunked,
     RkyvMetadata<ChunkedMetadata>
 );

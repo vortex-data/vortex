@@ -3,9 +3,9 @@ use vortex_alp::{
 };
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::vtable::EncodingRef;
+use vortex_array::{ArrayData, Encoding, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPackedEncoding;
