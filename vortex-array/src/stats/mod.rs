@@ -93,50 +93,50 @@ impl<T> Precision<T> {
     }
 
     pub fn is_exact(&self) -> bool {
-        matches!(self, Precision::Exact(_))
+        matches!(self, Exact(_))
     }
 
     pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Precision<U> {
         match self {
-            Precision::Exact(value) => Precision::Exact(f(value)),
-            Precision::Bound(value) => Precision::Bound(f(value)),
+            Exact(value) => Exact(f(value)),
+            Bound(value) => Bound(f(value)),
         }
     }
 
     // Similar to option and then, but if either value is bound, then the whole value is bound.
     pub fn and_then_prefer_bound<U, F: FnOnce(T) -> Precision<U>>(self, f: F) -> Precision<U> {
         match self {
-            Precision::Exact(value) => f(value),
-            Precision::Bound(value) => match f(value) {
-                Precision::Exact(value) | Precision::Bound(value) => Precision::Bound(value),
+            Exact(value) => f(value),
+            Bound(value) => match f(value) {
+                Exact(value) | Bound(value) => Bound(value),
             },
         }
     }
 
     fn try_map<U, F: FnOnce(T) -> VortexResult<U>>(self, f: F) -> VortexResult<Precision<U>> {
         let prec = match self {
-            Precision::Exact(value) => Precision::Exact(f(value)?),
-            Precision::Bound(value) => Precision::Bound(f(value)?),
+            Exact(value) => Exact(f(value)?),
+            Bound(value) => Bound(f(value)?),
         };
         Ok(prec)
     }
 
     fn as_ref(&self) -> Precision<&T> {
         match self {
-            Precision::Exact(val) => Precision::Exact(val),
-            Precision::Bound(val) => Precision::Bound(val),
+            Exact(val) => Exact(val),
+            Bound(val) => Bound(val),
         }
     }
 
     pub fn value(&self) -> &T {
         match self {
-            Precision::Exact(val) | Precision::Bound(val) => val,
+            Exact(val) | Bound(val) => val,
         }
     }
 
     pub fn into_value(self) -> T {
         match self {
-            Precision::Exact(val) | Precision::Bound(val) => val,
+            Exact(val) | Bound(val) => val,
         }
     }
 }
@@ -144,10 +144,10 @@ impl<T> Precision<T> {
 impl<T: Display> Display for Precision<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Precision::Exact(v) => {
+            Exact(v) => {
                 write!(f, "exact({})", v)
             }
-            Precision::Bound(v) => {
+            Bound(v) => {
                 write!(f, "bound({})", v)
             }
         }
@@ -157,7 +157,7 @@ impl<T: Display> Display for Precision<T> {
 impl<T: PartialEq> PartialEq<T> for Precision<T> {
     fn eq(&self, other: &T) -> bool {
         match self {
-            Precision::Exact(v) => v == other,
+            Exact(v) => v == other,
             _ => false,
         }
     }
@@ -193,14 +193,11 @@ impl<T> LowerBound<T> {
 
 impl<T: PartialOrd> LowerBound<T> {
     pub fn le(&self, value: &LowerBound<T>) -> Option<bool> {
-        Some(match self.0.value().partial_cmp(&value.0.value())? {
+        Some(match self.0.value().partial_cmp(value.0.value())? {
             Ordering::Less => true,
             Ordering::Equal => {
                 // for a fixed value v. exact(v) <= bound(v) is true
-                match (&self.0, &value.0) {
-                    (Precision::Exact(_), _) | (Precision::Bound(_), Precision::Bound(_)) => true,
-                    _ => false,
-                }
+                matches!((&self.0, &value.0), (Exact(_), _) | (Bound(_), Bound(_)))
             }
             Ordering::Greater => false,
         })
@@ -226,14 +223,11 @@ pub struct UpperBound<T>(Precision<T>);
 
 impl<T: PartialOrd> UpperBound<T> {
     pub fn ge(&self, value: &UpperBound<T>) -> Option<bool> {
-        Some(match self.0.value().partial_cmp(&value.0.value())? {
+        Some(match self.0.value().partial_cmp(value.0.value())? {
             Ordering::Less => false,
             Ordering::Equal => {
                 // for a fixed value v. exact(v) >= bound(v) is true
-                match (&self.0, &value.0) {
-                    (Precision::Exact(_), _) | (Precision::Bound(_), Precision::Bound(_)) => true,
-                    _ => false,
-                }
+                matches!((&self.0, &value.0), (Exact(_), _) | (Bound(_), Bound(_)))
             }
             Ordering::Greater => true,
         })
@@ -436,7 +430,7 @@ impl Display for Stat {
 
 pub struct StatisticsCompare<'a>(&'a dyn Statistics);
 
-impl<'a> StatisticsCompare<'a> {
+impl StatisticsCompare<'_> {
     pub fn get_compare<S: StatOrder<Scalar>>(
         &self,
         _stat: S,

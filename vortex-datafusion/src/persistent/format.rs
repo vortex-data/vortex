@@ -25,7 +25,6 @@ use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
-use vortex_scalar::Scalar;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
@@ -171,7 +170,7 @@ impl FileFormat for VortexFormat {
                 .iter()
                 .map(|s| {
                     s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or(bound(0))
+                        .unwrap_or(bound(0_usize))
                 })
                 .fold(exact(0_usize), |acc, s| {
                     acc.and_then_prefer_bound(|acc| s.map(|s| acc + s))

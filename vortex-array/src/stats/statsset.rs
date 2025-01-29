@@ -191,9 +191,9 @@ impl StatsSet {
         }
         let values = self.values.as_mut().vortex_expect("we just initialized it");
         if let Some(existing) = values.iter_mut().find(|(s, _)| *s == stat) {
-            *existing = (stat, value.into());
+            *existing = (stat, value);
         } else {
-            values.push((stat, value.into()));
+            values.push((stat, value));
         }
     }
 
@@ -319,7 +319,7 @@ impl StatsSet {
         match (self.getb::<Min>(dtype), other.getb::<Min>(dtype)) {
             (Some(m1), Some(m2)) => {
                 if m2.le(&m1).vortex_expect("can compare min stats") {
-                    self.set(Stat::Min, m2.0.clone().map(|s| s.into_value()));
+                    self.set(Stat::Min, m2.0.map(|s| s.into_value()));
                 }
             }
             _ => self.clear(Stat::Min),
@@ -330,7 +330,7 @@ impl StatsSet {
         match (self.getb::<Max>(dtype), other.getb::<Max>(dtype)) {
             (Some(m1), Some(m2)) => {
                 if m2.ge(&m1).vortex_expect("can compare max stats") {
-                    self.set(Stat::Max, m2.0.clone().map(|s| s.into_value()));
+                    self.set(Stat::Max, m2.0.map(|s| s.into_value()));
                 }
                 // if Scalar::new(dtype.clone(), m2.clone()) > Scalar::new(dtype.clone(), m1.clone()) {
                 //     self.set(Stat::Max, m2.clone());
@@ -341,15 +341,11 @@ impl StatsSet {
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
-        if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
-            == (
+        if (Some(Precision::Exact(true)), Some(Precision::Exact(true))) == (
                 self.get_as(Stat::IsConstant),
                 other.get_as(Stat::IsConstant),
-            )
-        {
-            if self.getv::<Min>(dtype) == other.getv::<Min>(dtype) {
-                return;
-            }
+            ) && self.getv::<Min>(dtype) == other.getv::<Min>(dtype) {
+            return;
         }
         // TODO(joe): this is not true, what is the correct thing to do here? Maybe bound(false)?
         self.set(Stat::IsConstant, exact(false));
