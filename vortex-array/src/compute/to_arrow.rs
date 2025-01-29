@@ -9,7 +9,7 @@ use crate::{ArrayData, IntoArrayData, IntoCanonical};
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<Array> {
     /// Return the preferred Arrow [`DataType`] of the encoding, or None of the canonical
-    /// [`DataType`] for the array's Vortex [`DType`] should be used.
+    /// [`DataType`] for the array's Vortex [`vortex_dtype::DType`] should be used.
     fn preferred_arrow_data_type(&self, _array: &Array) -> VortexResult<Option<DataType>> {
         Ok(None)
     }
