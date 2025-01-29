@@ -147,7 +147,7 @@ impl ArrayData {
     }
 
     /// Return the array's encoding ID.
-    pub fn encoding_id(&self) -> EncodingId {
+    pub fn encoding(&self) -> EncodingId {
         self.vtable().id()
     }
 

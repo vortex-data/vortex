@@ -50,7 +50,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                     StructEncoding::ID,
                     ListEncoding::ID,
                 ])
-                .contains(&current_array.encoding_id())
+                .contains(&current_array.encoding())
                 {
                     sorted =
                         fuzz_compress(&sorted, &SamplingCompressor::default()).unwrap_or(sorted);

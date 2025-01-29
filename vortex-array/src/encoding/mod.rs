@@ -116,7 +116,7 @@ mod tests {
     use crate::aliases::hash_set::HashSet;
 
     #[test]
-    fn test_encoding_id() {
+    fn test_encoding() {
         let all_ids = [
             encoding_ids::RESERVED,
             encoding_ids::NULL,
