@@ -5,7 +5,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;

@@ -85,8 +85,6 @@ macro_rules! impl_encoding {
                 }
             }
 
-            impl $crate::ArrayTrait for [<$Name Array>] {}
-
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
                 type Error = vortex_error::VortexError;
 

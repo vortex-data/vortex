@@ -13,7 +13,7 @@ mod record_batch;
 pub use datum::*;
 
 use crate::compute::to_arrow;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 pub trait FromArrowArray<A> {
     fn from_arrow(array: A, nullable: bool) -> Self;

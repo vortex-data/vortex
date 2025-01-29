@@ -1,16 +1,13 @@
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, Stat, StatsSet};
-use vortex_array::validity::ArrayValidity;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoArrayVariant,
-    IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayData, Canonical, EmptyMetadata, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -114,9 +111,9 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
     }
 }
 
-impl IntoCanonical for ZigZagArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        zigzag_decode(self.encoded().into_primitive()?).map(Canonical::Primitive)
+impl CanonicalVTable<ZigZagArray> for ZigZagEncoding {
+    fn into_canonical(&self, array: ZigZagArray) -> VortexResult<Canonical> {
+        zigzag_decode(array.encoded().into_primitive()?).map(Canonical::Primitive)
     }
 }
 

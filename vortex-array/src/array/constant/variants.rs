@@ -5,13 +5,13 @@ use vortex_scalar::Scalar;
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::iter::Accessor;
-use crate::validity::{ArrayValidity, Validity};
+use crate::validity::Validity;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use crate::vtable::VariantsVTable;
-use crate::{ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 /// Constant arrays support all DTypes
 impl VariantsVTable<ConstantArray> for ConstantEncoding {
@@ -63,25 +63,8 @@ where
     T: Clone,
     T: TryFrom<Scalar, Error = VortexError>,
 {
-    fn array_len(&self) -> usize {
-        self.len()
-    }
-
-    fn is_valid(&self, index: usize) -> bool {
-        ArrayValidity::is_valid(self, index)
-            .vortex_expect("Failed to check validity of constant array")
-    }
-
     fn value_unchecked(&self, _index: usize) -> T {
         T::try_from(self.scalar()).vortex_expect("Failed to convert scalar to value")
-    }
-
-    fn array_validity(&self) -> Validity {
-        if self.scalar().is_null() {
-            Validity::AllInvalid
-        } else {
-            Validity::AllValid
-        }
     }
 }
 

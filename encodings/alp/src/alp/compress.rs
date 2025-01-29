@@ -1,7 +1,7 @@
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 use vortex_scalar::ScalarType;

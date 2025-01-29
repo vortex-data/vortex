@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::InvertFn;
-use crate::{ArrayData, ArrayLen, IntoArrayData, ToArrayData};
+use crate::{ArrayData, IntoArrayData, ToArrayData};
 
 impl InvertFn<ConstantArray> for ConstantEncoding {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayData> {

@@ -35,7 +35,7 @@ use vortex::error::VortexResult;
 use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+use vortex::{ArrayData, IntoArrayData};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 

@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::{scalar_cmp, CompareFn, Operator};
-use crate::{ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl CompareFn<ConstantArray> for ConstantEncoding {
     fn compare(

@@ -13,7 +13,7 @@ use vortex_array::compute::slice;
 use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoCanonical};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -261,6 +261,7 @@ impl<'a> SamplingCompressor<'a> {
             .collect::<VortexResult<Vec<ArrayData>>>()?,
             array.dtype().clone(),
         )?
+        .into_array()
         .into_canonical()?
         .into();
 

@@ -6,7 +6,7 @@ use vortex_mask::{AllOr, Mask, MaskIter, MaskValues};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::FilterFn;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use crate::{ArrayData, Canonical, IntoArrayData};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
@@ -78,7 +78,7 @@ mod test {
     use crate::array::bool::compute::filter::{filter_indices, filter_slices};
     use crate::array::BoolArray;
     use crate::compute::filter;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn filter_bool_test() {

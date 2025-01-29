@@ -19,7 +19,7 @@ use vortex::dtype::DType;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
-use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 

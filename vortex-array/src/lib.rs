@@ -23,10 +23,6 @@ pub use metadata::*;
 pub use paste;
 use vortex_dtype::DType;
 
-use crate::nbytes::ArrayNBytes;
-use crate::stats::ArrayStatistics;
-use crate::validity::ArrayValidity;
-
 pub mod accessor;
 pub mod aliases;
 pub mod array;
@@ -93,6 +89,3 @@ pub trait ToArrayData {
 pub trait IntoArrayData {
     fn into_array(self) -> ArrayData;
 }
-
-/// Collects together the behavior of an array.
-pub trait ArrayTrait: AsRef<ArrayData> + IntoCanonical + ArrayValidity + ArrayStatistics {}

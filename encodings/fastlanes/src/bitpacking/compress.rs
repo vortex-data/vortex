@@ -2,10 +2,9 @@ use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::stats::ArrayStatistics;
-use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
+use vortex_array::IntoArrayData;
 use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,

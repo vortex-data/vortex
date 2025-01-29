@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -97,7 +97,7 @@ where
 mod tests {
     use vortex_array::array::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::{ArrayLen, IntoArrayVariant};
+    use vortex_array::IntoArrayVariant;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 

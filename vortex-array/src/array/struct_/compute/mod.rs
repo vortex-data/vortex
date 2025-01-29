@@ -12,7 +12,7 @@ use crate::compute::{
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for StructEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {

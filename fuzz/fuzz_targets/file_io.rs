@@ -9,7 +9,7 @@ use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;

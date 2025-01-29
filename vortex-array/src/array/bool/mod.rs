@@ -11,11 +11,8 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::ValidateVTable;
-use crate::{
-    impl_encoding, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData, IntoCanonical,
-    RkyvMetadata,
-};
+use crate::vtable::{CanonicalVTable, ValidateVTable};
+use crate::{impl_encoding, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata};
 
 pub mod compute;
 mod patch;
@@ -203,9 +200,9 @@ impl FromIterator<Option<bool>> for BoolArray {
     }
 }
 
-impl IntoCanonical for BoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(self))
+impl CanonicalVTable<BoolArray> for BoolEncoding {
+    fn into_canonical(&self, array: BoolArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Bool(array))
     }
 }
 
@@ -236,7 +233,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn bool_array() {

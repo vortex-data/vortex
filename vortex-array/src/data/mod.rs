@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
@@ -18,14 +19,10 @@ use crate::array::{
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId, EncodingRef};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
+use crate::stats::{Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validity::ArrayValidity;
 use crate::vtable::{EncodingVTable, ValidityVTable};
-use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ChildrenCollector, ContextRef,
-    NamedChildrenCollector,
-};
+use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
 mod owned;
 mod statistics;
@@ -150,7 +147,6 @@ impl ArrayData {
     }
 
     /// Returns the number of logical elements in the array.
-    #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         match &self.0 {
             InnerArrayData::Owned(d) => d.len,
@@ -161,6 +157,14 @@ impl ArrayData {
     /// Check whether the array has any data
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Return the array's dtype
+    pub fn dtype(&self) -> &DType {
+        match &self.as_ref().0 {
+            InnerArrayData::Owned(d) => &d.dtype,
+            InnerArrayData::Viewed(v) => &v.dtype,
+        }
     }
 
     /// Whether the array is of a canonical encoding.
@@ -378,57 +382,6 @@ impl Display for ArrayData {
             self.dtype(),
             self.len()
         )
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayDType for T {
-    fn dtype(&self) -> &DType {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => &d.dtype,
-            InnerArrayData::Viewed(v) => &v.dtype,
-        }
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayLen for T {
-    fn len(&self) -> usize {
-        self.as_ref().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.as_ref().is_empty()
-    }
-}
-
-impl<A: AsRef<ArrayData>> ArrayValidity for A {
-    /// Return whether the element at the given index is valid (true) or null (false).
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
-    }
-
-    /// Return the number of null elements in the array.
-    fn null_count(&self) -> VortexResult<usize> {
-        ValidityVTable::<ArrayData>::null_count(self.as_ref().encoding(), self.as_ref())
-    }
-
-    /// Return the logical validity of the array if nullable, and None if non-nullable.
-    fn logical_validity(&self) -> VortexResult<Mask> {
-        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayStatistics for T {
-    fn statistics(&self) -> &(dyn Statistics + '_) {
-        self.as_ref()
-    }
-
-    // FIXME(ngates): this is really slow...
-    fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        // The to_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.to_set() {
-            stats.set(stat, scalar);
-        }
     }
 }
 

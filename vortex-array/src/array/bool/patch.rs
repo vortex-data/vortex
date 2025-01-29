@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::array::BoolArray;
 use crate::patches::Patches;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
+use crate::{IntoArrayVariant, ToArrayData};
 
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {

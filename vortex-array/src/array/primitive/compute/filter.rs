@@ -9,7 +9,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use crate::{ArrayData, Canonical, IntoArrayData};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -67,7 +67,7 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::compute::filter;
-    use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
+    use crate::{IntoArrayVariant, ToArrayData};
 
     #[test]
     fn filter_run_variant_mixed_test() {

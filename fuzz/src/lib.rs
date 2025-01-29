@@ -15,7 +15,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;

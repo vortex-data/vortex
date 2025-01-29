@@ -2,8 +2,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
-use crate::validity::ArrayValidity;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 /// Implementation of scalar_at for an encoding.
 ///

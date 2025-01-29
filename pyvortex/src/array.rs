@@ -7,7 +7,7 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::mask::Mask;
-use vortex::{ArrayDType, ArrayData};
+use vortex::ArrayData;
 
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;

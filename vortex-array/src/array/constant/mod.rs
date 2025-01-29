@@ -10,7 +10,7 @@ use crate::encoding::ids;
 use crate::stats::{Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayLen, EmptyMetadata};
+use crate::{impl_encoding, EmptyMetadata};
 
 mod canonical;
 mod compute;

@@ -7,15 +7,15 @@ use vortex_mask::Mask;
 
 use crate::arrow::IntoArrowArray;
 use crate::encoding::ids;
-use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use crate::{impl_encoding, ArrayLen, Canonical, EmptyMetadata, IntoCanonical};
+use crate::{impl_encoding, Canonical, EmptyMetadata};
 
 mod compute;
 
@@ -35,9 +35,9 @@ impl NullArray {
     }
 }
 
-impl IntoCanonical for NullArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(self))
+impl CanonicalVTable<NullArray> for NullEncoding {
+    fn into_canonical(&self, array: NullArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Null(array))
     }
 }
 

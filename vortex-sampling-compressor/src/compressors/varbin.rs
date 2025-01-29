@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinArray, VarBinEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};

@@ -9,7 +9,7 @@ use crate::array::NullEncoding;
 use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
@@ -83,8 +83,7 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
-    use crate::validity::ArrayValidity;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_slice_nulls() {

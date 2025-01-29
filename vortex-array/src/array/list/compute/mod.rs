@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::array::{ListArray, ListEncoding};
 use crate::compute::{scalar_at, slice, ScalarAtFn, SliceFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

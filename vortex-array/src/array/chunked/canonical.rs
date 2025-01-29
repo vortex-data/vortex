@@ -8,19 +8,17 @@ use crate::array::extension::ExtensionArray;
 use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
-use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
+use crate::array::{BinaryView, BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
 use crate::arrow::IntoArrowArray;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::{
-    ArrayDType, ArrayData, ArrayLen, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
-};
+use crate::vtable::CanonicalVTable;
+use crate::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 
-impl IntoCanonical for ChunkedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let validity = Validity::from_mask(self.logical_validity()?, self.dtype().nullability());
-        try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
+impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
+    fn into_canonical(&self, array: ChunkedArray) -> VortexResult<Canonical> {
+        let validity = Validity::from_mask(array.logical_validity()?, array.dtype().nullability());
+        try_canonicalize_chunks(array.chunks().collect(), validity, array.dtype())
     }
 }
 
@@ -280,7 +278,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use crate::{IntoArrayData, IntoArrayVariant, ToArrayData};
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])

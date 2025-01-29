@@ -7,9 +7,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{StructArray, StructEncoding};
 use crate::compute::{to_arrow, ToArrowFn};
-use crate::validity::ArrayValidity;
 use crate::variants::StructArrayTrait;
-use crate::{ArrayLen, IntoCanonical};
 
 impl ToArrowFn<StructArray> for StructEncoding {
     fn to_arrow(

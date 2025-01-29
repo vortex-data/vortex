@@ -5,7 +5,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
@@ -13,7 +13,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 mod tests {
     use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
     use vortex_array::encoding::Encoding;
-    use vortex_array::stats::{ArrayStatistics, Stat};
+    use vortex_array::stats::Stat;
     use vortex_array::variants::StructArrayTrait;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;

@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

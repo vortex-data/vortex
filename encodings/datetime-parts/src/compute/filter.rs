@@ -1,5 +1,5 @@
 use vortex_array::compute::{filter, FilterFn};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

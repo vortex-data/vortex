@@ -13,7 +13,6 @@ use crate::compute::{
 };
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayLen};
 
 impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
     fn search_sorted(

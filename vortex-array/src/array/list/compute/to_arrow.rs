@@ -8,7 +8,6 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::array::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
 use crate::compute::{try_cast, ToArrowFn};
-use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::IntoArrayVariant;
 

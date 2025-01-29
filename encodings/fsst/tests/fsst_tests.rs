@@ -3,7 +3,7 @@
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::compute::{filter, scalar_at, slice, take};
 use vortex_array::encoding::Encoding;
-use vortex_array::{ArrayData, IntoArrayData, IntoCanonical};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};

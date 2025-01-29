@@ -1,8 +1,8 @@
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray};
-use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexResult;

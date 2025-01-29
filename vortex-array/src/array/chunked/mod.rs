@@ -13,19 +13,17 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, V
 use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
+use crate::arrow::IntoArrowArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, Validity};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
-};
+use crate::{impl_encoding, ArrayData, DeserializeMetadata, IntoArrayData, RkyvMetadata};
 
 mod canonical;
 mod compute;
@@ -128,7 +126,7 @@ impl ChunkedArray {
                 .vortex_expect("Search sorted failed in find_chunk_idx")
                 .to_ends_index(self.nchunks() + 1)
                 .saturating_sub(1);
-        let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
+        let chunk_start = scalar_at(&self.chunk_offsets(), index_chunk)
             .and_then(|s| usize::try_from(&s))
             .vortex_expect("Failed to find chunk start in find_chunk_idx");
 
@@ -172,6 +170,8 @@ impl ChunkedArray {
             {
                 new_chunks.push(
                     ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                        .as_ref()
+                        .clone()
                         .into_canonical()?
                         .into(),
                 );
@@ -193,6 +193,7 @@ impl ChunkedArray {
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
                 ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                    .into_array()
                     .into_canonical()?
                     .into(),
             );
@@ -247,7 +248,7 @@ mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{assert_arrays_eq, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use crate::{ArrayData, Canonical, IntoArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -240,7 +240,7 @@ mod tests {
     use super::*;
     use crate::array::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

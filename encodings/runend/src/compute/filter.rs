@@ -7,7 +7,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};

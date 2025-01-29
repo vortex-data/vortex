@@ -7,7 +7,7 @@ use vortex_mask::{Mask, MaskIter, MaskValues};
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::{ArrayData, Canonical, IntoArrayData};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

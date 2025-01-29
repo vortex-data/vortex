@@ -15,7 +15,7 @@ use crate::array::VarBinViewEncoding;
 use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for VarBinViewEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
@@ -129,7 +129,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::VarBinViewArray;
     use crate::compute::take;
-    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn take_nullable() {

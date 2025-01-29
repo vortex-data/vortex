@@ -13,7 +13,7 @@ use tokio::fs::File;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
 use vortex::error::VortexResult;
-use vortex::{ArrayDType, ArrayData, IntoArrayData};
+use vortex::{ArrayData, IntoArrayData};
 
 use crate::data_downloads::{decompress_bz2, download_data, BenchmarkDataset, FileType};
 use crate::public_bi_data::PBIDataset::*;

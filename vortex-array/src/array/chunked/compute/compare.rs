@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{compare, slice, CompareFn, Operator};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl CompareFn<ChunkedArray> for ChunkedEncoding {
     fn compare(

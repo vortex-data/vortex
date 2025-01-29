@@ -12,7 +12,7 @@ use crate::array::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayData> {

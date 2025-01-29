@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_sparse::{SparseArray, SparseEncoding};
 

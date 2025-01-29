@@ -13,13 +13,14 @@ use crate::arrow::IntoArrowArray;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
-use crate::validity::{ArrayValidity, Validity, ValidityMetadata};
+use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable};
+use crate::vtable::{
+    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use crate::{
-    impl_encoding, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
+    impl_encoding, ArrayData, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata,
 };
 
 mod compute;
@@ -272,21 +273,9 @@ impl VariantsVTable<PrimitiveArray> for PrimitiveEncoding {
 }
 
 impl<T: NativePType> Accessor<T> for PrimitiveArray {
-    fn array_len(&self) -> usize {
-        self.len()
-    }
-
-    fn is_valid(&self, index: usize) -> bool {
-        ArrayValidity::is_valid(self, index).vortex_expect("Failed to check validity of array")
-    }
-
     #[inline]
     fn value_unchecked(&self, index: usize) -> T {
         self.as_slice::<T>()[index]
-    }
-
-    fn array_validity(&self) -> Validity {
-        self.validity()
     }
 
     #[inline]
@@ -329,9 +318,9 @@ impl<T: NativePType> IntoArrayData for BufferMut<T> {
     }
 }
 
-impl IntoCanonical for PrimitiveArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(self))
+impl CanonicalVTable<PrimitiveArray> for PrimitiveEncoding {
+    fn into_canonical(&self, array: PrimitiveArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(array))
     }
 }
 

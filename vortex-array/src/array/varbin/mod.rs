@@ -21,7 +21,7 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ValidateVTable;
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, RkyvMetadata};
+use crate::{impl_encoding, ArrayData, DeserializeMetadata, RkyvMetadata};
 
 mod accessor;
 mod array;
@@ -203,7 +203,7 @@ impl VarBinArray {
                 })
             })
             .unwrap_or_else(|| {
-                scalar_at(self.offsets(), index)
+                scalar_at(&self.offsets(), index)
                     .unwrap_or_else(|err| {
                         vortex_panic!(err, "Failed to get offset at index: {}", index)
                     })

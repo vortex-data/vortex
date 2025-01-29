@@ -4,7 +4,7 @@ use vortex_array::compute::{
     SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -110,7 +110,7 @@ mod test {
     use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;

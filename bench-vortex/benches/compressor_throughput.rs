@@ -22,7 +22,7 @@ use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR
 use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
 use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{IntoArrayData as _, IntoCanonical, ToArrayData};
+use vortex::{IntoArrayData as _, ToArrayData};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -92,13 +92,13 @@ fn strings(c: &mut Criterion) {
     let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
     group.throughput(Throughput::Bytes(varbinview_arr.to_array().nbytes() as u64));
     group.bench_function("dict_decode_varbinview", |b| {
-        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
+        b.iter(|| black_box(dict.clone().into_array().into_canonical().unwrap()));
     });
 
     let fsst_compressor = fsst_train_compressor(&varbinview_arr.to_array()).unwrap();
     let fsst_array = fsst_compress(&varbinview_arr.to_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
-        b.iter(|| black_box(fsst_array.clone().into_canonical().unwrap()));
+        b.iter(|| black_box(fsst_array.clone().into_array().into_canonical().unwrap()));
     });
 }
 

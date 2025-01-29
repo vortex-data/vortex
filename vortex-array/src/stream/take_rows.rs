@@ -8,10 +8,10 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedSide};
-use crate::stats::{ArrayStatistics, Stat};
+use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 #[pin_project]
 pub struct TakeRows<R: ArrayStream> {

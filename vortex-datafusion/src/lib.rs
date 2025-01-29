@@ -9,7 +9,7 @@ use arrow_schema::{DataType, Schema};
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::Result as DFResult;
 use datafusion_expr::{Expr, Operator};
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::ArrayData;
 use vortex_error::vortex_err;
 
 use crate::memory::VortexMemTable;

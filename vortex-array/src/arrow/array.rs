@@ -26,7 +26,7 @@ use crate::array::{
     VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
-use crate::stats::{ArrayStatistics, Stat};
+use crate::stats::Stat;
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 

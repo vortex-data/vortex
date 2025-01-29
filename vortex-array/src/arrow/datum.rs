@@ -4,7 +4,7 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::array::ConstantArray;
 use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]

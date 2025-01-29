@@ -1,5 +1,4 @@
 use vortex_array::compute::ScalarAtFn;
-use vortex_array::ArrayDType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 

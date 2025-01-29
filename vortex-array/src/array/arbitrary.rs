@@ -15,7 +15,7 @@ use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{builders, ArrayDType, ArrayData, IntoArrayData as _, IntoArrayVariant};
+use crate::{builders, ArrayData, IntoArrayData as _, IntoArrayVariant};
 
 impl<'a> Arbitrary<'a> for ArrayData {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {

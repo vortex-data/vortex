@@ -15,7 +15,7 @@ use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::infer_schema;
-use vortex_array::{ArrayDType as _, ArrayData};
+use vortex_array::ArrayData;
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::ExprRef;

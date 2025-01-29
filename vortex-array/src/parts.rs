@@ -9,7 +9,6 @@ use vortex_flatbuffers::{
     array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt,
 };
 
-use crate::stats::ArrayStatistics;
 use crate::{ArrayData, ContextRef};
 
 /// [`ArrayParts`] represents the information from an [`ArrayData`] that makes up the serialized

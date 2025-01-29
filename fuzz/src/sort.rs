@@ -3,8 +3,7 @@ use std::cmp::Ordering;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::scalar_at;
-use vortex_array::validity::ArrayValidity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 

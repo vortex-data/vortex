@@ -397,7 +397,7 @@ mod test {
     use vortex_array::array::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;

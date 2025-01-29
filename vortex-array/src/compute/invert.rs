@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 pub trait InvertFn<Array> {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.

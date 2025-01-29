@@ -9,8 +9,7 @@ use crate::array::ChunkedEncoding;
 use crate::compute::{
     scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast, SearchSortedSide, TakeFn,
 };
-use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 
 impl TakeFn<ChunkedArray> for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
@@ -77,8 +76,8 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &ArrayData) -> VortexResu
         let (chunk_idx, _idx_in_chunk) = chunked.find_chunk_idx(idx);
 
         // Find the end of this chunk, and locate that position in the indices array.
-        let chunk_begin = usize::try_from(&scalar_at(chunked.chunk_offsets(), chunk_idx)?)?;
-        let chunk_end = usize::try_from(&scalar_at(chunked.chunk_offsets(), chunk_idx + 1)?)?;
+        let chunk_begin = usize::try_from(&scalar_at(&chunked.chunk_offsets(), chunk_idx)?)?;
+        let chunk_end = usize::try_from(&scalar_at(&chunked.chunk_offsets(), chunk_idx + 1)?)?;
         let chunk_end_pos =
             search_sorted_usize(indices, chunk_end, SearchSortedSide::Left)?.to_index();
 
@@ -126,7 +125,7 @@ mod test {
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::take;
-    use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_take() {

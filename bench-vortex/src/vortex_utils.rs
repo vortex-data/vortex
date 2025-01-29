@@ -6,7 +6,6 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::variants::StructArrayTrait;
-use vortex::ArrayDType;
 
 use crate::data_downloads::FileType;
 use crate::reader::open_vortex;

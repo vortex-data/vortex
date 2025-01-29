@@ -19,9 +19,9 @@ use crate::compute::{
     filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
     sub_scalar, take, SearchResult, SearchSortedSide,
 };
-use crate::stats::{ArrayStatistics, Stat};
+use crate::stats::Stat;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 #[derive(
     Copy,

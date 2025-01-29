@@ -5,7 +5,7 @@ use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
 use crate::compute::{CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 mod compare;
 mod filter;

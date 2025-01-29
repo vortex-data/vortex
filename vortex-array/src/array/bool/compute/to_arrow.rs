@@ -6,7 +6,6 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::ToArrowFn;
-use crate::validity::ArrayValidity;
 use crate::IntoArrayData;
 
 impl ToArrowFn<BoolArray> for BoolEncoding {

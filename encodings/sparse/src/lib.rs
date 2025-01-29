@@ -4,14 +4,11 @@ use vortex_array::array::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::{ArrayStatistics, Stat, StatsSet};
-use vortex_array::validity::ArrayValidity;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, RkyvMetadata,
-};
+use vortex_array::{impl_encoding, ArrayData, IntoArrayData, IntoArrayVariant, RkyvMetadata};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;

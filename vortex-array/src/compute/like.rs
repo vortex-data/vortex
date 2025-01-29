@@ -3,7 +3,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 pub trait LikeFn<Array> {
     fn like(

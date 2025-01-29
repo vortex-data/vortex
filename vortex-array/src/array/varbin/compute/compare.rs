@@ -7,7 +7,7 @@ use crate::array::varbin::compute::to_arrow::varbin_to_arrow;
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {

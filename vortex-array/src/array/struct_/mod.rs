@@ -8,16 +8,16 @@ use vortex_mask::Mask;
 
 use crate::arrow::IntoArrowArray;
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
+    impl_encoding, ArrayData, Canonical, DeserializeMetadata, IntoArrayData, RkyvMetadata,
 };
 
 mod compute;
@@ -189,10 +189,10 @@ impl StructArrayTrait for StructArray {
     }
 }
 
-impl IntoCanonical for StructArray {
+impl CanonicalVTable<StructArray> for StructEncoding {
     /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self))
+    fn into_canonical(&self, array: StructArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(array))
     }
 }
 
@@ -245,7 +245,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_project() {

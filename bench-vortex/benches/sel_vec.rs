@@ -16,7 +16,7 @@ use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex::sampling_compressor::compressors::EncodingCompressor;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::PrimitiveArrayTrait;
-use vortex::{ArrayData, IntoArrayData, IntoCanonical};
+use vortex::{ArrayData, IntoArrayData};
 use vortex_mask::Mask;
 
 // criterion benchmark setup:

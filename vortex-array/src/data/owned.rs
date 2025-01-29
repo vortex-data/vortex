@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::encoding::EncodingRef;
 use crate::stats::StatsSet;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Debug)]

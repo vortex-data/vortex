@@ -3,7 +3,7 @@ use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::BinaryNumericFn;
-use crate::{ArrayData, ArrayLen as _, IntoArrayData as _};
+use crate::{ArrayData, IntoArrayData as _};
 
 impl BinaryNumericFn<ConstantArray> for ConstantEncoding {
     fn binary_numeric(

@@ -3,9 +3,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical, ToArrayData,
-};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -24,7 +22,14 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
     fn take(&self, array: &BitPackedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.clone().into_canonical()?.into_primitive()?, indices);
+            return take(
+                array
+                    .clone()
+                    .into_array()
+                    .into_canonical()?
+                    .into_primitive()?,
+                indices,
+            );
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must

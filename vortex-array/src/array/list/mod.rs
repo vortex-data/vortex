@@ -26,12 +26,10 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    RkyvMetadata,
-};
+use crate::{impl_encoding, ArrayData, Canonical, DeserializeMetadata, RkyvMetadata};
 
 impl_encoding!("vortex.list", ids::LIST, List, RkyvMetadata<ListMetadata>);
 
@@ -127,7 +125,7 @@ impl ListArray {
                 })
             })
             .unwrap_or_else(|| {
-                scalar_at(self.offsets(), index)
+                scalar_at(&self.offsets(), index)
                     .unwrap_or_else(|err| {
                         vortex_panic!(err, "Failed to get offset at index: {}", index)
                     })
@@ -180,9 +178,9 @@ impl VisitorVTable<ListArray> for ListEncoding {
     }
 }
 
-impl IntoCanonical for ListArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self))
+impl CanonicalVTable<ListArray> for ListEncoding {
+    fn into_canonical(&self, array: ListArray) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array))
     }
 }
 
@@ -244,7 +242,7 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_empty_list_array() {

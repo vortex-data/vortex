@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 /// Limit array to start...stop range
 pub trait SliceFn<Array> {

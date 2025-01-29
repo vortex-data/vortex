@@ -3,12 +3,13 @@
 //! When callers only want to make assumptions about the DType, and not about any specific
 //! encoding, they can use these traits to write encoding-agnostic code.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldName, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexResult};
 
-use crate::{ArrayDType, ArrayData, ArrayTrait};
+use crate::ArrayData;
 
 /// Provide functions on type-erased ArrayData to downcast into dtype-specific array variants.
 impl ArrayData {
@@ -61,11 +62,11 @@ impl ArrayData {
     }
 }
 
-pub trait NullArrayTrait: ArrayTrait {}
+pub trait NullArrayTrait {}
 
-pub trait BoolArrayTrait: ArrayTrait {}
+pub trait BoolArrayTrait {}
 
-pub trait PrimitiveArrayTrait: ArrayTrait {
+pub trait PrimitiveArrayTrait: Deref<Target = ArrayData> {
     /// The logical primitive type of the array.
     ///
     /// This is a type that can safely be converted into a `NativePType` for use in
@@ -79,11 +80,11 @@ pub trait PrimitiveArrayTrait: ArrayTrait {
     }
 }
 
-pub trait Utf8ArrayTrait: ArrayTrait {}
+pub trait Utf8ArrayTrait {}
 
-pub trait BinaryArrayTrait: ArrayTrait {}
+pub trait BinaryArrayTrait {}
 
-pub trait StructArrayTrait: ArrayTrait {
+pub trait StructArrayTrait: Deref<Target = ArrayData> {
     fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
@@ -133,9 +134,9 @@ pub trait StructArrayTrait: ArrayTrait {
     fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData>;
 }
 
-pub trait ListArrayTrait: ArrayTrait {}
+pub trait ListArrayTrait {}
 
-pub trait ExtensionArrayTrait: ArrayTrait {
+pub trait ExtensionArrayTrait: Deref<Target = ArrayData> {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &Arc<ExtDType> {
         let DType::Extension(ext_dtype) = self.dtype() else {

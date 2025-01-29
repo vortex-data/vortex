@@ -6,8 +6,8 @@ use vortex_mask::AllOr;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::FillForwardFn;
-use crate::validity::{ArrayValidity, Validity};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
+use crate::validity::Validity;
+use crate::{ArrayData, IntoArrayData, ToArrayData};
 
 impl FillForwardFn<BoolArray> for BoolEncoding {
     fn fill_forward(&self, array: &BoolArray) -> VortexResult<ArrayData> {

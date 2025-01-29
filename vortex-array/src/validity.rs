@@ -15,13 +15,24 @@ use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take};
 use crate::encoding::Encoding;
 use crate::patches::Patches;
-use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::vtable::ValidityVTable;
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
-pub trait ArrayValidity {
-    fn is_valid(&self, index: usize) -> VortexResult<bool>;
-    fn null_count(&self) -> VortexResult<usize>;
-    fn logical_validity(&self) -> VortexResult<Mask>;
+impl ArrayData {
+    /// Return whether the element at the given index is valid (true) or null (false).
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
+    }
+
+    /// Return the number of null elements in the array.
+    pub fn null_count(&self) -> VortexResult<usize> {
+        ValidityVTable::<ArrayData>::null_count(self.as_ref().encoding(), self.as_ref())
+    }
+
+    /// Return the logical validity of the array if nullable, and None if non-nullable.
+    pub fn logical_validity(&self) -> VortexResult<Mask> {
+        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
+    }
 }
 
 #[derive(

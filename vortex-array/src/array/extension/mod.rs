@@ -8,16 +8,14 @@ use vortex_mask::Mask;
 
 use crate::arrow::IntoArrowArray;
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
-use crate::validity::ArrayValidity;
+use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoCanonical,
-};
+use crate::{impl_encoding, ArrayData, Canonical, EmptyMetadata};
 
 mod compute;
 
@@ -72,9 +70,9 @@ impl ExtensionArrayTrait for ExtensionArray {
     }
 }
 
-impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
+impl CanonicalVTable<ExtensionArray> for ExtensionEncoding {
+    fn into_canonical(&self, array: ExtensionArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array))
     }
 }
 

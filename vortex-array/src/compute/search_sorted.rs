@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::ArrayData;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SearchSortedSide {
