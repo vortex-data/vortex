@@ -5,9 +5,11 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Text;
 use ratatui::widgets::{
-    Block, BorderType, Borders, List, ListState, Paragraph, StatefulWidget, Widget,
+    Block, BorderType, Borders, Cell, List, ListState, Paragraph, Row, StatefulWidget, Table,
+    Widget,
 };
 use vortex::buffer::ByteBuffer;
+use vortex::compute::scalar_at;
 use vortex::dtype::{DType, Field};
 use vortex::error::VortexExpect;
 use vortex::file::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID};
@@ -32,7 +34,12 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
 
     // Render the list view if the layout has children
     if app_state.cursor.encoding().id() == FLAT_LAYOUT_ID {
-        render_array(app_state, detail_area, buf);
+        render_array(
+            app_state,
+            detail_area,
+            buf,
+            app_state.cursor.is_stats_table(),
+        );
     } else {
         render_children_list(
             &app_state.cursor,
@@ -44,12 +51,6 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
-    // We want the header to have some padding, and all elements to be horizontally aligned.
-    // let [area] = Layout::default()
-    //     .constraints([Constraint::Min(0)])
-    //     .margin(10)
-    //     .areas(area);
-
     let layout_kind = match cursor.encoding().id() {
         FLAT_LAYOUT_ID => "FLAT".to_string(),
         CHUNKED_LAYOUT_ID => "CHUNKED".to_string(),
@@ -57,7 +58,6 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         _ => "UNKNOWN".to_string(),
     };
 
-    // If using a FlatLayout, read the array and parse the metadata.
     let row_count = cursor.layout().row_count();
 
     let mut rows = vec![
@@ -99,7 +99,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 }
 
 // Render the inner Array for a FlatLayout
-fn render_array(app: &AppState, area: Rect, buf: &mut Buffer) {
+fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
     let segment_ids: Vec<SegmentId> = app.cursor.layout().segments().collect();
     let buffers: Vec<ByteBuffer> = segment_ids
         .into_iter()
@@ -125,7 +125,47 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer) {
 
     container.render(area, buf);
 
-    Paragraph::new(array.tree_display().to_string()).render(widget_area, buf);
+    if is_stats_table {
+        // Render the stats table horizontally
+        let struct_array = array.as_struct_array().vortex_expect("stats table");
+        let field_count = struct_array.nfields();
+        let header = std::iter::once("chunk")
+            .chain(struct_array.names().iter().map(|x| x.as_ref()))
+            .map(Cell::from)
+            .collect::<Row>()
+            .style(Style::default().fg(Color::Green).bg(Color::DarkGray))
+            .height(1);
+
+        let field_arrays: Vec<ArrayData> = (0..struct_array.nfields())
+            .map(|x| {
+                struct_array
+                    .maybe_null_field_by_idx(x)
+                    .vortex_expect("stats table field")
+            })
+            .collect();
+
+        // TODO: trim the number of displayed rows and allow paging through column stats.
+        let rows = (0..array.len()).map(|chunk_id| {
+            std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
+                .chain(field_arrays.iter().map(|arr| {
+                    Cell::from(Text::from(
+                        scalar_at(arr, chunk_id)
+                            .vortex_expect("stats table scalar_at")
+                            .to_string(),
+                    ))
+                }))
+                .collect::<Row>()
+        });
+
+        Widget::render(
+            Table::new(rows, (0..field_count).map(|_| Constraint::Length(6))).header(header),
+            widget_area,
+            buf,
+        );
+    } else {
+        // Tree-display the active array
+        Paragraph::new(array.tree_display().to_string()).render(widget_area, buf);
+    };
 }
 
 fn render_children_list(
@@ -198,8 +238,8 @@ fn read_array(
     ctx: Arc<Context>,
     dtype: &DType,
 ) -> ArrayData {
-    #[allow(clippy::unwrap_used)]
-    let flatbuffer = FlatBuffer::try_from(buffers.pop().unwrap()).unwrap();
+    let flatbuffer = FlatBuffer::try_from(buffers.pop().vortex_expect("buffers pop"))
+        .vortex_expect("flatbuffers");
 
     let fb_array =
         root_as_array(flatbuffer.as_ref()).vortex_expect("Invalid fba::Array flatbuffer");
@@ -212,5 +252,7 @@ fn read_array(
     );
 
     // // Decode into an ArrayData.
-    array_parts.decode(ctx, dtype.clone()).unwrap()
+    array_parts
+        .decode(ctx, dtype.clone())
+        .vortex_expect("decoding ArrayParts")
 }

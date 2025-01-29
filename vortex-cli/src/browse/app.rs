@@ -145,6 +145,13 @@ impl LayoutCursor {
         Self::new_with_path(self.file_layout.clone(), path)
     }
 
+    /// Predicate true when the cursor is currently activated over a stats table
+    pub fn is_stats_table(&self) -> bool {
+        let parent = self.parent();
+        parent.encoding().id() == CHUNKED_LAYOUT_ID
+            && self.path.last().copied().unwrap_or_default() == (parent.layout().nchildren() - 1)
+    }
+
     pub fn dtype(&self) -> &DType {
         self.layout.dtype()
     }
