@@ -1,3 +1,5 @@
+mod to_arrow;
+
 use std::ops::Deref;
 
 use num_traits::AsPrimitive;
@@ -10,7 +12,7 @@ use super::BinaryView;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -25,6 +27,10 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
         Some(self)
     }
 }

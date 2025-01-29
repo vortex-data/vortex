@@ -1,3 +1,5 @@
+mod to_arrow;
+
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -5,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::compute::{scalar_at, slice, ScalarAtFn, SliceFn};
+use crate::compute::{scalar_at, slice, ScalarAtFn, SliceFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
@@ -15,6 +17,10 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
         Some(self)
     }
 }

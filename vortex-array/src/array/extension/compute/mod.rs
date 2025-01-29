@@ -1,11 +1,14 @@
 mod compare;
+mod to_arrow;
 
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
-use crate::compute::{scalar_at, slice, take, CastFn, CompareFn, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{
+    scalar_at, slice, take, CastFn, CompareFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+};
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{ArrayData, IntoArrayData};
@@ -31,6 +34,10 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
         Some(self)
     }
 }

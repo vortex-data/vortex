@@ -1,0 +1,23 @@
+use std::sync::Arc;
+
+use arrow_array::{ArrayRef, BooleanArray as ArrowBoolArray};
+use arrow_schema::DataType;
+use vortex_error::VortexResult;
+
+use crate::array::{BoolArray, BoolEncoding};
+use crate::compute::ToArrowFn;
+use crate::validity::ArrayValidity;
+use crate::IntoArrayData;
+
+impl ToArrowFn<BoolArray> for BoolEncoding {
+    fn to_arrow(&self, array: &BoolArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
+        if data_type != &DataType::Boolean {
+            return Ok(None);
+        }
+
+        Ok(Some(Arc::new(ArrowBoolArray::new(
+            array.boolean_buffer(),
+            array.logical_validity()?.to_null_buffer(),
+        ))))
+    }
+}

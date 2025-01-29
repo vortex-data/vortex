@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
+use arrow_schema::DataType;
+use vortex_datetime_dtype::TimeUnit::D;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayVariant};
 
@@ -162,12 +164,12 @@ pub(crate) fn arrow_boolean(
 ) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
-    let lhs = Canonical::Bool(lhs.into_bool()?)
-        .into_arrow()?
+    let lhs = lhs
+        .into_arrow_with_data_type(&DataType::Boolean)?
         .as_boolean()
         .clone();
-    let rhs = Canonical::Bool(rhs.into_bool()?)
-        .into_arrow()?
+    let rhs = rhs
+        .into_arrow_with_data_type(&DataType::Boolean)?
         .as_boolean()
         .clone();
 
