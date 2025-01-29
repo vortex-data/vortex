@@ -41,6 +41,26 @@ fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
                             app.layouts_list_state.scroll_down_by(1);
                         }
                     }
+                    KeyCode::PageUp => {
+                        if app.current_tab == Tab::Layout {
+                            app.layouts_list_state.scroll_up_by(10);
+                        }
+                    }
+                    KeyCode::PageDown => {
+                        if app.current_tab == Tab::Layout {
+                            app.layouts_list_state.scroll_down_by(10);
+                        }
+                    }
+                    KeyCode::Home => {
+                        if app.current_tab == Tab::Layout {
+                            app.layouts_list_state.select_first();
+                        }
+                    }
+                    KeyCode::End => {
+                        if app.current_tab == Tab::Layout {
+                            app.layouts_list_state.select_last();
+                        }
+                    }
                     KeyCode::Enter => {
                         if app.current_tab == Tab::Layout {
                             // Descend into the layout subtree for the selected child.
