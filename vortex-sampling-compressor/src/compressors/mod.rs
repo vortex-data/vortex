@@ -213,13 +213,13 @@ impl<'a> CompressedArray<'a> {
             compressed.len(),
             uncompressed.len(),
             "Compressed array {} has different length to uncompressed",
-            compressed.vtable().id(),
+            compressed.encoding(),
         );
         assert_eq!(
             compressed.dtype(),
             uncompressed.dtype(),
             "Compressed array {} has different dtype to uncompressed",
-            compressed.vtable().id(),
+            compressed.encoding(),
         );
 
         // eagerly compute uncompressed size in bytes at compression time, since it's

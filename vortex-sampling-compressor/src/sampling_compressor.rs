@@ -226,7 +226,7 @@ impl<'a> SamplingCompressor<'a> {
                 "{} no compressors for array with dtype: {} and encoding: {}",
                 self,
                 array.dtype(),
-                array.vtable().id(),
+                array.encoding(),
             );
             return Ok(CompressedArray::uncompressed(array.clone()));
         }
@@ -239,7 +239,7 @@ impl<'a> SamplingCompressor<'a> {
         // TODO(ngates): we actually probably want some way to prefer dict encoding over other varbin
         //  encodings, e.g. FSST.
         if candidates.len() > 1 {
-            candidates.retain(|&compression| compression.id() != array.vtable().id().as_ref());
+            candidates.retain(|&compression| compression.id() != array.encoding().as_ref());
         }
 
         if array.len() <= (self.options.sample_size as usize * self.options.sample_count as usize) {
@@ -385,6 +385,6 @@ mod tests {
             .compress(&array, None)
             .unwrap()
             .into_array();
-        assert_eq!(compressed.vtable().id(), ALPRDEncoding::ID);
+        assert_eq!(compressed.encoding(), ALPRDEncoding::ID);
     }
 }

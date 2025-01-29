@@ -37,7 +37,7 @@ fn bench_sel_vec(c: &mut Criterion) {
         .compress(&arr.into_array(), None)
         .unwrap()
         .into_array();
-    assert_eq!(arr.vtable().id(), ALPEncoding::ID);
+    assert_eq!(arr.encoding(), ALPEncoding::ID);
 
     println!("tree: {}", arr.tree_display());
 

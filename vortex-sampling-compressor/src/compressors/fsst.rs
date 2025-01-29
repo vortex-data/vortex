@@ -87,7 +87,7 @@ impl EncodingCompressor for FSSTCompressor {
             } else {
                 vortex_bail!(
                     "Unsupported encoding for FSSTCompressor: {}",
-                    array.vtable().id()
+                    array.encoding()
                 )
             };
 

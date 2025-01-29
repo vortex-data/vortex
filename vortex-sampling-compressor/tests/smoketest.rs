@@ -122,7 +122,7 @@ mod tests {
             .unwrap();
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
-            assert_eq!(chunk.vtable().id(), BitPackedEncoding::ID);
+            assert_eq!(chunk.encoding(), BitPackedEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -137,7 +137,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in bool_col.chunks() {
-            assert_eq!(chunk.vtable().id(), BoolEncoding::ID);
+            assert_eq!(chunk.encoding(), BoolEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -152,9 +152,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in varbin_col.chunks() {
-            assert!(
-                chunk.vtable().id() == DictEncoding::ID || chunk.vtable().id() == FSSTEncoding::ID
-            );
+            assert!(chunk.encoding() == DictEncoding::ID || chunk.encoding() == FSSTEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -169,7 +167,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in binary_col.chunks() {
-            assert_eq!(chunk.vtable().id(), VarBinEncoding::ID);
+            assert_eq!(chunk.encoding(), VarBinEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
@@ -184,7 +182,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in timestamp_col.chunks() {
-            assert_eq!(chunk.vtable().id(), DateTimePartsEncoding::ID);
+            assert_eq!(chunk.encoding(), DateTimePartsEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
