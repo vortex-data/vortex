@@ -1,7 +1,7 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{exact, ArrayStatistics, Max, Stat};
+use crate::stats::{exact, ArrayStatistics, GtOrd, Max, Stat};
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 pub trait TakeFn<Array> {
@@ -62,7 +62,7 @@ pub fn take(
         // .get_as_compare::<Max, usize>(array.len())?
         // .unwrap_or(false);
         .get_as::<Max, usize>()
-        .is_some_and(|max| max.ge2(&array.len()));
+        .is_some_and(|max| max.ge(&array.len()).unwrap_or(false));
 
     let taken = take_impl(array, indices, checked_indices)?;
 

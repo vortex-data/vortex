@@ -5,7 +5,7 @@ use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::{
-    exact, Max, Min, NullCount, PartialOrder, Precision, Stat, StatOrder, StatisticsCompare,
+    exact, GtOrd, Max, Min, NullCount, PartialOrder, Precision, Stat, StatOrder, StatisticsCompare,
     TrueCount, UncompressedSizeInBytes,
 };
 
@@ -332,19 +332,19 @@ impl StatsSet {
                 if m2.ge(&m1).vortex_expect("can compare max stats") {
                     self.set(Stat::Max, m2.0.map(|s| s.into_value()));
                 }
-                // if Scalar::new(dtype.clone(), m2.clone()) > Scalar::new(dtype.clone(), m1.clone()) {
-                //     self.set(Stat::Max, m2.clone());
-                // }
             }
             _ => self.clear(Stat::Max),
         }
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
-        if (Some(Precision::Exact(true)), Some(Precision::Exact(true))) == (
+        if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
+            == (
                 self.get_as(Stat::IsConstant),
                 other.get_as(Stat::IsConstant),
-            ) && self.getv::<Min>(dtype) == other.getv::<Min>(dtype) {
+            )
+            && self.getv::<Min>(dtype) == other.getv::<Min>(dtype)
+        {
             return;
         }
         // TODO(joe): this is not true, what is the correct thing to do here? Maybe bound(false)?
@@ -374,49 +374,17 @@ impl StatsSet {
             // We assume that it was the dropped case since the doesn't exist might imply sorted,
             // but this in-precision is correct.
             if let (Some(self_max), Some(other_min)) =
-                (self.getv::<Max>(dtype), self.getv::<Min>(dtype))
+                (self.getv::<Max>(dtype), other.getv::<Min>(dtype))
             {
-                if cmp(self_max.value(), other_min.value()) {
+                return if cmp(self_max.value(), other_min.value()) {
                     // keep value
                 } else {
                     // TODO(joe): this might not be false, I guess this might be a bound.
                     self.set(stat, exact(false));
-                }
-                // if max <= min
-                // return
-                // else
-                // set false
+                };
             }
-        } else {
-            self.clear(stat);
         }
-        // // TODO(joe): this is not true, what is the correct thing to do here? Maybe bound(false)?
-        // self.set(Stat::IsConstant, exact(false));
-        //
-        // if let Some(is_sorted) = self.get_as(stat) {
-        //     if let Some(other_is_sorted) = other.get_as(stat) {
-        //         if !(self.get(Stat::Max).is_some() && other.get(Stat::Min).is_some()) {
-        //             self.clear(stat);
-        //         } else if is_sorted
-        //             && other_is_sorted
-        //             && cmp(
-        //                 self.get(Stat::Max)
-        //                     .cloned()
-        //                     .map(|sv| Scalar::new(dtype.clone(), sv)),
-        //                 other
-        //                     .get(Stat::Min)
-        //                     .cloned()
-        //                     .map(|sv| Scalar::new(dtype.clone(), sv)),
-        //             )
-        //         {
-        //             return;
-        //         } else {
-        //             self.set(stat, false);
-        //         }
-        //     } else {
-        //         self.clear(stat)
-        //     }
-        // }
+        self.clear(stat);
     }
 
     fn merge_true_count(&mut self, other: &Self) {
@@ -500,7 +468,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{exact, ArrayStatistics as _, Stat, StatsSet};
+    use crate::stats::{bound, exact, ArrayStatistics as _, Stat, StatsSet};
     use crate::IntoArrayData as _;
 
     #[test]
@@ -761,5 +729,25 @@ mod test {
             merged.get_as::<u64>(Stat::NullCount).unwrap(),
             stats.get_as::<u64>(Stat::NullCount).unwrap().map(|s| s * 2)
         );
+    }
+
+    #[test]
+    fn merge_min_bound_same() {
+        // Merging a stat with a bound and another with an exact results in exact stat.
+        // since bound for min is a lower bound, it can in fact contain any value >= bound.
+        let merged = StatsSet::of(Stat::Min, bound(5)).merge_ordered(
+            &StatsSet::of(Stat::Min, exact(5)),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        );
+        assert_eq!(merged.get_as::<i32>(Stat::Min), Some(exact(5)));
+    }
+
+    #[test]
+    fn merge_min_bound_bound_lower() {
+        let merged = StatsSet::of(Stat::Min, bound(4)).merge_ordered(
+            &StatsSet::of(Stat::Min, exact(5)),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        );
+        assert_eq!(merged.get_as::<i32>(Stat::Min), Some(bound(4)));
     }
 }

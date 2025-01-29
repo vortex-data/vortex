@@ -221,31 +221,26 @@ impl<T: PartialOrd> PartialOrder<T> for LowerBound<T> {
 #[derive(Debug, Clone)]
 pub struct UpperBound<T>(Precision<T>);
 
-impl<T: PartialOrd> UpperBound<T> {
-    pub fn ge(&self, value: &UpperBound<T>) -> Option<bool> {
-        Some(match self.0.value().partial_cmp(value.0.value())? {
+pub trait GtOrd<Rhs: ?Sized = Self> {
+    fn ge(&self, other: &Rhs) -> Option<bool>;
+}
+
+impl<T: PartialOrd> GtOrd for UpperBound<T> {
+    fn ge(&self, other: &Self) -> Option<bool> {
+        Some(match self.0.value().partial_cmp(other.0.value())? {
             Ordering::Less => false,
             Ordering::Equal => {
                 // for a fixed value v. exact(v) >= bound(v) is true
-                matches!((&self.0, &value.0), (Exact(_), _) | (Bound(_), Bound(_)))
+                matches!((&self.0, &other.0), (Exact(_), _) | (Bound(_), Bound(_)))
             }
             Ordering::Greater => true,
         })
     }
+}
 
-    pub fn ge2(&self, value: &T) -> bool {
-        self.0.value() >= value
-        // Some(match self.0.value().partial_cmp(&value.0.value())? {
-        //     Ordering::Less => false,
-        //     Ordering::Equal => {
-        //         // for a fixed value v. exact(v) >= bound(v) is true
-        //         match (&self, &value) {
-        //             (Precision::Exact(_), _) | (Precision::Bound(_), Precision::Bound(_)) => true,
-        //             _ => false,
-        //         }
-        //     }
-        //     Ordering::Greater => true,
-        // })
+impl<T: PartialOrd> GtOrd<T> for UpperBound<T> {
+    fn ge(&self, other: &T) -> Option<bool> {
+        Some(self.0.value() >= other)
     }
 }
 
