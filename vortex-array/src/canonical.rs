@@ -404,7 +404,7 @@ mod test {
 
         let vortex_list = ArrayData::from_arrow(&arrow_list, true);
 
-        let rt_arrow_list = vortex_list.into_arrow(&list_data_type).unwrap();
+        let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 
         assert_eq!(
             (Arc::new(arrow_list.clone()) as ArrayRef).as_ref(),
