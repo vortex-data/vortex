@@ -15,7 +15,7 @@ use vortex::io::TokioFile;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{LayoutData, LayoutEncodingRef};
+use vortex_layout::{LayoutData, LayoutVTableRef};
 // Add a shared Tokio Runtime for use in the app.
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -156,7 +156,7 @@ impl LayoutCursor {
         self.layout.dtype()
     }
 
-    pub fn encoding(&self) -> LayoutEncodingRef {
+    pub fn encoding(&self) -> &LayoutVTableRef {
         self.layout.encoding()
     }
 
