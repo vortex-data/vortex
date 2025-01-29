@@ -5,5 +5,8 @@ rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 
+[target.'cfg(any())']
+rustflags = ["-C", "llvm-args=--inline-threshold=1024"]
+
 [alias]
 xtask = "run -p xtask --"
