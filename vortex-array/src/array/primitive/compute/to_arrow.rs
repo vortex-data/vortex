@@ -7,7 +7,6 @@ use arrow_array::types::{
 use arrow_array::{ArrayRef, ArrowPrimitiveType, PrimitiveArray as ArrowPrimitiveArray};
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::DataType;
-use log::Level::Error;
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};
 

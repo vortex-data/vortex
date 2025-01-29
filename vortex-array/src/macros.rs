@@ -1,6 +1,5 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use std::fmt::Display;
 
 use crate::ArrayData;
 /// Macro to generate all the necessary code for a new type of array encoding. Including:

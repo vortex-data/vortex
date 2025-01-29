@@ -16,7 +16,6 @@ use crate::array::PrimitiveEncoding;
 use crate::stats::{Stat, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
-use crate::IntoArrayVariant;
 
 trait PStatsType:
     NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>

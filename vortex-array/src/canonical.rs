@@ -1,31 +1,23 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use std::ops::Deref;
-use std::sync::Arc;
 
 use arrow_array::types::*;
 use arrow_array::{
-    new_null_array, Array, ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
-    Date32Array, Date64Array, PrimitiveArray as ArrowPrimitiveArray,
-    StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
-    Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
+    Array, ArrayRef, ArrowPrimitiveType,
 };
-use arrow_buffer::ScalarBuffer;
-use arrow_cast::cast;
-use arrow_schema::{DataType, Field, FieldRef, Fields};
+use arrow_schema::DataType;
 use itertools::Itertools;
-use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_dtype::{DType, NativePType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::array::{
-    varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
-    StructArray, TemporalArray, VarBinViewArray,
+    BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
+    StructArray, VarBinViewArray,
 };
-use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::builders::builder_with_capacity;
-use crate::compute::{preferred_arrow_data_type, to_arrow, try_cast};
+use crate::compute::{preferred_arrow_data_type, to_arrow};
 use crate::encoding::Encoding;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use crate::{ArrayData, IntoArrayData};

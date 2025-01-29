@@ -3,13 +3,12 @@ use std::sync::Arc;
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
 use arrow_schema::DataType;
-use vortex_datetime_dtype::TimeUnit::D;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::encoding::Encoding;
-use crate::{ArrayData, Canonical, IntoArrayVariant};
+use crate::ArrayData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {

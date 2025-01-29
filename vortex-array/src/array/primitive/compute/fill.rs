@@ -1,7 +1,6 @@
-use arrow_buffer::BooleanBuffer;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, Nullability};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 

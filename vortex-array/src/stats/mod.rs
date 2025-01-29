@@ -7,17 +7,15 @@ use std::sync::Arc;
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
-use futures_util::TryStreamExt;
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::ScalarValue;
 
-use crate::encoding::Encoding;
 use crate::ArrayData;
 
 pub mod flatbuffers;

@@ -1,6 +1,4 @@
-use arrow_array::{Array, ArrayRef};
-use arrow_cast::cast;
-use arrow_schema::DataType;
+use arrow_array::Array;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;

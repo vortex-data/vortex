@@ -10,7 +10,6 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::{
     BinaryView, BoolArray, ConstantEncoding, ExtensionArray, NullArray, VarBinViewArray,
 };
-use crate::arrow::IntoArrowArray;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 use crate::{Canonical, IntoArrayData, IntoCanonical};

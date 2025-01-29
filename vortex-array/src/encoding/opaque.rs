@@ -1,7 +1,6 @@
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 
-use arrow_array::ArrayRef;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 

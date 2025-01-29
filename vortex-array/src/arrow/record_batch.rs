@@ -4,7 +4,7 @@ use arrow_schema::{DataType, Schema};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::array::StructArray;
-use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 

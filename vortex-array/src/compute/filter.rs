@@ -1,14 +1,10 @@
-use std::cmp::Ordering;
-use std::ops::BitAnd;
-use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskValues};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
-use crate::array::{BoolArray, ConstantArray};
+use crate::array::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;

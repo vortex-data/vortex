@@ -1,12 +1,10 @@
-use arrow_array::ArrayRef;
 use arrow_schema::DataType;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::array::varbin::VarBinArray;
 use crate::array::{VarBinEncoding, VarBinViewArray};
-use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
-use crate::compute::{preferred_arrow_data_type, to_arrow};
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::vtable::CanonicalVTable;
 use crate::{ArrayData, Canonical, IntoArrayData};
 

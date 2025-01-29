@@ -2,7 +2,7 @@ use arrow_array::{Array, ArrayRef, Datum as ArrowDatum};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::array::ConstantArray;
-use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
 use crate::{ArrayData, IntoArrayData};
 

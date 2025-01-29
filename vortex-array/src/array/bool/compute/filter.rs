@@ -1,12 +1,11 @@
-use std::sync::Arc;
 
 use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask, MaskIter, MaskValues};
+use vortex_mask::{Mask, MaskIter};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::FilterFn;
-use crate::{ArrayData, Canonical, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;

@@ -9,7 +9,6 @@ use vortex_mask::Mask;
 use crate::array::{BoolArray, BoolEncoding};
 use crate::stats::{Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
-use crate::IntoArrayVariant;
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {

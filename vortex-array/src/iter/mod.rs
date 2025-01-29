@@ -3,10 +3,9 @@ use std::sync::Arc;
 
 pub use adapter::*;
 pub use ext::*;
-use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
 
-use crate::validity::Validity;
 use crate::ArrayData;
 
 mod adapter;

@@ -1,9 +1,8 @@
 use arrow_array::{BinaryArray, StringArray};
 use arrow_ord::cmp;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::array::varbin::compute::to_arrow::varbin_to_arrow;
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};

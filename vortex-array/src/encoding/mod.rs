@@ -1,13 +1,8 @@
 //! Traits and types to define shared unique encoding identifiers.
 
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use crate::vtable::{
-    CanonicalVTable, ComputeVTable, EncodingVTable, MetadataVTable, StatisticsVTable,
-    ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
-};
 use crate::{DeserializeMetadata, SerializeMetadata};
 
 pub mod opaque;

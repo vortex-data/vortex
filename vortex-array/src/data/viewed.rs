@@ -7,7 +7,6 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 
-use crate::encoding::opaque::OpaqueEncoding;
 use crate::vtable::VTableRef;
 use crate::{flatbuffers as fb, ContextRef};
 

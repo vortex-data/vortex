@@ -1,18 +1,14 @@
 use std::sync::Arc;
 
-use arrow_array::types::GenericBinaryType;
 use arrow_array::{
-    ArrayRef, BinaryArray, GenericBinaryArray, GenericStringArray, LargeBinaryArray,
-    LargeStringArray, OffsetSizeTrait, StringArray,
+    ArrayRef, GenericBinaryArray, GenericStringArray, OffsetSizeTrait,
 };
-use arrow_buffer::ArrowNativeType;
 use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::compute::{try_cast, ToArrowFn};
-use crate::variants::PrimitiveArrayTrait;
 use crate::IntoArrayVariant;
 
 impl ToArrowFn<VarBinArray> for VarBinEncoding {

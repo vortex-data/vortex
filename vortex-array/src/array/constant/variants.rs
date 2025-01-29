@@ -5,7 +5,6 @@ use vortex_scalar::Scalar;
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::iter::Accessor;
-use crate::validity::Validity;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,

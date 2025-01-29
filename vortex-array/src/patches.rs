@@ -1,16 +1,14 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
-use num_traits::{AsPrimitive, NumCast, ToPrimitive};
+use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask, MaskValues};
+use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;

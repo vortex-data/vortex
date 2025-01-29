@@ -1,15 +1,14 @@
-use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{Mask, MaskIter, MaskValues};
+use vortex_mask::{Mask, MaskIter};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, Canonical, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

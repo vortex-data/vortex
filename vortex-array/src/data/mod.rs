@@ -1,15 +1,12 @@
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
-use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -19,9 +16,9 @@ use crate::array::{
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{Stat, Statistics, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::vtable::{EncodingVTable, VTableRef, ValidityVTable};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
 mod owned;
