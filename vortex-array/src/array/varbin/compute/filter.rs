@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask, MaskIter, MaskValues};
+use vortex_mask::{AllOr, Mask, MaskIter};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
@@ -172,7 +170,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
                 })?,
             );
-            builder.push(Some(&data[start..end]))
+            builder.push_value(&data[start..end])
         } else {
             builder.push_null()
         }
@@ -185,7 +183,6 @@ mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
-    use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
@@ -245,7 +242,7 @@ mod test {
     }
 
     #[test]
-    fn filter_var_bin_slice_null_test() {
+    fn filter_var_bin_slice_null() {
         let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
@@ -276,5 +273,27 @@ mod test {
         assert_eq!(scalar_at(&buf, 2).unwrap(), nullable_scalar_str("three"));
         assert_eq!(scalar_at(&buf, 3).unwrap(), nullable_scalar_str("five"));
         assert_eq!(scalar_at(&buf, 4).unwrap(), nullable_scalar_str("six"));
+    }
+
+    #[test]
+    fn filter_varbin_nulls() {
+        let bytes = [b"".as_slice(), b"two".as_slice(), b"two".as_slice()]
+            .into_iter()
+            .flat_map(|x| x.iter().cloned())
+            .collect::<ByteBuffer>();
+
+        let offsets = PrimitiveArray::from_iter([0, 0, 3, 6]).into_array();
+        let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
+        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2)
+            .unwrap()
+            .into_array();
+
+        let null = Scalar::null(DType::Utf8(Nullable));
+        assert_eq!(buf.len(), 2);
+
+        assert_eq!(scalar_at(&buf, 0).unwrap(), null);
+        assert_eq!(scalar_at(&buf, 1).unwrap(), nullable_scalar_str("two"));
     }
 }
