@@ -4,9 +4,9 @@ use arrow_schema::{DataType, Schema};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::array::StructArray;
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TryFrom<RecordBatch> for ArrayData {
     type Error = VortexError;

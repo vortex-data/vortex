@@ -8,6 +8,7 @@ use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
+use crate::arrow::IntoArrowArray;
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
@@ -71,6 +72,7 @@ impl IntoCanonical for ConstantArray {
         })
     }
 }
+
 
 fn canonical_byte_view(
     scalar_bytes: Option<&[u8]>,

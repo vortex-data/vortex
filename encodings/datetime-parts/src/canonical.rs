@@ -1,4 +1,5 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::try_cast;
 use vortex_array::{
     ArrayDType, Canonical, IntoArrayData as _, IntoArrayVariant as _, IntoCanonical,
@@ -17,6 +18,7 @@ impl IntoCanonical for DateTimePartsArray {
         Ok(Canonical::Extension(decode_to_temporal(&self)?.into()))
     }
 }
+
 
 /// Decode an [ArrayData] into a [TemporalArray].
 ///

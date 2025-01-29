@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
@@ -259,6 +260,7 @@ impl IntoCanonical for BitPackedArray {
         unpack(self).map(Canonical::Primitive)
     }
 }
+
 
 impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
     fn is_valid(&self, array: &BitPackedArray, index: usize) -> VortexResult<bool> {

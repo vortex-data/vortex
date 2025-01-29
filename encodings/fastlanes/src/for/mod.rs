@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::ArrayValidity;
@@ -108,6 +109,7 @@ impl IntoCanonical for FoRArray {
         decompress(self).map(Canonical::Primitive)
     }
 }
+
 
 impl VisitorVTable<FoRArray> for FoREncoding {
     fn accept(&self, array: &FoRArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

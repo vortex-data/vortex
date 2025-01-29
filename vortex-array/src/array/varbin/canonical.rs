@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinViewArray;
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
@@ -22,13 +22,14 @@ impl IntoCanonical for VarBinArray {
 
         VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
     }
+}
 
+impl IntoArrowArray for VarBinArray {
     fn into_arrow(self) -> VortexResult<ArrayRef> {
         // Specialized implementation of `into_arrow` for VarBin since it has a direct
         // Arrow representation.
         varbin_to_arrow(&self)
     }
-
     fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
         let array_ref = self.into_arrow()?;
 

@@ -5,6 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::arrow::IntoArrowArray;
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatsSet};
@@ -39,6 +40,7 @@ impl IntoCanonical for NullArray {
         Ok(Canonical::Null(self))
     }
 }
+
 
 impl ValidityVTable<NullArray> for NullEncoding {
     fn is_valid(&self, _array: &NullArray, _idx: usize) -> VortexResult<bool> {

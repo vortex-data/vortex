@@ -22,7 +22,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::Serialize;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 use vortex::array::ChunkedArray;
-use vortex::arrow::FromArrowType;
+use vortex::arrow::{FromArrowType, IntoArrowArray};
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::encodings::fastlanes::DeltaEncoding;
@@ -347,7 +347,7 @@ mod test {
     use vortex::arrow::FromArrowArray;
     use vortex::compress::CompressionStrategy;
     use vortex::sampling_compressor::SamplingCompressor;
-    use vortex::{ArrayData, IntoCanonical};
+    use vortex::ArrayData;
 
     use crate::taxi_data::taxi_data_parquet;
     use crate::{compress_taxi_data, setup_logger};

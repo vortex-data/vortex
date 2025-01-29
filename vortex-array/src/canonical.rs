@@ -22,7 +22,7 @@ use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
     StructArray, TemporalArray, VarBinViewArray,
 };
-use crate::arrow::{infer_data_type, FromArrowArray};
+use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
 use crate::builders::builder_with_capacity;
 use crate::compute::{to_arrow, try_cast};
 use crate::encoding::Encoding;
@@ -395,20 +395,6 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
 /// The DType of the array will be unchanged by canonicalization.
 pub trait IntoCanonical {
     fn into_canonical(self) -> VortexResult<Canonical>;
-
-    fn into_arrow(self) -> VortexResult<ArrayRef>
-    where
-        Self: Sized,
-    {
-        self.into_canonical()?.into_arrow()
-    }
-
-    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef>
-    where
-        Self: Sized,
-    {
-        self.into_canonical()?.into_arrow_with_data_type(data_type)
-    }
 }
 
 /// Trait for types that can be converted from an owned type into an owned array variant.
@@ -477,11 +463,10 @@ impl IntoCanonical for ArrayData {
         }
         self.encoding().into_canonical(self)
     }
+}
 
-    fn into_arrow(self) -> VortexResult<ArrayRef>
-    where
-        Self: Sized,
-    {
+impl IntoArrowArray for ArrayData {
+    fn into_arrow(self) -> VortexResult<ArrayRef> {
         let data_type = infer_data_type(self.dtype())?;
         self.into_arrow_with_data_type(&data_type)
     }
@@ -554,8 +539,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::array::{ConstantArray, StructArray};
-    use crate::arrow::{infer_data_type, FromArrowArray};
-    use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+    use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
+    use crate::{ArrayDType, ArrayData, IntoArrayData};
 
     #[test]
     fn test_canonicalize_nested_struct() {

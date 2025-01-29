@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::validity::ArrayValidity;
@@ -136,6 +137,7 @@ impl IntoCanonical for ALPArray {
         decompress(self).map(Canonical::Primitive)
     }
 }
+
 
 impl VisitorVTable<ALPArray> for ALPEncoding {
     fn accept(&self, array: &ALPArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

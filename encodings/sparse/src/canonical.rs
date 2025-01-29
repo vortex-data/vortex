@@ -1,4 +1,5 @@
 use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
@@ -29,6 +30,7 @@ impl IntoCanonical for SparseArray {
         }
     }
 }
+
 
 fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
     let (fill_bool, validity) = if fill_value.is_null() {

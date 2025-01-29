@@ -2,9 +2,9 @@ use arrow_array::{Array, ArrayRef, Datum as ArrowDatum};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::array::ConstantArray;
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
-use crate::{ArrayData, IntoArrayData, IntoCanonical};
+use crate::{ArrayData, IntoArrayData};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]

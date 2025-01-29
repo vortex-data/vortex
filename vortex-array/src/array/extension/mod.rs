@@ -6,6 +6,7 @@ use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::arrow::IntoArrowArray;
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
 use crate::validity::ArrayValidity;
@@ -76,6 +77,7 @@ impl IntoCanonical for ExtensionArray {
         Ok(Canonical::Extension(self))
     }
 }
+
 
 impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
     fn is_valid(&self, array: &ExtensionArray, index: usize) -> VortexResult<bool> {

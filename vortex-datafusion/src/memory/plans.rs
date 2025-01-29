@@ -19,7 +19,7 @@ use futures::{ready, Stream};
 use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
-use vortex_array::arrow::FromArrowArray;
+use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{FieldName, FieldNames};

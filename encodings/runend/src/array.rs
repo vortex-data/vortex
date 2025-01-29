@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
+use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{
     scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
 };
@@ -217,6 +218,7 @@ impl IntoCanonical for RunEndArray {
         }
     }
 }
+
 
 impl VisitorVTable<RunEndArray> for RunEndEncoding {
     fn accept(&self, array: &RunEndArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
