@@ -15,17 +15,14 @@ table Postscript {
     layout: Segment;
     /// A FlatBuffer of type SegmentMap
     segment_map: Segment;
-
+    /// A FlatBuffer of type Schemes
+    schemes: Segment;
 }
 // [postscript]
 
 // [segment_map]
 table SegmentMap {
     segments: [Segment];
-    /// The encryption schemes used within the file
-    encryption_schemes: [EncryptionScheme];
-    /// The compression schemes used within the file
-    compression_schemes: [CompressionScheme];
 }
 
 /// A `Segment` acts as the locator for a buffer within the file.
@@ -35,6 +32,18 @@ table Segment {
     alignment_exponent: uint8 = null;
     compression_scheme: uint32 = null;
     encryption_scheme: uint32 = null;
+}
+// [segment_map]
+
+// [schemes]
+
+/// Schemes essentially acts as dictionary encoding for the different encryption and compression
+/// configurations used within the file. Each segment can optionally point into these arrays.
+table Schemes {
+    /// The encryption schemes used within the file
+    encryption_schemes: [EncryptionScheme];
+    /// The compression schemes used within the file
+    compression_schemes: [CompressionScheme];
 }
 
 /// Defines an encryption scheme used within the file
@@ -50,7 +59,7 @@ enum EncryptionAlgorithm {
 /// The compression schemes supported by Vortex.
 union CompressionScheme {
 }
-// [segment_map]
+// [schemes]
 
 // [vtables]
 table EncodingVTable {
