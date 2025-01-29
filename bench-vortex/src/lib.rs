@@ -31,7 +31,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::validity::Validity;
-use vortex::{ArrayData, Context, ContextRef, IntoArrayData};
+use vortex::{ArrayData, ContextRef, IntoArrayData};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
