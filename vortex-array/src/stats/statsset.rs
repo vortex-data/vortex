@@ -183,7 +183,6 @@ impl StatsSet {
         })
     }
 
-    // TODO(joe): Add a replace at _i
     /// Set the stat `stat` to `value`.
     pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
         if self.values.is_none() {
