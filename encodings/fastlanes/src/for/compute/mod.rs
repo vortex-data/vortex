@@ -8,7 +8,7 @@ use vortex_array::compute::{
     SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::compute::ComputeVTable;
+use vortex_array::vtable::ComputeVTable;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};

@@ -6,7 +6,7 @@ use vortex_array::compute::{
     filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, FilterFn, LikeFn, ScalarAtFn,
     SliceFn, TakeFn,
 };
-use vortex_array::vtable::compute::ComputeVTable;
+use vortex_array::vtable::ComputeVTable;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;

@@ -10,7 +10,7 @@ pub(crate) mod take;
 use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
-use vortex_array::vtable::compute::ComputeVTable;
+use vortex_array::vtable::ComputeVTable;
 use vortex_array::ArrayData;
 
 use crate::RunEndEncoding;

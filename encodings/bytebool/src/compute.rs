@@ -2,7 +2,7 @@ use num_traits::AsPrimitive;
 use vortex_array::compute::{FillForwardFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::compute::ComputeVTable;
+use vortex_array::vtable::ComputeVTable;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};

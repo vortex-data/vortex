@@ -1,5 +1,5 @@
 use vortex_array::compute::{FilterFn, ScalarAtFn, SliceFn, TakeFn};
-use vortex_array::vtable::compute::ComputeVTable;
+use vortex_array::vtable::ComputeVTable;
 use vortex_array::ArrayData;
 
 use crate::ALPRDEncoding;

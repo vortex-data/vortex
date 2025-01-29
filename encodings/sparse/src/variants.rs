@@ -2,7 +2,7 @@ use vortex_array::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use vortex_array::vtable::variants::VariantsVTable;
+use vortex_array::vtable::VariantsVTable;
 use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;

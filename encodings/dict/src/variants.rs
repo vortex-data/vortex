@@ -1,7 +1,7 @@
 use vortex_array::variants::{
     BinaryArrayTrait, BoolArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait,
 };
-use vortex_array::vtable::variants::VariantsVTable;
+use vortex_array::vtable::VariantsVTable;
 
 use crate::{DictArray, DictEncoding};
 

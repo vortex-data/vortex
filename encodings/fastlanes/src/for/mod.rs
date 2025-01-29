@@ -7,11 +7,9 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::statistics::StatisticsVTable;
-use vortex_array::vtable::validate::ValidateVTable;
-use vortex_array::vtable::validity::ValidityVTable;
-use vortex_array::vtable::variants::VariantsVTable;
-use vortex_array::vtable::visitor::VisitorVTable;
+use vortex_array::vtable::{
+    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, SerdeMetadata,
 };
