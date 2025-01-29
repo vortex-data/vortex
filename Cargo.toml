@@ -231,7 +231,6 @@ lto = "thin"      # attempts to perform optimizations across all crates within t
 
 [profile.bench]
 codegen-units = 16 # default for "release", which "bench" inherits
-lto = false        # default
 debug = true
 
 [profile.benchtest]
