@@ -55,7 +55,7 @@ where
             "Array length mismatch, expected {} got {} for encoding {}",
             len,
             array.len(),
-            array.encoding().id()
+            array.vtable().id()
         );
     }
 

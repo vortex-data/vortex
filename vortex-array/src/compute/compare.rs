@@ -133,7 +133,7 @@ pub fn compare(
     }
 
     if let Some(result) = left
-        .encoding()
+        .vtable()
         .compare_fn()
         .and_then(|f| f.compare(left, right, operator).transpose())
         .transpose()?
@@ -143,7 +143,7 @@ pub fn compare(
     }
 
     if let Some(result) = right
-        .encoding()
+        .vtable()
         .compare_fn()
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
         .transpose()?
@@ -157,8 +157,8 @@ pub fn compare(
     if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-            right.encoding().id(),
-            left.encoding().id(),
+            right.vtable().id(),
+            left.vtable().id(),
             operator.swap(),
         );
     }
@@ -197,9 +197,9 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         lhs.len(),
         "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
         result.len(),
-        lhs.encoding().id(),
+        lhs.vtable().id(),
         lhs.len(),
-        rhs.encoding().id(),
+        rhs.vtable().id(),
         rhs.len()
     );
     debug_assert_eq!(
@@ -207,8 +207,8 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
         "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
         result.dtype(),
-        lhs.encoding().id(),
-        rhs.encoding().id(),
+        lhs.vtable().id(),
+        rhs.vtable().id(),
     );
 }
 

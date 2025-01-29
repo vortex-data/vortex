@@ -5,8 +5,7 @@ use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEn
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_fastlanes::BitPackedEncoding;
@@ -71,8 +70,8 @@ impl EncodingCompressor for ALPRDCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ALPRDEncoding as EncodingRef, &BitPackedEncoding])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([ALPRDEncoding::ID, BitPackedEncoding::ID])
     }
 }
 

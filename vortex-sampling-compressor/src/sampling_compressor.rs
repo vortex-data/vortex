@@ -12,8 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoCanonical};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -47,7 +46,7 @@ impl CompressionStrategy for SamplingCompressor<'_> {
         Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
+    fn used_encodings(&self) -> HashSet<EncodingId> {
         self.compressors
             .iter()
             .flat_map(|c| c.used_encodings())
@@ -227,7 +226,7 @@ impl<'a> SamplingCompressor<'a> {
                 "{} no compressors for array with dtype: {} and encoding: {}",
                 self,
                 array.dtype(),
-                array.encoding().id(),
+                array.vtable().id(),
             );
             return Ok(CompressedArray::uncompressed(array.clone()));
         }
@@ -240,7 +239,7 @@ impl<'a> SamplingCompressor<'a> {
         // TODO(ngates): we actually probably want some way to prefer dict encoding over other varbin
         //  encodings, e.g. FSST.
         if candidates.len() > 1 {
-            candidates.retain(|&compression| compression.id() != array.encoding().id().as_ref());
+            candidates.retain(|&compression| compression.id() != array.vtable().id().as_ref());
         }
 
         if array.len() <= (self.options.sample_size as usize * self.options.sample_count as usize) {
@@ -386,6 +385,6 @@ mod tests {
             .compress(&array, None)
             .unwrap()
             .into_array();
-        assert_eq!(compressed.encoding().id(), ALPRDEncoding::ID);
+        assert_eq!(compressed.vtable().id(), ALPRDEncoding::ID);
     }
 }

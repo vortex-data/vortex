@@ -15,49 +15,49 @@ use crate::ArrayData;
 impl ArrayData {
     pub fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
         matches!(self.dtype(), DType::Null)
-            .then(|| self.encoding().as_null_array(self))
+            .then(|| self.vtable().as_null_array(self))
             .flatten()
     }
 
     pub fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
         matches!(self.dtype(), DType::Bool(..))
-            .then(|| self.encoding().as_bool_array(self))
+            .then(|| self.vtable().as_bool_array(self))
             .flatten()
     }
 
     pub fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
         matches!(self.dtype(), DType::Primitive(..))
-            .then(|| self.encoding().as_primitive_array(self))
+            .then(|| self.vtable().as_primitive_array(self))
             .flatten()
     }
 
     pub fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
         matches!(self.dtype(), DType::Utf8(..))
-            .then(|| self.encoding().as_utf8_array(self))
+            .then(|| self.vtable().as_utf8_array(self))
             .flatten()
     }
 
     pub fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
         matches!(self.dtype(), DType::Binary(..))
-            .then(|| self.encoding().as_binary_array(self))
+            .then(|| self.vtable().as_binary_array(self))
             .flatten()
     }
 
     pub fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
         matches!(self.dtype(), DType::Struct(..))
-            .then(|| self.encoding().as_struct_array(self))
+            .then(|| self.vtable().as_struct_array(self))
             .flatten()
     }
 
     pub fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
         matches!(self.dtype(), DType::List(..))
-            .then(|| self.encoding().as_list_array(self))
+            .then(|| self.vtable().as_list_array(self))
             .flatten()
     }
 
     pub fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
         matches!(self.dtype(), DType::Extension(..))
-            .then(|| self.encoding().as_extension_array(self))
+            .then(|| self.vtable().as_extension_array(self))
             .flatten()
     }
 }

@@ -44,7 +44,7 @@ fn run_end_null_count(c: &mut Criterion) {
                         b.iter(|| {
                             black_box(
                                 array
-                                    .encoding()
+                                    .vtable()
                                     .compute_statistics(&array, Stat::NullCount)
                                     .unwrap(),
                             )

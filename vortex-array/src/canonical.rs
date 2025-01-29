@@ -215,13 +215,13 @@ impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
         // We only care to know when we canonicalize something non-trivial.
         if !self.is_canonical() && self.len() > 1 {
-            log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
+            log::trace!("Canonicalizing array with encoding {:?}", self.vtable());
         }
 
         #[cfg(feature = "canonical_counter")]
         self.inc_canonical_counter();
 
-        let canonical = self.encoding().into_canonical(self.clone())?;
+        let canonical = self.vtable().into_canonical(self.clone())?;
         canonical.as_ref().inherit_statistics(self.statistics());
 
         Ok(canonical)

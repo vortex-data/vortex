@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ConstantArray, ConstantEncoding};
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -45,7 +44,7 @@ impl EncodingCompressor for ConstantCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ConstantEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([ConstantEncoding::ID])
     }
 }

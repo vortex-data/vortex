@@ -21,7 +21,7 @@ use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::vtable::{EncodingRef, EncodingVTable, ValidityVTable};
+use crate::vtable::{EncodingVTable, VTableRef, ValidityVTable};
 use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
 mod owned;
@@ -56,7 +56,7 @@ impl From<ViewedArrayData> for ArrayData {
 
 impl ArrayData {
     pub fn try_new_owned(
-        encoding: EncodingRef,
+        encoding: VTableRef,
         dtype: DType,
         len: usize,
         metadata: Option<ByteBuffer>,
@@ -124,26 +124,31 @@ impl ArrayData {
                 DType::Extension(..) => array.as_extension_array().is_some(),
             },
             "Encoding {} does not implement the variant trait for {}",
-            array.encoding().id(),
+            array.vtable().id(),
             array.dtype()
         );
 
         // First, we validate the metadata.
-        array.encoding().validate_metadata(array.metadata_bytes())?;
+        array.vtable().validate_metadata(array.metadata_bytes())?;
         // Then perform additional custom validation
         // This is called for both Owned and Viewed array data since there are public functions
         // for constructing an ArrayData, e.g. `try_new_owned`.
-        array.encoding().validate(&array)?;
+        array.vtable().validate(&array)?;
 
         Ok(array)
     }
 
-    /// Return the array's encoding
-    pub fn encoding(&self) -> EncodingRef {
+    /// Return the array's encoding VTable.
+    pub fn vtable(&self) -> &VTableRef {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.encoding,
-            InnerArrayData::Viewed(v) => v.encoding,
+            InnerArrayData::Owned(d) => &d.encoding,
+            InnerArrayData::Viewed(v) => &v.encoding,
         }
+    }
+
+    /// Return the array's encoding ID.
+    pub fn encoding_id(&self) -> EncodingId {
+        self.vtable().id()
     }
 
     /// Returns the number of logical elements in the array.
@@ -218,7 +223,7 @@ impl ArrayData {
             InnerArrayData::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
             InnerArrayData::Viewed(_) => {
                 let mut collector = ChildrenCollector::default();
-                self.encoding()
+                self.vtable()
                     .accept(self, &mut collector)
                     .vortex_expect("Failed to get children");
                 collector.children()
@@ -229,7 +234,7 @@ impl ArrayData {
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn named_children(&self) -> Vec<(String, ArrayData)> {
         let mut collector = NamedChildrenCollector::default();
-        self.encoding()
+        self.vtable()
             .accept(&self.clone(), &mut collector)
             .vortex_expect("Failed to get children");
         collector.children()
@@ -330,7 +335,7 @@ impl ArrayData {
 
     /// Checks whether array is of a given encoding.
     pub fn is_encoding(&self, id: EncodingId) -> bool {
-        self.encoding().id() == id
+        self.vtable().id() == id
     }
 
     #[cfg(feature = "canonical_counter")]
@@ -361,7 +366,7 @@ impl ArrayData {
     {
         let array_ref = <&E::Array>::try_from(self)?;
         let encoding = self
-            .encoding()
+            .vtable()
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
@@ -379,7 +384,7 @@ impl Display for ArrayData {
             f,
             "{}{}({}, len={})",
             prefix,
-            self.encoding().id(),
+            self.vtable().id(),
             self.dtype(),
             self.len()
         )

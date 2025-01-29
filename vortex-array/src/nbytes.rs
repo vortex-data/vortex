@@ -8,7 +8,7 @@ impl ArrayData {
     /// Total size of the array in bytes, including all children and buffers.
     pub fn nbytes(&self) -> usize {
         let mut visitor = NBytesVisitor::default();
-        self.encoding()
+        self.vtable()
             .accept(self.as_ref(), &mut visitor)
             .vortex_expect("Failed to get nbytes from Array");
         visitor.0 + self.metadata_bytes().map_or(0, |b| b.len())

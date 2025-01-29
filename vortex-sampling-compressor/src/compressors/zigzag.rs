@@ -2,8 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_zigzag::{zigzag_encode, ZigZagArray, ZigZagEncoding};
 
@@ -56,7 +55,7 @@ impl EncodingCompressor for ZigZagCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ZigZagEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([ZigZagEncoding::ID])
     }
 }

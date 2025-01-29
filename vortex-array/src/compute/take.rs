@@ -68,13 +68,13 @@ pub fn take(
         taken.len(),
         indices.len(),
         "Take length mismatch {}",
-        array.encoding().id()
+        array.vtable().id()
     );
     debug_assert_eq!(
         array.dtype(),
         taken.dtype(),
         "Take dtype mismatch {}",
-        array.encoding().id()
+        array.vtable().id()
     );
 
     Ok(taken)
@@ -87,7 +87,7 @@ fn take_impl(
 ) -> VortexResult<ArrayData> {
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
-    if let Some(take_fn) = array.encoding().take_fn() {
+    if let Some(take_fn) = array.vtable().take_fn() {
         let result = if checked_indices {
             // SAFETY: indices are all inbounds per stats.
             // TODO(aduffy): this means stats must be trusted, can still trigger UB if stats are bad.
@@ -98,7 +98,7 @@ fn take_impl(
         if array.dtype() != result.dtype() {
             vortex_bail!(
                 "TakeFn {} changed array dtype from {} to {}",
-                array.encoding().id(),
+                array.vtable().id(),
                 array.dtype(),
                 result.dtype()
             );
@@ -107,12 +107,12 @@ fn take_impl(
     }
 
     // Otherwise, flatten and try again.
-    log::debug!("No take implementation found for {}", array.encoding().id());
+    log::debug!("No take implementation found for {}", array.vtable().id());
     let canonical = array.clone().into_canonical()?.into_array();
     let canonical_take_fn = canonical
-        .encoding()
+        .vtable()
         .take_fn()
-        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding().id()))?;
+        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.vtable().id()))?;
 
     if checked_indices {
         // SAFETY: indices are known to be in-bound from stats

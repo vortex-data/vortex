@@ -1,6 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_sparse::{SparseArray, SparseEncoding};
 
@@ -46,7 +45,7 @@ impl EncodingCompressor for SparseCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&SparseEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([SparseEncoding::ID])
     }
 }

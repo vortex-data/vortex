@@ -30,13 +30,13 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     }
 
     let filled = array
-        .encoding()
+        .vtable()
         .fill_forward_fn()
         .map(|f| f.fill_forward(array))
         .unwrap_or_else(|| {
             Err(vortex_err!(
                 NotImplemented: "fill_forward",
-                array.encoding().id()
+                array.vtable().id()
             ))
         })?;
 
@@ -44,13 +44,13 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
         filled.len(),
         array.len(),
         "FillForward length mismatch {}",
-        array.encoding().id()
+        array.vtable().id()
     );
     debug_assert_eq!(
         filled.dtype(),
         array.dtype(),
         "FillForward dtype mismatch {}",
-        array.encoding().id()
+        array.vtable().id()
     );
 
     Ok(filled)

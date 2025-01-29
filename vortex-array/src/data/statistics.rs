@@ -108,7 +108,7 @@ impl Statistics for ArrayData {
             return Some(s);
         }
         let s = self
-            .encoding()
+            .vtable()
             .compute_statistics(self, stat)
             .vortex_expect("compute_statistics must not fail")
             .get(stat)

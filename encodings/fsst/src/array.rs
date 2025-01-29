@@ -74,10 +74,10 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
         }
 
-        if codes.encoding().id() != VarBinEncoding::ID {
+        if codes.vtable().id() != VarBinEncoding::ID {
             vortex_bail!(
                 InvalidArgument: "codes must have varbin encoding, was {}",
-                codes.encoding().id()
+                codes.vtable().id()
             );
         }
 

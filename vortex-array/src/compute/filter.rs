@@ -71,13 +71,13 @@ pub fn filter(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         filtered.len(),
         true_count,
         "Filter length mismatch {}",
-        array.encoding().id()
+        array.vtable().id()
     );
     debug_assert_eq!(
         filtered.dtype(),
         array.dtype(),
         "Filter dtype mismatch {}",
-        array.encoding().id()
+        array.vtable().id()
     );
 
     Ok(filtered)
@@ -92,23 +92,20 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         Mask::Values(values) => values,
     };
 
-    if let Some(filter_fn) = array.encoding().filter_fn() {
+    if let Some(filter_fn) = array.vtable().filter_fn() {
         let result = filter_fn.filter(array, mask)?;
         debug_assert_eq!(result.len(), mask.true_count());
         return Ok(result);
     }
 
     // We can use scalar_at if the mask has length 1.
-    if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
+    if mask.true_count() == 1 && array.vtable().scalar_at_fn().is_some() {
         let idx = mask.first().vortex_expect("true_count == 1");
         return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
     }
 
     // Fallback: implement using Arrow kernels.
-    log::debug!(
-        "No filter implementation found for {}",
-        array.encoding().id(),
-    );
+    log::debug!("No filter implementation found for {}", array.vtable().id(),);
 
     let array_ref = array.clone().into_arrow_preferred()?;
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);

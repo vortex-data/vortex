@@ -164,7 +164,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
     ]);
     let mut colours = Vec::new();
     for (i, arr) in encodings.iter().enumerate() {
-        let encoding = arr.encoding();
+        let encoding = arr.vtable();
         let id = encoding.id();
         let mut impls = vec![id.as_ref()];
         for (j, func) in [

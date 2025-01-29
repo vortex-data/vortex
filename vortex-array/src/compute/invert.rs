@@ -26,20 +26,20 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
         vortex_bail!("Expected boolean array, got {}", array.dtype());
     }
 
-    if let Some(f) = array.encoding().invert_fn() {
+    if let Some(f) = array.vtable().invert_fn() {
         let inverted = f.invert(array)?;
 
         debug_assert_eq!(
             inverted.len(),
             array.len(),
             "Invert length mismatch {}",
-            array.encoding().id()
+            array.vtable().id()
         );
         debug_assert_eq!(
             inverted.dtype(),
             array.dtype(),
             "Invert dtype mismatch {}",
-            array.encoding().id()
+            array.vtable().id()
         );
 
         return Ok(inverted);
@@ -48,7 +48,7 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
     // Otherwise, we canonicalize into a boolean array and invert.
     log::debug!(
         "No invert implementation found for encoding {}",
-        array.encoding().id(),
+        array.vtable().id(),
     );
     invert(&array.clone().into_bool()?.into_array())
 }

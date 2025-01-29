@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{PrimitiveEncoding, VarBinEncoding, VarBinViewEncoding};
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_dict::{dict_encode, DictArray, DictEncoding};
 use vortex_error::VortexResult;
 
@@ -69,7 +68,7 @@ impl EncodingCompressor for DictCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&DictEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([DictEncoding::ID])
     }
 }

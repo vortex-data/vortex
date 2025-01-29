@@ -25,13 +25,16 @@ where
         pattern: &ArrayData,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayData>> {
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        let array = <E::Array as TryFrom<ArrayData>>::try_from(array)?;
-        LikeFn::like(encoding, array, pattern, options)
+        let encoding = array.vtable().clone();
+        LikeFn::like(
+            encoding
+                .as_any()
+                .downcast_ref::<E>()
+                .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
+            <E::Array as TryFrom<ArrayData>>::try_from(array)?,
+            pattern,
+            options,
+        )
     }
 }
 
@@ -62,25 +65,25 @@ pub fn like(
         vortex_bail!(
             "Length mismatch lhs len {} ({}) != rhs len {} ({})",
             array.len(),
-            array.encoding().id(),
+            array.vtable().id(),
             pattern.len(),
-            pattern.encoding().id()
+            pattern.vtable().id()
         );
     }
 
     let expected_dtype =
         DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into());
-    let array_encoding = array.encoding().id();
+    let array_encoding = array.vtable().id();
 
     let result = array
-        .encoding()
+        .vtable()
         .like_fn()
         .and_then(|f| f.like(array.clone(), pattern, options).transpose())
         .unwrap_or_else(|| {
             // Otherwise, we canonicalize into a UTF8 array.
             log::debug!(
                 "No like implementation found for encoding {}",
-                array.encoding().id(),
+                array.vtable().id(),
             );
             arrow_like(array, pattern, options)
         })?;
@@ -113,7 +116,7 @@ pub(crate) fn arrow_like(
         array.len(),
         pattern.len(),
         "Arrow Like: length mismatch for {}",
-        array.encoding().id()
+        array.vtable().id()
     );
     let lhs = Datum::try_new(array)?;
     let rhs = Datum::try_new(pattern.clone())?;

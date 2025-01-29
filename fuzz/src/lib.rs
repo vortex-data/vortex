@@ -14,8 +14,7 @@ pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
-use vortex_array::vtable::EncodingRef;
-use vortex_array::{ArrayData, Encoding, IntoArrayData};
+use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;
@@ -178,8 +177,8 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
 
 const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
 
-fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
-    if ListEncoding::ID == encoding.id() {
+fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
+    if ListEncoding::ID == encoding_id {
         // compress, slice
         vec![0, 1].into_iter().collect()
     } else {
@@ -190,7 +189,7 @@ fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
 fn actions_for_array(array: &ArrayData) -> Vec<usize> {
     array
         .depth_first_traversal()
-        .map(|child| actions_for_encoding(child.encoding()))
+        .map(|child| actions_for_encoding(child.encoding_id()))
         .fold(ALL_ACTIONS.collect::<Vec<_>>(), |mut acc, actions| {
             acc.retain(|a| actions.contains(a));
             acc

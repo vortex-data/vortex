@@ -44,7 +44,7 @@ pub fn preferred_arrow_data_type<A: AsRef<ArrayData>>(array: A) -> VortexResult<
     let array = array.as_ref();
 
     if let Some(result) = array
-        .encoding()
+        .vtable()
         .to_arrow_fn()
         .and_then(|f| f.preferred_arrow_data_type(array).transpose())
         .transpose()?
@@ -61,7 +61,7 @@ pub fn to_arrow<A: AsRef<ArrayData>>(array: A, data_type: &DataType) -> VortexRe
     let array = array.as_ref();
 
     if let Some(result) = array
-        .encoding()
+        .vtable()
         .to_arrow_fn()
         .and_then(|f| f.to_arrow(array, data_type).transpose())
         .transpose()?
@@ -77,14 +77,14 @@ pub fn to_arrow<A: AsRef<ArrayData>>(array: A, data_type: &DataType) -> VortexRe
     // Fall back to canonicalizing and then converting.
     let array = array.clone().into_canonical()?.into_array();
     array
-        .encoding()
+        .vtable()
         .to_arrow_fn()
         .vortex_expect("Canonical encodings must implement ToArrowFn")
         .to_arrow(&array, data_type)?
         .ok_or_else(|| {
             vortex_err!(
                 "Failed to convert array {} to Arrow {}",
-                array.encoding().id(),
+                array.vtable().id(),
                 data_type
             )
         })

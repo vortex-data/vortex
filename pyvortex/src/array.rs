@@ -163,7 +163,7 @@ impl PyArray {
 
     #[getter]
     fn encoding(&self) -> String {
-        self.inner.encoding().id().to_string()
+        self.inner.vtable().id().to_string()
     }
 
     #[getter]

@@ -116,7 +116,7 @@ pub fn binary_numeric(
     }
 
     // Check if LHS supports the operation directly.
-    if let Some(fun) = lhs.encoding().binary_numeric_fn() {
+    if let Some(fun) = lhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {
             check_numeric_result(&result, lhs, rhs);
             return Ok(result);
@@ -124,7 +124,7 @@ pub fn binary_numeric(
     }
 
     // Check if RHS supports the operation directly.
-    if let Some(fun) = rhs.encoding().binary_numeric_fn() {
+    if let Some(fun) = rhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
             check_numeric_result(&result, lhs, rhs);
             return Ok(result);
@@ -133,8 +133,8 @@ pub fn binary_numeric(
 
     log::debug!(
         "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
-        lhs.encoding().id(),
-        rhs.encoding().id(),
+        lhs.vtable().id(),
+        rhs.vtable().id(),
         op,
     );
 
@@ -177,7 +177,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         result.len(),
         lhs.len(),
         "Numeric operation length mismatch {}",
-        rhs.encoding().id()
+        rhs.vtable().id()
     );
     debug_assert_eq!(
         result.dtype(),
@@ -187,7 +187,7 @@ fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
             (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
         ),
         "Numeric operation dtype mismatch {}",
-        rhs.encoding().id()
+        rhs.vtable().id()
     );
 }
 

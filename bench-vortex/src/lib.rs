@@ -1,5 +1,6 @@
 #![feature(exit_status_error)]
 
+use std::clone::Clone;
 use std::env::temp_dir;
 use std::fs::{create_dir_all, File};
 use std::future::Future;
@@ -26,8 +27,8 @@ use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::encodings::fastlanes::DeltaEncoding;
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{ArrayData, Context, ContextRef, IntoArrayData};
+use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::{ArrayData, ContextRef, IntoArrayData};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
@@ -50,9 +51,9 @@ const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
 pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
-        Context::default()
-            .with_encodings(SamplingCompressor::default().used_encodings())
-            .with_encoding(&DeltaEncoding),
+        (*(ALL_ENCODINGS_CONTEXT.clone()))
+            .clone()
+            .with_encoding(DeltaEncoding::vtable()),
     )
 });
 

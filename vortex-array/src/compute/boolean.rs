@@ -101,7 +101,7 @@ pub fn binary_boolean(
 
     // Check if either LHS or RHS supports the operation directly.
     if let Some(result) = lhs
-        .encoding()
+        .vtable()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
         .transpose()?
@@ -110,19 +110,19 @@ pub fn binary_boolean(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
-            lhs.encoding().id()
+            lhs.vtable().id()
         );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
-            lhs.encoding().id()
+            lhs.vtable().id()
         );
         return Ok(result);
     }
 
     if let Some(result) = rhs
-        .encoding()
+        .vtable()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
         .transpose()?
@@ -131,21 +131,21 @@ pub fn binary_boolean(
             result.len(),
             lhs.len(),
             "Boolean operation length mismatch {}",
-            rhs.encoding().id()
+            rhs.vtable().id()
         );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
             "Boolean operation dtype mismatch {}",
-            rhs.encoding().id()
+            rhs.vtable().id()
         );
         return Ok(result);
     }
 
     log::debug!(
         "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
-        rhs.encoding().id(),
-        lhs.encoding().id(),
+        rhs.vtable().id(),
+        lhs.vtable().id(),
         op,
     );
 
