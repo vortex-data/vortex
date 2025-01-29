@@ -14,7 +14,6 @@ use arrow_schema::Schema;
 use bench_vortex::data_downloads::BenchmarkDataset;
 use bench_vortex::public_bi_data::BenchmarkDatasets;
 use bench_vortex::public_bi_data::PBIDataset::*;
-use bench_vortex::reader::read_parquet_to_vortex;
 use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch};
