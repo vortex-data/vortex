@@ -102,7 +102,7 @@ impl Canonical {
 impl Canonical {
     // Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> Canonical {
-        Self::try_empty(dtype).vortex_expect("Cannot build an empty array")
+        Self::try_empty(dtype).vortex_expect("Cannot fail to build an empty array")
     }
 
     pub fn try_empty(dtype: &DType) -> VortexResult<Canonical> {
