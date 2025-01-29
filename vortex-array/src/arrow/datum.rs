@@ -15,23 +15,15 @@ pub struct Datum {
 
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayData`], which can then be passed to Arrow compute.
-    ///
-    /// # Safety
-    /// The caller must ensure that the length of the array is preserved, and when processing
-    /// the result of the Arrow compute, must check whether the result is a scalar (Arrow array of length 1),
-    /// in which case it likely must be expanded to match the length of the original array.
-    ///
-    /// The utility function [`from_arrow_array_with_len`] can be used to ensure that the length of the
-    /// result of the Arrow compute matches the length of the original array.
-    pub unsafe fn try_new(array: ArrayData) -> VortexResult<Self> {
+    pub fn try_new(array: ArrayData) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: slice(array, 0, 1)?.into_arrow_inferred()?,
+                array: slice(array, 0, 1)?.into_arrow_preferred()?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.into_arrow_inferred()?,
+                array: array.into_arrow_preferred()?,
                 is_scalar: false,
             })
         }

@@ -3,21 +3,20 @@ use arrow_schema::DataType;
 use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
-use crate::array::varbin::compute::to_arrow::varbin_to_arrow_inferred;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinViewArray;
 use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
-use crate::compute::to_arrow;
+use crate::compute::{preferred_arrow_data_type, to_arrow};
 use crate::encoding::ArrayEncodingRef;
-use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
+use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
+        let dtype = self.dtype().clone();
+        let nullable = dtype.is_nullable();
 
-        let array_ref = varbin_to_arrow_inferred(&self)?;
-
-        let array = match self.dtype() {
+        let array_ref = self.into_array().into_arrow_preferred()?;
+        let array = match dtype {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
 

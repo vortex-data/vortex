@@ -24,7 +24,7 @@ use crate::array::{
 };
 use crate::arrow::{infer_data_type, FromArrowArray, IntoArrowArray};
 use crate::builders::builder_with_capacity;
-use crate::compute::{to_arrow, try_cast};
+use crate::compute::{preferred_arrow_data_type, to_arrow, try_cast};
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
@@ -210,10 +210,10 @@ impl IntoCanonical for ArrayData {
 }
 
 impl IntoArrowArray for ArrayData {
-    /// Convert this [`ArrayData`] into an Arrow [`ArrayRef`] by inferring a canonical
-    /// result DataType.
-    fn into_arrow_inferred(self) -> VortexResult<ArrayRef> {
-        let data_type = infer_data_type(self.dtype())?;
+    /// Convert this [`ArrayData`] into an Arrow [`ArrayRef`] by using the array's preferred
+    /// Arrow [`DataType`].
+    fn into_arrow_preferred(self) -> VortexResult<ArrayRef> {
+        let data_type = preferred_arrow_data_type(&self)?;
         self.into_arrow(&data_type)
     }
 
@@ -310,8 +310,9 @@ mod test {
         ])
         .unwrap();
 
-        let data_type = infer_data_type(nested_struct_array.dtype()).unwrap();
-        let arrow_struct = to_arrow(nested_struct_array.into_array(), &data_type)
+        let arrow_struct = nested_struct_array
+            .into_array()
+            .into_arrow_preferred()
             .unwrap()
             .as_any()
             .downcast_ref::<ArrowStructArray>()
@@ -378,11 +379,10 @@ mod test {
         );
 
         let vortex_struct = ArrayData::from_arrow(&arrow_struct, true);
-        let data_type = infer_data_type(vortex_struct.dtype()).unwrap();
 
         assert_eq!(
             &arrow_struct,
-            vortex_struct.into_arrow(&data_type).unwrap().as_struct()
+            vortex_struct.into_arrow_preferred().unwrap().as_struct()
         );
     }
 

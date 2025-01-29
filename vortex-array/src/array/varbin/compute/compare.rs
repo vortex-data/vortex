@@ -3,7 +3,7 @@ use arrow_ord::cmp;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
-use crate::array::varbin::compute::to_arrow::{varbin_to_arrow, varbin_to_arrow_inferred};
+use crate::array::varbin::compute::to_arrow::varbin_to_arrow;
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
@@ -21,7 +21,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
 
-            let lhs = varbin_to_arrow_inferred(lhs)?;
+            let lhs = Datum::try_new(lhs.clone().into_array())?;
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {

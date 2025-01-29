@@ -132,7 +132,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
             .try_collect::<Vec<_>>()
             .await?
             .into_iter()
-            .map(|a| a.into_arrow_inferred())
+            .map(|a| a.into_arrow_preferred())
             .collect::<VortexResult<Vec<_>>>()
     })
 }

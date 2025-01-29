@@ -176,8 +176,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayData> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = unsafe { Datum::try_new(left.clone())? };
-    let rhs = unsafe { Datum::try_new(right.clone())? };
+    let lhs = Datum::try_new(left.clone())?;
+    let rhs = Datum::try_new(right.clone())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,

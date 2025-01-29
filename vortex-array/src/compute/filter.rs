@@ -110,7 +110,7 @@ fn filter_impl(array: &ArrayData, mask: &Mask) -> VortexResult<ArrayData> {
         array.encoding().id(),
     );
 
-    let array_ref = array.clone().into_arrow_inferred()?;
+    let array_ref = array.clone().into_arrow_preferred()?;
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 

@@ -46,8 +46,7 @@ impl TryFrom<ArrayData> for RecordBatch {
 
 impl StructArray {
     pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
-        let data_type = infer_data_type(self.dtype())?;
-        let array_ref = self.into_array().into_arrow(&data_type)?;
+        let array_ref = self.into_array().into_arrow_preferred()?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 

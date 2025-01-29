@@ -4,12 +4,19 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
+use crate::arrow::infer_data_type;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<Array> {
+    /// Return the preferred Arrow [`DataType`] of the encoding, or None of the canonical
+    /// [`DataType`] for the array's Vortex [`DType`] should be used.
+    fn preferred_arrow_data_type(&self, _array: &Array) -> VortexResult<Option<DataType>> {
+        Ok(None)
+    }
+
     /// Convert the array to an Arrow array of the given type.
     ///
     /// Implementation can return None if the conversion cannot be specialized by this encoding.
@@ -22,10 +29,32 @@ where
     E: ToArrowFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
+    fn preferred_arrow_data_type(&self, array: &ArrayData) -> VortexResult<Option<DataType>> {
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        ToArrowFn::preferred_arrow_data_type(encoding, array_ref)
+    }
+
     fn to_arrow(&self, array: &ArrayData, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         ToArrowFn::to_arrow(encoding, array_ref, data_type)
     }
+}
+
+/// Return the preferred Arrow [`DataType`] of the array.
+pub fn preferred_arrow_data_type<A: AsRef<ArrayData>>(array: A) -> VortexResult<DataType> {
+    let array = array.as_ref();
+
+    if let Some(result) = array
+        .encoding()
+        .to_arrow_fn()
+        .and_then(|f| f.preferred_arrow_data_type(array).transpose())
+        .transpose()?
+    {
+        return Ok(result);
+    }
+
+    // Otherwise, we use the default.
+    infer_data_type(array.dtype())
 }
 
 /// Convert the array to an Arrow array of the given type.

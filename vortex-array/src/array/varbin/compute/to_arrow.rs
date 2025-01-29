@@ -18,6 +18,21 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant, ToArrayData};
 
 impl ToArrowFn<VarBinArray> for VarBinEncoding {
+    fn preferred_arrow_data_type(&self, array: &VarBinArray) -> VortexResult<Option<DataType>> {
+        let offsets_ptype = PType::try_from(array.offsets().dtype())?;
+        Ok(Some(match array.dtype() {
+            DType::Utf8(_) => match offsets_ptype {
+                PType::I64 | PType::U64 => DataType::LargeUtf8,
+                _ => DataType::Utf8,
+            },
+            DType::Binary(_) => match offsets_ptype {
+                PType::I64 | PType::U64 => DataType::LargeBinary,
+                _ => DataType::Binary,
+            },
+            _ => vortex_bail!("Unsupported DType"),
+        }))
+    }
+
     fn to_arrow(
         &self,
         array: &VarBinArray,
@@ -48,31 +63,6 @@ impl ToArrowFn<VarBinArray> for VarBinEncoding {
             array_ref
         }))
     }
-}
-
-/// Return the recommended Arrow data type for this var bin array.
-pub(crate) fn varbin_arrow_type(varbin_array: &VarBinArray) -> VortexResult<DataType> {
-    let offsets_ptype = PType::try_from(varbin_array.offsets().dtype())?;
-
-    Ok(match varbin_array.dtype() {
-        DType::Utf8(_) => match offsets_ptype {
-            PType::I64 | PType::U64 => DataType::LargeUtf8,
-            _ => DataType::Utf8,
-        },
-        DType::Binary(_) => match offsets_ptype {
-            PType::I64 | PType::U64 => DataType::LargeBinary,
-            _ => DataType::Binary,
-        },
-        _ => vortex_bail!("Unsupported DType"),
-    })
-}
-
-/// Convert the array to Arrow variable length binary array type, inferring the offset size.
-pub(crate) fn varbin_to_arrow_inferred(varbin_array: &VarBinArray) -> VortexResult<ArrayRef> {
-    let data_type = varbin_arrow_type(varbin_array)?;
-    VarBinEncoding::to_arrow(&VarBinEncoding, varbin_array, &data_type)
-        .transpose()
-        .vortex_expect("We know DType is supported")
 }
 
 /// Convert the array to Arrow variable length binary array type.

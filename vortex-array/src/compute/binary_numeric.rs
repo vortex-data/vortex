@@ -154,8 +154,8 @@ fn arrow_numeric(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = unsafe { Datum::try_new(lhs.clone())? };
-    let right = unsafe { Datum::try_new(rhs.clone())? };
+    let left = Datum::try_new(lhs.clone())?;
+    let right = Datum::try_new(rhs.clone())?;
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,

@@ -4,7 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
-use vortex::arrow::{infer_data_type, IntoArrowArray};
+use vortex::arrow::IntoArrowArray;
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::mask::Mask;
 use vortex::{ArrayDType, ArrayData};
@@ -119,12 +119,10 @@ impl PyArray {
         let py = self_.py();
         let vortex = &self_.inner;
 
-        let arrow_dtype = infer_data_type(vortex.dtype())?;
-
         if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
             let chunks: Vec<ArrayRef> = chunked_array
                 .chunks()
-                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow(&arrow_dtype)?) })
+                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow_preferred()?) })
                 .collect::<PyResult<Vec<ArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
@@ -144,7 +142,7 @@ impl PyArray {
         } else {
             Ok(vortex
                 .clone()
-                .into_arrow(&arrow_dtype)?
+                .into_arrow_preferred()?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))
