@@ -7,8 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::nbytes::ArrayNBytes;
-use crate::stats::Precision::Exact;
-use crate::stats::{exact, Precision, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{exact, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
 

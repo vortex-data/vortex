@@ -13,7 +13,7 @@ use vortex_scalar::ScalarValue;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{exact, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{exact, Min, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant};
@@ -37,27 +37,27 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
             return Ok(StatsSet::of(stat, exact(array.nbytes())));
         }
 
-        let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
-            match array.logical_validity()? {
-                LogicalValidity::AllValid(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
-                LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
-                LogicalValidity::Mask(m) => self.compute_statistics(
-                    &NullableValues(
-                        array.as_slice::<$P>(),
-                        m.boolean_buffer(),
-                    ),
-                    stat
-                ),
-            }
-        })?;
+        match_each_native_ptype!(array.ptype(), |$P| {
+            self.compute_stats_with_validity::<$P>(array, stat)
+        })
+    }
+}
 
-        if let Some(min) = stats.get(Stat::Min) {
-            stats.set(Stat::Min, min.clone());
+impl PrimitiveEncoding {
+    #[inline]
+    fn compute_stats_with_validity<P: NativePType + PStatsType>(
+        &self,
+        array: &PrimitiveArray,
+        stat: Stat,
+    ) -> VortexResult<StatsSet> {
+        match array.logical_validity()? {
+            LogicalValidity::AllValid(_) => self.compute_statistics(array.as_slice::<P>(), stat),
+            LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
+            LogicalValidity::Mask(m) => self.compute_statistics(
+                &NullableValues(array.as_slice::<P>(), m.boolean_buffer()),
+                stat,
+            ),
         }
-        if let Some(max) = stats.get(Stat::Max) {
-            stats.set(Stat::Max, max.clone());
-        }
-        Ok(stats)
     }
 }
 

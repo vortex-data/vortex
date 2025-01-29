@@ -318,7 +318,7 @@ impl StatsSet {
         match (self.getb::<Min>(dtype), other.getb::<Min>(dtype)) {
             (Some(m1), Some(m2)) => {
                 if m2.le(&m1).vortex_expect("can compare min stats") {
-                    self.set(Stat::Min, m2.0.map(|s| s.into_value()));
+                    self.set(Stat::Min, m2.into_value().map(|s| s.into_value()));
                 }
             }
             _ => self.clear(Stat::Min),
@@ -329,7 +329,7 @@ impl StatsSet {
         match (self.getb::<Max>(dtype), other.getb::<Max>(dtype)) {
             (Some(m1), Some(m2)) => {
                 if m2.ge(&m1).vortex_expect("can compare max stats") {
-                    self.set(Stat::Max, m2.0.map(|s| s.into_value()));
+                    self.set(Stat::Max, m2.into_value().map(|s| s.into_value()));
                 }
             }
             _ => self.clear(Stat::Max),
@@ -747,6 +747,9 @@ mod test {
             &StatsSet::of(Stat::Min, exact(5)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(merged.get_as::<i32>(Stat::Min), Some(bound(4)));
+        assert!(merged
+            .get_as::<i32>(Stat::Min)
+            .unwrap()
+            .structural_eq(&bound(4)));
     }
 }
