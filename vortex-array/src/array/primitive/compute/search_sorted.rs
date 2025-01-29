@@ -28,7 +28,7 @@ impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
                     let pvalue: $T = value.cast(array.dtype())?.try_into()?;
                     Ok(SearchSortedPrimitive::new(array).search_sorted(&pvalue, side))
                 }
-                Validity::AllInvalid => Ok(SearchResult::NotFound(0)),
+                Validity::AllInvalid => Ok(SearchResult::NotFound(array.len())),
                 Validity::Array(_) => {
                     let pvalue: $T = value.cast(array.dtype())?.try_into()?;
                     Ok(SearchSortedNullsFirst::new(array).search_sorted(&pvalue, side))
@@ -53,7 +53,7 @@ impl SearchSortedUsizeFn<PrimitiveArray> for PrimitiveEncoding {
                         // null-free search
                         Ok(SearchSortedPrimitive::new(array).search_sorted(&pvalue, side))
                     }
-                    Validity::AllInvalid => Ok(SearchResult::NotFound(0)),
+                    Validity::AllInvalid => Ok(SearchResult::NotFound(array.len())),
                     Validity::Array(_) => {
                         // null-aware search
                         Ok(SearchSortedNullsFirst::new(array).search_sorted(&pvalue, side))
@@ -189,6 +189,16 @@ mod test {
         );
         assert_eq!(
             search_sorted(&values, 4, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(3)
+        );
+    }
+
+    #[test]
+    fn search_sorted_all_nulls() {
+        let values = PrimitiveArray::new(buffer![1u16, 2, 3], Validity::AllInvalid).into_array();
+
+        assert_eq!(
+            search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(3)
         );
     }
