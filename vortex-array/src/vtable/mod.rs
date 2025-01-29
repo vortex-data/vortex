@@ -4,7 +4,6 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
-mod arrow;
 mod canonical;
 mod compute;
 mod metadata;

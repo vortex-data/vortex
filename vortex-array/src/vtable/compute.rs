@@ -1,6 +1,6 @@
 use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn, FilterFn,
-    InvertFn, LikeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn,
+    InvertFn, LikeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::ArrayData;
 
@@ -102,6 +102,13 @@ pub trait ComputeVTable {
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        None
+    }
+
+    /// Convert the array to an Arrow array of the given type.
+    ///
+    /// See: [ToArrowFn].
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
         None
     }
 }

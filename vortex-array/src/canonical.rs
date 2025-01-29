@@ -24,7 +24,7 @@ use crate::array::{
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::builders::builder_with_capacity;
-use crate::compute::try_cast;
+use crate::compute::{to_arrow, try_cast};
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
@@ -482,11 +482,12 @@ impl IntoCanonical for ArrayData {
     where
         Self: Sized,
     {
-        self.encoding().into_arrow(self)
+        let data_type = infer_data_type(self.dtype())?;
+        self.into_arrow_with_data_type(&data_type)
     }
 
     fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
-        self.encoding().into_arrow_with_data_type(self, data_type)
+        to_arrow(self, data_type)
     }
 }
 
