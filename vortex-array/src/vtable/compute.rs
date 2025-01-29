@@ -21,7 +21,6 @@ pub trait ComputeVTable {
     }
 
     /// Implemented for arrays that can be casted to different types.
-    /// Implemented for arrays that can be casted to different types.
     ///
     /// See: [CastFn].
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {

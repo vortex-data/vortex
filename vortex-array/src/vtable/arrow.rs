@@ -7,9 +7,9 @@ use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayData, Canonical, IntoCanonical};
 
-/// Encoding VTable for canonicalizing an array.
+/// Optional encoding VTable for custom conversion to Arrow.
 #[allow(clippy::wrong_self_convention)]
-pub trait CanonicalVTable<Array> {
+pub trait ArrowVTable<Array> {
     fn into_canonical(&self, array: Array) -> VortexResult<Canonical>;
 
     fn into_arrow(&self, array: Array) -> VortexResult<ArrayRef>;

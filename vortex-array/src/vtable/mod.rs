@@ -4,6 +4,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
+mod arrow;
 mod canonical;
 mod compute;
 mod metadata;
@@ -32,7 +33,7 @@ use crate::ArrayData;
 /// implementation, as well as to allow for optional implementation of certain features, for example
 /// compute functions.
 ///
-/// It is recommended that you use [`crate::macros::impl_encoding`] to assist in writing a new
+/// It is recommended that you use [`crate::impl_encoding`] to assist in writing a new
 /// array encoding.
 pub trait EncodingVTable:
     'static
