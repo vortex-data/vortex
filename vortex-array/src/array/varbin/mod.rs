@@ -203,7 +203,7 @@ impl VarBinArray {
                 })
             })
             .unwrap_or_else(|| {
-                scalar_at(&self.offsets(), index)
+                scalar_at(self.offsets(), index)
                     .unwrap_or_else(|err| {
                         vortex_panic!(err, "Failed to get offset at index: {}", index)
                     })

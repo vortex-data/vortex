@@ -54,7 +54,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = ArrayDa
             let is_constant = array.with_iterator(compute_is_constant)?;
             if is_constant {
                 // we know that the array is not empty
-                StatsSet::constant(scalar_at(&array.deref(), 0)?, array.len())
+                StatsSet::constant(scalar_at(array.deref(), 0)?, array.len())
             } else {
                 StatsSet::of(Stat::IsConstant, is_constant)
             }

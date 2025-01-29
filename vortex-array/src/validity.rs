@@ -21,17 +21,17 @@ use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 impl ArrayData {
     /// Return whether the element at the given index is valid (true) or null (false).
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
+        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self, index)
     }
 
     /// Return the number of null elements in the array.
     pub fn null_count(&self) -> VortexResult<usize> {
-        ValidityVTable::<ArrayData>::null_count(self.as_ref().encoding(), self.as_ref())
+        ValidityVTable::<ArrayData>::null_count(self.as_ref().encoding(), self)
     }
 
     /// Return the logical validity of the array if nullable, and None if non-nullable.
     pub fn logical_validity(&self) -> VortexResult<Mask> {
-        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
+        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self)
     }
 }
 

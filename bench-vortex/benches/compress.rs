@@ -35,7 +35,7 @@ use vortex::error::VortexResult;
 use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::{ArrayData, IntoArrayData};
+use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 
@@ -389,12 +389,7 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         "TPC-H l_comment chunked",
     );
 
-    let comments_canonical = comments
-        .into_canonical()
-        .unwrap()
-        .into_struct()
-        .unwrap()
-        .into_array();
+    let comments_canonical = comments.into_struct().unwrap().into_array();
     let dtype = comments_canonical.dtype().clone();
     let comments_canonical_chunked =
         ChunkedArray::try_new(vec![comments_canonical], dtype).unwrap();

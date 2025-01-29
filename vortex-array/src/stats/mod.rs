@@ -202,7 +202,7 @@ pub trait Statistics {
 
 impl ArrayData {
     pub fn statistics(&self) -> &(dyn Statistics + '_) {
-        self.as_ref()
+        self
     }
 
     // FIXME(ngates): this is really slow...

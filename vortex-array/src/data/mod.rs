@@ -147,6 +147,7 @@ impl ArrayData {
     }
 
     /// Returns the number of logical elements in the array.
+    #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         match &self.0 {
             InnerArrayData::Owned(d) => d.len,
@@ -161,7 +162,7 @@ impl ArrayData {
 
     /// Return the array's dtype
     pub fn dtype(&self) -> &DType {
-        match &self.as_ref().0 {
+        match &self.0 {
             InnerArrayData::Owned(d) => &d.dtype,
             InnerArrayData::Viewed(v) => &v.dtype,
         }

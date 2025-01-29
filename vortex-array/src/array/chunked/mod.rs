@@ -128,7 +128,7 @@ impl ChunkedArray {
                 .vortex_expect("Search sorted failed in find_chunk_idx")
                 .to_ends_index(self.nchunks() + 1)
                 .saturating_sub(1);
-        let chunk_start = scalar_at(&self.chunk_offsets(), index_chunk)
+        let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
             .and_then(|s| usize::try_from(&s))
             .vortex_expect("Failed to find chunk start in find_chunk_idx");
 

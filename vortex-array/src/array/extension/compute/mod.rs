@@ -46,7 +46,7 @@ impl ScalarAtFn<ExtensionArray> for ExtensionEncoding {
     fn scalar_at(&self, array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
             array.ext_dtype().clone(),
-            scalar_at(&array.storage(), index)?,
+            scalar_at(array.storage(), index)?,
         ))
     }
 }
