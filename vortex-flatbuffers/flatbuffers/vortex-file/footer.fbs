@@ -54,11 +54,20 @@ table EncryptionScheme {
 
 /// The encryption algorithms supported by Vortex.
 enum EncryptionAlgorithm {
+    AES_GCM,
 }
 
-/// The compression schemes supported by Vortex.
-union CompressionScheme {
+/// The compression schemes used within the file
+table CompressionScheme {
+    algorithm: CompressionAlgorithm;
 }
+
+/// The compression algorithms supported by Vortex.
+enum CompressionAlgorithm {
+    LZ4,
+    ZSTD,
+}
+
 // [schemes]
 
 // [vtables]
