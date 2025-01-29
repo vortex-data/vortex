@@ -10,10 +10,12 @@ use vortex_array::stats::{ArrayStatistics, StatsSet};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable};
+use vortex_array::vtable::{
+    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical, SerdeMetadata,
+    SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -200,17 +202,17 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
     }
 }
 
-impl IntoCanonical for RunEndArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let pends = self.ends().into_primitive()?;
-        match self.dtype() {
+impl CanonicalVTable<RunEndArray> for RunEndEncoding {
+    fn into_canonical(&self, array: RunEndArray) -> VortexResult<Canonical> {
+        let pends = array.ends().into_primitive()?;
+        match array.dtype() {
             DType::Bool(_) => {
-                let bools = self.values().into_bool()?;
-                runend_decode_bools(pends, bools, self.offset(), self.len()).map(Canonical::Bool)
+                let bools = array.values().into_bool()?;
+                runend_decode_bools(pends, bools, array.offset(), array.len()).map(Canonical::Bool)
             }
             DType::Primitive(..) => {
-                let pvalues = self.values().into_primitive()?;
-                runend_decode_primitive(pends, pvalues, self.offset(), self.len())
+                let pvalues = array.values().into_primitive()?;
+                runend_decode_primitive(pends, pvalues, array.offset(), array.len())
                     .map(Canonical::Primitive)
             }
             _ => vortex_bail!("Only Primitive and Bool values are supported"),

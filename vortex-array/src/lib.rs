@@ -100,7 +100,6 @@ pub trait ArrayTrait:
     + ArrayDType
     + ArrayLen
     + ArrayNBytes
-    + IntoCanonical
     + ArrayValidity
     + ArrayStatistics
 {

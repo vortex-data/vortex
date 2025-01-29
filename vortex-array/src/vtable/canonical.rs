@@ -1,7 +1,7 @@
 use arrow_array::{Array, ArrayRef};
 use arrow_cast::cast;
 use arrow_schema::DataType;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
@@ -9,21 +9,23 @@ use crate::{ArrayData, Canonical, IntoCanonical};
 
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
-pub trait CanonicalVTable {
-    fn into_canonical(&self, array: ArrayData) -> VortexResult<Canonical>;
+pub trait CanonicalVTable<Array> {
+    fn into_canonical(&self, array: Array) -> VortexResult<Canonical>;
 }
 
 /// Implement the [CanonicalVTable] for all encodings with arrays implementing [IntoCanonical].
-impl<E: Encoding> CanonicalVTable for E
+impl<E: Encoding> CanonicalVTable<ArrayData> for E
 where
-    E::Array: IntoCanonical,
+    E: CanonicalVTable<E::Array>,
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
     fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
-        #[cfg(feature = "canonical_counter")]
-        data.inc_canonical_counter();
-        let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
-        canonical.inherit_statistics(data.statistics());
-        Ok(canonical)
+        let encoding = data
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        let array = E::Array::try_from(data)?;
+        CanonicalVTable::into_canonical(encoding, array)
     }
 }

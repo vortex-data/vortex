@@ -1,16 +1,17 @@
 use arrow_array::builder::make_view;
 use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::FSSTArray;
+use crate::{FSSTArray, FSSTEncoding};
 
-impl IntoCanonical for FSSTArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        self.with_decompressor(|decompressor| {
+impl CanonicalVTable<FSSTArray> for FSSTEncoding {
+    fn into_canonical(&self, array: FSSTArray) -> VortexResult<Canonical> {
+        array.with_decompressor(|decompressor| {
             // FSSTArray has two child arrays:
             //
             //  1. A VarBinArray, which holds the string heap of the compressed codes.
@@ -21,12 +22,12 @@ impl IntoCanonical for FSSTArray {
             // call. We then turn our uncompressed_lengths into an offsets buffer
             // necessary for a VarBinViewArray and construct the canonical array.
 
-            let bytes = VarBinArray::try_from(self.codes())?.sliced_bytes();
+            let bytes = VarBinArray::try_from(array.codes())?.sliced_bytes();
 
             // Bulk-decompress the entire array.
             let uncompressed_bytes = decompressor.decompress(bytes.as_slice());
 
-            let uncompressed_lens_array = self
+            let uncompressed_lens_array = array
                 .uncompressed_lengths()
                 .into_canonical()?
                 .into_primitive()?;
@@ -55,8 +56,8 @@ impl IntoCanonical for FSSTArray {
             VarBinViewArray::try_new(
                 views,
                 vec![uncompressed_bytes_array],
-                self.dtype().clone(),
-                self.validity(),
+                array.dtype().clone(),
+                array.validity(),
             )
             .map(Canonical::VarBinView)
         })

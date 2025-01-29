@@ -1,8 +1,7 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::{
-    ArrayDType, Canonical, IntoArrayData as _, IntoArrayVariant as _, IntoCanonical,
-};
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::{ArrayDType, Canonical, IntoArrayData as _, IntoArrayVariant as _};
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::NonNullable;
@@ -10,11 +9,11 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::PrimitiveScalar;
 
-use crate::DateTimePartsArray;
+use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
-impl IntoCanonical for DateTimePartsArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(&self)?.into()))
+impl CanonicalVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn into_canonical(&self, array: DateTimePartsArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(decode_to_temporal(&array)?.into()))
     }
 }
 

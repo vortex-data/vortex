@@ -1,29 +1,30 @@
 use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::SparseArray;
+use crate::{SparseArray, SparseEncoding};
 
-impl IntoCanonical for SparseArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let resolved_patches = self.resolved_patches()?;
+impl CanonicalVTable<SparseArray> for SparseEncoding {
+    fn into_canonical(&self, array: SparseArray) -> VortexResult<Canonical> {
+        let resolved_patches = array.resolved_patches()?;
         if resolved_patches.num_patches() == 0 {
-            return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
+            return ConstantArray::new(array.fill_scalar(), array.len()).into_canonical();
         }
 
-        if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
+        if matches!(array.dtype(), DType::Bool(_)) {
+            canonicalize_sparse_bools(resolved_patches, &array.fill_scalar())
         } else {
             let ptype = PType::try_from(resolved_patches.values().dtype())?;
             match_each_native_ptype!(ptype, |$P| {
                 canonicalize_sparse_primitives::<$P>(
                     resolved_patches,
-                    &self.fill_scalar(),
+                    &array.fill_scalar(),
                 )
             })
         }

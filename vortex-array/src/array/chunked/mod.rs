@@ -172,6 +172,8 @@ impl ChunkedArray {
             {
                 new_chunks.push(
                     ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                        .as_ref()
+                        .clone()
                         .into_canonical()?
                         .into(),
                 );

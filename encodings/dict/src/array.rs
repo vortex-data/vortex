@@ -8,7 +8,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
+use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
     SerdeMetadata,
@@ -61,19 +61,19 @@ impl DictArray {
 
 impl ValidateVTable<DictArray> for DictEncoding {}
 
-impl IntoCanonical for DictArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        match self.dtype() {
+impl CanonicalVTable<DictArray> for DictEncoding {
+    fn into_canonical(&self, array: DictArray) -> VortexResult<Canonical> {
+        match array.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayData = self.values().into_canonical()?.into();
-                take(canonical_values, self.codes())?.into_canonical()
+                let canonical_values: ArrayData = array.values().into_canonical()?.into();
+                take(canonical_values, array.codes())?.into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => take(self.values(), self.codes())?.into_canonical(),
+            _ => take(array.values(), array.codes())?.into_canonical(),
         }
     }
 }

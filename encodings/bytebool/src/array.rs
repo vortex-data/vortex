@@ -8,8 +8,10 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical, SerdeMetadata};
+use vortex_array::vtable::{
+    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
+use vortex_array::{impl_encoding, ArrayLen, Canonical, SerdeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -100,10 +102,10 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
     }
 }
 
-impl IntoCanonical for ByteBoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let boolean_buffer = BooleanBuffer::from(self.as_slice());
-        let validity = self.validity();
+impl CanonicalVTable<ByteBoolArray> for ByteBoolEncoding {
+    fn into_canonical(&self, array: ByteBoolArray) -> VortexResult<Canonical> {
+        let boolean_buffer = BooleanBuffer::from(array.as_slice());
+        let validity = array.validity();
 
         Ok(Canonical::Bool(BoolArray::try_new(
             boolean_buffer,

@@ -13,7 +13,8 @@ use crate::validity::ArrayValidity;
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoCanonical,
@@ -72,9 +73,9 @@ impl ExtensionArrayTrait for ExtensionArray {
     }
 }
 
-impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
+impl CanonicalVTable<ExtensionArray> for ExtensionEncoding {
+    fn into_canonical(&self, array: ExtensionArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array))
     }
 }
 

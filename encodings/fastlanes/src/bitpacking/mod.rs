@@ -10,11 +10,10 @@ use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, RkyvMetadata,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -254,9 +253,9 @@ impl BitPackedArray {
     }
 }
 
-impl IntoCanonical for BitPackedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        unpack(self).map(Canonical::Primitive)
+impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
+    fn into_canonical(&self, array: BitPackedArray) -> VortexResult<Canonical> {
+        unpack(array).map(Canonical::Primitive)
     }
 }
 

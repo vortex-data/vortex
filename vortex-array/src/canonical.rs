@@ -164,48 +164,59 @@ pub trait IntoArrayVariant {
 
 impl<T> IntoArrayVariant for T
 where
-    T: IntoCanonical,
+    T: AsRef<ArrayData>,
 {
     fn into_null(self) -> VortexResult<NullArray> {
-        self.into_canonical()?.into_null()
+        self.as_ref().clone().into_canonical()?.into_null()
     }
 
     fn into_bool(self) -> VortexResult<BoolArray> {
-        self.into_canonical()?.into_bool()
+        self.as_ref().clone().into_canonical()?.into_bool()
     }
 
     fn into_primitive(self) -> VortexResult<PrimitiveArray> {
-        self.into_canonical()?.into_primitive()
+        self.as_ref().clone().into_canonical()?.into_primitive()
     }
 
     fn into_struct(self) -> VortexResult<StructArray> {
-        self.into_canonical()?.into_struct()
+        self.as_ref().clone().into_canonical()?.into_struct()
     }
 
     fn into_list(self) -> VortexResult<ListArray> {
-        self.into_canonical()?.into_list()
+        self.as_ref().clone().into_canonical()?.into_list()
     }
 
     fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
-        self.into_canonical()?.into_varbinview()
+        self.as_ref().clone().into_canonical()?.into_varbinview()
     }
 
     fn into_extension(self) -> VortexResult<ExtensionArray> {
-        self.into_canonical()?.into_extension()
+        self.as_ref().clone().into_canonical()?.into_extension()
     }
 }
 
-/// IntoCanonical implementation for Array.
-///
-/// Canonicalizing an array requires potentially decompressing, so this requires a roundtrip through
-/// the array's internal codec.
-impl IntoCanonical for ArrayData {
+// TODO(ngates): this turns into `impl ArrayData` when we switch to Deref.
+impl<A: AsRef<ArrayData>> IntoCanonical for A {
+    /// Canonicalize an [`ArrayData`] into one of the [`Canonical`] array forms.
+    ///
+    /// # Invariants
+    ///
+    /// The DType of the array will be unchanged by canonicalization.
     fn into_canonical(self) -> VortexResult<Canonical> {
+        let this = self.as_ref();
+
         // We only care to know when we canonicalize something non-trivial.
-        if !self.is_canonical() && self.len() > 1 {
-            log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
+        if !this.is_canonical() && this.len() > 1 {
+            log::trace!("Canonicalizing array with encoding {:?}", this.encoding());
         }
-        self.encoding().into_canonical(self)
+
+        #[cfg(feature = "canonical_counter")]
+        this.inc_canonical_counter();
+
+        let canonical = this.encoding().into_canonical(this.clone())?;
+        canonical.inherit_statistics(this.statistics());
+
+        Ok(canonical)
     }
 }
 

@@ -26,7 +26,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
@@ -180,9 +181,9 @@ impl VisitorVTable<ListArray> for ListEncoding {
     }
 }
 
-impl IntoCanonical for ListArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self))
+impl CanonicalVTable<ListArray> for ListEncoding {
+    fn into_canonical(&self, array: ListArray) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array))
     }
 }
 

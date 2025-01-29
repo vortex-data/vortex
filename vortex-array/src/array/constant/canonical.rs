@@ -7,16 +7,19 @@ use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
-use crate::array::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
+use crate::array::{
+    BinaryView, BoolArray, ConstantEncoding, ExtensionArray, NullArray, VarBinViewArray,
+};
 use crate::arrow::IntoArrowArray;
 use crate::validity::Validity;
+use crate::vtable::CanonicalVTable;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
-impl IntoCanonical for ConstantArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let scalar = &self.scalar();
+impl CanonicalVTable<ConstantArray> for ConstantEncoding {
+    fn into_canonical(&self, array: ConstantArray) -> VortexResult<Canonical> {
+        let scalar = &array.scalar();
 
-        let validity = match self.dtype().nullability() {
+        let validity = match array.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => match scalar.is_null() {
                 true => Validity::AllInvalid,
@@ -24,13 +27,13 @@ impl IntoCanonical for ConstantArray {
             },
         };
 
-        Ok(match self.dtype() {
-            DType::Null => Canonical::Null(NullArray::new(self.len())),
+        Ok(match array.dtype() {
+            DType::Null => Canonical::Null(NullArray::new(array.len())),
             DType::Bool(..) => Canonical::Bool(BoolArray::try_new(
                 if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
-                    BooleanBuffer::new_set(self.len())
+                    BooleanBuffer::new_set(array.len())
                 } else {
-                    BooleanBuffer::new_unset(self.len())
+                    BooleanBuffer::new_unset(array.len())
                 },
                 validity,
             )?),
@@ -41,10 +44,10 @@ impl IntoCanonical for ConstantArray {
                             Buffer::full(
                                 $P::try_from(scalar)
                                     .vortex_expect("Couldn't unwrap scalar to primitive"),
-                                self.len(),
+                                array.len(),
                             )
                         } else {
-                            Buffer::zeroed(self.len())
+                            Buffer::zeroed(array.len())
                         },
                         validity,
                     ))
@@ -53,20 +56,28 @@ impl IntoCanonical for ConstantArray {
             DType::Utf8(_) => {
                 let value = Utf8Scalar::try_from(scalar)?.value();
                 let const_value = value.as_ref().map(|v| v.as_bytes());
-                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
+                Canonical::VarBinView(canonical_byte_view(
+                    const_value,
+                    array.dtype(),
+                    array.len(),
+                )?)
             }
             DType::Binary(_) => {
                 let value = BinaryScalar::try_from(scalar)?.value();
                 let const_value = value.as_ref().map(|v| v.as_slice());
-                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
+                Canonical::VarBinView(canonical_byte_view(
+                    const_value,
+                    array.dtype(),
+                    array.len(),
+                )?)
             }
-            DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
-            DType::List(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
+            DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", array.dtype()),
+            DType::List(..) => vortex_bail!("Unsupported scalar type {}", array.dtype()),
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
                 let storage_scalar = s.storage();
-                let storage_array = ConstantArray::new(storage_scalar, self.len()).into_array();
+                let storage_array = ConstantArray::new(storage_scalar, array.len()).into_array();
                 ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
             }
         })

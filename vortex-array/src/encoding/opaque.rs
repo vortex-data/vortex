@@ -48,7 +48,7 @@ impl EncodingVTable for OpaqueEncoding {
     }
 }
 
-impl CanonicalVTable for OpaqueEncoding {
+impl CanonicalVTable<ArrayData> for OpaqueEncoding {
     fn into_canonical(&self, _array: ArrayData) -> VortexResult<Canonical> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",

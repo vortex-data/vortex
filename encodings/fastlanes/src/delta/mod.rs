@@ -8,11 +8,11 @@ use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
-    RkyvMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
@@ -235,9 +235,9 @@ impl VariantsVTable<DeltaArray> for DeltaEncoding {
 
 impl PrimitiveArrayTrait for DeltaArray {}
 
-impl IntoCanonical for DeltaArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        delta_decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<DeltaArray> for DeltaEncoding {
+    fn into_canonical(&self, array: DeltaArray) -> VortexResult<Canonical> {
+        delta_decompress(array).map(Canonical::Primitive)
     }
 }
 

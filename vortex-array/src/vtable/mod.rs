@@ -39,7 +39,7 @@ pub trait EncodingVTable:
     + Sync
     + Send
     + Debug
-    + CanonicalVTable
+    + CanonicalVTable<ArrayData>
     + ComputeVTable
     + MetadataVTable<ArrayData>
     + StatisticsVTable<ArrayData>

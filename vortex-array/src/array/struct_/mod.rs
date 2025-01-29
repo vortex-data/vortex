@@ -13,7 +13,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
@@ -189,10 +190,10 @@ impl StructArrayTrait for StructArray {
     }
 }
 
-impl IntoCanonical for StructArray {
+impl CanonicalVTable<StructArray> for StructEncoding {
     /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self))
+    fn into_canonical(&self, array: StructArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(array))
     }
 }
 

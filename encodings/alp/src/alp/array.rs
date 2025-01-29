@@ -8,11 +8,11 @@ use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
-    SerdeMetadata,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -131,9 +131,9 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
     }
 }
 
-impl IntoCanonical for ALPArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<ALPArray> for ALPEncoding {
+    fn into_canonical(&self, array: ALPArray) -> VortexResult<Canonical> {
+        decompress(array).map(Canonical::Primitive)
     }
 }
 

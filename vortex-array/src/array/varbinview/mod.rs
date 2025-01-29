@@ -19,7 +19,7 @@ use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
+use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
     RkyvMetadata,
@@ -429,11 +429,11 @@ where
 
 impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
-impl IntoCanonical for VarBinViewArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let arrow_self = varbinview_as_arrow(&self);
-        let vortex_array = ArrayData::from_arrow(arrow_self, nullable);
+impl CanonicalVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn into_canonical(&self, array: VarBinViewArray) -> VortexResult<Canonical> {
+        let nullable = array.dtype().is_nullable();
+        let arrow_array = varbinview_as_arrow(&array);
+        let vortex_array = ArrayData::from_arrow(arrow_array, nullable);
 
         Ok(Canonical::VarBinView(VarBinViewArray::try_from(
             vortex_array,
