@@ -58,23 +58,13 @@ impl ExprEvaluator for FlatReader {
             self.row_count()
         );
 
-        println!("array: {}", array.tree_display());
-        println!("array_stats on load: {:?}", array.statistics().to_set());
-
         // TODO(ngates): what's the best order to apply the filter mask / expression?
 
         // Filter the array based on the row mask.
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
         let array = slice(array, begin, begin + row_mask.len())?;
-        println!("array_stats on slice: {:?}", array.statistics().to_set());
         let array = filter(&array, row_mask.filter_mask())?;
-
-        println!("array_stats on filter: {:?}", array.statistics().to_set());
-
-        println!("array: {:?}", array);
-        println!("array_stats: {:?}", array.statistics().to_set());
-
         // Then apply the expression
         expr.evaluate(&array)
     }

@@ -17,9 +17,6 @@ impl CompareFn<FoRArray> for FoREncoding {
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
-        if operator != Operator::Eq && operator != Operator::NotEq {
-            vortex_panic!("here {}", operator)
-        }
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
                 match_each_integer_ptype!(constant.ptype(), |$T| {

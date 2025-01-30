@@ -271,7 +271,7 @@ impl StatsSet {
         self
     }
 
-    /// Merge stats set `other` into `self`, from disjoint array, with no ordering assumptions.
+    /// Merge stats set `other` into `self`, from a disjoint array, with no ordering assumptions.
     /// Stats that are not commutative (e.g., is_sorted) are dropped from the result.
     pub fn merge_unordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {

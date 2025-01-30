@@ -76,8 +76,6 @@ pub enum Stat {
     UncompressedSizeInBytes,
 }
 
-impl Stat {}
-
 impl Stat {
     /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
     /// e.g., min/max are commutative, but is_sorted is not
@@ -190,7 +188,7 @@ pub trait Statistics {
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present and not exact.
+    /// Computes the value of the stat if it's not present and inexact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.

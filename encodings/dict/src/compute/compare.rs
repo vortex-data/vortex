@@ -12,9 +12,6 @@ impl CompareFn<DictArray> for DictEncoding {
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
-        if operator != Operator::Eq {
-            println!("comp dict op={}", operator)
-        }
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
             // Ensure the other is the same length as the dictionary
