@@ -65,7 +65,7 @@ impl Statistics for ArrayData {
                 .clone(),
             InnerArrayData::Viewed(_) => {
                 StatsSet::from_iter(all::<Stat>().filter_map(|stat| {
-                    self.get(stat).map(|v| (stat, v.clone().map(|v| v.clone())))
+                    self.get(stat).map(|v| (stat, v.map(|v| v)))
                 }))
             }
         }
@@ -105,8 +105,8 @@ impl Statistics for ArrayData {
     }
 
     fn compute(&self, stat: Stat) -> Option<ScalarValue> {
-        if let Some(Precision::Exact(s)) = self.get(stat).map(|s| s.clone()) {
-            return Some(s.clone());
+        if let Some(Precision::Exact(s)) = self.get(stat) {
+            return Some(s);
         }
         let s = self
             .encoding()
@@ -116,7 +116,7 @@ impl Statistics for ArrayData {
 
         self.set(stat, s.clone());
 
-        s.clone().ok_exact()
+        s.ok_exact()
     }
 
     fn retain_only(&self, stats: &[Stat]) {

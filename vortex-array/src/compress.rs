@@ -79,7 +79,7 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
                 compressed_scalar.clone(),
                 Some(value.clone().into_scalar(stat.dtype(arr.dtype()))),
                 "Compression changed {stat} from {value} to {:?}",
-                compressed_scalar.as_ref().map(|s| s),
+                compressed_scalar.as_ref(),
             );
         }
     }

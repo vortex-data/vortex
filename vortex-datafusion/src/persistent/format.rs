@@ -170,7 +170,7 @@ impl FileFormat for VortexFormat {
                 .iter()
                 .map(|s| {
                     s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or(inexact(0_usize))
+                        .unwrap_or_else(|| inexact(0_usize))
                 })
                 .fold(exact(0_usize), |acc, s| {
                     acc.and_then_prefer_inexact(|acc| s.map(|s| acc + s))

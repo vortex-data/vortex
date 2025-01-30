@@ -7,7 +7,7 @@ use crate::stats::{Precision, Stat};
 
 /// Interpret the value as a lower bound.
 /// These format a partial order over successively more precise bounds
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LowerBound<T>(pub(crate) Precision<T>);
 
 impl<T> LowerBound<T> {
@@ -76,7 +76,7 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
 }
 
 /// Interpret the value as an upper bound
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpperBound<T>(pub(crate) Precision<T>);
 
 impl<T> UpperBound<T> {

@@ -7,7 +7,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::stats::precision::Precision::{Exact, Inexact};
 use crate::stats::{LowerBound, Stat, UpperBound};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Precision<T> {
     Exact(T),
     Inexact(T),
