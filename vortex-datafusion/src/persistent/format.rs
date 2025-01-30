@@ -12,8 +12,10 @@ use datafusion_common::stats::Precision;
 use datafusion_common::{
     not_impl_err, ColumnStatistics, DataFusionError, Result as DFResult, ScalarValue, Statistics,
 };
+use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
+use datafusion_physical_plan::insert::DataSinkExec;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
@@ -29,6 +31,7 @@ use vortex_scalar::Scalar;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
+use super::sink::VortexSink;
 use crate::can_be_pushed_down;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
@@ -237,12 +240,24 @@ impl FileFormat for VortexFormat {
 
     async fn create_writer_physical_plan(
         &self,
-        _input: Arc<dyn ExecutionPlan>,
+        input: Arc<dyn ExecutionPlan>,
         _state: &SessionState,
-        _conf: FileSinkConfig,
-        _order_requirements: Option<LexRequirement>,
+        conf: FileSinkConfig,
+        order_requirements: Option<LexRequirement>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        not_impl_err!("Writer not implemented for this format")
+        if conf.insert_op != InsertOp::Append {
+            return not_impl_err!("Overwrites are not implemented yet for Parquet");
+        }
+
+        let sink = Arc::new(VortexSink::new(conf));
+        let sink_schema = input.schema();
+
+        Ok(Arc::new(DataSinkExec::new(
+            input,
+            sink,
+            sink_schema,
+            order_requirements,
+        )) as _)
     }
 
     fn supports_filters_pushdown(
