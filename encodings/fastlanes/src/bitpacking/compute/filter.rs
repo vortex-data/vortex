@@ -41,7 +41,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 ) -> VortexResult<PrimitiveArray> {
     // Short-circuit if the selectivity is high enough.
     let full_decompression_threshold = match T::get_byte_width() {
-        1 => 0.02,
+        1 => 0.03,
         2 => 0.03,
         4 => 0.075,
         _ => 0.09,
