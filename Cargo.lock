@@ -5358,6 +5358,7 @@ dependencies = [
  "moka",
  "object_store",
  "pin-project",
+ "rand",
  "tempfile",
  "tokio",
  "url",

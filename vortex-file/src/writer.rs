@@ -40,7 +40,7 @@ impl VortexWriteOptions {
         let mut layout_writer = self.strategy.new_writer(stream.dtype())?;
 
         // First we write the magic number
-        let mut write = futures_util::io::Cursor::new(write);
+        let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
         // Our buffered message writer accumulates messages for each batch so we can flush them

@@ -24,7 +24,7 @@ pub trait ObjectStoreExt {
     fn vortex_writer(
         &self,
         location: &Path,
-    ) -> impl Future<Output = VortexResult<impl VortexWrite>>;
+    ) -> impl Future<Output = VortexResult<impl VortexWrite + Send>>;
 }
 
 impl ObjectStoreExt for Arc<dyn ObjectStore> {
@@ -41,7 +41,7 @@ impl ObjectStoreExt for Arc<dyn ObjectStore> {
         ObjectStoreReadAt::new(self.clone(), location.clone())
     }
 
-    async fn vortex_writer(&self, location: &Path) -> VortexResult<impl VortexWrite> {
+    async fn vortex_writer(&self, location: &Path) -> VortexResult<impl VortexWrite + Send> {
         Ok(ObjectStoreWriter::new(WriteMultipart::new_with_chunk_size(
             self.put_multipart(location).await?,
             10 * 1024 * 1024,
