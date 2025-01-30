@@ -121,6 +121,7 @@ mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
     use vortex_buffer::{buffer, Buffer};
+    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -260,7 +261,23 @@ mod tests {
         );
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
-        assert_eq!(original.as_slice::<f64>(), decompressed.as_slice::<f64>());
+        assert_eq!(
+            // The second and third values become exceptions and are replaced
+            [195.26274, 195.26274, 195.26274],
+            decompressed.as_slice::<f64>()
+        );
         assert_eq!(original.validity(), decompressed.validity());
+        assert_eq!(
+            scalar_at(&original, 0).unwrap(),
+            Scalar::null_typed::<f64>()
+        );
+        assert_eq!(
+            scalar_at(&original, 1).unwrap(),
+            Scalar::null_typed::<f64>()
+        );
+        assert_eq!(
+            scalar_at(&original, 2).unwrap(),
+            Scalar::null_typed::<f64>()
+        );
     }
 }
