@@ -22,7 +22,7 @@ use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR
 use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
 use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{IntoArrayData as _, IntoCanonical};
+use vortex::{IntoArray, IntoCanonical};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
