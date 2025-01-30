@@ -77,7 +77,7 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
                     stats
                         .get_as::<T>(Stat::Min)
                         .zip(stats.get_as::<T>(Stat::Max))
-                        .map(|(min, max)| exact(min == max))
+                        .map(|(min, max)| exact(min.value.ok_exact() == max.value.ok_exact()))
                         .unwrap_or(bound(false)),
                 );
                 stats

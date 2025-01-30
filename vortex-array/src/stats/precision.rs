@@ -165,7 +165,7 @@ pub enum BoundDirection {
     Neither,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DirectionalBound<T> {
     pub(crate) direction: BoundDirection,
     pub(crate) value: Precision<T>,
@@ -190,6 +190,10 @@ impl<T> DirectionalBound<T> {
 impl<T> DirectionalBound<T> {
     pub fn new(direction: BoundDirection, value: Precision<T>) -> Self {
         Self { direction, value }
+    }
+
+    pub fn upper(value: Precision<T>) -> Self {
+        Self::new(BoundDirection::Upper, value)
     }
 
     pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> DirectionalBound<U> {

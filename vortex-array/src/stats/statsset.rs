@@ -1,4 +1,5 @@
 use enum_iterator::{all, Sequence};
+use futures_util::TryFutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
@@ -183,7 +184,7 @@ impl StatsSet {
     pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<Precision<T>> {
+    ) -> Option<DirectionalBound<T>> {
         self.get(stat).map(|v| {
             v.map(|v| {
                 T::try_from(&v).unwrap_or_else(|err| {
@@ -363,14 +364,13 @@ impl StatsSet {
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
-        if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
-            == (
-                self.get_as(Stat::IsConstant)
-                    .map(DirectionalBound::into_value),
+        // if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
+        //     == (
+        if self.get_as(Stat::IsConstant)
+                    .is_some_and(|v| v.value.ok_exact() == Some(true)) &&
                 other
-                    .get_as(Stat::IsConstant)
-                    .map(DirectionalBound::into_value),
-            )
+                    .get_as(Stat::IsConstant).is_some_and(|v| v.value.ok_exact() == Some(true))
+            // )
             && self
                 .get_scalar(Min, dtype)
                 .map(DirectionalBound::into_value)
@@ -598,7 +598,10 @@ mod test {
             &StatsSet::of(Stat::Max, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<i32>(Stat::Max), Some(exact(42)));
+        assert_eq!(
+            first.get_as::<i32>(Stat::Max),
+            Some(DirectionalBound::upper(exact(42)))
+        );
     }
 
     #[test]
@@ -607,10 +610,8 @@ mod test {
         let first = StatsSet::of(Stat::Max, exact(42i32))
             .merge_ordered(&StatsSet::of(Stat::Max, bound(43i32)), &dtype);
         assert_eq!(
-            first
-                .get_as::<i32>(Stat::Max)
-                .and_then(DirectionalBound::upper_ok),
-            Some(UpperBound::lift(bound(43)))
+            first.get_as::<i32>(Stat::Max),
+            Some(DirectionalBound::upper(bound(43)))
         );
     }
 
@@ -638,7 +639,10 @@ mod test {
             &StatsSet::of(Stat::TrueCount, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<usize>(Stat::TrueCount), Some(exact(79usize)));
+        assert_eq!(
+            first.get_as::<usize>(Stat::TrueCount),
+            Some(DirectionalBound::upper(exact(79usize)))
+        );
     }
 
     #[test]
@@ -671,7 +675,7 @@ mod test {
         );
         assert_eq!(
             first.get_as::<Vec<u64>>(Stat::BitWidthFreq),
-            Some(exact(vec_out))
+            Some(DirectionalBound::upper(exact(vec_out)))
         );
     }
 
@@ -705,7 +709,7 @@ mod test {
         );
         assert_eq!(
             first.get_as::<bool>(Stat::IsStrictSorted),
-            Some(exact(true))
+            Some(DirectionalBound::upper(exact(true)))
         );
     }
 
@@ -721,7 +725,7 @@ mod test {
         );
         assert_eq!(
             second.get_as::<bool>(Stat::IsStrictSorted),
-            Some(exact(false))
+            Some(DirectionalBound::upper(exact(false)))
         );
     }
 
@@ -737,7 +741,7 @@ mod test {
         );
         assert_eq!(
             second.get_as::<bool>(Stat::IsStrictSorted),
-            Some(exact(false))
+            Some(DirectionalBound::upper(exact(false)))
         );
     }
 
@@ -803,7 +807,10 @@ mod test {
             &StatsSet::of(Stat::Min, exact(5)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(merged.get_as::<i32>(Stat::Min), Some(exact(5)));
+        assert_eq!(
+            merged.get_as::<i32>(Stat::Min),
+            Some(DirectionalBound::upper(exact(5)))
+        );
     }
 
     #[test]
@@ -812,9 +819,9 @@ mod test {
             &StatsSet::of(Stat::Min, exact(5)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert!(merged
-            .get_as::<i32>(Stat::Min)
-            .unwrap()
-            .structural_eq(&bound(4)));
+        assert_eq!(
+            merged.get_as::<i32>(Stat::Min),
+            Some(DirectionalBound::upper(bound(4)))
+        );
     }
 }
