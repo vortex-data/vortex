@@ -14,69 +14,7 @@ use crate::python_repr::PythonRepr;
 use crate::scalar::scalar_into_py;
 
 #[pyclass(name = "Array", module = "vortex", sequence, subclass)]
-/// An array of zero or more *rows* each with the same set of *columns*.
-///
-/// Examples
-/// --------
-///
-/// Arrays support all the standard comparison operations:
-///
-/// >>> a = vortex.array(['dog', None, 'cat', 'mouse', 'fish'])
-/// >>> b = vortex.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
-/// >>> (a < b).to_arrow_array()
-/// <pyarrow.lib.BooleanArray object at ...>
-/// [
-///   true,
-///   null,
-///   false,
-///   false,
-///   false
-/// ]
-/// >>> (a <= b).to_arrow_array()
-/// <pyarrow.lib.BooleanArray object at ...>
-/// [
-///   true,
-///   null,
-///   false,
-///   true,
-///   false
-/// ]
-/// >>> (a == b).to_arrow_array()
-/// <pyarrow.lib.BooleanArray object at ...>
-/// [
-///   false,
-///   null,
-///   false,
-///   true,
-///   false
-/// ]
-/// >>> (a != b).to_arrow_array()
-/// <pyarrow.lib.BooleanArray object at ...>
-/// [
-///   true,
-///   null,
-///   true,
-///   false,
-///   true
-/// ]
-/// >>> (a >= b).to_arrow_array()
-/// <pyarrow.lib.BooleanArray object at ...>
-/// [
-///   false,
-///   null,
-///   true,
-///   true,
-///   true
-/// ]
-/// >>> (a > b).to_arrow_array()
-/// <pyarrow.lib.BooleanArray object at ...>
-/// [
-///   false,
-///   null,
-///   true,
-///   false,
-///   true
-/// ]
+
 pub struct PyArray {
     inner: Array,
 }
