@@ -34,7 +34,7 @@ impl FilterFn<BitPackedArray> for BitPackedEncoding {
 /// This function fully decompresses the array for all but the most selective masks because the
 /// FastLanes decompression is so fast and the bookkeepping necessary to decompress individual
 /// elements is relatively slow. If you prefer to never fully decompress, use
-/// [filter_primitive_chunk_by_chunk].
+/// [filter_primitive_no_decompression].
 fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     mask: &Mask,
@@ -59,7 +59,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 /// Filter a bit-packed array, without using full decompression.
 ///
 /// You should probably use [filter_primitive].
-fn filter_primitive_chunk_by_chunk<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
