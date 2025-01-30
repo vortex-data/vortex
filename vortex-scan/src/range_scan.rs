@@ -3,7 +3,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use vortex_array::compute::fill_null;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
@@ -24,14 +24,14 @@ enum State {
     // Then we project the selected rows.
     Project((Mask, ExprRef)),
     // And then we're done.
-    Ready(Option<ArrayData>),
+    Ready(Option<Array>),
 }
 
 /// The next operation that should be performed. Either an expression to run, or the result
 /// of the [`RangeScanner`].
 pub enum NextOp {
     /// The finished result of the scan.
-    Ready(Option<ArrayData>),
+    Ready(Option<Array>),
     /// The next expression to evaluate.
     /// The caller **must** first apply the mask before evaluating the expression.
     Eval((Range<u64>, Mask, ExprRef)),
@@ -105,7 +105,7 @@ impl RangeScanner {
     }
 
     /// Post the result of the last expression evaluation back to the range scan.
-    fn transition(mut self, result: ArrayData) -> VortexResult<Self> {
+    fn transition(mut self, result: Array) -> VortexResult<Self> {
         const APPLY_FILTER_SELECTIVITY_THRESHOLD: f64 = 0.2;
         match self.state {
             State::FilterEval((eval_mask, mut conjuncts_rev)) => {
@@ -153,9 +153,9 @@ impl RangeScanner {
     }
 
     /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
-    pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<Option<ArrayData>>
+    pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<Option<Array>>
     where
-        E: Fn(RowMask, ExprRef) -> VortexResult<ArrayData>,
+        E: Fn(RowMask, ExprRef) -> VortexResult<Array>,
     {
         loop {
             match self.next() {
@@ -169,10 +169,10 @@ impl RangeScanner {
     }
 
     /// Evaluate the [`RangeScanner`] operation using an async expression evaluator.
-    pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<Option<ArrayData>>
+    pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<Option<Array>>
     where
         E: Fn(RowMask, ExprRef) -> F,
-        F: Future<Output = VortexResult<ArrayData>>,
+        F: Future<Output = VortexResult<Array>>,
     {
         loop {
             match self.next() {
@@ -193,7 +193,7 @@ mod tests {
     use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::compute::filter;
     use vortex_array::variants::StructArrayTrait;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::U64;
     use vortex_dtype::{DType, StructDType};

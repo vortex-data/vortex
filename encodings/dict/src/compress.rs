@@ -9,7 +9,7 @@ use vortex_array::array::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
@@ -76,7 +76,7 @@ mod private {
     float_value!(f64);
 }
 
-pub fn dict_encode(array: &ArrayData) -> VortexResult<DictArray> {
+pub fn dict_encode(array: &Array) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = PrimitiveArray::maybe_from(array) {
         match_each_native_ptype!(pa.ptype(), |$P| {
             &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())
@@ -93,9 +93,9 @@ pub fn dict_encode(array: &ArrayData) -> VortexResult<DictArray> {
 }
 
 pub trait DictEncoder {
-    fn encode_array(&mut self, array: &ArrayData) -> VortexResult<ArrayData>;
+    fn encode_array(&mut self, array: &Array) -> VortexResult<Array>;
 
-    fn values(&mut self) -> ArrayData;
+    fn values(&mut self) -> Array;
 }
 
 /// Dictionary encode primitive array with given PType.
@@ -142,7 +142,7 @@ impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    fn encode_array(&mut self, array: &ArrayData) -> VortexResult<ArrayData> {
+    fn encode_array(&mut self, array: &Array) -> VortexResult<Array> {
         if array.dtype().is_nullable() && self.nullability == Nullability::NonNullable {
             vortex_bail!("Cannot encode nullable array into non nullable dictionary")
         }
@@ -168,7 +168,7 @@ where
         Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
     }
 
-    fn values(&mut self) -> ArrayData {
+    fn values(&mut self) -> Array {
         let values_validity = dict_values_validity(self.nullability.into(), self.values.len());
 
         PrimitiveArray::new(self.values.clone().freeze(), values_validity).into_array()
@@ -240,7 +240,7 @@ impl BytesDictBuilder {
         &mut self,
         accessor: A,
         len: usize,
-    ) -> VortexResult<ArrayData> {
+    ) -> VortexResult<Array> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
@@ -262,7 +262,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode_array(&mut self, array: &ArrayData) -> VortexResult<ArrayData> {
+    fn encode_array(&mut self, array: &Array) -> VortexResult<Array> {
         if array.dtype().is_nullable() && !self.dtype.is_nullable() {
             vortex_bail!("Cannot encode nullable array into non nullable dictionary")
         }
@@ -281,7 +281,7 @@ impl DictEncoder for BytesDictBuilder {
         vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
     }
 
-    fn values(&mut self) -> ArrayData {
+    fn values(&mut self) -> Array {
         let values_validity = dict_values_validity(self.dtype.is_nullable(), self.views.len());
         VarBinViewArray::try_new(
             self.views.clone().freeze(),

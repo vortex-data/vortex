@@ -3,10 +3,10 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{slice, SliceFn};
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl SliceFn<ChunkedArray> for ChunkedEncoding {
-    fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<Array> {
         let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
         let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);
 
@@ -48,7 +48,7 @@ mod tests {
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{Array, IntoArray, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -62,7 +62,7 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_equal_slices<T: NativePType>(arr: ArrayData, slice: &[T]) {
+    fn assert_equal_slices<T: NativePType>(arr: Array, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
         ChunkedArray::try_from(arr)
             .unwrap()

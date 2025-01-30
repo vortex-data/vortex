@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayData, Canonical, IntoArrayData};
+use crate::{Array, Canonical, IntoArray};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -70,38 +70,28 @@ impl Operator {
     }
 }
 
-pub trait CompareFn<Array> {
+pub trait CompareFn<A> {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported for these arrays.
-    fn compare(
-        &self,
-        lhs: &Array,
-        rhs: &ArrayData,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayData>>;
+    fn compare(&self, lhs: &A, rhs: &Array, operator: Operator) -> VortexResult<Option<Array>>;
 }
 
-impl<E: Encoding> CompareFn<ArrayData> for E
+impl<E: Encoding> CompareFn<Array> for E
 where
     E: CompareFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
 {
-    fn compare(
-        &self,
-        lhs: &ArrayData,
-        rhs: &ArrayData,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    fn compare(&self, lhs: &Array, rhs: &Array, operator: Operator) -> VortexResult<Option<Array>> {
         let (lhs_ref, encoding) = lhs.try_downcast_ref::<E>()?;
         CompareFn::compare(encoding, lhs_ref, rhs, operator)
     }
 }
 
 pub fn compare(
-    left: impl AsRef<ArrayData>,
-    right: impl AsRef<ArrayData>,
+    left: impl AsRef<Array>,
+    right: impl AsRef<Array>,
     operator: Operator,
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let left = left.as_ref();
     let right = right.as_ref();
 
@@ -170,11 +160,7 @@ pub fn compare(
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
-fn arrow_compare(
-    left: &ArrayData,
-    right: &ArrayData,
-    operator: Operator,
-) -> VortexResult<ArrayData> {
+fn arrow_compare(left: &Array, right: &Array, operator: Operator) -> VortexResult<Array> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
     let lhs = Datum::try_new(left.clone())?;
     let rhs = Datum::try_new(right.clone())?;
@@ -191,7 +177,7 @@ fn arrow_compare(
 }
 
 #[inline(always)]
-fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
+fn check_compare_result(result: &Array, lhs: &Array, rhs: &Array) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -240,7 +226,7 @@ mod tests {
     use super::*;
     use crate::array::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

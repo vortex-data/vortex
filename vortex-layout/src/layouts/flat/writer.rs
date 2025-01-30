@@ -1,6 +1,6 @@
 use vortex_array::parts::ArrayPartsFlatBuffer;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::WriteFlatBufferExt;
@@ -40,7 +40,7 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &ArrayData, stats: &[Stat]) {
+fn retain_only_stats(array: &Array, stats: &[Stat]) {
     array.statistics().retain_only(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
@@ -48,11 +48,7 @@ fn retain_only_stats(array: &ArrayData, stats: &[Stat]) {
 }
 
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         if self.layout.is_some() {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }
@@ -100,7 +96,7 @@ mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
     use vortex_scan::RowMask;

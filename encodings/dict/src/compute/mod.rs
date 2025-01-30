@@ -7,7 +7,7 @@ use vortex_array::compute::{
     SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -15,31 +15,31 @@ use vortex_scalar::Scalar;
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn like_fn(&self) -> Option<&dyn LikeFn<ArrayData>> {
+    fn like_fn(&self) -> Option<&dyn LikeFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 }
@@ -52,7 +52,7 @@ impl ScalarAtFn<DictArray> for DictEncoding {
 }
 
 impl TakeFn<DictArray> for DictEncoding {
-    fn take(&self, array: &DictArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &DictArray, indices: &Array) -> VortexResult<Array> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
@@ -62,7 +62,7 @@ impl TakeFn<DictArray> for DictEncoding {
 }
 
 impl FilterFn<DictArray> for DictEncoding {
-    fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<Array> {
         let codes = filter(&array.codes(), mask)?;
         DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
@@ -70,7 +70,7 @@ impl FilterFn<DictArray> for DictEncoding {
 
 impl SliceFn<DictArray> for DictEncoding {
     // TODO(robert): Add function to trim the dictionary
-    fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<Array> {
         DictArray::try_new(slice(array.codes(), start, stop)?, array.values())
             .map(|a| a.into_array())
     }
@@ -82,7 +82,7 @@ mod test {
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
-    use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{Array, IntoArray, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -120,7 +120,7 @@ mod test {
         );
     }
 
-    fn sliced_dict_array() -> ArrayData {
+    fn sliced_dict_array() -> Array {
         let reference = PrimitiveArray::from_option_iter([
             Some(42),
             Some(-9),

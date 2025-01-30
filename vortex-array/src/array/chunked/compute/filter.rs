@@ -5,13 +5,13 @@ use vortex_mask::{Mask, MaskIter};
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<ChunkedArray> for ChunkedEncoding {
-    fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<Array> {
         let mask_values = mask
             .values()
             .vortex_expect("AllTrue and AllFalse are handled by filter fn");
@@ -42,7 +42,7 @@ enum ChunkFilter {
 fn filter_slices(
     array: &ChunkedArray,
     slices: impl Iterator<Item = (usize, usize)>,
-) -> VortexResult<Vec<ArrayData>> {
+) -> VortexResult<Vec<Array>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
     // Pre-materialize the chunk ends for performance.
@@ -121,7 +121,7 @@ fn filter_slices(
 fn filter_indices(
     array: &ChunkedArray,
     indices: impl Iterator<Item = usize>,
-) -> VortexResult<Vec<ArrayData>> {
+) -> VortexResult<Vec<Array>> {
     let mut result = Vec::with_capacity(array.nchunks());
     let mut current_chunk_id = 0;
     let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
@@ -190,7 +190,7 @@ mod test {
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::filter;
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     fn filter_chunked_floats() {

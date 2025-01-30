@@ -2,18 +2,18 @@ use std::cmp::min;
 
 use vortex_array::compute::{scalar_at, slice, ScalarAtFn, SliceFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{DeltaArray, DeltaEncoding};
 
 impl ComputeVTable for DeltaEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 }
@@ -26,7 +26,7 @@ impl ScalarAtFn<DeltaArray> for DeltaEncoding {
 }
 
 impl SliceFn<DeltaArray> for DeltaEncoding {
-    fn slice(&self, array: &DeltaArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &DeltaArray, start: usize, stop: usize) -> VortexResult<Array> {
         let physical_start = start + array.offset();
         let physical_stop = stop + array.offset();
 

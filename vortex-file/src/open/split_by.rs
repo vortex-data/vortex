@@ -56,7 +56,7 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath};

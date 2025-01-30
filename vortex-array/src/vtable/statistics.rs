@@ -2,7 +2,7 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::stats::{Stat, StatsSet};
-use crate::ArrayData;
+use crate::Array;
 
 /// Encoding VTable for computing array statistics.
 pub trait StatisticsVTable<Array: ?Sized> {
@@ -12,12 +12,12 @@ pub trait StatisticsVTable<Array: ?Sized> {
     }
 }
 
-impl<E: Encoding + 'static> StatisticsVTable<ArrayData> for E
+impl<E: Encoding + 'static> StatisticsVTable<Array> for E
 where
     E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
 {
-    fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, array: &Array, stat: Stat) -> VortexResult<StatsSet> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }

@@ -4,7 +4,7 @@ use std::iter::Iterator;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use num_traits::ToPrimitive;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_runend::RunEndArray;

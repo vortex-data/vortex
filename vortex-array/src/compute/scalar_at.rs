@@ -2,27 +2,27 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::Array;
 
 /// Implementation of scalar_at for an encoding.
 ///
-/// SAFETY: the index is guaranteed to be within the bounds of the [ArrayData].
-pub trait ScalarAtFn<Array> {
-    fn scalar_at(&self, array: &Array, index: usize) -> VortexResult<Scalar>;
+/// SAFETY: the index is guaranteed to be within the bounds of the [Array].
+pub trait ScalarAtFn<A> {
+    fn scalar_at(&self, array: &A, index: usize) -> VortexResult<Scalar>;
 }
 
-impl<E: Encoding> ScalarAtFn<ArrayData> for E
+impl<E: Encoding> ScalarAtFn<Array> for E
 where
     E: ScalarAtFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
 {
-    fn scalar_at(&self, array: &ArrayData, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(&self, array: &Array, index: usize) -> VortexResult<Scalar> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         ScalarAtFn::scalar_at(encoding, array_ref, index)
     }
 }
 
-pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Scalar> {
+pub fn scalar_at(array: impl AsRef<Array>, index: usize) -> VortexResult<Scalar> {
     let array = array.as_ref();
     if index >= array.len() {
         vortex_bail!(OutOfBounds: index, 0, array.len());

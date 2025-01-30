@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
@@ -29,7 +29,7 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         Ok(batch.clone())
     }
 

@@ -2,10 +2,10 @@ use vortex_array::array::ConstantArray;
 use vortex_error::VortexResult;
 
 use crate::compute::SliceFn;
-use crate::{ArrayData, IntoArrayData, SparseArray, SparseEncoding};
+use crate::{Array, IntoArray, SparseArray, SparseEncoding};
 
 impl SliceFn<SparseArray> for SparseEncoding {
-    fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<Array> {
         let new_patches = array.patches().slice(
             array.indices_offset() + start,
             array.indices_offset() + stop,
@@ -22,7 +22,7 @@ impl SliceFn<SparseArray> for SparseEncoding {
             0,
             array.fill_scalar(),
         )
-        .map(IntoArrayData::into_array)
+        .map(IntoArray::into_array)
     }
 }
 

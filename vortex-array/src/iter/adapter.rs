@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::iter::ArrayIterator;
-use crate::ArrayData;
+use crate::Array;
 
 pub struct ArrayIteratorAdapter<I> {
     dtype: DType,
@@ -17,9 +17,9 @@ impl<I> ArrayIteratorAdapter<I> {
 
 impl<I> Iterator for ArrayIteratorAdapter<I>
 where
-    I: Iterator<Item = VortexResult<ArrayData>>,
+    I: Iterator<Item = VortexResult<Array>>,
 {
-    type Item = VortexResult<ArrayData>;
+    type Item = VortexResult<Array>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
@@ -28,7 +28,7 @@ where
 
 impl<I> ArrayIterator for ArrayIteratorAdapter<I>
 where
-    I: Iterator<Item = VortexResult<ArrayData>>,
+    I: Iterator<Item = VortexResult<Array>>,
 {
     fn dtype(&self) -> &DType {
         &self.dtype

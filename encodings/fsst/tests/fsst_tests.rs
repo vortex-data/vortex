@@ -2,7 +2,7 @@
 
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::compute::{filter, scalar_at, slice, take};
-use vortex_array::{ArrayData, Encoding, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, Encoding, IntoArray, IntoArrayVariant};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};
@@ -15,7 +15,7 @@ macro_rules! assert_nth_scalar {
 }
 
 // this function is VERY slow on miri, so we only want to run it once
-fn build_fsst_array() -> ArrayData {
+fn build_fsst_array() -> Array {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
     input_array.push_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.push_value(

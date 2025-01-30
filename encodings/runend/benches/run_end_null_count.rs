@@ -7,7 +7,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::stats::Stat;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 

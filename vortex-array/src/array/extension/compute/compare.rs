@@ -2,15 +2,15 @@ use vortex_error::VortexResult;
 
 use crate::array::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{compare, CompareFn, Operator};
-use crate::ArrayData;
+use crate::Array;
 
 impl CompareFn<ExtensionArray> for ExtensionEncoding {
     fn compare(
         &self,
         lhs: &ExtensionArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
             let storage_scalar = const_ext.as_extension().storage();

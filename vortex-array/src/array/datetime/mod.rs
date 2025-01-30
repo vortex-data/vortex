@@ -9,7 +9,7 @@ use vortex_error::{vortex_panic, VortexError};
 
 use crate::array::ExtensionArray;
 use crate::variants::ExtensionArrayTrait;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///
@@ -69,7 +69,7 @@ impl TemporalArray {
     /// If the time unit is days, and the array is not of primitive I32 type, it panics.
     ///
     /// If any other time unit is provided, it panics.
-    pub fn new_date(array: ArrayData, time_unit: TimeUnit) -> Self {
+    pub fn new_date(array: Array, time_unit: TimeUnit) -> Self {
         match time_unit {
             TimeUnit::D => {
                 assert_width!(i32, array);
@@ -111,7 +111,7 @@ impl TemporalArray {
     /// If the time unit is microseconds, and the array is not of primitive I64 type, it panics.
     ///
     /// If the time unit is nanoseconds, and the array is not of primitive I64 type, it panics.
-    pub fn new_time(array: ArrayData, time_unit: TimeUnit) -> Self {
+    pub fn new_time(array: Array, time_unit: TimeUnit) -> Self {
         match time_unit {
             TimeUnit::S | TimeUnit::Ms => assert_width!(i32, array),
             TimeUnit::Us | TimeUnit::Ns => assert_width!(i64, array),
@@ -140,7 +140,7 @@ impl TemporalArray {
     /// If `array` does not hold Primitive i64 data, the function will panic.
     ///
     /// If the time_unit is days, the function will panic.
-    pub fn new_timestamp(array: ArrayData, time_unit: TimeUnit, time_zone: Option<String>) -> Self {
+    pub fn new_timestamp(array: Array, time_unit: TimeUnit, time_zone: Option<String>) -> Self {
         assert_width!(i64, array);
 
         let temporal_metadata = TemporalMetadata::Timestamp(time_unit, time_zone);
@@ -164,7 +164,7 @@ impl TemporalArray {
     ///
     /// These values are to be interpreted based on the time unit and optional time-zone stored
     /// in the TemporalMetadata.
-    pub fn temporal_values(&self) -> ArrayData {
+    pub fn temporal_values(&self) -> Array {
         self.ext.storage()
     }
 
@@ -182,13 +182,13 @@ impl TemporalArray {
     }
 }
 
-impl From<TemporalArray> for ArrayData {
+impl From<TemporalArray> for Array {
     fn from(value: TemporalArray) -> Self {
         value.ext.into_array()
     }
 }
 
-impl TryFrom<ArrayData> for TemporalArray {
+impl TryFrom<Array> for TemporalArray {
     type Error = VortexError;
 
     /// Try to specialize a generic Vortex array as a TemporalArray.
@@ -199,7 +199,7 @@ impl TryFrom<ArrayData> for TemporalArray {
     ///
     /// If the provided Array does not have recognized ExtMetadata corresponding to one of the known
     /// `TemporalMetadata` variants, an error is returned.
-    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
+    fn try_from(value: Array) -> Result<Self, Self::Error> {
         let ext = ExtensionArray::try_from(value)?;
         let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
 

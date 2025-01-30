@@ -25,9 +25,9 @@ use vortex::encodings::sparse::SparseArray;
 use vortex::encodings::zigzag::ZigZagArray;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
-use vortex::{ArrayData, IntoArrayData};
+use vortex::{Array, IntoArray};
 
-fn fsst_array() -> ArrayData {
+fn fsst_array() -> Array {
     let input_array = varbin_array();
     let compressor = fsst_train_compressor(&input_array).unwrap();
 
@@ -36,7 +36,7 @@ fn fsst_array() -> ArrayData {
         .into_array()
 }
 
-fn varbin_array() -> ArrayData {
+fn varbin_array() -> Array {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
     input_array.push_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.push_value(
@@ -48,7 +48,7 @@ fn varbin_array() -> ArrayData {
         .into_array()
 }
 
-fn varbinview_array() -> ArrayData {
+fn varbinview_array() -> Array {
     VarBinViewArray::from_iter_str(vec![
         "The Greeks never said that the limit could not be overstepped",
         "They said it existed and that whoever dared to exceed it was mercilessly struck down",
@@ -57,7 +57,7 @@ fn varbinview_array() -> ArrayData {
     .into_array()
 }
 
-fn enc_impls() -> Vec<ArrayData> {
+fn enc_impls() -> Vec<Array> {
     vec![
         ALPArray::try_new(buffer![1].into_array(), Exponents { e: 1, f: 1 }, None)
             .unwrap()
@@ -147,7 +147,7 @@ fn enc_impls() -> Vec<ArrayData> {
     ]
 }
 
-fn compute_funcs(encodings: &[ArrayData]) {
+fn compute_funcs(encodings: &[Array]) {
     let mut table_builder = Builder::default();
     table_builder.push_record(vec![
         "Encoding",

@@ -1,9 +1,9 @@
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
 #![feature(substr_range)]
-//! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayData).
+//! Vortex crate containing core logic for encoding and memory representation of [arrays](Array).
 //!
-//! At the heart of Vortex are [arrays](ArrayData) and [encodings](vtable::EncodingVTable).
+//! At the heart of Vortex are [arrays](Array) and [encodings](vtable::EncodingVTable).
 //! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
@@ -53,19 +53,19 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-/// A depth-first pre-order iterator over a ArrayData.
+/// A depth-first pre-order iterator over a Array.
 pub struct ArrayChildrenIterator {
-    stack: Vec<ArrayData>,
+    stack: Vec<Array>,
 }
 
 impl ArrayChildrenIterator {
-    pub fn new(array: ArrayData) -> Self {
+    pub fn new(array: Array) -> Self {
         Self { stack: vec![array] }
     }
 }
 
 impl Iterator for ArrayChildrenIterator {
-    type Item = ArrayData;
+    type Item = Array;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.stack.pop()?;
@@ -76,9 +76,9 @@ impl Iterator for ArrayChildrenIterator {
     }
 }
 
-/// Consume `self` and turn it into an [`ArrayData`] infallibly.
+/// Consume `self` and turn it into an [`Array`] infallibly.
 ///
 /// Implementation of this array should never fail.
-pub trait IntoArrayData {
-    fn into_array(self) -> ArrayData;
+pub trait IntoArray {
+    fn into_array(self) -> Array;
 }

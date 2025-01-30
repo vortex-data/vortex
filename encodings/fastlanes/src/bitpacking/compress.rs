@@ -4,7 +4,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoArray;
 use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,

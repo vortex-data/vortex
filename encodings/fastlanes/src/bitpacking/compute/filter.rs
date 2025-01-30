@@ -3,7 +3,7 @@ use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
@@ -14,7 +14,7 @@ use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
-    fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<Array> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
         });

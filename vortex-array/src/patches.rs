@@ -19,7 +19,7 @@ use crate::compute::{
 };
 use crate::stats::Stat;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 #[derive(
     Copy,
@@ -68,12 +68,12 @@ impl PatchesMetadata {
 #[derive(Debug, Clone)]
 pub struct Patches {
     array_len: usize,
-    indices: ArrayData,
-    values: ArrayData,
+    indices: Array,
+    values: Array,
 }
 
 impl Patches {
-    pub fn new(array_len: usize, indices: ArrayData, values: ArrayData) -> Self {
+    pub fn new(array_len: usize, indices: Array, values: Array) -> Self {
         assert_eq!(
             indices.len(),
             values.len(),
@@ -103,7 +103,7 @@ impl Patches {
         }
     }
 
-    pub fn into_parts(self) -> (usize, ArrayData, ArrayData) {
+    pub fn into_parts(self) -> (usize, Array, Array) {
         (self.array_len, self.indices, self.values)
     }
 
@@ -119,19 +119,19 @@ impl Patches {
         self.values.dtype()
     }
 
-    pub fn indices(&self) -> &ArrayData {
+    pub fn indices(&self) -> &Array {
         &self.indices
     }
 
-    pub fn into_indices(self) -> ArrayData {
+    pub fn into_indices(self) -> Array {
         self.indices
     }
 
-    pub fn values(&self) -> &ArrayData {
+    pub fn values(&self) -> &Array {
         &self.values
     }
 
-    pub fn into_values(self) -> ArrayData {
+    pub fn into_values(self) -> Array {
         self.values
     }
 
@@ -254,7 +254,7 @@ impl Patches {
     }
 
     /// Take the indices from the patches.
-    pub fn take(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
+    pub fn take(&self, take_indices: &Array) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
@@ -350,7 +350,7 @@ impl Patches {
 
     pub fn map_values<F>(self, f: F) -> VortexResult<Self>
     where
-        F: FnOnce(ArrayData) -> VortexResult<ArrayData>,
+        F: FnOnce(Array) -> VortexResult<Array>,
     {
         let values = f(self.values)?;
         if self.indices.len() != values.len() {
@@ -365,7 +365,7 @@ impl Patches {
 
     pub fn map_values_opt<F>(self, f: F) -> VortexResult<Option<Self>>
     where
-        F: FnOnce(ArrayData) -> Option<ArrayData>,
+        F: FnOnce(Array) -> Option<Array>,
     {
         let Some(values) = f(self.values) else {
             return Ok(None);
@@ -388,7 +388,7 @@ impl Patches {
 /// patch values.
 fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
     patch_indices: &[T],
-    patch_values: &ArrayData,
+    patch_values: &Array,
     mask_indices: &[usize],
 ) -> VortexResult<Option<Patches>> {
     let true_count = mask_indices.len();
@@ -481,7 +481,7 @@ mod test {
     use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn test_filter() {

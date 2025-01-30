@@ -3,15 +3,15 @@ use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{compare, slice, CompareFn, Operator};
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl CompareFn<ChunkedArray> for ChunkedEncoding {
     fn compare(
         &self,
         lhs: &ChunkedArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         let mut idx = 0;
         let mut compare_chunks = Vec::with_capacity(lhs.nchunks());
 

@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ConstantArray, ConstantEncoding};
-use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -18,7 +18,7 @@ impl EncodingCompressor for ConstantCompressor {
         constants::CONSTANT_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         array
             .statistics()
             .compute_is_constant()?
@@ -27,7 +27,7 @@ impl EncodingCompressor for ConstantCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         _like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

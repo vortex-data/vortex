@@ -7,10 +7,10 @@ use vortex_mask::AllOr;
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::FillForwardFn;
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl FillForwardFn<BoolArray> for BoolEncoding {
-    fn fill_forward(&self, array: &BoolArray) -> VortexResult<ArrayData> {
+    fn fill_forward(&self, array: &BoolArray) -> VortexResult<Array> {
         let validity = array.logical_validity()?;
 
         // nothing to see or do in this case
@@ -51,7 +51,7 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
 mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
-    use crate::{compute, IntoArrayData};
+    use crate::{compute, IntoArray};
 
     #[test]
     fn fill_forward() {

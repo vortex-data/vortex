@@ -1,7 +1,7 @@
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 use vortex_scalar::ScalarType;
@@ -27,7 +27,7 @@ macro_rules! match_each_alp_float_ptype {
 pub fn alp_encode_components<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
-) -> (Exponents, ArrayData, Option<Patches>)
+) -> (Exponents, Array, Option<Patches>)
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,

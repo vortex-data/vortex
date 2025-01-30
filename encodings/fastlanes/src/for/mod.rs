@@ -9,7 +9,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, ArrayData, Canonical, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, SerdeMetadata};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -34,7 +34,7 @@ pub struct FoRMetadata {
 }
 
 impl FoRArray {
-    pub fn try_new(child: ArrayData, reference: Scalar, shift: u8) -> VortexResult<Self> {
+    pub fn try_new(child: Array, reference: Scalar, shift: u8) -> VortexResult<Self> {
         if reference.is_null() {
             vortex_bail!("Reference value cannot be null");
         }
@@ -64,7 +64,7 @@ impl FoRArray {
     }
 
     #[inline]
-    pub fn encoded(&self) -> ArrayData {
+    pub fn encoded(&self) -> Array {
         let dtype = if self.ptype().is_signed_int() {
             &DType::Primitive(self.ptype().to_unsigned(), self.dtype().nullability())
         } else {

@@ -21,7 +21,7 @@ use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
-use vortex_array::{ArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArrayVariant};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};
@@ -344,7 +344,7 @@ where
         );
 
         let row_indices =
-            ArrayData::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
+            Array::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
 
         // If no columns in the output projection, we send back a RecordBatch with empty schema.
         // This is common for COUNT queries.
@@ -397,7 +397,7 @@ mod test {
     use vortex_array::array::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;

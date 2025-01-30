@@ -8,17 +8,17 @@ use vortex_error::{VortexError, VortexResult};
 use crate::array::ChunkedEncoding;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::EncodingVTable;
-use crate::ArrayData;
+use crate::Array;
 
-impl ArrayData {
+impl Array {
     pub fn tree_display(&self) -> TreeDisplayWrapper {
         TreeDisplayWrapper(self)
     }
 }
 
-pub struct TreeDisplayWrapper<'a>(&'a ArrayData);
+pub struct TreeDisplayWrapper<'a>(&'a Array);
 impl<'a> TreeDisplayWrapper<'a> {
-    pub fn new(array: &'a ArrayData) -> Self {
+    pub fn new(array: &'a Array) -> Self {
         Self(array)
     }
 }
@@ -42,7 +42,7 @@ pub struct TreeFormatter<'a, 'b: 'a> {
 /// TODO(ngates): I think we want to go back to the old explicit style. It gives arrays more
 ///  control over how their metadata etc is displayed.
 impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
-    fn visit_child(&mut self, name: &str, array: &ArrayData) -> VortexResult<()> {
+    fn visit_child(&mut self, name: &str, array: &Array) -> VortexResult<()> {
         let nbytes = array.nbytes();
         let total_size = self.total_size.unwrap_or(nbytes);
         writeln!(

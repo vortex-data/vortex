@@ -5,7 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::compute::{
     scalar_at, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide,
 };
-use vortex_array::{ArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArrayVariant};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
@@ -50,7 +50,7 @@ impl<T> Len for SearchPrimitiveSlice<T> {
 }
 
 pub fn search_sorted_canonical_array(
-    array: &ArrayData,
+    array: &Array,
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {

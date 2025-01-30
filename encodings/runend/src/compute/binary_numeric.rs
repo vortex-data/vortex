@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::BinaryNumericOperator;
 
@@ -10,9 +10,9 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
     fn binary_numeric(
         &self,
         array: &RunEndArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -25,7 +25,7 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
             array.offset(),
             array.len(),
         )
-        .map(IntoArrayData::into_array)
+        .map(IntoArray::into_array)
         .map(Some)
     }
 }
@@ -34,7 +34,7 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::test_harness::test_binary_numeric;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
 
     use crate::RunEndArray;
 

@@ -4,7 +4,7 @@ use std::ops::RangeBounds;
 
 use vortex_array::array::BooleanBuffer;
 use vortex_array::compute::{filter, slice, try_cast};
-use vortex_array::{ArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -61,7 +61,7 @@ impl RowMask {
     }
 
     /// Creates a RowMask from an array, only supported boolean and integer types.
-    pub fn from_array(array: &ArrayData, begin: u64, end: u64) -> VortexResult<Self> {
+    pub fn from_array(array: &Array, begin: u64, end: u64) -> VortexResult<Self> {
         if array.dtype().is_int() {
             Self::from_index_array(array, begin, end)
         } else if array.dtype().is_boolean() {
@@ -77,7 +77,7 @@ impl RowMask {
     /// Construct a RowMask from a Boolean typed array.
     ///
     /// True-valued positions are kept by the returned mask.
-    fn from_mask_array(array: &ArrayData, begin: u64) -> VortexResult<Self> {
+    fn from_mask_array(array: &Array, begin: u64) -> VortexResult<Self> {
         Ok(Self::new(array.logical_validity()?, begin))
     }
 
@@ -85,7 +85,7 @@ impl RowMask {
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
     #[allow(clippy::cast_possible_truncation)]
-    fn from_index_array(array: &ArrayData, begin: u64, end: u64) -> VortexResult<Self> {
+    fn from_index_array(array: &Array, begin: u64, end: u64) -> VortexResult<Self> {
         let length = usize::try_from(end - begin)
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 
@@ -179,7 +179,7 @@ impl RowMask {
     ///
     /// This function assumes that Array is no longer than the mask length and that the mask starts on same offset as the array,
     /// i.e. the beginning of the array corresponds to the beginning of the mask with begin = 0
-    pub fn filter_array(&self, array: impl AsRef<ArrayData>) -> VortexResult<Option<ArrayData>> {
+    pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
         let true_count = self.mask.true_count();
         if true_count == 0 {
             return Ok(None);
@@ -230,7 +230,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::{buffer, Buffer};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;

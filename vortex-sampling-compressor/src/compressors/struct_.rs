@@ -3,7 +3,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{StructArray, StructEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -22,7 +22,7 @@ impl EncodingCompressor for StructCompressor {
         constants::STRUCT_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         let is_struct =
             matches!(array.dtype(), DType::Struct(..)) && array.is_encoding(StructEncoding::ID);
         is_struct.then_some(self)
@@ -30,7 +30,7 @@ impl EncodingCompressor for StructCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

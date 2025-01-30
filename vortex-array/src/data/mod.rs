@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, RwLock};
 
-use owned::OwnedArrayData;
-use viewed::ViewedArrayData;
+use owned::OwnedArray;
+use viewed::ViewedArray;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
@@ -29,39 +29,39 @@ mod viewed;
 ///
 /// This is the main entrypoint for working with in-memory Vortex data, and dispatches work over the underlying encoding or memory representations.
 #[derive(Debug, Clone)]
-pub struct ArrayData(InnerArrayData);
+pub struct Array(InnerArray);
 
 #[derive(Debug, Clone)]
-enum InnerArrayData {
-    /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
-    Owned(Arc<OwnedArrayData>),
-    /// Zero-copy view over flatbuffer-encoded [`ArrayData`] data, created without eager serialization.
-    Viewed(ViewedArrayData),
+enum InnerArray {
+    /// Owned [`Array`] with serialized metadata, backed by heap-allocated memory.
+    Owned(Arc<OwnedArray>),
+    /// Zero-copy view over flatbuffer-encoded [`Array`] data, created without eager serialization.
+    Viewed(ViewedArray),
 }
 
-impl From<OwnedArrayData> for ArrayData {
-    fn from(data: OwnedArrayData) -> Self {
-        ArrayData(InnerArrayData::Owned(Arc::new(data)))
+impl From<OwnedArray> for Array {
+    fn from(data: OwnedArray) -> Self {
+        Array(InnerArray::Owned(Arc::new(data)))
     }
 }
 
-impl From<ViewedArrayData> for ArrayData {
-    fn from(data: ViewedArrayData) -> Self {
-        ArrayData(InnerArrayData::Viewed(data))
+impl From<ViewedArray> for Array {
+    fn from(data: ViewedArray) -> Self {
+        Array(InnerArray::Viewed(data))
     }
 }
 
-impl ArrayData {
+impl Array {
     pub fn try_new_owned(
         encoding: VTableRef,
         dtype: DType,
         len: usize,
         metadata: Option<ByteBuffer>,
         buffers: Option<Box<[ByteBuffer]>>,
-        children: Option<Box<[ArrayData]>>,
+        children: Option<Box<[Array]>>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
-        Self::try_new(InnerArrayData::Owned(Arc::new(OwnedArrayData {
+        Self::try_new(InnerArray::Owned(Arc::new(OwnedArray {
             encoding,
             dtype,
             len,
@@ -89,7 +89,7 @@ impl ArrayData {
         let flatbuffer_loc = array._tab.loc();
         let encoding = ctx.lookup_encoding_or_opaque(array.encoding());
 
-        let view = ViewedArrayData {
+        let view = ViewedArray {
             encoding,
             dtype,
             len,
@@ -101,12 +101,12 @@ impl ArrayData {
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
-        Self::try_new(InnerArrayData::Viewed(view))
+        Self::try_new(InnerArray::Viewed(view))
     }
 
     /// Shared constructor that performs common array validation.
-    fn try_new(inner: InnerArrayData) -> VortexResult<Self> {
-        let array = ArrayData(inner);
+    fn try_new(inner: InnerArray) -> VortexResult<Self> {
+        let array = Array(inner);
 
         // Sanity check that the encoding implements the correct array trait
         debug_assert!(
@@ -129,7 +129,7 @@ impl ArrayData {
         array.vtable().validate_metadata(array.metadata_bytes())?;
         // Then perform additional custom validation
         // This is called for both Owned and Viewed array data since there are public functions
-        // for constructing an ArrayData, e.g. `try_new_owned`.
+        // for constructing an Array, e.g. `try_new_owned`.
         array.vtable().validate(&array)?;
 
         Ok(array)
@@ -138,8 +138,8 @@ impl ArrayData {
     /// Return the array's encoding VTable.
     pub fn vtable(&self) -> &VTableRef {
         match &self.0 {
-            InnerArrayData::Owned(d) => &d.encoding,
-            InnerArrayData::Viewed(v) => &v.encoding,
+            InnerArray::Owned(d) => &d.encoding,
+            InnerArray::Viewed(v) => &v.encoding,
         }
     }
 
@@ -152,8 +152,8 @@ impl ArrayData {
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.len,
-            InnerArrayData::Viewed(v) => v.len,
+            InnerArray::Owned(d) => d.len,
+            InnerArray::Viewed(v) => v.len,
         }
     }
 
@@ -165,8 +165,8 @@ impl ArrayData {
     /// Return the array's dtype
     pub fn dtype(&self) -> &DType {
         match &self.0 {
-            InnerArrayData::Owned(d) => &d.dtype,
-            InnerArrayData::Viewed(v) => &v.dtype,
+            InnerArray::Owned(d) => &d.dtype,
+            InnerArray::Viewed(v) => &v.dtype,
         }
     }
 
@@ -206,19 +206,19 @@ impl ArrayData {
 
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.child(idx, dtype, len).cloned(),
-            InnerArrayData::Viewed(v) => v
+            InnerArray::Owned(d) => d.child(idx, dtype, len).cloned(),
+            InnerArray::Viewed(v) => v
                 .child(idx, dtype, len)
-                .map(|view| ArrayData(InnerArrayData::Viewed(view))),
+                .map(|view| Array(InnerArray::Viewed(view))),
         }
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
     // TODO(ngates): deprecate this function and return impl Iterator
-    pub fn children(&self) -> Vec<ArrayData> {
+    pub fn children(&self) -> Vec<Array> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
-            InnerArrayData::Viewed(_) => {
+            InnerArray::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
+            InnerArray::Viewed(_) => {
                 let mut collector = ChildrenCollector::default();
                 self.vtable()
                     .accept(self, &mut collector)
@@ -229,7 +229,7 @@ impl ArrayData {
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
-    pub fn named_children(&self) -> Vec<(String, ArrayData)> {
+    pub fn named_children(&self) -> Vec<(String, Array)> {
         let mut collector = NamedChildrenCollector::default();
         self.vtable()
             .accept(&self.clone(), &mut collector)
@@ -240,8 +240,8 @@ impl ArrayData {
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.nchildren(),
-            InnerArrayData::Viewed(v) => v.nchildren(),
+            InnerArray::Owned(d) => d.nchildren(),
+            InnerArray::Viewed(v) => v.nchildren(),
         }
     }
 
@@ -280,22 +280,22 @@ impl ArrayData {
 
     pub fn metadata_bytes(&self) -> Option<&[u8]> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.metadata.as_ref().map(|b| b.as_slice()),
-            InnerArrayData::Viewed(v) => v.flatbuffer().metadata().map(|m| m.bytes()),
+            InnerArray::Owned(d) => d.metadata.as_ref().map(|b| b.as_slice()),
+            InnerArray::Viewed(v) => v.flatbuffer().metadata().map(|m| m.bytes()),
         }
     }
 
     pub fn nbuffers(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(o) => o.buffers.as_ref().map_or(0, |b| b.len()),
-            InnerArrayData::Viewed(v) => v.nbuffers(),
+            InnerArray::Owned(o) => o.buffers.as_ref().map_or(0, |b| b.len()),
+            InnerArray::Viewed(v) => v.nbuffers(),
         }
     }
 
     pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.byte_buffer(index),
-            InnerArrayData::Viewed(v) => v.buffer(index),
+            InnerArray::Owned(d) => d.byte_buffer(index),
+            InnerArray::Viewed(v) => v.buffer(index),
         }
     }
 
@@ -310,16 +310,16 @@ impl ArrayData {
         //  but we still consume self by value such that the ref-count drops at the end of this
         //  function.
         match &self.0 {
-            InnerArrayData::Owned(d) => d.byte_buffer(index).cloned(),
-            InnerArrayData::Viewed(v) => v.buffer(index).cloned(),
+            InnerArray::Owned(d) => d.byte_buffer(index).cloned(),
+            InnerArray::Viewed(v) => v.buffer(index).cloned(),
         }
     }
 
     pub fn into_array_iterator(self) -> impl ArrayIterator {
         let dtype = self.dtype().clone();
         let iter = ChunkedArray::maybe_from(self.clone())
-            .map(|chunked| ArrayDataIterator::Chunked(chunked, 0))
-            .unwrap_or_else(|| ArrayDataIterator::Single(Some(self)));
+            .map(|chunked| ArrayChunkIterator::Chunked(chunked, 0))
+            .unwrap_or_else(|| ArrayChunkIterator::Single(Some(self)));
         ArrayIteratorAdapter::new(dtype, iter)
     }
 
@@ -338,18 +338,15 @@ impl ArrayData {
     #[cfg(feature = "canonical_counter")]
     pub(crate) fn inc_canonical_counter(&self) {
         let prev = match &self.0 {
-            InnerArrayData::Owned(o) => o
+            InnerArray::Owned(o) => o
                 .canonical_counter
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            InnerArrayData::Viewed(v) => v
+            InnerArray::Viewed(v) => v
                 .canonical_counter
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         };
         if prev >= 1 {
-            log::warn!(
-                "ArrayData::into_canonical called {} times on array",
-                prev + 1,
-            );
+            log::warn!("Array::into_canonical called {} times on array", prev + 1,);
         }
         if prev >= 2 {
             let bt = backtrace::Backtrace::new();
@@ -359,7 +356,7 @@ impl ArrayData {
 
     pub fn try_downcast_ref<E: Encoding>(&self) -> VortexResult<(&E::Array, &E)>
     where
-        for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+        for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
     {
         let array_ref = <&E::Array>::try_from(self)?;
         let encoding = self
@@ -371,11 +368,11 @@ impl ArrayData {
     }
 }
 
-impl Display for ArrayData {
+impl Display for Array {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let prefix = match &self.0 {
-            InnerArrayData::Owned(_) => "",
-            InnerArrayData::Viewed(_) => "$",
+            InnerArray::Owned(_) => "",
+            InnerArray::Viewed(_) => "$",
         };
         write!(
             f,
@@ -390,18 +387,18 @@ impl Display for ArrayData {
 
 /// We define a single iterator that can handle both chunked and non-chunked arrays.
 /// This avoids the need to create boxed static iterators for the two chunked and non-chunked cases.
-enum ArrayDataIterator {
-    Single(Option<ArrayData>),
+enum ArrayChunkIterator {
+    Single(Option<Array>),
     Chunked(ChunkedArray, usize),
 }
 
-impl Iterator for ArrayDataIterator {
-    type Item = VortexResult<ArrayData>;
+impl Iterator for ArrayChunkIterator {
+    type Item = VortexResult<Array>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            ArrayDataIterator::Single(array) => array.take().map(Ok),
-            ArrayDataIterator::Chunked(chunked, idx) => (*idx < chunked.nchunks()).then(|| {
+            ArrayChunkIterator::Single(array) => array.take().map(Ok),
+            ArrayChunkIterator::Chunked(chunked, idx) => (*idx < chunked.nchunks()).then(|| {
                 let chunk = chunked.chunk(*idx);
                 *idx += 1;
                 chunk

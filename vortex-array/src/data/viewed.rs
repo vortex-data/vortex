@@ -12,7 +12,7 @@ use crate::{flatbuffers as fb, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
-pub(super) struct ViewedArrayData {
+pub(super) struct ViewedArray {
     pub(super) encoding: VTableRef,
     pub(super) dtype: DType,
     pub(super) len: usize,
@@ -24,7 +24,7 @@ pub(super) struct ViewedArrayData {
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
 
-impl Debug for ViewedArrayData {
+impl Debug for ViewedArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayView")
             .field("encoding", &self.encoding)
@@ -35,7 +35,7 @@ impl Debug for ViewedArrayData {
     }
 }
 
-impl ViewedArrayData {
+impl ViewedArray {
     pub fn flatbuffer(&self) -> fb::Array {
         unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }

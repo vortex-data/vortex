@@ -19,7 +19,7 @@ use vortex::dtype::DType;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
-use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex::{Array, IntoArray, IntoArrayVariant};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
@@ -214,11 +214,11 @@ async fn register_vortex_file(
         // Create a ChunkedArray from the set of chunks.
         let sts = record_batches
             .into_iter()
-            .map(ArrayData::try_from)
+            .map(Array::try_from)
             .map(|a| a.unwrap().into_struct().unwrap())
             .collect::<Vec<_>>();
 
-        let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();
+        let mut arrays_map: HashMap<Arc<str>, Vec<Array>> = HashMap::default();
         let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
 
         for st in sts.into_iter() {
@@ -310,10 +310,10 @@ async fn register_vortex(
         .await?;
 
     // Create a ChunkedArray from the set of chunks.
-    let chunks: Vec<ArrayData> = record_batches
+    let chunks: Vec<Array> = record_batches
         .into_iter()
         .map(ArrowStructArray::from)
-        .map(|struct_array| ArrayData::from_arrow(&struct_array, false))
+        .map(|struct_array| Array::from_arrow(&struct_array, false))
         .collect();
 
     let dtype = chunks[0].dtype().clone();
@@ -325,7 +325,7 @@ async fn register_vortex(
 }
 
 /// Load a table as an uncompressed Vortex array.
-pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> ArrayData {
+pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> Array {
     // Create a local session to load the CSV file from the path.
     let path = data_dir
         .as_ref()
@@ -349,10 +349,10 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
         .await
         .unwrap();
 
-    let chunks: Vec<ArrayData> = record_batches
+    let chunks: Vec<Array> = record_batches
         .into_iter()
         .map(ArrowStructArray::from)
-        .map(|struct_array| ArrayData::from_arrow(&struct_array, false))
+        .map(|struct_array| Array::from_arrow(&struct_array, false))
         .collect();
 
     let dtype = chunks[0].dtype().clone();

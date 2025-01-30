@@ -18,7 +18,7 @@ use crate::visitor::ArrayVisitor;
 use crate::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use crate::{impl_encoding, ArrayData, Canonical, IntoArrayData, RkyvMetadata};
+use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 
 mod compute;
 mod patch;
@@ -303,14 +303,14 @@ impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     }
 }
 
-impl<T: NativePType> IntoArrayData for Buffer<T> {
-    fn into_array(self) -> ArrayData {
+impl<T: NativePType> IntoArray for Buffer<T> {
+    fn into_array(self) -> Array {
         PrimitiveArray::new(self, Validity::NonNullable).into_array()
     }
 }
 
-impl<T: NativePType> IntoArrayData for BufferMut<T> {
-    fn into_array(self) -> ArrayData {
+impl<T: NativePType> IntoArray for BufferMut<T> {
+    fn into_array(self) -> Array {
         self.freeze().into_array()
     }
 }

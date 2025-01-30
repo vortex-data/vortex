@@ -2,15 +2,15 @@
 
 An array is the in-memory representation of data in Vortex. It has a [length](#length), a [data type](#data-type), an
 [encoding](#encodings), some number of [children](#children), and some number of [buffers](#buffers).
-All arrays in Vortex are represented by an `ArrayData`, which in psuedo-code looks something like this:
+All arrays in Vortex are represented by an `Array`, which in psuedo-code looks something like this:
 
 ```rust
-struct ArrayData {
+struct Array {
     encoding: Encoding,
     dtype: DType,
     len: usize,
     metadata: ByteBuffer,
-    children: [ArrayData],
+    children: [Array],
     buffers: [ByteBuffer],
     statistics: Statistics,
 }
@@ -25,11 +25,11 @@ Owned arrays are heap-allocated, while viewed arrays are lazily unwrapped from a
 This allows Vortex to efficiently load and work with very wide schemas without needing to deserialize the full array
 in memory.
 
-This abstraction is hidden from users inside an `ArrayData` object.
+This abstraction is hidden from users inside an `Array` object.
 
 ## Encodings
 
-An encoding acts as the virtual function table (vtable) for an `ArrayData`.
+An encoding acts as the virtual function table (vtable) for an `Array`.
 
 ### VTable
 
@@ -96,7 +96,7 @@ out of the array.
 ## Length
 
 The length of an array can almost always be inferred by encoding from its children and buffers. But given how
-important the length is for many operations, it is stored directly in the `ArrayData` object for faster access.
+important the length is for many operations, it is stored directly in the `Array` object for faster access.
 
 ## Metadata
 

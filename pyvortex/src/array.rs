@@ -7,7 +7,7 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::mask::Mask;
-use vortex::ArrayData;
+use vortex::Array;
 
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
@@ -78,15 +78,15 @@ use crate::scalar::scalar_into_py;
 ///   true
 /// ]
 pub struct PyArray {
-    inner: ArrayData,
+    inner: Array,
 }
 
 impl PyArray {
-    pub fn new(inner: ArrayData) -> PyArray {
+    pub fn new(inner: Array) -> PyArray {
         PyArray { inner }
     }
 
-    pub fn unwrap(&self) -> &ArrayData {
+    pub fn unwrap(&self) -> &Array {
         &self.inner
     }
 }

@@ -5,12 +5,12 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
-pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> VortexResult<ArrayData> {
+pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Array> {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array
             .logical_validity()?
@@ -76,7 +76,7 @@ fn take_primitive<T: NativePType + ArrowNativeType>(
     primitive_array: PrimitiveArray,
     validity: Validity,
     indices: &[usize],
-) -> ArrayData {
+) -> Array {
     let vec_values = primitive_array.as_slice::<T>().to_vec();
     PrimitiveArray::new(
         indices

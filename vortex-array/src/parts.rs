@@ -9,13 +9,13 @@ use vortex_flatbuffers::{
     array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt,
 };
 
-use crate::{ArrayData, ContextRef};
+use crate::{Array, ContextRef};
 
-/// [`ArrayParts`] represents the information from an [`ArrayData`] that makes up the serialized
+/// [`ArrayParts`] represents the information from an [`Array`] that makes up the serialized
 /// form. For example, it uses stores integer encoding IDs rather than a reference to an encoding
 /// vtable, and it doesn't store any [`DType`] information.
 ///
-/// An [`ArrayParts`] can be fully decoded into an [`ArrayData`] using the `decode` function.
+/// An [`ArrayParts`] can be fully decoded into an [`Array`] using the `decode` function.
 pub struct ArrayParts {
     // TODO(ngates): I think we should remove this. It's not required in the serialized form.
     row_count: usize,
@@ -65,9 +65,9 @@ impl ArrayParts {
         }
     }
 
-    /// Decode an [`ArrayParts`] into an [`ArrayData`].
-    pub fn decode(self, ctx: ContextRef, dtype: DType) -> VortexResult<ArrayData> {
-        ArrayData::try_new_viewed(
+    /// Decode an [`ArrayParts`] into an [`Array`].
+    pub fn decode(self, ctx: ContextRef, dtype: DType) -> VortexResult<Array> {
+        Array::try_new_viewed(
             ctx,
             dtype,
             self.row_count,
@@ -79,9 +79,9 @@ impl ArrayParts {
     }
 }
 
-/// Convert an [`ArrayData`] into [`ArrayParts`].
-impl From<ArrayData> for ArrayParts {
-    fn from(array: ArrayData) -> Self {
+/// Convert an [`Array`] into [`ArrayParts`].
+impl From<Array> for ArrayParts {
+    fn from(array: Array) -> Self {
         let flatbuffer = ArrayPartsFlatBuffer {
             array: &array,
             buffer_idx: 0,
@@ -104,12 +104,12 @@ impl From<ArrayData> for ArrayParts {
 
 /// A utility struct for creating an [`fba::Array`] flatbuffer.
 pub struct ArrayPartsFlatBuffer<'a> {
-    array: &'a ArrayData,
+    array: &'a Array,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayPartsFlatBuffer<'a> {
-    pub fn new(array: &'a ArrayData) -> Self {
+    pub fn new(array: &'a Array) -> Self {
         Self {
             array,
             buffer_idx: 0,
@@ -151,7 +151,7 @@ impl WriteFlatBuffer for ArrayPartsFlatBuffer<'_> {
                 *buffer_idx = u16::try_from(child.cumulative_nbuffers())
                     .ok()
                     .and_then(|nbuffers| nbuffers.checked_add(*buffer_idx))
-                    .vortex_expect("Too many buffers (u16) for ArrayData");
+                    .vortex_expect("Too many buffers (u16) for Array");
                 Some(msg)
             })
             .collect_vec();

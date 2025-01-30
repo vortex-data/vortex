@@ -9,10 +9,10 @@ use std::sync::Arc;
 use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldName, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexResult};
 
-use crate::ArrayData;
+use crate::Array;
 
-/// Provide functions on type-erased ArrayData to downcast into dtype-specific array variants.
-impl ArrayData {
+/// Provide functions on type-erased Array to downcast into dtype-specific array variants.
+impl Array {
     pub fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
         matches!(self.dtype(), DType::Null)
             .then(|| self.vtable().as_null_array(self))
@@ -66,7 +66,7 @@ pub trait NullArrayTrait {}
 
 pub trait BoolArrayTrait {}
 
-pub trait PrimitiveArrayTrait: Deref<Target = ArrayData> {
+pub trait PrimitiveArrayTrait: Deref<Target = Array> {
     /// The logical primitive type of the array.
     ///
     /// This is a type that can safely be converted into a `NativePType` for use in
@@ -84,7 +84,7 @@ pub trait Utf8ArrayTrait {}
 
 pub trait BinaryArrayTrait {}
 
-pub trait StructArrayTrait: Deref<Target = ArrayData> {
+pub trait StructArrayTrait: Deref<Target = Array> {
     fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
@@ -112,10 +112,10 @@ pub trait StructArrayTrait: Deref<Target = ArrayData> {
     }
 
     /// Return a field's array by index, ignoring struct nullability
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData>;
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array>;
 
     /// Return a field's array by name, ignoring struct nullability
-    fn maybe_null_field_by_name(&self, name: &str) -> Option<ArrayData> {
+    fn maybe_null_field_by_name(&self, name: &str) -> Option<Array> {
         let field_idx = self
             .names()
             .iter()
@@ -124,19 +124,19 @@ pub trait StructArrayTrait: Deref<Target = ArrayData> {
         field_idx.and_then(|field_idx| self.maybe_null_field_by_idx(field_idx))
     }
 
-    fn maybe_null_field(&self, field: &Field) -> Option<ArrayData> {
+    fn maybe_null_field(&self, field: &Field) -> Option<Array> {
         match field {
             Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
             Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
         }
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData>;
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array>;
 }
 
 pub trait ListArrayTrait {}
 
-pub trait ExtensionArrayTrait: Deref<Target = ArrayData> {
+pub trait ExtensionArrayTrait: Deref<Target = Array> {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &Arc<ExtDType> {
         let DType::Extension(ext_dtype) = self.dtype() else {
@@ -145,6 +145,6 @@ pub trait ExtensionArrayTrait: Deref<Target = ArrayData> {
         ext_dtype
     }
 
-    /// Returns the underlying [`ArrayData`], without the [`ExtDType`].
-    fn storage_data(&self) -> ArrayData;
+    /// Returns the underlying [`Array`], without the [`ExtDType`].
+    fn storage_data(&self) -> Array;
 }

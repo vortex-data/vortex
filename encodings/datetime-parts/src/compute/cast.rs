@@ -1,12 +1,12 @@
 use vortex_array::compute::{try_cast, CastFn};
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl CastFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<ArrayData> {
+    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Array> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);
         };
@@ -30,14 +30,14 @@ mod tests {
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::try_cast;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayData, IntoArrayData as _};
+    use vortex_array::{Array, IntoArray as _};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::{DType, Nullability};
 
     use crate::DateTimePartsArray;
 
-    fn date_time_array(validity: Validity) -> ArrayData {
+    fn date_time_array(validity: Validity) -> Array {
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(
                 buffer![

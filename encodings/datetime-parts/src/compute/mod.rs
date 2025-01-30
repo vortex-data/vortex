@@ -4,7 +4,7 @@ mod take;
 
 use vortex_array::compute::{scalar_at, slice, CastFn, FilterFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
@@ -14,34 +14,29 @@ use vortex_scalar::Scalar;
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 }
 
 impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn slice(
-        &self,
-        array: &DateTimePartsArray,
-        start: usize,
-        stop: usize,
-    ) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &DateTimePartsArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
             slice(array.days(), start, stop)?,

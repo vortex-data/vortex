@@ -100,7 +100,7 @@ The Rust trait looks like this:
 
 ### File-level Compression
 
-While chunk-level compression can be handed off to a compression strategy, i.e. `fn(ArrayData) -> ArrayData`, there
+While chunk-level compression can be handed off to a compression strategy, i.e. `fn(Array) -> Array`, there
 are some compression techniques that benefit from file-level awareness. For example, sharing a dictionary across
 all chunks of a column.
 

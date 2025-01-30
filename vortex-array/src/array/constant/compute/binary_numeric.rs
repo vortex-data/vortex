@@ -3,15 +3,15 @@ use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::BinaryNumericFn;
-use crate::{ArrayData, IntoArrayData as _};
+use crate::{Array, IntoArray as _};
 
 impl BinaryNumericFn<ConstantArray> for ConstantEncoding {
     fn binary_numeric(
         &self,
         array: &ConstantArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         let Some(rhs) = rhs.as_constant() else {
             return Ok(None);
         };

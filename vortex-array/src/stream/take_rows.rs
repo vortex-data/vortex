@@ -11,18 +11,18 @@ use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedS
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 #[pin_project]
 pub struct TakeRows<R: ArrayStream> {
     #[pin]
     reader: R,
-    indices: ArrayData,
+    indices: Array,
     row_offset: usize,
 }
 
 impl<R: ArrayStream> TakeRows<R> {
-    pub fn try_new(reader: R, indices: ArrayData) -> VortexResult<Self> {
+    pub fn try_new(reader: R, indices: Array) -> VortexResult<Self> {
         if !indices.is_empty() {
             if !indices.statistics().compute_is_sorted().unwrap_or(false) {
                 vortex_bail!("Indices must be sorted to take from IPC stream")
@@ -61,7 +61,7 @@ impl<R: ArrayStream> TakeRows<R> {
 }
 
 impl<R: ArrayStream> Stream for TakeRows<R> {
-    type Item = VortexResult<ArrayData>;
+    type Item = VortexResult<Array>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();

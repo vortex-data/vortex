@@ -5,7 +5,7 @@ use std::sync::Arc;
 use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinEncoding, VarBinViewEncoding};
-use vortex_array::{Encoding, EncodingId, IntoArrayData};
+use vortex_array::{Encoding, EncodingId, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray, FSSTEncoding};
@@ -39,7 +39,7 @@ impl EncodingCompressor for FSSTCompressor {
         constants::FSST_COST
     }
 
-    fn can_compress(&self, array: &vortex_array::ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &vortex_array::Array) -> Option<&dyn EncodingCompressor> {
         // FSST arrays must have DType::Utf8.
         //
         // Note that while it can accept binary data, it is unlikely to perform well.
@@ -57,7 +57,7 @@ impl EncodingCompressor for FSSTCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &vortex_array::ArrayData,
+        array: &vortex_array::Array,
         // TODO(aduffy): reuse compressor from sample run if we have saved it off.
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,

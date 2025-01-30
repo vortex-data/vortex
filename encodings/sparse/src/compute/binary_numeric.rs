@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::BinaryNumericOperator;
 
@@ -10,9 +10,9 @@ impl BinaryNumericFn<SparseArray> for SparseEncoding {
     fn binary_numeric(
         &self,
         array: &SparseArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -34,7 +34,7 @@ impl BinaryNumericFn<SparseArray> for SparseEncoding {
             array.indices_offset(),
             new_fill_value,
         )
-        .map(IntoArrayData::into_array)
+        .map(IntoArray::into_array)
         .map(Some)
     }
 }

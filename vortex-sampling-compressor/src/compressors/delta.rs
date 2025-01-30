@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::VortexResult;
 use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
 
@@ -20,7 +20,7 @@ impl EncodingCompressor for DeltaCompressor {
         constants::DELTA_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array)?;
 
@@ -34,7 +34,7 @@ impl EncodingCompressor for DeltaCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

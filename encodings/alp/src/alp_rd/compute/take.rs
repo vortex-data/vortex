@@ -1,11 +1,11 @@
 use vortex_array::compute::{take, TakeFn};
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl TakeFn<ALPRDArray> for ALPRDEncoding {
-    fn take(&self, array: &ALPRDArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ALPRDArray, indices: &Array) -> VortexResult<Array> {
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices))

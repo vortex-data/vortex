@@ -5,7 +5,7 @@ use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
 use crate::compute::{CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
-use crate::ArrayData;
+use crate::Array;
 
 mod compare;
 mod filter;
@@ -14,27 +14,27 @@ mod take;
 pub(crate) mod to_arrow;
 
 impl ComputeVTable for VarBinEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }

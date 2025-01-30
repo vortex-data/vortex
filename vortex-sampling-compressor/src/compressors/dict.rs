@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{PrimitiveEncoding, VarBinEncoding, VarBinViewEncoding};
-use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_dict::{dict_encode, DictArray, DictEncoding};
 use vortex_error::VortexResult;
 
@@ -20,7 +20,7 @@ impl EncodingCompressor for DictCompressor {
         constants::DICT_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         if !array.is_encoding(PrimitiveEncoding::ID)
             && !array.is_encoding(VarBinEncoding::ID)
             && !array.is_encoding(VarBinViewEncoding::ID)
@@ -43,7 +43,7 @@ impl EncodingCompressor for DictCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

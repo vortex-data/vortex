@@ -1,9 +1,9 @@
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::Array;
 
-/// A trait implemented by encodings to verify an opaque [`ArrayData`].
+/// A trait implemented by encodings to verify an opaque [`Array`].
 ///
 /// The caller will already have verified that the encoding ID matches, but the implementor must
 /// verify the following:
@@ -21,12 +21,12 @@ pub trait ValidateVTable<Array> {
     }
 }
 
-impl<E: Encoding> ValidateVTable<ArrayData> for E
+impl<E: Encoding> ValidateVTable<Array> for E
 where
     E: ValidateVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
 {
-    fn validate(&self, array: &ArrayData) -> VortexResult<()> {
+    fn validate(&self, array: &Array) -> VortexResult<()> {
         let (array_ref, encoding) = array
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");

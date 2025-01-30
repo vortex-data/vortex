@@ -3,7 +3,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
@@ -13,7 +13,7 @@ use crate::ExprEvaluator;
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
-    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
+    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;
         let field_readers: Vec<_> = partitioned
@@ -58,7 +58,7 @@ mod tests {
 
     use futures::executor::block_on;
     use vortex_array::array::StructArray;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, Nullability, StructDType};
@@ -100,7 +100,7 @@ mod tests {
                 ]
                 .as_slice(),
             )
-            .map(IntoArrayData::into_array)],
+            .map(IntoArray::into_array)],
         )
         .unwrap();
         (Arc::new(segments), layout)

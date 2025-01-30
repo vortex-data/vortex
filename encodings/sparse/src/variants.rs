@@ -7,7 +7,7 @@ use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
-use crate::{ArrayData, IntoArrayData, SparseArray, SparseEncoding};
+use crate::{Array, IntoArray, SparseArray, SparseEncoding};
 
 /// Sparse arrays support all DTypes
 impl VariantsVTable<SparseArray> for SparseEncoding {
@@ -61,7 +61,7 @@ impl Utf8ArrayTrait for SparseArray {}
 impl BinaryArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
         let new_patches = self
             .patches()
             .map_values_opt(|values| {
@@ -86,7 +86,7 @@ impl StructArrayTrait for SparseArray {
         )
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
         let new_patches = self.patches().map_values(|values| {
             values
                 .as_struct_array()
@@ -96,14 +96,14 @@ impl StructArrayTrait for SparseArray {
         let scalar = StructScalar::try_from(&self.fill_scalar())?.project(projection)?;
 
         SparseArray::try_new_from_patches(new_patches, self.len(), self.indices_offset(), scalar)
-            .map(IntoArrayData::into_array)
+            .map(IntoArray::into_array)
     }
 }
 
 impl ListArrayTrait for SparseArray {}
 
 impl ExtensionArrayTrait for SparseArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         SparseArray::try_new_from_patches(
             self.patches()
                 .map_values(|values| {
@@ -126,7 +126,7 @@ impl ExtensionArrayTrait for SparseArray {
 mod tests {
     use vortex_array::array::BoolArray;
     use vortex_array::compute::invert;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

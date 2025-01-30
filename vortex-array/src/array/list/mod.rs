@@ -28,7 +28,7 @@ use crate::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use crate::{impl_encoding, ArrayData, Canonical, RkyvMetadata};
+use crate::{impl_encoding, Array, Canonical, RkyvMetadata};
 
 impl_encoding!(
     "vortex.list",
@@ -61,11 +61,7 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
-    pub fn try_new(
-        elements: ArrayData,
-        offsets: ArrayData,
-        validity: Validity,
-    ) -> VortexResult<Self> {
+    pub fn try_new(elements: Array, offsets: Array, validity: Validity) -> VortexResult<Self> {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();
@@ -140,14 +136,14 @@ impl ListArray {
     }
 
     // TODO: fetches the elements at index
-    pub fn elements_at(&self, index: usize) -> VortexResult<ArrayData> {
+    pub fn elements_at(&self, index: usize) -> VortexResult<Array> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         slice(self.elements(), start, end)
     }
 
     // TODO: fetches the offsets of the array ignoring validity
-    pub fn offsets(&self) -> ArrayData {
+    pub fn offsets(&self) -> Array {
         // TODO: find cheap transform
         self.as_ref()
             .child(1, &self.metadata().offset_ptype.into(), self.len() + 1)
@@ -155,7 +151,7 @@ impl ListArray {
     }
 
     // TODO: fetches the elements of the array ignoring validity
-    pub fn elements(&self) -> ArrayData {
+    pub fn elements(&self) -> Array {
         let dtype = self
             .dtype()
             .as_list_element()
@@ -207,7 +203,7 @@ impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then
     /// appended to the array.
-    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
+    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<Array>
     where
         I::Item: IntoIterator,
         <I::Item as IntoIterator>::Item: Into<Scalar>,
@@ -246,7 +242,7 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     fn test_empty_list_array() {

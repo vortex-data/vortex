@@ -8,7 +8,7 @@ use crate::compute::{
     ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 mod binary_numeric;
 mod boolean;
@@ -21,49 +21,49 @@ mod slice;
 mod take;
 
 impl ComputeVTable for ChunkedEncoding {
-    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<Array>> {
         Some(self)
     }
 
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<Array>> {
         Some(self)
     }
 
-    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 }
 
 impl CastFn<ChunkedArray> for ChunkedEncoding {
-    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayData> {
+    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<Array> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {
             cast_chunks.push(try_cast(&chunk, dtype)?);
@@ -80,7 +80,7 @@ mod test {
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::try_cast;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
@@ -47,11 +47,7 @@ impl StructLayoutWriter {
 }
 
 impl LayoutWriter for StructLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         let struct_array = chunk
             .as_struct_array()
             .ok_or_else(|| vortex_err!("batch is not a struct array"))?;

@@ -35,7 +35,7 @@ use vortex::error::VortexResult;
 use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 
@@ -108,7 +108,7 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 fn vortex_compress_write(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
-    array: &ArrayData,
+    array: &Array,
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
     let compressed = compressor.compress(array, None)?.into_array();
@@ -140,7 +140,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
 fn vortex_compressed_written_size(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
-    array: &ArrayData,
+    array: &Array,
 ) -> VortexResult<u64> {
     vortex_compress_write(runtime, compressor, array, &mut Vec::new())
 }
@@ -154,7 +154,7 @@ fn benchmark_compress<F, U>(
     bench_name: &str,
 ) where
     F: Fn() -> U,
-    U: AsRef<ArrayData>,
+    U: AsRef<Array>,
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {

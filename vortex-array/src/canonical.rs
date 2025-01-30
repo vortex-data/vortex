@@ -13,7 +13,7 @@ use crate::array::{
 use crate::arrow::IntoArrowArray;
 use crate::builders::builder_with_capacity;
 use crate::compute::{preferred_arrow_data_type, to_arrow};
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -51,7 +51,7 @@ pub enum Canonical {
 }
 
 impl Deref for Canonical {
-    type Target = ArrayData;
+    type Target = Array;
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
@@ -121,7 +121,7 @@ impl Canonical {
     }
 }
 
-/// Canonicalize an [`ArrayData`] into one of the [`Canonical`] array forms.
+/// Canonicalize an [`Array`] into one of the [`Canonical`] array forms.
 ///
 /// # Invariants
 ///
@@ -131,7 +131,7 @@ pub trait IntoCanonical {
     fn into_canonical(self) -> VortexResult<Canonical>;
 }
 
-impl<A: IntoArrayData> IntoCanonical for A {
+impl<A: IntoArray> IntoCanonical for A {
     fn into_canonical(self) -> VortexResult<Canonical> {
         self.into_array().into_canonical()
     }
@@ -191,8 +191,8 @@ where
     }
 }
 
-impl IntoCanonical for ArrayData {
-    /// Canonicalize an [`ArrayData`] into one of the [`Canonical`] array forms.
+impl IntoCanonical for Array {
+    /// Canonicalize an [`Array`] into one of the [`Canonical`] array forms.
     ///
     /// # Invariants
     ///
@@ -213,8 +213,8 @@ impl IntoCanonical for ArrayData {
     }
 }
 
-impl IntoArrowArray for ArrayData {
-    /// Convert this [`ArrayData`] into an Arrow [`ArrayRef`] by using the array's preferred
+impl IntoArrowArray for Array {
+    /// Convert this [`Array`] into an Arrow [`ArrayRef`] by using the array's preferred
     /// Arrow [`DataType`].
     fn into_arrow_preferred(self) -> VortexResult<ArrayRef> {
         let data_type = preferred_arrow_data_type(&self)?;
@@ -229,9 +229,9 @@ impl IntoArrowArray for ArrayData {
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
 /// owned pointer to the underlying concrete array type.
 ///
-/// This combined with the above [IntoCanonical] impl for [ArrayData] allows simple two-way conversions
+/// This combined with the above [IntoCanonical] impl for [Array] allows simple two-way conversions
 /// between arbitrary Vortex encodings and canonical Arrow-compatible encodings.
-impl From<Canonical> for ArrayData {
+impl From<Canonical> for Array {
     fn from(value: Canonical) -> Self {
         match value {
             Canonical::Null(a) => a.into_array(),
@@ -245,8 +245,8 @@ impl From<Canonical> for ArrayData {
     }
 }
 
-impl AsRef<ArrayData> for Canonical {
-    fn as_ref(&self) -> &ArrayData {
+impl AsRef<Array> for Canonical {
+    fn as_ref(&self) -> &Array {
         match self {
             Canonical::Null(a) => a.as_ref(),
             Canonical::Bool(a) => a.as_ref(),
@@ -259,8 +259,8 @@ impl AsRef<ArrayData> for Canonical {
     }
 }
 
-impl IntoArrayData for Canonical {
-    fn into_array(self) -> ArrayData {
+impl IntoArray for Canonical {
+    fn into_array(self) -> Array {
         match self {
             Canonical::Null(a) => a.into_array(),
             Canonical::Bool(a) => a.into_array(),
@@ -289,7 +289,7 @@ mod test {
 
     use crate::array::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
-    use crate::{ArrayData, IntoArrayData};
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_canonicalize_nested_struct() {
@@ -380,7 +380,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = ArrayData::from_arrow(&arrow_struct, true);
+        let vortex_struct = Array::from_arrow(&arrow_struct, true);
 
         assert_eq!(
             &arrow_struct,
@@ -404,7 +404,7 @@ mod test {
         );
         let list_data_type = arrow_list.data_type();
 
-        let vortex_list = ArrayData::from_arrow(&arrow_list, true);
+        let vortex_list = Array::from_arrow(&arrow_list, true);
 
         let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 

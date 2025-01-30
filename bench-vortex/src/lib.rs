@@ -31,7 +31,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::validity::Validity;
-use vortex::{ArrayData, ContextRef, IntoArrayData};
+use vortex::{Array, ContextRef, IntoArray};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
@@ -187,7 +187,7 @@ pub fn setup_logger(level: LevelFilter) {
     .unwrap();
 }
 
-pub fn fetch_taxi_data() -> ArrayData {
+pub fn fetch_taxi_data() -> Array {
     let file = File::open(taxi_data_parquet()).unwrap();
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
     let reader = builder.with_batch_size(BATCH_SIZE).build().unwrap();
@@ -197,7 +197,7 @@ pub fn fetch_taxi_data() -> ArrayData {
         reader
             .into_iter()
             .map(|batch_result| batch_result.unwrap())
-            .map(ArrayData::try_from)
+            .map(Array::try_from)
             .map(Result::unwrap)
             .collect_vec(),
         DType::from_arrow(schema),
@@ -206,7 +206,7 @@ pub fn fetch_taxi_data() -> ArrayData {
     .into_array()
 }
 
-pub fn compress_taxi_data() -> ArrayData {
+pub fn compress_taxi_data() -> Array {
     CompressionStrategy::compress(&SamplingCompressor::default(), &fetch_taxi_data()).unwrap()
 }
 
@@ -402,7 +402,7 @@ mod test {
     use vortex::arrow::{FromArrowArray, IntoArrowArray};
     use vortex::compress::CompressionStrategy;
     use vortex::sampling_compressor::SamplingCompressor;
-    use vortex::ArrayData;
+    use vortex::Array;
 
     use crate::taxi_data::taxi_data_parquet;
     use crate::{compress_taxi_data, setup_logger};
@@ -424,7 +424,7 @@ mod test {
         for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
             let struct_arrow: ArrowStructArray = record_batch.into();
             let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
-            let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
+            let vortex_array = Array::from_arrow(arrow_array.clone(), false);
             let vortex_as_arrow = vortex_array.into_arrow_preferred().unwrap();
             assert_eq!(vortex_as_arrow.deref(), arrow_array.deref());
         }
@@ -443,7 +443,7 @@ mod test {
         for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
             let struct_arrow: ArrowStructArray = record_batch.into();
             let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
-            let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
+            let vortex_array = Array::from_arrow(arrow_array.clone(), false);
 
             let compressed = compressor.compress(&vortex_array).unwrap();
             let compressed_as_arrow = compressed.into_arrow_preferred().unwrap();

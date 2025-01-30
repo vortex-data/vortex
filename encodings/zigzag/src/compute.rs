@@ -3,7 +3,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -13,25 +13,25 @@ use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 use crate::{ZigZagArray, ZigZagEncoding};
 
 impl ComputeVTable for ZigZagEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 }
 
 impl FilterFn<ZigZagArray> for ZigZagEncoding {
-    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<Array> {
         let encoded = filter(&array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
@@ -61,13 +61,13 @@ impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
 }
 
 impl SliceFn<ZigZagArray> for ZigZagEncoding {
-    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(ZigZagArray::try_new(slice(array.encoded(), start, stop)?)?.into_array())
     }
 }
 
 impl TakeFn<ZigZagArray> for ZigZagEncoding {
-    fn take(&self, array: &ZigZagArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ZigZagArray, indices: &Array) -> VortexResult<Array> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
@@ -100,7 +100,7 @@ mod tests {
         filter, scalar_at, search_sorted, take, SearchResult, SearchSortedSide,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;

@@ -12,7 +12,7 @@ use crate::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use crate::{impl_encoding, ArrayData, Canonical, EmptyMetadata};
+use crate::{impl_encoding, Array, Canonical, EmptyMetadata};
 
 mod compute;
 
@@ -24,7 +24,7 @@ impl_encoding!(
 );
 
 impl ExtensionArray {
-    pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
+    pub fn new(ext_dtype: Arc<ExtDType>, storage: Array) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
             storage.dtype(),
@@ -42,7 +42,7 @@ impl ExtensionArray {
         .vortex_expect("Invalid ExtensionArray")
     }
 
-    pub fn storage(&self) -> ArrayData {
+    pub fn storage(&self) -> Array {
         self.as_ref()
             .child(0, self.ext_dtype().storage_dtype(), self.len())
             .vortex_expect("Missing storage array for ExtensionArray")
@@ -67,7 +67,7 @@ impl VariantsVTable<ExtensionArray> for ExtensionEncoding {
 }
 
 impl ExtensionArrayTrait for ExtensionArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         self.storage()
     }
 }
@@ -106,7 +106,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     fn compute_statistics() {

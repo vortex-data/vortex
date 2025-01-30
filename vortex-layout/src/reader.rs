@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
@@ -29,12 +29,12 @@ impl LayoutReader for Arc<dyn LayoutReader + 'static> {
 /// A trait for evaluating expressions against a [`LayoutReader`].
 #[async_trait]
 pub trait ExprEvaluator {
-    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData>;
+    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array>;
 }
 
 #[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
-    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
+    async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         self.as_ref().evaluate_expr(row_mask, expr).await
     }
 }

@@ -4,15 +4,15 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
     fn binary_boolean(
         &self,
         lhs: &ConstantArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         op: BinaryOperator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         // We only implement this for constant <-> constant arrays, otherwise we allow fall back
         // to the Arrow implementation.
         if !rhs.is_constant() {
@@ -80,14 +80,14 @@ mod test {
     use crate::array::constant::ConstantArray;
     use crate::array::BoolArray;
     use crate::compute::{and, or, scalar_at};
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{Array, IntoArray, IntoArrayVariant};
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()
     )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array()
     )]
-    fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
+    fn test_or(#[case] lhs: Array, #[case] rhs: Array) {
         let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
@@ -106,7 +106,7 @@ mod test {
     )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
-    fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
+    fn test_and(#[case] lhs: Array, #[case] rhs: Array) {
         let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();

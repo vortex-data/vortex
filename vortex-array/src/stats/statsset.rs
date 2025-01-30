@@ -430,7 +430,7 @@ mod test {
 
     use crate::array::PrimitiveArray;
     use crate::stats::{Stat, StatsSet};
-    use crate::IntoArrayData as _;
+    use crate::IntoArray as _;
 
     #[test]
     fn test_iter() {

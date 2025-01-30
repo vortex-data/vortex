@@ -18,7 +18,7 @@ use vortex::flatbuffers::FlatBuffer;
 use vortex::parts::ArrayParts;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex::{ArrayData, Context};
+use vortex::{Array, Context};
 use vortex_layout::segments::SegmentId;
 use vortex_layout::LayoutData;
 
@@ -136,7 +136,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .style(Style::default().fg(Color::Green).bg(Color::DarkGray))
             .height(1);
 
-        let field_arrays: Vec<ArrayData> = (0..struct_array.nfields())
+        let field_arrays: Vec<Array> = (0..struct_array.nfields())
             .map(|x| {
                 struct_array
                     .maybe_null_field_by_idx(x)
@@ -237,7 +237,7 @@ fn read_array(
     layout: &LayoutData,
     ctx: Arc<Context>,
     dtype: &DType,
-) -> ArrayData {
+) -> Array {
     let flatbuffer = FlatBuffer::try_from(buffers.pop().vortex_expect("buffers pop"))
         .vortex_expect("flatbuffers");
 
@@ -251,7 +251,7 @@ fn read_array(
         buffers,
     );
 
-    // // Decode into an ArrayData.
+    // // Decode into an Array.
     array_parts
         .decode(ctx, dtype.clone())
         .vortex_expect("decoding ArrayParts")

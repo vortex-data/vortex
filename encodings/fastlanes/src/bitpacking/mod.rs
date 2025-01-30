@@ -12,7 +12,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, ArrayData, Canonical, RkyvMetadata};
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -235,7 +235,7 @@ impl BitPackedArray {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    pub fn encode(array: &ArrayData, bit_width: u8) -> VortexResult<Self> {
+    pub fn encode(array: &Array, bit_width: u8) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
             bitpack_encode(parray, bit_width)
         } else {
@@ -299,7 +299,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, RkyvMetadata};
+    use vortex_array::{IntoArray, IntoArrayVariant, RkyvMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 

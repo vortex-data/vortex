@@ -136,7 +136,7 @@ mod test {
     use super::*;
     use crate::array::BoolArray;
     use crate::compute::search_sorted;
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     fn test_search_sorted_primitive() {

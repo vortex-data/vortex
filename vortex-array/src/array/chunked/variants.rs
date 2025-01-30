@@ -11,7 +11,7 @@ use crate::variants::{
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use crate::vtable::VariantsVTable;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 /// Chunked arrays support all DTypes
 impl VariantsVTable<ChunkedArray> for ChunkedEncoding {
@@ -65,7 +65,7 @@ impl Utf8ArrayTrait for ChunkedArray {}
 impl BinaryArrayTrait for ChunkedArray {}
 
 impl StructArrayTrait for ChunkedArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(
@@ -88,7 +88,7 @@ impl StructArrayTrait for ChunkedArray {
         Some(chunked)
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(
@@ -121,7 +121,7 @@ impl StructArrayTrait for ChunkedArray {
 impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         ChunkedArray::from_iter(self.chunks().map(|chunk| {
             chunk
                 .as_extension_array()

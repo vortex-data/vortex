@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::array::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 pub struct NullBuilder {
     length: usize,
@@ -48,7 +48,7 @@ impl ArrayBuilder for NullBuilder {
         self.length += n;
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayData> {
+    fn finish(&mut self) -> VortexResult<Array> {
         Ok(NullArray::new(self.length).into_array())
     }
 }

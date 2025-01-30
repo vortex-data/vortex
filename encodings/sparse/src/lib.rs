@@ -7,9 +7,7 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use vortex_array::{
-    encoding_ids, impl_encoding, ArrayData, IntoArrayData, IntoArrayVariant, RkyvMetadata,
-};
+use vortex_array::{encoding_ids, impl_encoding, Array, IntoArray, IntoArrayVariant, RkyvMetadata};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -50,8 +48,8 @@ impl Display for SparseMetadata {
 
 impl SparseArray {
     pub fn try_new(
-        indices: ArrayData,
-        values: ArrayData,
+        indices: Array,
+        values: Array,
         len: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
@@ -59,8 +57,8 @@ impl SparseArray {
     }
 
     pub(crate) fn try_new_with_offset(
-        indices: ArrayData,
-        values: ArrayData,
+        indices: Array,
+        values: Array,
         len: usize,
         indices_offset: usize,
         fill_value: Scalar,
@@ -253,7 +251,7 @@ mod test {
         Scalar::from(42i32)
     }
 
-    fn sparse_array(fill_value: Scalar) -> ArrayData {
+    fn sparse_array(fill_value: Scalar) -> Array {
         // merged array: [null, null, 100, null, null, 200, null, null, 300, null]
         let mut values = buffer![100i32, 200, 300].into_array();
         values = try_cast(&values, fill_value.dtype()).unwrap();

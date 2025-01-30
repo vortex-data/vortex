@@ -1,7 +1,7 @@
 use fsst::Symbol;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -13,9 +13,9 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
     fn compare(
         &self,
         lhs: &FSSTArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         match (rhs.as_constant(), operator) {
             (Some(constant), _) if constant.is_null() => {
                 // All comparisons to null must return null
@@ -42,7 +42,7 @@ fn compare_fsst_constant(
     left: &FSSTArray,
     right: &ConstantArray,
     equal: bool,
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let symbols = left.symbols().into_primitive()?;
     let symbols_u64 = symbols.as_slice::<u64>();
 
@@ -87,7 +87,7 @@ fn compare_fsst_constant(
 mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
     use vortex_array::compute::{compare, scalar_at, Operator};
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

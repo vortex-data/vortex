@@ -6,16 +6,16 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {
     fn compare(
         &self,
         lhs: &VarBinArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();

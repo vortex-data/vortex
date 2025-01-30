@@ -151,7 +151,7 @@ mod tests {
     use vortex_array::compute::slice;
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;

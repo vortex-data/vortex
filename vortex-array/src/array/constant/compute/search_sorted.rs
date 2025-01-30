@@ -34,7 +34,7 @@ impl SearchSortedFn<ConstantArray> for ConstantEncoding {
 mod test {
     use crate::array::constant::ConstantArray;
     use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     pub fn search() {

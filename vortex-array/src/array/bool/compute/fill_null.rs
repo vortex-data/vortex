@@ -4,10 +4,10 @@ use vortex_scalar::Scalar;
 use crate::array::{BoolArray, BoolEncoding, ConstantArray};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl FillNullFn<BoolArray> for BoolEncoding {
-    fn fill_null(&self, array: &BoolArray, fill_value: Scalar) -> VortexResult<ArrayData> {
+    fn fill_null(&self, array: &BoolArray, fill_value: Scalar) -> VortexResult<Array> {
         let fill = fill_value
             .as_bool()
             .value()

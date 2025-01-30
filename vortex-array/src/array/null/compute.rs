@@ -9,28 +9,28 @@ use crate::array::NullEncoding;
 use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }
 
 impl SliceFn<NullArray> for NullEncoding {
-    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
@@ -42,7 +42,7 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 }
 
 impl TakeFn<NullArray> for NullEncoding {
-    fn take(&self, array: &NullArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &NullArray, indices: &Array) -> VortexResult<Array> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
@@ -57,11 +57,7 @@ impl TakeFn<NullArray> for NullEncoding {
         Ok(NullArray::new(indices.len()).into_array())
     }
 
-    unsafe fn take_unchecked(
-        &self,
-        _array: &NullArray,
-        indices: &ArrayData,
-    ) -> VortexResult<ArrayData> {
+    unsafe fn take_unchecked(&self, _array: &NullArray, indices: &Array) -> VortexResult<Array> {
         Ok(NullArray::new(indices.len()).into_array())
     }
 }
@@ -83,7 +79,7 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     fn test_slice_nulls() {

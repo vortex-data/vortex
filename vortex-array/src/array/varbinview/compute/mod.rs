@@ -15,22 +15,22 @@ use crate::array::VarBinViewEncoding;
 use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }
@@ -42,7 +42,7 @@ impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
 }
 
 impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
-    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<Array> {
         let views = array.views().slice(start..stop);
 
         Ok(VarBinViewArray::try_new(
@@ -59,7 +59,7 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
-    fn take(&self, array: &VarBinViewArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<Array> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
         let indices = indices.clone().into_primitive()?;
@@ -80,8 +80,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     unsafe fn take_unchecked(
         &self,
         array: &VarBinViewArray,
-        indices: &ArrayData,
-    ) -> VortexResult<ArrayData> {
+        indices: &Array,
+    ) -> VortexResult<Array> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
         let indices = indices.clone().into_primitive()?;
@@ -129,7 +129,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::VarBinViewArray;
     use crate::compute::take;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn take_nullable() {

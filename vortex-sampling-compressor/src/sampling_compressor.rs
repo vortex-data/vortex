@@ -12,7 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, Encoding, EncodingId, IntoCanonical};
+use vortex_array::{Array, Encoding, EncodingId, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -42,7 +42,7 @@ impl Display for SamplingCompressor<'_> {
 
 impl CompressionStrategy for SamplingCompressor<'_> {
     #[allow(clippy::same_name_method)]
-    fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData> {
+    fn compress(&self, array: &Array) -> VortexResult<Array> {
         Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
@@ -130,7 +130,7 @@ impl<'a> SamplingCompressor<'a> {
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
-        arr: &ArrayData,
+        arr: &Array,
         like: Option<&CompressionTree<'a>>,
     ) -> VortexResult<CompressedArray<'a>> {
         if arr.is_empty() {
@@ -176,7 +176,7 @@ impl<'a> SamplingCompressor<'a> {
         ))
     }
 
-    pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
+    pub(crate) fn compress_array(&self, array: &Array) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
         if array.is_encoding(ConstantEncoding::ID) {
@@ -257,7 +257,7 @@ impl<'a> SamplingCompressor<'a> {
             )
             .into_iter()
             .map(|(start, stop)| slice(array, start, stop))
-            .collect::<VortexResult<Vec<ArrayData>>>()?,
+            .collect::<VortexResult<Vec<Array>>>()?,
             array.dtype().clone(),
         )?
         .into_canonical()?
@@ -282,7 +282,7 @@ impl<'a> SamplingCompressor<'a> {
 
 pub(crate) fn find_best_compression<'a>(
     candidates: Vec<&'a dyn EncodingCompressor>,
-    sample: &ArrayData,
+    sample: &Array,
     ctx: &SamplingCompressor<'a>,
 ) -> VortexResult<CompressedArray<'a>> {
     let mut best = None;
@@ -372,7 +372,7 @@ pub(crate) fn find_best_compression<'a>(
 mod tests {
     use vortex_alp::ALPRDEncoding;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{Encoding, IntoArrayData};
+    use vortex_array::{Encoding, IntoArray};
 
     use crate::SamplingCompressor;
 

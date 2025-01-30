@@ -1,14 +1,14 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::{RunEndArray, RunEndEncoding};
 
 impl TakeFn<RunEndArray> for RunEndEncoding {
-    fn take(&self, array: &RunEndArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &RunEndArray, indices: &Array) -> VortexResult<Array> {
         let primitive_indices = indices.clone().into_primitive()?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
@@ -33,7 +33,7 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     array: &RunEndArray,
     indices: &[T],
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let adjusted_indices = indices
         .iter()
         .map(|idx| idx.as_() + array.offset())
@@ -46,7 +46,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
 
     use crate::RunEndArray;
 

@@ -14,7 +14,7 @@ pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
-use vortex_array::{ArrayData, Encoding, EncodingId, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;
@@ -28,12 +28,12 @@ use crate::take::take_canonical_array;
 
 #[derive(Debug)]
 pub enum ExpectedValue {
-    Array(ArrayData),
+    Array(Array),
     Search(SearchResult),
 }
 
 impl ExpectedValue {
-    pub fn array(self) -> ArrayData {
+    pub fn array(self) -> Array {
         match self {
             ExpectedValue::Array(array) => array,
             _ => panic!("expected array"),
@@ -50,7 +50,7 @@ impl ExpectedValue {
 
 #[derive(Debug)]
 pub struct FuzzArrayAction {
-    pub array: ArrayData,
+    pub array: Array,
     pub actions: Vec<(Action, ExpectedValue)>,
 }
 
@@ -58,14 +58,14 @@ pub struct FuzzArrayAction {
 pub enum Action {
     Compress(SamplingCompressor<'static>),
     Slice(Range<usize>),
-    Take(ArrayData),
+    Take(Array),
     SearchSorted(Scalar, SearchSortedSide),
     Filter(Mask),
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        let array = ArrayData::arbitrary(u)?;
+        let array = Array::arbitrary(u)?;
         let mut current_array = array.clone();
 
         let valid_actions = actions_for_array(&current_array);
@@ -186,7 +186,7 @@ fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
     }
 }
 
-fn actions_for_array(array: &ArrayData) -> Vec<usize> {
+fn actions_for_array(array: &Array) -> Vec<usize> {
     array
         .depth_first_traversal()
         .map(|child| actions_for_encoding(child.encoding()))

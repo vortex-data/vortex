@@ -12,7 +12,7 @@ use crate::array::{
 };
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Canonical, IntoArrayData, IntoCanonical};
+use crate::{Canonical, IntoArray, IntoCanonical};
 
 impl CanonicalVTable<ConstantArray> for ConstantEncoding {
     fn into_canonical(&self, array: ConstantArray) -> VortexResult<Canonical> {
@@ -133,7 +133,7 @@ mod tests {
     use crate::canonical::{IntoArrayVariant, IntoCanonical};
     use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsSet};
-    use crate::IntoArrayData as _;
+    use crate::IntoArray as _;
 
     #[test]
     fn test_canonicalize_null() {

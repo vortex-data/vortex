@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexExpect as _};
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::IntoArrayData;
+use crate::IntoArray;
 
 pub struct VarBinBuilder<O: NativePType> {
     offsets: BufferMut<O>,
@@ -102,7 +102,7 @@ mod test {
 
     use crate::array::varbin::builder::VarBinBuilder;
     use crate::compute::scalar_at;
-    use crate::IntoArrayData;
+    use crate::IntoArray;
 
     #[test]
     fn test_builder() {

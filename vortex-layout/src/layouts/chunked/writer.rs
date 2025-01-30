@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -54,11 +54,7 @@ impl ChunkedLayoutWriter {
 }
 
 impl LayoutWriter for ChunkedLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         self.row_count += chunk.len() as u64;
         self.stats_accumulator.push_chunk(&chunk)?;
 

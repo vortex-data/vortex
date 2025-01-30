@@ -3,35 +3,30 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::Array;
 
-pub trait LikeFn<Array> {
-    fn like(
-        &self,
-        array: Array,
-        pattern: &ArrayData,
-        options: LikeOptions,
-    ) -> VortexResult<Option<ArrayData>>;
+pub trait LikeFn<A> {
+    fn like(&self, array: A, pattern: &Array, options: LikeOptions) -> VortexResult<Option<Array>>;
 }
 
-impl<E: Encoding> LikeFn<ArrayData> for E
+impl<E: Encoding> LikeFn<Array> for E
 where
     E: LikeFn<E::Array>,
-    E::Array: TryFrom<ArrayData, Error = VortexError>,
+    E::Array: TryFrom<Array, Error = VortexError>,
 {
     fn like(
         &self,
-        array: ArrayData,
-        pattern: &ArrayData,
+        array: Array,
+        pattern: &Array,
         options: LikeOptions,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         let encoding = array.vtable().clone();
         LikeFn::like(
             encoding
                 .as_any()
                 .downcast_ref::<E>()
                 .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
-            <E::Array as TryFrom<ArrayData>>::try_from(array)?,
+            <E::Array as TryFrom<Array>>::try_from(array)?,
             pattern,
             options,
         )
@@ -50,11 +45,7 @@ pub struct LikeOptions {
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(
-    array: ArrayData,
-    pattern: &ArrayData,
-    options: LikeOptions,
-) -> VortexResult<ArrayData> {
+pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult<Array> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -106,10 +97,10 @@ pub fn like(
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: ArrayData,
-    pattern: &ArrayData,
+    array: Array,
+    pattern: &Array,
     options: LikeOptions,
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
     debug_assert_eq!(

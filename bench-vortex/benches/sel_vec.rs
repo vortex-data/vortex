@@ -15,7 +15,7 @@ use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex::sampling_compressor::compressors::EncodingCompressor;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::PrimitiveArrayTrait;
-use vortex::{ArrayData, Encoding, IntoArrayData, IntoCanonical};
+use vortex::{Array, Encoding, IntoArray, IntoCanonical};
 use vortex_mask::Mask;
 
 // criterion benchmark setup:
@@ -79,12 +79,12 @@ fn bench_sel_vec(c: &mut Criterion) {
     group.finish();
 }
 
-fn filter_then_canonical(array: &ArrayData, mask: &Mask) -> ArrayData {
+fn filter_then_canonical(array: &Array, mask: &Mask) -> Array {
     let filtered = filter(array, mask).unwrap();
     filtered.into_canonical().unwrap().into_array()
 }
 
-fn canonical_then_filter(array: &ArrayData, mask: &Mask) -> ArrayData {
+fn canonical_then_filter(array: &Array, mask: &Mask) -> Array {
     let canonical = array.clone().into_canonical().unwrap().into_array();
     filter(&canonical, mask).unwrap()
 }

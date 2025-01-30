@@ -7,10 +7,10 @@ use vortex_error::VortexResult;
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn<BoolArray> for BoolEncoding {
-    fn take(&self, array: &BoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &BoolArray, indices: &Array) -> VortexResult<Array> {
         let validity = array.validity();
         let indices = indices.clone().into_primitive()?;
 
@@ -30,11 +30,7 @@ impl TakeFn<BoolArray> for BoolEncoding {
         Ok(BoolArray::try_new(buffer, validity.take(indices.as_ref())?)?.into_array())
     }
 
-    unsafe fn take_unchecked(
-        &self,
-        array: &BoolArray,
-        indices: &ArrayData,
-    ) -> VortexResult<ArrayData> {
+    unsafe fn take_unchecked(&self, array: &BoolArray, indices: &Array) -> VortexResult<Array> {
         let validity = array.validity();
         let indices = indices.clone().into_primitive()?;
 

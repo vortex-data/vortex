@@ -2,7 +2,7 @@ use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::{ConstantArray, PrimitiveArray};
 use vortex_array::stats::{trailing_zeros, Stat};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
@@ -41,7 +41,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
 fn encoded_zero<T: NativePType>(
     logical_validity: Mask,
     nullability: Nullability,
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let encoded_ptype = T::PTYPE.to_unsigned();
     let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
 

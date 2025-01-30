@@ -14,7 +14,7 @@ use vortex_array::compute::scalar_at;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayData, Context, ContextRef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, Context, ContextRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
@@ -496,7 +496,7 @@ async fn test_with_indices_simple() {
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
-        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(ArrayData::from))
+        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(Array::from))
             .into_array(),
     )])
     .unwrap();
@@ -650,7 +650,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
-        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(ArrayData::from))
+        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(Array::from))
             .into_array(),
     )])
     .unwrap();
@@ -755,19 +755,19 @@ async fn test_with_indices_and_with_row_filter_simple() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_string_chunked() {
-    let name_chunk1 = ArrayData::from_iter(vec![
+    let name_chunk1 = Array::from_iter(vec![
         Some("Joseph".to_owned()),
         Some("James".to_owned()),
         Some("Angela".to_owned()),
     ]);
-    let age_chunk1 = ArrayData::from_iter(vec![Some(25_i32), Some(31), None]);
-    let name_chunk2 = ArrayData::from_iter(vec![
+    let age_chunk1 = Array::from_iter(vec![Some(25_i32), Some(31), None]);
+    let name_chunk2 = Array::from_iter(vec![
         Some("Pharrell".to_owned()),
         Some("Khalil".to_owned()),
         Some("Mikhail".to_owned()),
         None,
     ]);
-    let age_chunk2 = ArrayData::from_iter(vec![Some(57_i32), Some(18), None, Some(32)]);
+    let age_chunk2 = Array::from_iter(vec![Some(57_i32), Some(18), None, Some(32)]);
 
     let chunk1 = StructArray::from_fields(&[("name", name_chunk1), ("age", age_chunk1)])
         .unwrap()
@@ -820,32 +820,32 @@ async fn filter_string_chunked() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_pruning_with_or() {
-    let letter_chunk1 = ArrayData::from_iter(vec![
+    let letter_chunk1 = Array::from_iter(vec![
         Some("A".to_owned()),
         Some("B".to_owned()),
         Some("D".to_owned()),
     ]);
-    let number_chunk1 = ArrayData::from_iter(vec![Some(25_i32), Some(31), None]);
-    let letter_chunk2 = ArrayData::from_iter(vec![
+    let number_chunk1 = Array::from_iter(vec![Some(25_i32), Some(31), None]);
+    let letter_chunk2 = Array::from_iter(vec![
         Some("G".to_owned()),
         Some("I".to_owned()),
         Some("J".to_owned()),
         None,
     ]);
-    let number_chunk2 = ArrayData::from_iter(vec![Some(4_i32), Some(18), None, Some(21)]);
-    let letter_chunk3 = ArrayData::from_iter(vec![
+    let number_chunk2 = Array::from_iter(vec![Some(4_i32), Some(18), None, Some(21)]);
+    let letter_chunk3 = Array::from_iter(vec![
         Some("L".to_owned()),
         None,
         Some("O".to_owned()),
         Some("P".to_owned()),
     ]);
-    let number_chunk3 = ArrayData::from_iter(vec![Some(10_i32), Some(15), None, Some(22)]);
-    let letter_chunk4 = ArrayData::from_iter(vec![
+    let number_chunk3 = Array::from_iter(vec![Some(10_i32), Some(15), None, Some(22)]);
+    let letter_chunk4 = Array::from_iter(vec![
         Some("X".to_owned()),
         Some("Y".to_owned()),
         Some("Z".to_owned()),
     ]);
-    let number_chunk4 = ArrayData::from_iter(vec![Some(66_i32), Some(77), Some(88)]);
+    let number_chunk4 = Array::from_iter(vec![Some(66_i32), Some(77), Some(88)]);
 
     let chunk1 = StructArray::from_fields(&[("letter", letter_chunk1), ("number", number_chunk1)])
         .unwrap()

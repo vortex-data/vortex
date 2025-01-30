@@ -18,7 +18,7 @@ use vortex::file::{Scan, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
-use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
@@ -28,8 +28,8 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     vortex_file: &VortexFile<FileIoDriver<T>>,
     projection: ExprRef,
     filter: Option<ExprRef>,
-    indices: Option<ArrayData>,
-) -> VortexResult<ArrayData> {
+    indices: Option<Array>,
+) -> VortexResult<Array> {
     let mut scan = Scan::new(projection);
 
     if let Some(filter) = filter {

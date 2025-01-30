@@ -11,33 +11,33 @@ use crate::compute::{
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl ComputeVTable for ExtensionEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
         // It's not possible to cast an extension array to another type.
         // TODO(ngates): we should allow some extension arrays to implement a callback
         //  to support this
         None
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<ArrayData>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }
@@ -52,7 +52,7 @@ impl ScalarAtFn<ExtensionArray> for ExtensionEncoding {
 }
 
 impl SliceFn<ExtensionArray> for ExtensionEncoding {
-    fn slice(&self, array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(ExtensionArray::new(
             array.ext_dtype().clone(),
             slice(array.storage(), start, stop)?,
@@ -62,7 +62,7 @@ impl SliceFn<ExtensionArray> for ExtensionEncoding {
 }
 
 impl TakeFn<ExtensionArray> for ExtensionEncoding {
-    fn take(&self, array: &ExtensionArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ExtensionArray, indices: &Array) -> VortexResult<Array> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
                 .into_array(),

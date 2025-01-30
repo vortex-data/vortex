@@ -10,7 +10,7 @@ use crate::variants::{
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use crate::vtable::VariantsVTable;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 /// Constant arrays support all DTypes
 impl VariantsVTable<ConstantArray> for ConstantEncoding {
@@ -74,14 +74,14 @@ impl Utf8ArrayTrait for ConstantArray {}
 impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
         self.scalar()
             .as_struct()
             .field_by_idx(idx)
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
         Ok(
             ConstantArray::new(self.scalar().as_struct().project(projection)?, self.len())
                 .into_array(),
@@ -92,7 +92,7 @@ impl StructArrayTrait for ConstantArray {
 impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         ConstantArray::new(self.scalar().as_extension().storage(), self.len()).into_array()
     }
 }

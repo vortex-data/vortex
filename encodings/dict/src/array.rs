@@ -8,8 +8,8 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical, SerdeMetadata,
+    encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
+    SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -29,7 +29,7 @@ pub struct DictMetadata {
 }
 
 impl DictArray {
-    pub fn try_new(codes: ArrayData, values: ArrayData) -> VortexResult<Self> {
+    pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
         }
@@ -48,14 +48,14 @@ impl DictArray {
     }
 
     #[inline]
-    pub fn codes(&self) -> ArrayData {
+    pub fn codes(&self) -> Array {
         self.as_ref()
             .child(0, &DType::from(self.metadata().codes_ptype), self.len())
             .vortex_expect("DictArray is missing its codes child array")
     }
 
     #[inline]
-    pub fn values(&self) -> ArrayData {
+    pub fn values(&self) -> Array {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().values_len)
             .vortex_expect("DictArray is missing its values child array")
@@ -72,7 +72,7 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayData = array.values().into_canonical()?.into_array();
+                let canonical_values: Array = array.values().into_canonical()?.into_array();
                 take(canonical_values, array.codes())?.into_canonical()
             }
             // Non-string case: take and then canonicalize

@@ -3,13 +3,13 @@ use std::cmp::Ordering;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::scalar_at;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::take::take_canonical_array;
 
-pub fn sort_canonical_array(array: &ArrayData) -> VortexResult<ArrayData> {
+pub fn sort_canonical_array(array: &Array) -> VortexResult<Array> {
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool()?;

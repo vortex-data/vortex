@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -57,7 +57,7 @@ impl VortexExpr for GetItem {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let child = self.child.evaluate(batch)?;
         child
             .as_struct_array()
@@ -86,7 +86,7 @@ impl PartialEq for GetItem {
 #[cfg(test)]
 mod tests {
     use vortex_array::array::StructArray;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::PType::I32;

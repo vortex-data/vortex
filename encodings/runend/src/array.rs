@@ -12,8 +12,7 @@ use vortex_array::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayData, Canonical, IntoArrayData, IntoArrayVariant,
-    SerdeMetadata,
+    encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -37,7 +36,7 @@ pub struct RunEndMetadata {
 }
 
 impl RunEndArray {
-    pub fn try_new(ends: ArrayData, values: ArrayData) -> VortexResult<Self> {
+    pub fn try_new(ends: Array, values: Array) -> VortexResult<Self> {
         let length = if ends.is_empty() {
             0
         } else {
@@ -47,8 +46,8 @@ impl RunEndArray {
     }
 
     pub(crate) fn with_offset_and_length(
-        ends: ArrayData,
-        values: ArrayData,
+        ends: Array,
+        values: Array,
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
@@ -110,7 +109,7 @@ impl RunEndArray {
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: ArrayData) -> VortexResult<Self> {
+    pub fn encode(array: Array) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             let (ends, values) = runend_encode(&parray)?;
             Self::try_new(ends.into_array(), values)
@@ -132,7 +131,7 @@ impl RunEndArray {
     /// The `i`-th element indicates that there is a run of the same value, beginning
     /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn ends(&self) -> ArrayData {
+    pub fn ends(&self) -> Array {
         self.as_ref()
             .child(
                 0,
@@ -147,7 +146,7 @@ impl RunEndArray {
     /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
     /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn values(&self) -> ArrayData {
+    pub fn values(&self) -> Array {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().num_runs)
             .vortex_expect("RunEndArray is missing its values")
@@ -229,7 +228,7 @@ impl VisitorVTable<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{IntoArrayData, SerdeMetadata};
+    use vortex_array::{IntoArray, SerdeMetadata};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

@@ -6,7 +6,7 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderEx
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -20,17 +20,13 @@ pub struct StatsTable {
     // The DType of the column for which these stats are computed.
     column_dtype: DType,
     // The struct array backing the stats table
-    array: ArrayData,
+    array: Array,
     // The statistics that are included in the table.
     stats: Arc<[Stat]>,
 }
 
 impl StatsTable {
-    pub fn try_new(
-        column_dtype: DType,
-        array: ArrayData,
-        stats: Arc<[Stat]>,
-    ) -> VortexResult<Self> {
+    pub fn try_new(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
@@ -57,7 +53,7 @@ impl StatsTable {
     }
 
     /// The struct array backing the stats table
-    pub fn array(&self) -> &ArrayData {
+    pub fn array(&self) -> &Array {
         &self.array
     }
 
@@ -111,7 +107,7 @@ impl StatsTable {
     }
 
     /// Return the array for a given stat.
-    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayData>> {
+    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<Array>> {
         Ok(self
             .array
             .as_struct_array()
@@ -149,7 +145,7 @@ impl StatsAccumulator {
         }
     }
 
-    pub fn push_chunk(&mut self, array: &ArrayData) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.statistics().compute(*s) {
                 builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;

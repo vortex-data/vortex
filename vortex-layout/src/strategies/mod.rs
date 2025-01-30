@@ -9,7 +9,7 @@
 mod strategy;
 
 pub use strategy::*;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -22,11 +22,7 @@ use crate::LayoutData;
 /// FIXME(ngates): move this into writer.rs
 // [layout writer]
 pub trait LayoutWriter: Send {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()>;
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()>;
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData>;
 }
@@ -45,7 +41,7 @@ pub trait LayoutWriterExt: LayoutWriter {
     fn push_one(
         &mut self,
         segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
+        chunk: Array,
     ) -> VortexResult<LayoutData> {
         self.push_chunk(segments, chunk)?;
         self.finish(segments)
@@ -53,7 +49,7 @@ pub trait LayoutWriterExt: LayoutWriter {
 
     /// Push all chunks of the iterator into the layout writer and return the finished
     /// [`LayoutData`].
-    fn push_all<I: IntoIterator<Item = VortexResult<ArrayData>>>(
+    fn push_all<I: IntoIterator<Item = VortexResult<Array>>>(
         &mut self,
         segments: &mut dyn SegmentWriter,
         iter: I,
