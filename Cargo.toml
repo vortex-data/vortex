@@ -7,7 +7,6 @@ members = [
     "vortex",
     "vortex-array",
     "vortex-buffer",
-    "vortex-tui",
     "vortex-datafusion",
     "vortex-datetime-dtype",
     "vortex-dtype",
@@ -23,6 +22,7 @@ members = [
     "vortex-sampling-compressor",
     "vortex-scalar",
     "vortex-scan",
+    "vortex-tui",
     "xtask",
 ]
 resolver = "2"
