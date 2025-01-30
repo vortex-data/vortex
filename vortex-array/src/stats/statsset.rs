@@ -678,7 +678,7 @@ mod test {
         );
         assert_eq!(
             second.get_as::<bool>(Stat::IsStrictSorted),
-            Some(exact(false))
+            Some(inexact(false))
         );
     }
 
