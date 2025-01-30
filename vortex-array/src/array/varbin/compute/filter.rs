@@ -68,7 +68,7 @@ where
 
         for (start, end) in mask_slices.iter().copied() {
             let null_sl = validity.slice(start, end - start);
-            if null_sl.count_set_bits() == 0 {
+            if null_sl.count_set_bits() == null_sl.len() {
                 update_non_nullable_slice(data, offsets, &mut builder, start, end)
             } else {
                 for (idx, valid) in null_sl.iter().enumerate() {
