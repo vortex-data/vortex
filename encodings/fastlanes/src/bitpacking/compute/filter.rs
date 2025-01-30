@@ -43,10 +43,12 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     let full_decompression_threshold = match T::get_byte_width() {
         1 => 0.02,
         2 => 0.03,
-        _ => 0.04,
-        // >8 bytes may have a higher threshold.
+        4 => 0.075,
+        _ => 0.09,
+        // >8 bytes may have a higher threshold. These numbers are derived from a GCP c2-standard-4
+        // with a "Cascade Lake" CPU.
     };
-    if mask.selectivity() >= full_decompression_threshold {
+    if mask.density() >= full_decompression_threshold {
         let decompressed_array = array.clone().into_primitive()?;
         filter(decompressed_array.as_ref(), mask)?.into_primitive()
     } else {
