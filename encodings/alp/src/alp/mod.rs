@@ -138,8 +138,9 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     /// The index of each value for which encode-decode is not the identity function is returned.
     ///
     /// See also: [Self::encode_chunkwise].
+    #[allow(clippy::cast_possible_truncation)] // The patch_indices are known to be valid indices into encoded.
     fn encode(values: &[Self], exponents: Exponents) -> (Vec<Self::ALPInt>, Vec<u64>) {
-        let (encoded, needs_patch): (Vec<Self::ALPInt>, Vec<bool>) = values
+        let (mut encoded, needs_patch): (Vec<Self::ALPInt>, Vec<bool>) = values
             .iter()
             .map(|value| {
                 let encoded = unsafe { Self::encode_single_unchecked(*value, exponents) };
@@ -149,6 +150,12 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             })
             .unzip();
 
+        // Patched values either have tiny differences (e.g. 1.01, 1.02, 1.00000001) or big
+        // differences (e.g. 1.01, 1.02, 1000.0). In the latter case, this large value
+        // prevents bitpacking (or forces patches into bitpacking).
+        //
+        // Zero allows bitpacking but prevents frame-of-reference encoding, so we choose the first
+        // successfully encoded value.
         let patch_indices: Vec<u64> = needs_patch
             .into_iter()
             .enumerate()
@@ -156,7 +163,28 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             .map(|(index, _)| index as u64)
             .collect();
 
+        if let Some(fill_value) =
+            Self::find_first_non_patched_encoded_value(&encoded, &patch_indices)
+        {
+            for index in patch_indices.iter() {
+                let index = *index as usize;
+                encoded[index] = fill_value;
+            }
+        }
+
         (encoded, patch_indices)
+    }
+
+    fn find_first_non_patched_encoded_value(
+        encoded: &[Self::ALPInt],
+        patch_indices: &[u64],
+    ) -> Option<Self::ALPInt> {
+        for index in 0..encoded.len() {
+            if index >= patch_indices.len() || patch_indices[index] != index as u64 {
+                return Some(encoded[index]);
+            }
+        }
+        None
     }
 
     #[inline]
