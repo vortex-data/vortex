@@ -76,7 +76,9 @@ fn filter_primitive_chunk_by_chunk<T: NativePType + BitPacking + ArrowNativeType
         mask.true_count(),
         mask.values()
             .vortex_expect("AllTrue and AllFalse handled by filter fn")
-            .indices(),
+            .indices()
+            .iter()
+            .cloned(),
     );
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
@@ -89,7 +91,7 @@ fn filter_primitive_chunk_by_chunk<T: NativePType + BitPacking + ArrowNativeType
 fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     indices_len: usize,
-    indices: &[usize],
+    indices: impl Iterator<Item = usize>,
 ) -> Buffer<T> {
     let offset = array.offset() as usize;
     let bit_width = array.bit_width() as usize;
@@ -102,39 +104,35 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     // Group the indices by the FastLanes chunk they belong to.
     let chunk_size = 128 * bit_width / size_of::<T>();
 
-    chunked_indices(
-        indices.iter().cloned(),
-        offset,
-        |chunk_idx, indices_within_chunk| {
-            let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
+    chunked_indices(indices, offset, |chunk_idx, indices_within_chunk| {
+        let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
 
-            if indices_within_chunk.len() == 1024 {
-                // Unpack the entire chunk.
-                unsafe {
-                    let values_len = values.len();
-                    values.set_len(values_len + 1024);
-                    BitPacking::unchecked_unpack(
-                        bit_width,
-                        packed,
-                        &mut values.as_mut_slice()[values_len..],
-                    );
-                }
-            } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
-                // Unpack into a temporary chunk and then copy the values.
-                unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) }
-                values.extend(
-                    indices_within_chunk
-                        .iter()
-                        .map(|&idx| unsafe { *unpacked.get_unchecked(idx) }),
+        if indices_within_chunk.len() == 1024 {
+            // Unpack the entire chunk.
+            unsafe {
+                let values_len = values.len();
+                values.set_len(values_len + 1024);
+                BitPacking::unchecked_unpack(
+                    bit_width,
+                    packed,
+                    &mut values.as_mut_slice()[values_len..],
                 );
-            } else {
-                // Otherwise, unpack each element individually.
-                values.extend(indices_within_chunk.iter().map(|&idx| unsafe {
-                    BitPacking::unchecked_unpack_single(bit_width, packed, idx)
-                }));
             }
-        },
-    );
+        } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
+            // Unpack into a temporary chunk and then copy the values.
+            unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) }
+            values.extend(
+                indices_within_chunk
+                    .iter()
+                    .map(|&idx| unsafe { *unpacked.get_unchecked(idx) }),
+            );
+        } else {
+            // Otherwise, unpack each element individually.
+            values.extend(indices_within_chunk.iter().map(|&idx| unsafe {
+                BitPacking::unchecked_unpack_single(bit_width, packed, idx)
+            }));
+        }
+    });
 
     values.freeze()
 }
