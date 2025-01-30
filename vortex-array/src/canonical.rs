@@ -280,8 +280,9 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        Array, ArrayRef, ListArray as ArrowListArray, PrimitiveArray as ArrowPrimitiveArray,
-        StringArray, StringViewArray, StructArray as ArrowStructArray,
+        Array as ArrowArray, ArrayRef, ListArray as ArrowListArray,
+        PrimitiveArray as ArrowPrimitiveArray, StringArray, StringViewArray,
+        StructArray as ArrowStructArray,
     };
     use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
     use arrow_schema::{DataType, Field};
