@@ -11,11 +11,11 @@ use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::data::LayoutData;
+use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
-use crate::vtable::{LayoutId, LayoutVTable};
-use crate::COLUMNAR_LAYOUT_ID;
+use crate::vtable::LayoutVTable;
+use crate::{LayoutId, COLUMNAR_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct StructLayout;
@@ -27,7 +27,7 @@ impl LayoutVTable for StructLayout {
 
     fn reader(
         &self,
-        layout: LayoutData,
+        layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -36,7 +36,7 @@ impl LayoutVTable for StructLayout {
 
     fn register_splits(
         &self,
-        layout: &LayoutData,
+        layout: &Layout,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,

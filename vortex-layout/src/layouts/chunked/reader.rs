@@ -14,11 +14,11 @@ use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, LayoutData, LayoutVTable};
+use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
-    layout: LayoutData,
+    layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
@@ -31,7 +31,7 @@ pub struct ChunkedReader {
 
 impl ChunkedReader {
     pub(super) fn try_new(
-        layout: LayoutData,
+        layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
@@ -150,7 +150,7 @@ impl ChunkedReader {
 }
 
 impl LayoutReader for ChunkedReader {
-    fn layout(&self) -> &LayoutData {
+    fn layout(&self) -> &Layout {
         &self.layout
     }
 }

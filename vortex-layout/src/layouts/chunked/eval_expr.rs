@@ -90,10 +90,10 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
-    use crate::LayoutData;
+    use crate::Layout;
 
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Arc<TestSegments>, LayoutData) {
+    fn chunked_layout() -> (Arc<TestSegments>, Layout) {
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
             &DType::Primitive(PType::I32, NonNullable),

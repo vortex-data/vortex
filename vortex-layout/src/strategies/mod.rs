@@ -2,7 +2,7 @@
 //! another to develop an overall strategy.
 //!
 //! Each [`LayoutWriter`] is passed horizontal chunks of a Vortex array one-by-one, and is
-//! eventually asked to return a [`LayoutData`]. The writers can buffer, re-chunk, flush, or
+//! eventually asked to return a [`Layout`]. The writers can buffer, re-chunk, flush, or
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
@@ -16,7 +16,7 @@ use vortex_error::VortexResult;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::LayoutData;
+use crate::Layout;
 
 /// A strategy for writing chunks of an array into a layout.
 /// FIXME(ngates): move this into writer.rs
@@ -24,7 +24,7 @@ use crate::LayoutData;
 pub trait LayoutWriter: Send {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()>;
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData>;
+    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout>;
 }
 // [layout writer]
 
@@ -37,23 +37,19 @@ pub trait LayoutWriterExt: LayoutWriter {
         Box::new(self)
     }
 
-    /// Push a single chunk into the layout writer and return the finished [`LayoutData`].
-    fn push_one(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: Array,
-    ) -> VortexResult<LayoutData> {
+    /// Push a single chunk into the layout writer and return the finished [`Layout`].
+    fn push_one(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<Layout> {
         self.push_chunk(segments, chunk)?;
         self.finish(segments)
     }
 
     /// Push all chunks of the iterator into the layout writer and return the finished
-    /// [`LayoutData`].
+    /// [`Layout`].
     fn push_all<I: IntoIterator<Item = VortexResult<Array>>>(
         &mut self,
         segments: &mut dyn SegmentWriter,
         iter: I,
-    ) -> VortexResult<LayoutData> {
+    ) -> VortexResult<Layout> {
         for chunk in iter.into_iter() {
             self.push_chunk(segments, chunk?)?
         }

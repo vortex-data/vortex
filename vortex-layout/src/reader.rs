@@ -8,20 +8,20 @@ use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
-use crate::LayoutData;
+use crate::Layout;
 
-/// A [`LayoutReader`] is an instance of a [`LayoutData`] that can cache state across multiple
+/// A [`LayoutReader`] is an instance of a [`Layout`] that can cache state across multiple
 /// operations.
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
 pub trait LayoutReader: Send + Sync + ExprEvaluator + StatsEvaluator {
-    /// Returns the [`LayoutData`] of this reader.
-    fn layout(&self) -> &LayoutData;
+    /// Returns the [`Layout`] of this reader.
+    fn layout(&self) -> &Layout;
 }
 
 impl LayoutReader for Arc<dyn LayoutReader + 'static> {
-    fn layout(&self) -> &LayoutData {
+    fn layout(&self) -> &Layout {
         self.as_ref().layout()
     }
 }

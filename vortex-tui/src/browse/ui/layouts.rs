@@ -20,7 +20,7 @@ use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{Array, Context};
 use vortex_layout::segments::SegmentId;
-use vortex_layout::LayoutData;
+use vortex_layout::Layout;
 
 use crate::browse::app::{AppState, LayoutCursor};
 
@@ -234,7 +234,7 @@ fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
 
 fn read_array(
     mut buffers: Vec<ByteBuffer>,
-    layout: &LayoutData,
+    layout: &Layout,
     ctx: Arc<Context>,
     dtype: &DType,
 ) -> Array {

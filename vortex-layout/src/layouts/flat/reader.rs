@@ -6,17 +6,17 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutVTable};
+use crate::{Layout, LayoutVTable};
 
 pub struct FlatReader {
-    layout: LayoutData,
+    layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
 }
 
 impl FlatReader {
     pub(crate) fn try_new(
-        layout: LayoutData,
+        layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
@@ -41,7 +41,7 @@ impl FlatReader {
 }
 
 impl LayoutReader for FlatReader {
-    fn layout(&self) -> &LayoutData {
+    fn layout(&self) -> &Layout {
         &self.layout
     }
 }

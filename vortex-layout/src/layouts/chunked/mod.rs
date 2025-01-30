@@ -11,12 +11,12 @@ use vortex_array::ContextRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
-use crate::data::LayoutData;
+use crate::data::Layout;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
-use crate::vtable::{LayoutId, LayoutVTable};
-use crate::CHUNKED_LAYOUT_ID;
+use crate::vtable::LayoutVTable;
+use crate::{LayoutId, CHUNKED_LAYOUT_ID};
 
 #[derive(Default, Debug)]
 pub struct ChunkedLayout;
@@ -32,7 +32,7 @@ impl LayoutVTable for ChunkedLayout {
 
     fn reader(
         &self,
-        layout: LayoutData,
+        layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -41,7 +41,7 @@ impl LayoutVTable for ChunkedLayout {
 
     fn register_splits(
         &self,
-        layout: &LayoutData,
+        layout: &Layout,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
