@@ -1,5 +1,4 @@
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
@@ -17,6 +16,8 @@ pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
+        use vortex_error::VortexExpect;
+
         let old_validity = arr
             .logical_validity()
             .vortex_expect("failed to compute validity")
@@ -58,6 +59,8 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
+        use vortex_scalar::Scalar;
+
         use crate::stats::Stat;
 
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
