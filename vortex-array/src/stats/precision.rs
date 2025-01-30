@@ -5,6 +5,7 @@ use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::precision::Precision::{Bound, Exact};
+use crate::stats::{LowerBound, Stat, UpperBound};
 
 #[derive(Debug, Clone)]
 pub enum Precision<T> {
@@ -113,6 +114,14 @@ impl<T> Precision<T> {
             Exact(val) | Bound(val) => val,
         }
     }
+
+    pub fn with_direction(self, direction: BoundDirection) -> DirectionalBound<T> {
+        DirectionalBound::new(direction, self)
+    }
+
+    pub fn with_stat(self, stat: Stat) -> DirectionalBound<T> {
+        DirectionalBound::new(stat.direction(), self)
+    }
 }
 
 impl<T: Display> Display for Precision<T> {
@@ -145,6 +154,78 @@ impl Precision<ScalarValue> {
 
 impl Precision<&ScalarValue> {
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
+        self.map(|v| Scalar::new(dtype, v.clone()))
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum BoundDirection {
+    Upper,
+    Lower,
+    Neither,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DirectionalBound<T> {
+    pub(crate) direction: BoundDirection,
+    pub(crate) value: Precision<T>,
+}
+
+impl<T> DirectionalBound<T> {
+    pub(crate) fn lower_ok(self) -> Option<LowerBound<T>> {
+        match self.direction {
+            BoundDirection::Lower => Some(LowerBound(self.value)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn upper_ok(self) -> Option<UpperBound<T>> {
+        match self.direction {
+            BoundDirection::Upper => Some(UpperBound(self.value)),
+            _ => None,
+        }
+    }
+}
+
+impl<T> DirectionalBound<T> {
+    pub fn new(direction: BoundDirection, value: Precision<T>) -> Self {
+        Self { direction, value }
+    }
+
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> DirectionalBound<U> {
+        DirectionalBound {
+            direction: self.direction,
+            value: self.value.map(f),
+        }
+    }
+
+    pub fn try_map<U, F: FnOnce(T) -> VortexResult<U>>(
+        self,
+        f: F,
+    ) -> VortexResult<DirectionalBound<U>> {
+        Ok(DirectionalBound {
+            direction: self.direction,
+            value: self.value.try_map(f)?,
+        })
+    }
+
+    pub fn value(&self) -> &Precision<T> {
+        &self.value
+    }
+
+    pub fn into_value(self) -> Precision<T> {
+        self.value
+    }
+}
+
+impl DirectionalBound<ScalarValue> {
+    pub fn into_scalar(self, dtype: DType) -> DirectionalBound<Scalar> {
+        self.map(|v| Scalar::new(dtype, v))
+    }
+}
+
+impl DirectionalBound<&ScalarValue> {
+    pub fn into_scalar(self, dtype: DType) -> DirectionalBound<Scalar> {
         self.map(|v| Scalar::new(dtype, v.clone()))
     }
 }

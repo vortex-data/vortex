@@ -8,7 +8,7 @@ use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
 use crate::array::{varbin_scalar, VarBinEncoding};
 use crate::compute::scalar_at;
-use crate::stats::{exact, Precision, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{exact, DirectionalBound, Precision, Stat, StatisticsVTable, StatsSet};
 use crate::{ArrayDType, ArrayTrait};
 
 impl StatisticsVTable<VarBinArray> for VarBinEncoding {
@@ -126,7 +126,12 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
 
     if min == max {
         // get (don't compute) null count if `min == max` to determine if it's constant
-        if array.statistics().get_as::<u64>(Stat::NullCount) == Some(Precision::Exact(0)) {
+        if array
+            .statistics()
+            .get_as::<u64>(Stat::NullCount)
+            .map(DirectionalBound::into_value)
+            == Some(Precision::Exact(0))
+        {
             // if there are no nulls, then the array is constant
             return Ok(StatsSet::constant(
                 varbin_scalar(min, array.dtype()),

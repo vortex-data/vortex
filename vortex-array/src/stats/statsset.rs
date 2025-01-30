@@ -3,11 +3,10 @@ use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
+use Stat::Max;
 
-use crate::stats::{
-    exact, Max, Min, NullCount, PartialOrder, Precision, Stat, StatOrder, StatisticsCompare,
-    TrueCount, UncompressedSizeInBytes,
-};
+use crate::stats::Stat::Min;
+use crate::stats::{exact, DirectionalBound, Precision, Stat};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -83,10 +82,7 @@ impl StatsSet {
         stats.set(Stat::NullCount, exact(null_count));
 
         if !sv.is_null() {
-            stats.extend([
-                (Stat::Min, exact(sv.clone())),
-                (Stat::Max, exact(sv.clone())),
-            ]);
+            stats.extend([(Min, exact(sv.clone())), (Max, exact(sv.clone()))]);
         }
 
         if matches!(dtype, DType::Bool(_)) {
@@ -108,8 +104,8 @@ impl StatsSet {
         StatsSet::new_unchecked(vec![
             (Stat::TrueCount, exact(true_count)),
             (Stat::NullCount, exact(null_count)),
-            (Stat::Min, exact(true_count == len)),
-            (Stat::Max, exact(true_count > 0)),
+            (Min, exact(true_count == len)),
+            (Max, exact(true_count > 0)),
             (
                 Stat::IsConstant,
                 exact((true_count == 0 && null_count == 0) || true_count == len),
@@ -134,53 +130,63 @@ impl StatsSet {
         self.values.as_ref().is_none_or(|v| v.is_empty())
     }
 
-    pub fn get(&self, stat: Stat) -> Option<&Precision<ScalarValue>> {
-        self.values
-            .as_ref()
-            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v))
+    pub fn get(&self, stat: Stat) -> Option<DirectionalBound<ScalarValue>> {
+        self.values.as_ref().and_then(|v| {
+            v.iter()
+                .find(|(s, _)| *s == stat)
+                .map(|(_, v)| DirectionalBound::new(stat.direction(), v.clone()))
+        })
     }
 
-    pub fn getb<S>(&self, dtype: &DType) -> Option<S::BoundDirection>
-    where
-        // U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
-        S: StatOrder<Scalar>,
-    {
-        self.get(S::STAT)
-            .map(|s| S::BoundDirection::lift(s.as_ref().into_scalar(dtype.clone())))
+    pub fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<DirectionalBound<Scalar>> {
+        self.values.as_ref().and_then(|v| {
+            v.iter().find(|(s, _)| *s == stat).map(|(_, v)| {
+                DirectionalBound::new(stat.direction(), v.clone().into_scalar(dtype.clone()))
+            })
+        })
     }
 
-    pub fn getv<S>(&self, dtype: &DType) -> Option<Precision<Scalar>>
-    where
-        S: StatOrder<Scalar>,
-    {
-        self.get(S::STAT)
-            .map(|s| s.as_ref().into_scalar(dtype.clone()))
-    }
-
-    pub fn get_asv<S, T>(&self) -> Option<Precision<T>>
-    where
-        T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
-        S: StatOrder<T>,
-    {
-        self.get_as::<T>(S::STAT)
-    }
-
-    pub fn get_asb<S, T>(&self) -> Option<S::BoundDirection>
-    where
-        S: StatOrder<T>,
-        T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
-    {
-        self.get_as::<T>(S::STAT)
-            .map(|s| S::BoundDirection::lift(s))
-    }
+    // pub fn get_bound<S>(&self, dtype: &DType) -> Option<DirectionalBound<ScalarValue>>
+    // where
+    //     // U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
+    //     S: StatOrder<Scalar>,
+    // {
+    //     self.get(S::STAT)
+    //         .map(|s| S::BoundDirection::lift(s.as_ref().into_scalar(dtype.clone())))
+    // }
+    //
+    // pub fn getv<S>(&self, dtype: &DType) -> Option<Precision<Scalar>>
+    // where
+    //     S: StatOrder<Scalar>,
+    // {
+    //     self.get(S::STAT)
+    //         .map(|s| s.as_ref().into_scalar(dtype.clone()))
+    // }
+    //
+    // pub fn get_asv<S, T>(&self) -> Option<Precision<T>>
+    // where
+    //     T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
+    //     S: StatOrder<T>,
+    // {
+    //     self.get_as::<T>(S::STAT)
+    // }
+    //
+    // pub fn get_asb<S, T>(&self) -> Option<S::BoundDirection>
+    // where
+    //     S: StatOrder<T>,
+    //     T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
+    // {
+    //     self.get_as::<T>(S::STAT)
+    //         .map(|s| S::BoundDirection::lift(s))
+    // }
 
     pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<Precision<T>> {
         self.get(stat).map(|v| {
-            v.as_ref().map(|v| {
-                T::try_from(v).unwrap_or_else(|err| {
+            v.map(|v| {
+                T::try_from(&v).unwrap_or_else(|err| {
                     vortex_panic!(
                         err,
                         "Failed to get stat {} as {}",
@@ -286,8 +292,8 @@ impl StatsSet {
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::IsSorted => self.merge_is_sorted(other, dtype),
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
-                Stat::Max => self.merge_max(other, dtype),
-                Stat::Min => self.merge_min(other, dtype),
+                Max => self.merge_max(other, dtype),
+                Min => self.merge_min(other, dtype),
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
@@ -311,8 +317,8 @@ impl StatsSet {
                 Stat::BitWidthFreq => self.merge_bit_width_freq(other),
                 Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
-                Stat::Max => self.merge_max(other, dtype),
-                Stat::Min => self.merge_min(other, dtype),
+                Max => self.merge_max(other, dtype),
+                Min => self.merge_min(other, dtype),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
@@ -324,40 +330,57 @@ impl StatsSet {
     }
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
-        match (self.getb::<Min>(dtype), other.getb::<Min>(dtype)) {
+        match (
+            self.get_scalar(Min, dtype).and_then(|v| v.lower_ok()),
+            other.get_scalar(Min, dtype).and_then(|v| v.lower_ok()),
+        ) {
             (Some(m1), Some(m2)) => {
-                if m2.le(&m1).vortex_expect("can compare min stats") {
-                    self.set(Stat::Min, m2.into_value().map(|s| s.into_value()));
+                let meet = m1.meet(&m2).vortex_expect("can compare scalar");
+                if meet != m1 {
+                    self.set(Min, meet.into_value().map(Scalar::into_value));
                 }
             }
-            _ => self.clear(Stat::Min),
+            _ => self.clear(Min),
         }
     }
 
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
-        match (self.getb::<Max>(dtype), other.getb::<Max>(dtype)) {
+        match (
+            self.get_scalar(Max, dtype)
+                .and_then(DirectionalBound::upper_ok),
+            other
+                .get_scalar(Max, dtype)
+                .and_then(DirectionalBound::upper_ok),
+        ) {
             (Some(m1), Some(m2)) => {
-                self.set(
-                    Stat::Max,
-                    m2.meet(&m1)
-                        .vortex_expect("can compare scalar")
-                        .into_value()
-                        .map(|s| s.into_value()),
-                );
+                let meet = m1.meet(&m2).vortex_expect("can compare scalar");
+                if meet != m1 {
+                    self.set(Max, meet.into_value().map(Scalar::into_value));
+                }
             }
-            _ => self.clear(Stat::Max),
+            _ => self.clear(Max),
         }
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
         if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
             == (
-                self.get_as(Stat::IsConstant),
-                other.get_as(Stat::IsConstant),
+                self.get_as(Stat::IsConstant)
+                    .map(DirectionalBound::into_value),
+                other
+                    .get_as(Stat::IsConstant)
+                    .map(DirectionalBound::into_value),
             )
             && self
-                .getv::<Min>(dtype)
-                .is_some_and(|min| min.is_exact() && Some(min) == other.getv::<Min>(dtype))
+                .get_scalar(Min, dtype)
+                .map(DirectionalBound::into_value)
+                .is_some_and(|min| {
+                    min.is_exact()
+                        && Some(min)
+                            == other
+                                .get_scalar(Min, dtype)
+                                .map(DirectionalBound::into_value)
+                })
         {
             return;
         }
@@ -381,16 +404,19 @@ impl StatsSet {
         cmp: F,
     ) {
         if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
-            == (self.get_as(stat), other.get_as(stat))
+            == (
+                self.get_as(stat).map(DirectionalBound::into_value),
+                other.get_as(stat).map(DirectionalBound::into_value),
+            )
         {
             // There might be no stat because it was dropped, or it doesn't exist
             // (e.g. an all null array).
             // We assume that it was the dropped case since the doesn't exist might imply sorted,
             // but this in-precision is correct.
             if let (Some(self_max), Some(other_min)) =
-                (self.getv::<Max>(dtype), other.getv::<Min>(dtype))
+                (self.get_scalar(Max, dtype), other.get_scalar(Min, dtype))
             {
-                return if cmp(self_max.value(), other_min.value()) {
+                return if cmp(self_max.value.value(), other_min.value.value()) {
                     // keep value
                 } else {
                     // TODO(joe): this might not be false, I guess this might be a bound.
@@ -402,26 +428,28 @@ impl StatsSet {
     }
 
     fn merge_true_count(&mut self, other: &Self) {
-        self.merge_sum_stat::<TrueCount>(other)
+        self.merge_sum_stat(Stat::TrueCount, other)
     }
 
     fn merge_null_count(&mut self, other: &Self) {
-        self.merge_sum_stat::<NullCount>(other)
+        self.merge_sum_stat(Stat::NullCount, other)
     }
 
     fn merge_uncompressed_size_in_bytes(&mut self, other: &Self) {
-        self.merge_sum_stat::<UncompressedSizeInBytes>(other)
+        self.merge_sum_stat(Stat::UncompressedSizeInBytes, other)
     }
 
-    fn merge_sum_stat<S: StatOrder<usize>>(&mut self, other: &Self) {
-        match (self.get_asv::<S, usize>(), other.get_asv::<S, usize>()) {
+    fn merge_sum_stat(&mut self, stat: Stat, other: &Self) {
+        match (self.get_as::<usize>(stat), other.get_as::<usize>(stat)) {
             (Some(nc1), Some(nc2)) => {
                 self.set(
-                    S::STAT,
-                    nc1.and_then_prefer_bound(|nc1| nc2.map(|nc2| ScalarValue::from(nc1 + nc2))),
+                    stat,
+                    nc1.value.and_then_prefer_bound(|nc1| {
+                        nc2.value.map(|nc2| ScalarValue::from(nc1 + nc2))
+                    }),
                 );
             }
-            _ => self.clear(S::STAT),
+            _ => self.clear(stat),
         }
     }
 
@@ -439,8 +467,8 @@ impl StatsSet {
             other.get_as::<Vec<usize>>(stat),
         ) {
             (Some(f1), Some(f2)) => {
-                let combined_freq = f1.and_then_prefer_bound(|f1| {
-                    f2.map(|f2| {
+                let combined_freq = f1.value.and_then_prefer_bound(|f1| {
+                    f2.value.map(|f2| {
                         ScalarValue::from(
                             f1.iter()
                                 .zip_longest(f2.iter())
@@ -467,7 +495,9 @@ impl StatsSet {
             (Some(r1), Some(r2)) => {
                 self.set(
                     Stat::RunCount,
-                    r1.and_then_prefer_bound(|r1| r2.map(|r2| ScalarValue::from(r1 + r2 + 1))),
+                    r1.value.and_then_prefer_bound(|r1| {
+                        r2.value.map(|r2| ScalarValue::from(r1 + r2 + 1))
+                    }),
                 );
             }
             _ => self.clear(Stat::RunCount),
@@ -482,8 +512,9 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::ordering::PartialOrder;
-    use crate::stats::{bound, exact, ArrayStatistics as _, Max, Stat, StatsSet, UpperBound};
+    use crate::stats::{
+        bound, exact, ArrayStatistics as _, DirectionalBound, Stat, StatsSet, UpperBound,
+    };
     use crate::IntoArrayData as _;
 
     #[test]
@@ -535,7 +566,12 @@ mod test {
             &StatsSet::of(Stat::Min, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(first.get_as::<i32>(Stat::Min), Some(exact(37)));
+        assert_eq!(
+            first
+                .get_as::<i32>(Stat::Min)
+                .map(DirectionalBound::into_value),
+            Some(exact(37))
+        );
     }
 
     #[test]
@@ -571,7 +607,9 @@ mod test {
         let first = StatsSet::of(Stat::Max, exact(42i32))
             .merge_ordered(&StatsSet::of(Stat::Max, bound(43i32)), &dtype);
         assert_eq!(
-            first.get_asb::<Max, i32>(),
+            first
+                .get_as::<i32>(Stat::Max)
+                .and_then(DirectionalBound::upper_ok),
             Some(UpperBound::lift(bound(43)))
         );
     }

@@ -124,8 +124,17 @@ mod tests {
             num_stats
         );
 
-        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(exact(1i64)));
-        assert_eq!(stats.get_as::<i64>(Stat::Max), Some(exact(5_i64)));
-        assert_eq!(stats.get_as::<usize>(Stat::NullCount), Some(exact(0usize)));
+        assert_eq!(
+            stats.get_as::<i64>(Stat::Min).unwrap().into_value(),
+            exact(1i64)
+        );
+        assert_eq!(
+            stats.get_as::<i64>(Stat::Max).unwrap().into_value(),
+            exact(5_i64)
+        );
+        assert_eq!(
+            stats.get_as::<usize>(Stat::NullCount).unwrap().into_value(),
+            exact(0usize)
+        );
     }
 }

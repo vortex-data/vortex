@@ -76,14 +76,11 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
                 .get(stat)
                 .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(
-                compressed_scalar,
+                compressed_scalar.clone().map(|c| c.into_value()),
                 Some(value.clone().into_scalar(stat.dtype(arr.dtype()))),
                 // Some(exact(Scalar::new(stat.dtype(arr.dtype()), value.clone()))),
-                "Compression changed {stat} from {value} to {}",
-                compressed_scalar
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "null".to_string()),
+                "Compression changed {stat} from {value} to {:?}",
+                compressed_scalar.as_ref().map(|s| s),
             );
         }
     }

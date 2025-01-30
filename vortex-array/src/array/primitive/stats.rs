@@ -13,7 +13,7 @@ use vortex_scalar::ScalarValue;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{exact, Min, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{bound, exact, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant};
@@ -61,7 +61,7 @@ impl PrimitiveEncoding {
     }
 }
 
-impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
+impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &[T], stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
@@ -70,15 +70,15 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
         Ok(match stat {
             Stat::Min | Stat::Max => {
                 let mut stats = compute_min_max(array.iter().copied(), true);
+
                 stats.set(
                     Stat::IsConstant,
-                    exact(
-                        stats
-                            .get_as::<T>(Stat::Min)
-                            .zip(stats.get_as::<T>(Stat::Max))
-                            .map(|(min, max)| min == max)
-                            .unwrap_or(false),
-                    ),
+                    // If the min is exactly equal to the max, then the array is constant.
+                    stats
+                        .get_as::<T>(Stat::Min)
+                        .zip(stats.get_as::<T>(Stat::Max))
+                        .map(|(min, max)| exact(min == max))
+                        .unwrap_or(bound(false)),
                 );
                 stats
             }

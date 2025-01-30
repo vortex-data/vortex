@@ -27,8 +27,8 @@ mod ordering;
 mod precision;
 mod statsset;
 
-pub use ordering::{LowerBound, PartialOrder, UpperBound};
-pub use precision::{bound, exact, Precision};
+pub use ordering::{LowerBound, UpperBound};
+pub use precision::{bound, exact, BoundDirection, DirectionalBound, Precision};
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
@@ -46,43 +46,42 @@ pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::UncompressedSizeInBytes,
 ];
 
-pub trait StatOrder<T: PartialOrd> {
-    type BoundDirection: PartialOrder<T>;
+// pub trait StatOrder {
+//     const DIRECTION: BoundDirection;
+//     const STAT: Stat;
+// }
 
-    const STAT: Stat;
-}
+// pub struct Max;
+// pub struct TrueCount;
+// pub struct NullCount;
+// pub struct UncompressedSizeInBytes;
 
-pub struct Max;
-pub struct TrueCount;
-pub struct NullCount;
-pub struct UncompressedSizeInBytes;
-
-impl<T: PartialOrd> StatOrder<T> for Max {
-    type BoundDirection = UpperBound<T>;
-    const STAT: Stat = Stat::Max;
-}
-
-impl<T: PartialOrd> StatOrder<T> for TrueCount {
-    type BoundDirection = UpperBound<T>;
-    const STAT: Stat = Stat::TrueCount;
-}
-
-impl<T: PartialOrd> StatOrder<T> for NullCount {
-    type BoundDirection = UpperBound<T>;
-    const STAT: Stat = Stat::NullCount;
-}
-
-impl<T: PartialOrd> StatOrder<T> for UncompressedSizeInBytes {
-    type BoundDirection = UpperBound<T>;
-    const STAT: Stat = Stat::UncompressedSizeInBytes;
-}
-
-pub struct Min;
-
-impl<T: PartialOrd> StatOrder<T> for Min {
-    type BoundDirection = LowerBound<T>;
-    const STAT: Stat = Stat::Min;
-}
+// impl StatOrder for Max {
+//     const DIRECTION: BoundDirection = BoundDirection::Upper;
+//     const STAT: Stat = Stat::Max;
+// }
+//
+// impl StatOrder for TrueCount {
+//     const DIRECTION: BoundDirection = BoundDirection::Upper;
+//     const STAT: Stat = Stat::TrueCount;
+// }
+//
+// impl StatOrder for NullCount {
+//     const DIRECTION: BoundDirection = BoundDirection::Upper;
+//     const STAT: Stat = Stat::NullCount;
+// }
+//
+// implPartialOrd> StatOrder for UncompressedSizeInBytes {
+//     const DIRECTION: BoundDirection = BoundDirection::Upper;
+//     const STAT: Stat = Stat::UncompressedSizeInBytes;
+// }
+//
+// pub struct Min;
+//
+// impl<T: PartialOrd> StatOrder for Min {
+//     const DIRECTION: BoundDirection = BoundDirection::Lower;
+//     const STAT: Stat = Stat::Min;
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
@@ -110,6 +109,22 @@ pub enum Stat {
     NullCount,
     /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes,
+}
+
+impl Stat {
+    pub const fn direction(&self) -> BoundDirection {
+        match self {
+            Stat::BitWidthFreq
+            | Stat::TrailingZeroFreq
+            | Stat::Max
+            | Stat::RunCount
+            | Stat::TrueCount
+            | Stat::NullCount
+            | Stat::UncompressedSizeInBytes => BoundDirection::Upper,
+            Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => BoundDirection::Neither,
+            Stat::Min => BoundDirection::Lower,
+        }
+    }
 }
 
 impl Stat {
@@ -211,97 +226,91 @@ impl Display for Stat {
     }
 }
 
-pub struct StatisticsCompare<'a>(&'a dyn Statistics);
+// pub struct StatisticsCompare<'a>(&'a dyn Statistics);
+//
+// impl StatisticsCompare<'_> {
+// pub fn get_compare(
+//     &self,
+//     stat: Stat,
+//     dtype: &DType,
+//     other: &Scalar,
+// ) -> VortexResult<Option<bool>> {
+//     self.0
+//         .get(S::STAT)
+//         .map(|s| Self::compare::<S::BoundDirection>(s.into_value(), dtype, other))
+//         .transpose()
+// }
 
-impl StatisticsCompare<'_> {
-    pub fn get_compare<S: StatOrder<Scalar>>(
-        &self,
-        _stat: S,
-        dtype: &DType,
-        other: &Scalar,
-    ) -> VortexResult<Option<bool>> {
-        self.0
-            .get(S::STAT)
-            .map(|s| Self::compare::<S::BoundDirection>(s.into_value(), dtype, other))
-            .transpose()
-    }
+//     pub fn get_as<U>(&self, stat: Stat) -> Option<DirectionalBound<U>>
+//     where
+//         U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
+//     {
+//         self.0
+//             .get_as::<U>(stat)
+//             .map(|s| DirectionalBound::new(stat.direction(), s))
+//     }
+//
+//     pub fn get<S>(&self, stat: Stat) -> Option<DirectionalBound<ScalarValue>>
+// where {
+//         self.0.get(stat)
+//     }
 
-    pub fn get_as<S, U>(&self) -> Option<S::BoundDirection>
-    where
-        U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
-        S: StatOrder<U>,
-    {
-        self.0
-            .get_as::<U>(S::STAT)
-            .map(|s| S::BoundDirection::lift(s))
-    }
+//    pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+//         &self,
+//         stat: Stat,
+//     ) -> Option<Precision<U>> {
 
-    pub fn get<S>(&self, dtype: &DType) -> Option<S::BoundDirection>
-    where
-        // U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
-        S: StatOrder<Scalar>,
-    {
-        self.0
-            .get(S::STAT)
-            .map(|s| S::BoundDirection::lift(s.into_scalar(dtype.clone())))
-    }
+// pub fn get_as_compare<S: StatOrder<Scalar>, U>(&self, other: U) -> VortexResult<Option<bool>>
+// where
+//     U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
+// {
+//     self.0
+//         .get_as::<U>(S::STAT)
+//         .map(|s| Self::compare_as::<U, S::BoundDirection>(s.into_value(), other))
+//         .transpose()
+// }
 
-    //    pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
-    //         &self,
-    //         stat: Stat,
-    //     ) -> Option<Precision<U>> {
+// fn compare_as<
+//     U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
+//     S: PartialOrder<Scalar>,
+// >(
+//     value: &U,
+//     other: &U,
+// ) -> VortexResult<bool>
+// where
+//     <S as StatOrder<Scalar>>::BoundDirection:
+//         for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
+// {
+//     S::ordered(value, other)
+//         .ok_or_else(|| vortex_err!("Failed to compare scalar values: {} and {}", value, other))
+// }
 
-    // pub fn get_as_compare<S: StatOrder<Scalar>, U>(&self, other: U) -> VortexResult<Option<bool>>
-    // where
-    //     U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
-    // {
-    //     self.0
-    //         .get_as::<U>(S::STAT)
-    //         .map(|s| Self::compare_as::<U, S::BoundDirection>(s.into_value(), other))
-    //         .transpose()
-    // }
+// fn compare<S: PartialOrder<Scalar>>(
+//     value: ScalarValue,
+//     dtype: &DType,
+//     other: &Scalar,
+// ) -> VortexResult<bool> {
+//     let scalar = Scalar::new(dtype.clone(), value);
+//     S::ordered(other, &scalar)
+//         .ok_or_else(|| vortex_err!("Failed to compare scalar values: {} and {}", scalar, other))
+// }
 
-    // fn compare_as<
-    //     U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
-    //     S: PartialOrder<Scalar>,
-    // >(
-    //     value: &U,
-    //     other: &U,
-    // ) -> VortexResult<bool>
-    // where
-    //     <S as StatOrder<Scalar>>::BoundDirection:
-    //         for<'b> TryFrom<&'b ScalarValue, Error = VortexError>,
-    // {
-    //     S::ordered(value, other)
-    //         .ok_or_else(|| vortex_err!("Failed to compare scalar values: {} and {}", value, other))
-    // }
-
-    fn compare<S: PartialOrder<Scalar>>(
-        value: ScalarValue,
-        dtype: &DType,
-        other: &Scalar,
-    ) -> VortexResult<bool> {
-        let scalar = Scalar::new(dtype.clone(), value);
-        S::ordered(other, &scalar)
-            .ok_or_else(|| vortex_err!("Failed to compare scalar values: {} and {}", scalar, other))
-    }
-
-    // fn compute_compare<S: StatOrder<Scalar>>(
-    //     &self,
-    //     _stat: S,
-    //     dtype: &DType,
-    //     other: &Scalar,
-    // ) -> VortexResult<Option<bool>> {
-    //     self.0
-    //         .compute(S::STAT)
-    //         .map(|s| Self::compare::<S::BoundDirection>(s, dtype, other))
-    //         .transpose()
-    // }
-}
+// fn compute_compare<S: StatOrder<Scalar>>(
+//     &self,
+//     _stat: S,
+//     dtype: &DType,
+//     other: &Scalar,
+// ) -> VortexResult<Option<bool>> {
+//     self.0
+//         .compute(S::STAT)
+//         .map(|s| Self::compare::<S::BoundDirection>(s, dtype, other))
+//         .transpose()
+// }
+// }
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
+    fn get(&self, stat: Stat) -> Option<DirectionalBound<ScalarValue>>;
 
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
@@ -336,10 +345,6 @@ pub trait Statistics {
 pub trait ArrayStatistics {
     fn statistics(&self) -> &dyn Statistics;
 
-    fn comp_stats(&self) -> StatisticsCompare<'_> {
-        StatisticsCompare(self.statistics())
-    }
-
     fn inherit_statistics(&self, parent: &dyn Statistics);
 }
 
@@ -372,7 +377,7 @@ impl dyn Statistics + '_ {
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<Precision<U>> {
+    ) -> Option<DirectionalBound<U>> {
         self.get(stat)
             .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
