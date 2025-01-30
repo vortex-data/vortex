@@ -10,7 +10,8 @@ use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    not_impl_err, ColumnStatistics, DataFusionError, Result as DFResult, ScalarValue, Statistics,
+    not_impl_err, ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue,
+    Statistics,
 };
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
@@ -58,15 +59,23 @@ impl Default for VortexFormatOptions {
 }
 
 /// Minimal factory to create [`VortexFormat`] instances.
-struct VortexFormatFactory {}
+#[derive(Debug, Default)]
+pub struct VortexFormatFactory {}
+
+impl GetExt for VortexFormatFactory {
+    fn get_ext(&self) -> String {
+        VORTEX_FILE_EXTENSION.to_string()
+    }
+}
 
 impl FileFormatFactory for VortexFormatFactory {
+    #[allow(clippy::disallowed_types)]
     fn create(
         &self,
         _state: &SessionState,
         _format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        Ok(Arc::new(self.default()))
+        Ok(self.default())
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
