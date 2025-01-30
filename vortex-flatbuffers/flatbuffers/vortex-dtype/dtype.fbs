@@ -23,14 +23,6 @@ table Primitive {
     nullable: bool;
 }
 
-table Decimal {
-    /// Total number of decimal digits
-    precision: uint8;
-    /// Number of digits after the decimal point "."
-    scale: uint8;
-    nullable: bool;
-}
-
 table Utf8 {
     nullable: bool;
 }
@@ -60,7 +52,6 @@ union Type {
     Null,
     Bool,
     Primitive,
-    Decimal,
     Utf8,
     Binary,
     Struct_,
