@@ -34,7 +34,7 @@ impl ToArrowFn<ListArray> for ListEncoding {
 
         let field_ref = FieldRef::new(Field::new_list_field(
             values.data_type().clone(),
-            array.validity().nullability().into(),
+            array.elements().dtype().nullability().into(),
         ));
 
         let nulls = array.logical_validity()?.to_null_buffer();

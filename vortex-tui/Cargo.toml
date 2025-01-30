@@ -1,5 +1,5 @@
 [package]
-name = "vortex-cli"
+name = "vortex-tui"
 description = "a small but might tool for working with Vortex files"
 version.workspace = true
 homepage.workspace = true

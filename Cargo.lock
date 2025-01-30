@@ -5338,19 +5338,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-cli"
-version = "0.22.1"
-dependencies = [
- "bytes",
- "clap",
- "crossterm",
- "ratatui",
- "tokio",
- "vortex",
- "vortex-layout",
-]
-
-[[package]]
 name = "vortex-datafusion"
 version = "0.22.1"
 dependencies = [
@@ -5760,6 +5747,19 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-tui"
+version = "0.22.1"
+dependencies = [
+ "bytes",
+ "clap",
+ "crossterm",
+ "ratatui",
+ "tokio",
+ "vortex",
+ "vortex-layout",
 ]
 
 [[package]]

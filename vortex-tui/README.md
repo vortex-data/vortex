@@ -1,10 +1,9 @@
-# `vx` Vortex CLI
+# `vx`
 
 A small, helpful CLI tool for exploring and analyzing Vortex files.
 
 * `browse`: Browse the structure of your Vortex file with a rich TUI
 * `tree`: print the file contents as JSON
-
 
 ## Examples
 
@@ -54,5 +53,5 @@ vx browse ./bench-vortex/data/tpch/1/vortex_compressed/nation.vortex
 
 TODO:
 
-- [ ] `cat` to print a Vortex file as JSON to stdout
-- [ ] `compress` to ingest JSON/CSV/other formats that are Arrow-compatible
+* [ ] `cat` to print a Vortex file as JSON to stdout
+* [ ] `compress` to ingest JSON/CSV/other formats that are Arrow-compatible

@@ -68,7 +68,7 @@ where
 
         for (start, end) in mask_slices.iter().copied() {
             let null_sl = validity.slice(start, end - start);
-            if null_sl.count_set_bits() == 0 {
+            if null_sl.count_set_bits() == null_sl.len() {
                 update_non_nullable_slice(data, offsets, &mut builder, start, end)
             } else {
                 for (idx, valid) in null_sl.iter().enumerate() {
@@ -170,7 +170,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
                 })?,
             );
-            builder.push(Some(&data[start..end]))
+            builder.push_value(&data[start..end])
         } else {
             builder.push_null()
         }
@@ -242,7 +242,7 @@ mod test {
     }
 
     #[test]
-    fn filter_var_bin_slice_null_test() {
+    fn filter_var_bin_slice_null() {
         let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
@@ -273,5 +273,27 @@ mod test {
         assert_eq!(scalar_at(&buf, 2).unwrap(), nullable_scalar_str("three"));
         assert_eq!(scalar_at(&buf, 3).unwrap(), nullable_scalar_str("five"));
         assert_eq!(scalar_at(&buf, 4).unwrap(), nullable_scalar_str("six"));
+    }
+
+    #[test]
+    fn filter_varbin_nulls() {
+        let bytes = [b"".as_slice(), b"two".as_slice(), b"two".as_slice()]
+            .into_iter()
+            .flat_map(|x| x.iter().cloned())
+            .collect::<ByteBuffer>();
+
+        let offsets = PrimitiveArray::from_iter([0, 0, 3, 6]).into_array();
+        let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
+        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2)
+            .unwrap()
+            .into_array();
+
+        let null = Scalar::null(DType::Utf8(Nullable));
+        assert_eq!(buf.len(), 2);
+
+        assert_eq!(scalar_at(&buf, 0).unwrap(), null);
+        assert_eq!(scalar_at(&buf, 1).unwrap(), nullable_scalar_str("two"));
     }
 }
