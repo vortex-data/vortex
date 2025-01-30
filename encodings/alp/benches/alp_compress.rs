@@ -15,12 +15,12 @@ fn main() {
 }
 
 #[divan::bench(types = [f32, f64], args = [
-    (100_000, 1.0),
-    (10_000_000, 1.0),
     (100_000, 0.25),
     (10_000_000, 0.25),
     (100_000, 0.95),
     (10_000_000, 0.95),
+    (100_000, 1.0),
+    (10_000_000, 1.0),
 ])]
 fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
     let (n, fraction_valid) = args;
@@ -37,12 +37,12 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64))
 }
 
 #[divan::bench(types = [f32, f64], args = [
-    (100_000, 1.0),
-    (10_000_000, 1.0),
     (100_000, 0.25),
     (10_000_000, 0.25),
     (100_000, 0.95),
     (10_000_000, 0.95),
+    (100_000, 1.0),
+    (10_000_000, 1.0),
 ])]
 fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
     let (n, fraction_valid) = args;
