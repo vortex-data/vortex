@@ -176,7 +176,7 @@ mod tests {
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i64>(),
-            vec![1234i64, 2718, 3142, 4000]
+            vec![1234i64, 2718, 1234, 4000]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
@@ -197,7 +197,7 @@ mod tests {
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i64>(),
-            vec![1234i64, 2718, 3142, 4000]
+            vec![1234i64, 2718, 1234, 4000]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
