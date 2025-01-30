@@ -52,7 +52,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         let decompressed_array = array.clone().into_primitive()?;
         filter(decompressed_array.as_ref(), mask)?.into_primitive()
     } else {
-        filter_primitive_chunk_by_chunk::<T>(array, mask)
+        filter_primitive_no_decompression::<T>(array, mask)
     }
 }
 
