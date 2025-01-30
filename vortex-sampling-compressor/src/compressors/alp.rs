@@ -43,9 +43,8 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let nulls_zeroed =
-            fill_null(array, Scalar::from(0.0).cast(array.dtype())?)?.into_primitive()?;
-        let (exponents, encoded, patches) = alp_encode_components(&nulls_zeroed)?;
+        let (exponents, encoded, patches) =
+            alp_encode_components(&array.clone().into_primitive()?)?;
 
         let compressed_encoded = ctx
             .named("packed")
