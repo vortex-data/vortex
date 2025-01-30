@@ -1,16 +1,20 @@
 mod cast;
+mod compare;
 mod filter;
 mod take;
 
-use vortex_array::compute::{scalar_at, slice, CastFn, FilterFn, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{
+    scalar_at, slice, CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, IntoArray};
-use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
+use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
@@ -31,6 +35,10 @@ impl ComputeVTable for DateTimePartsEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+        Some(self)
+    }
+
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 }
@@ -56,22 +64,13 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
             );
         };
 
-        let TemporalMetadata::Timestamp(time_unit, _) = TemporalMetadata::try_from(ext.as_ref())?
-        else {
-            vortex_bail!("Metadata must be Timestamp, found {}", ext.id());
+        let Ok(temporal_metadata) = TemporalMetadata::try_from(ext.as_ref()) else {
+            vortex_bail!(ComputeError: "must decode TemporalMetadata from extension metadata");
         };
 
         if !array.is_valid(index)? {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
-
-        let divisor = match time_unit {
-            TimeUnit::Ns => 1_000_000_000,
-            TimeUnit::Us => 1_000_000,
-            TimeUnit::Ms => 1_000,
-            TimeUnit::S => 1,
-            TimeUnit::D => vortex_bail!("Invalid time unit D"),
-        };
 
         let days: i64 = scalar_at(array.days(), index)?
             .cast(&DType::Primitive(PType::I64, Nullable))?
@@ -83,8 +82,15 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
             .cast(&DType::Primitive(PType::I64, NonNullable))?
             .try_into()?;
 
-        let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
+        let ts = timestamp::combine(
+            TimestampParts {
+                days,
+                seconds,
+                subseconds,
+            },
+            temporal_metadata.time_unit(),
+        )?;
 
-        Ok(Scalar::extension(ext, Scalar::from(scalar)))
+        Ok(Scalar::extension(ext, Scalar::from(ts)))
     }
 }

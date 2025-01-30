@@ -2,11 +2,10 @@ use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::BufferMut;
-use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 
-use crate::DateTimePartsArray;
+use crate::{timestamp, DateTimePartsArray};
 
 pub struct TemporalParts {
     pub days: Array,
@@ -29,23 +28,16 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     )?
     .into_primitive()?;
 
-    let divisor = match array.temporal_metadata().time_unit() {
-        TimeUnit::Ns => 1_000_000_000,
-        TimeUnit::Us => 1_000_000,
-        TimeUnit::Ms => 1_000,
-        TimeUnit::S => 1,
-        TimeUnit::D => vortex_bail!(InvalidArgument: "Cannot compress day-level data"),
-    };
-
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
     let mut seconds = BufferMut::with_capacity(length);
     let mut subseconds = BufferMut::with_capacity(length);
 
-    for &t in timestamps.as_slice::<i64>().iter() {
-        days.push(t / (86_400 * divisor));
-        seconds.push((t % (86_400 * divisor)) / divisor);
-        subseconds.push((t % (86_400 * divisor)) % divisor);
+    for &ts in timestamps.as_slice::<i64>().iter() {
+        let ts_parts = timestamp::split(ts, array.temporal_metadata().time_unit())?;
+        days.push(ts_parts.days);
+        seconds.push(ts_parts.seconds);
+        subseconds.push(ts_parts.subseconds);
     }
 
     Ok(TemporalParts {
