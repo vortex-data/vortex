@@ -342,7 +342,9 @@ impl StatsSet {
                 self.get_as(Stat::IsConstant),
                 other.get_as(Stat::IsConstant),
             )
-            && self.getv::<Min>(dtype) == other.getv::<Min>(dtype)
+            && self
+                .getv::<Min>(dtype)
+                .is_some_and(|min| min.is_exact() && Some(min) == other.getv::<Min>(dtype))
         {
             return;
         }
