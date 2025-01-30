@@ -3,7 +3,6 @@ use flatbuffers::root;
 use futures::future::try_join_all;
 use vortex_array::compute::{filter, slice};
 use vortex_array::parts::ArrayParts;
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::ArrayData;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;

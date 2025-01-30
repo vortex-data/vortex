@@ -5,7 +5,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
