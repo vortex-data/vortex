@@ -6,4 +6,4 @@ mod format;
 mod opener;
 mod sink;
 
-pub use format::{VortexFormat, VortexFormatOptions};
+pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
