@@ -71,7 +71,7 @@ fn filter_primitive_chunk_by_chunk<T: NativePType + BitPacking + ArrowNativeType
         .transpose()?
         .flatten();
 
-    let values = filter_indices::<T>(
+    let values: Buffer<T> = filter_indices(
         array,
         mask.true_count(),
         mask.values()
