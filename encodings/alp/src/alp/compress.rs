@@ -75,13 +75,17 @@ where
     let patches = if valid_exceptional_positions.is_empty() {
         None
     } else {
-        assert!(values.dtype().is_nullable());
+        let patches_validity = if values.dtype().is_nullable() {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        };
         let exceptional_values: Buffer<T> = valid_exceptional_positions
             .iter()
             .map(|index| values_slice[*index as usize])
             .collect();
         let exceptional_values =
-            PrimitiveArray::new(exceptional_values, Validity::AllValid).into_array();
+            PrimitiveArray::new(exceptional_values, patches_validity).into_array();
         Some(Patches::new(
             values_slice.len(),
             valid_exceptional_positions.into_array(),
