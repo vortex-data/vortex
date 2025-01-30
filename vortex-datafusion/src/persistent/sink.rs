@@ -82,12 +82,13 @@ impl DataSink for VortexSink {
             .map(|rb| rb.and_then(|rb| Array::try_from(rb)));
 
         let stream = ArrayStreamAdapter::new(dtype, stream);
-        let mut vortex_writer = object_store.vortex_writer(&path).await?;
+        let vortex_writer = object_store.vortex_writer(&path).await?;
 
         let _ = VortexWriteOptions::default()
-            .write(&mut vortex_writer, stream)
+            .write(vortex_writer, stream)
             .await?;
 
+        // Also need to figure this out out, maybe push some atomic into the stream
         Ok(0_u64)
     }
 }
