@@ -42,16 +42,16 @@ mod decompression {
     pub const VARBIN_GIB_PER_S: f64 = MAX_GIB_PER_S;
 
     // benchmarked decompression throughput
-    pub const ALP_GIB_PER_S: f64 = 10.8;
+    pub const ALP_GIB_PER_S: f64 = 15.7;
     pub const ALP_RD_GIB_PER_S: f64 = 4.4;
     pub const BITPACKED_NO_PATCHES_GIB_PER_S: f64 = 48.2;
     pub const BITPACKED_WITH_PATCHES_GIB_PER_S: f64 = 46.6;
-    pub const CONSTANT_GIB_PER_S: f64 = 200.0;
+    pub const CONSTANT_GIB_PER_S: f64 = MAX_GIB_PER_S;
     pub const DATE_TIME_PARTS_GIB_PER_S: f64 = 50.0; // this is a guess
     pub const DELTA_GIB_PER_S: f64 = 12.8;
     pub const DICT_GIB_PER_S: f64 = 30.0; // ranges from 15-45 depending on data, picked the midpoint
     pub const FOR_GIB_PER_S: f64 = 11.3;
-    pub const FSST_GIB_PER_S: f64 = 6.7;
-    pub const RUN_END_GIB_PER_S: f64 = 10.0;
+    pub const FSST_GIB_PER_S: f64 = 7.9;
+    pub const RUN_END_GIB_PER_S: f64 = 10.0; // this is a guess (varies wildly depending on data)
     pub const ZIGZAG_GIB_PER_S: f64 = 30.0;
 }
