@@ -1,7 +1,9 @@
+use std::os::macos::raw::stat;
+
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{exact, ArrayStatistics, Stat};
+use crate::stats::{exact, ArrayStatistics, Max, Stat};
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 pub trait TakeFn<Array> {
@@ -60,6 +62,7 @@ pub fn take(
     let checked_indices = indices
         .statistics()
         .get_as::<usize>(Stat::Max)
+        .map(|stat| stat.bound::<Max>())
         .is_some_and(|max| max < array.len());
 
     let taken = take_impl(array, indices, checked_indices)?;

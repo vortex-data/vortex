@@ -13,7 +13,7 @@ use vortex_scalar::ScalarValue;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::nbytes::ArrayNBytes;
-use crate::stats::{bound, exact, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{exact, inexact, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant};
@@ -77,8 +77,8 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
                     stats
                         .get_as::<T>(Stat::Min)
                         .zip(stats.get_as::<T>(Stat::Max))
-                        .map(|(min, max)| exact(min.value.ok_exact() == max.value.ok_exact()))
-                        .unwrap_or(bound(false)),
+                        .map(|(min, max)| exact(min.ok_exact() == max.ok_exact()))
+                        .unwrap_or(inexact(false)),
                 );
                 stats
             }

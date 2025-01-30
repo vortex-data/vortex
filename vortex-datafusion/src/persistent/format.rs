@@ -19,7 +19,7 @@ use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
-use vortex_array::stats::{bound, exact, Stat};
+use vortex_array::stats::{exact, inexact, Stat};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -170,10 +170,10 @@ impl FileFormat for VortexFormat {
                 .iter()
                 .map(|s| {
                     s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or(bound(0_usize))
+                        .unwrap_or(inexact(0_usize))
                 })
                 .fold(exact(0_usize), |acc, s| {
-                    acc.and_then_prefer_bound(|acc| s.map(|s| acc + s))
+                    acc.and_then_prefer_inexact(|acc| s.map(|s| acc + s))
                 }),
         ));
 
@@ -182,17 +182,13 @@ impl FileFormat for VortexFormat {
             .zip(table_schema.fields().iter())
             .map(|(s, f)| {
                 let null_count = s.get_as::<usize>(Stat::NullCount);
-                let min = s.get(Stat::Min).cloned().and_then(|n| {
-                    n.into_scalar(DType::from_arrow(f.as_ref()))
-                        .map(|n| ScalarValue::try_from(n).ok())
-                        .transpose()
-                });
+                let min = s
+                    .get_scalar(Stat::Min, DType::from_arrow(f.as_ref()))
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
-                let max = s.get(Stat::Max).cloned().and_then(|n| {
-                    n.into_scalar(DType::from_arrow(f.as_ref()))
-                        .map(|n| ScalarValue::try_from(n).ok())
-                        .transpose()
-                });
+                let max = s
+                    .get_scalar(Stat::Max, DType::from_arrow(f.as_ref()))
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
                 ColumnStatistics {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),

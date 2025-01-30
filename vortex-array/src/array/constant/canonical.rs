@@ -157,15 +157,9 @@ mod tests {
 
         let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
-            let canonical_stat = canonical_stats
-                .get(stat)
-                .map(|sv| sv.into_scalar(stat.dtype(canonical.dtype())));
-            let reference_stat = reference
-                .get(stat)
-                .map(|sv| sv.into_scalar(stat.dtype(canonical.dtype())));
-            let original_stat = stats
-                .get(stat)
-                .map(|sv| sv.into_scalar(stat.dtype(canonical.dtype())));
+            let canonical_stat = canonical_stats.get_scalar(stat, stat.dtype(canonical.dtype()));
+            let reference_stat = reference.get_scalar(stat, stat.dtype(canonical.dtype()));
+            let original_stat = stats.get_scalar(stat, stat.dtype(canonical.dtype()));
             assert_eq!(canonical_stat, reference_stat);
             assert_eq!(canonical_stat, original_stat);
         }

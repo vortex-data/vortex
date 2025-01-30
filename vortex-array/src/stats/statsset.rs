@@ -4,10 +4,9 @@ use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
-use Stat::Max;
 
-use crate::stats::Stat::Min;
-use crate::stats::{exact, DirectionalBound, Precision, Stat};
+use crate::stats::stat_bound::{Max, Min};
+use crate::stats::{exact, inexact, Precision, Stat};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -83,7 +82,10 @@ impl StatsSet {
         stats.set(Stat::NullCount, exact(null_count));
 
         if !sv.is_null() {
-            stats.extend([(Min, exact(sv.clone())), (Max, exact(sv.clone()))]);
+            stats.extend([
+                (Stat::Min, exact(sv.clone())),
+                (Stat::Max, exact(sv.clone())),
+            ]);
         }
 
         if matches!(dtype, DType::Bool(_)) {
@@ -105,8 +107,8 @@ impl StatsSet {
         StatsSet::new_unchecked(vec![
             (Stat::TrueCount, exact(true_count)),
             (Stat::NullCount, exact(null_count)),
-            (Min, exact(true_count == len)),
-            (Max, exact(true_count > 0)),
+            (Stat::Min, exact(true_count == len)),
+            (Stat::Max, exact(true_count > 0)),
             (
                 Stat::IsConstant,
                 exact((true_count == 0 && null_count == 0) || true_count == len),
@@ -131,60 +133,24 @@ impl StatsSet {
         self.values.as_ref().is_none_or(|v| v.is_empty())
     }
 
-    pub fn get(&self, stat: Stat) -> Option<DirectionalBound<ScalarValue>> {
+    pub fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+        self.values
+            .as_ref()
+            .and_then(|v| v.iter().find(|(s, _)| *s == stat).map(|(_, v)| v.clone()))
+    }
+
+    pub fn get_scalar(&self, stat: Stat, dtype: DType) -> Option<Precision<Scalar>> {
         self.values.as_ref().and_then(|v| {
             v.iter()
                 .find(|(s, _)| *s == stat)
-                .map(|(_, v)| DirectionalBound::new(stat.direction(), v.clone()))
+                .map(|(_, v)| v.clone().into_scalar(dtype))
         })
     }
-
-    pub fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<DirectionalBound<Scalar>> {
-        self.values.as_ref().and_then(|v| {
-            v.iter().find(|(s, _)| *s == stat).map(|(_, v)| {
-                DirectionalBound::new(stat.direction(), v.clone().into_scalar(dtype.clone()))
-            })
-        })
-    }
-
-    // pub fn get_bound<S>(&self, dtype: &DType) -> Option<DirectionalBound<ScalarValue>>
-    // where
-    //     // U: for<'b> TryFrom<&'b ScalarValue, Error = VortexError> + PartialOrd,
-    //     S: StatOrder<Scalar>,
-    // {
-    //     self.get(S::STAT)
-    //         .map(|s| S::BoundDirection::lift(s.as_ref().into_scalar(dtype.clone())))
-    // }
-    //
-    // pub fn getv<S>(&self, dtype: &DType) -> Option<Precision<Scalar>>
-    // where
-    //     S: StatOrder<Scalar>,
-    // {
-    //     self.get(S::STAT)
-    //         .map(|s| s.as_ref().into_scalar(dtype.clone()))
-    // }
-    //
-    // pub fn get_asv<S, T>(&self) -> Option<Precision<T>>
-    // where
-    //     T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
-    //     S: StatOrder<T>,
-    // {
-    //     self.get_as::<T>(S::STAT)
-    // }
-    //
-    // pub fn get_asb<S, T>(&self) -> Option<S::BoundDirection>
-    // where
-    //     S: StatOrder<T>,
-    //     T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
-    // {
-    //     self.get_as::<T>(S::STAT)
-    //         .map(|s| S::BoundDirection::lift(s))
-    // }
 
     pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<DirectionalBound<T>> {
+    ) -> Option<Precision<T>> {
         self.get(stat).map(|v| {
             v.map(|v| {
                 T::try_from(&v).unwrap_or_else(|err| {
@@ -293,8 +259,8 @@ impl StatsSet {
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
                 Stat::IsSorted => self.merge_is_sorted(other, dtype),
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
-                Max => self.merge_max(other, dtype),
-                Min => self.merge_min(other, dtype),
+                Stat::Max => self.merge_max(other, dtype),
+                Stat::Min => self.merge_min(other, dtype),
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
@@ -318,8 +284,8 @@ impl StatsSet {
                 Stat::BitWidthFreq => self.merge_bit_width_freq(other),
                 Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other, dtype),
-                Max => self.merge_max(other, dtype),
-                Min => self.merge_min(other, dtype),
+                Stat::Max => self.merge_max(other, dtype),
+                Stat::Min => self.merge_min(other, dtype),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
                 Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
@@ -332,60 +298,56 @@ impl StatsSet {
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar(Min, dtype).and_then(|v| v.lower_ok()),
-            other.get_scalar(Min, dtype).and_then(|v| v.lower_ok()),
+            self.get_scalar(Stat::Min, dtype.clone())
+                .map(|s| s.bound::<Min>()),
+            other
+                .get_scalar(Stat::Min, dtype.clone())
+                .map(|s| s.bound::<Min>()),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.meet(&m2).vortex_expect("can compare scalar");
                 if meet != m1 {
-                    self.set(Min, meet.into_value().map(Scalar::into_value));
+                    self.set(Stat::Min, meet.into_value().map(Scalar::into_value));
                 }
             }
-            _ => self.clear(Min),
+            _ => self.clear(Stat::Min),
         }
     }
 
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar(Max, dtype)
-                .and_then(DirectionalBound::upper_ok),
+            self.get_scalar(Stat::Max, dtype.clone())
+                .map(|s| s.bound::<Max>()),
             other
-                .get_scalar(Max, dtype)
-                .and_then(DirectionalBound::upper_ok),
+                .get_scalar(Stat::Max, dtype.clone())
+                .map(|s| s.bound::<Max>()),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.meet(&m2).vortex_expect("can compare scalar");
                 if meet != m1 {
-                    self.set(Max, meet.into_value().map(Scalar::into_value));
+                    self.set(Stat::Max, meet.into_value().map(Scalar::into_value));
                 }
             }
-            _ => self.clear(Max),
+            _ => self.clear(Stat::Max),
         }
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
-        // if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
-        //     == (
-        if self.get_as(Stat::IsConstant)
-                    .is_some_and(|v| v.value.ok_exact() == Some(true)) &&
-                other
-                    .get_as(Stat::IsConstant).is_some_and(|v| v.value.ok_exact() == Some(true))
-            // )
+        if self
+            .get_as(Stat::IsConstant)
+            .is_some_and(|v| v.ok_exact() == Some(true))
+            && other
+                .get_as(Stat::IsConstant)
+                .is_some_and(|v| v.ok_exact() == Some(true))
             && self
-                .get_scalar(Min, dtype)
-                .map(DirectionalBound::into_value)
+                .get_scalar(Stat::Min, dtype.clone())
                 .is_some_and(|min| {
-                    min.is_exact()
-                        && Some(min)
-                            == other
-                                .get_scalar(Min, dtype)
-                                .map(DirectionalBound::into_value)
+                    min.is_exact() && Some(min) == other.get_scalar(Stat::Min, dtype.clone())
                 })
         {
             return;
         }
-        // TODO(joe): this is not true, what is the correct thing to do here? Maybe bound(false)?
-        self.set(Stat::IsConstant, exact(false));
+        self.set(Stat::IsConstant, inexact(false));
     }
 
     fn merge_is_sorted(&mut self, other: &Self, dtype: &DType) {
@@ -404,23 +366,23 @@ impl StatsSet {
         cmp: F,
     ) {
         if (Some(Precision::Exact(true)), Some(Precision::Exact(true)))
-            == (
-                self.get_as(stat).map(DirectionalBound::into_value),
-                other.get_as(stat).map(DirectionalBound::into_value),
-            )
+            == (self.get_as(stat), other.get_as(stat))
         {
             // There might be no stat because it was dropped, or it doesn't exist
             // (e.g. an all null array).
             // We assume that it was the dropped case since the doesn't exist might imply sorted,
             // but this in-precision is correct.
-            if let (Some(self_max), Some(other_min)) =
-                (self.get_scalar(Max, dtype), other.get_scalar(Min, dtype))
-            {
-                return if cmp(self_max.value.value(), other_min.value.value()) {
+            if let (Some(self_max), Some(other_min)) = (
+                self.get_scalar(Stat::Max, dtype.clone()),
+                other.get_scalar(Stat::Min, dtype.clone()),
+            ) {
+                return if cmp(
+                    &self_max.bound::<Max>().max_value(),
+                    &other_min.bound::<Min>().min_value(),
+                ) {
                     // keep value
                 } else {
-                    // TODO(joe): this might not be false, I guess this might be a bound.
-                    self.set(stat, exact(false));
+                    self.set(stat, inexact(false));
                 };
             }
         }
@@ -444,9 +406,7 @@ impl StatsSet {
             (Some(nc1), Some(nc2)) => {
                 self.set(
                     stat,
-                    nc1.value.and_then_prefer_bound(|nc1| {
-                        nc2.value.map(|nc2| ScalarValue::from(nc1 + nc2))
-                    }),
+                    nc1.and_then_prefer_inexact(|nc1| nc2.map(|nc2| ScalarValue::from(nc1 + nc2))),
                 );
             }
             _ => self.clear(stat),
@@ -467,8 +427,8 @@ impl StatsSet {
             other.get_as::<Vec<usize>>(stat),
         ) {
             (Some(f1), Some(f2)) => {
-                let combined_freq = f1.value.and_then_prefer_bound(|f1| {
-                    f2.value.map(|f2| {
+                let combined_freq = f1.and_then_prefer_inexact(|f1| {
+                    f2.map(|f2| {
                         ScalarValue::from(
                             f1.iter()
                                 .zip_longest(f2.iter())
@@ -495,9 +455,7 @@ impl StatsSet {
             (Some(r1), Some(r2)) => {
                 self.set(
                     Stat::RunCount,
-                    r1.value.and_then_prefer_bound(|r1| {
-                        r2.value.map(|r2| ScalarValue::from(r1 + r2 + 1))
-                    }),
+                    r1.and_then_prefer_inexact(|r1| r2.map(|r2| ScalarValue::from(r1 + r2 + 1))),
                 );
             }
             _ => self.clear(Stat::RunCount),
@@ -512,9 +470,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{
-        bound, exact, ArrayStatistics as _, DirectionalBound, Stat, StatsSet, UpperBound,
-    };
+    use crate::stats::{exact, inexact, ArrayStatistics as _, Max, Stat, StatsSet};
     use crate::IntoArrayData as _;
 
     #[test]
@@ -543,6 +499,17 @@ mod test {
     }
 
     #[test]
+    fn merge_constant() {
+        let first = StatsSet::from_iter([(Stat::Min, exact(42)), (Stat::IsConstant, exact(true))])
+            .merge_ordered(
+                &StatsSet::from_iter([(Stat::Min, inexact(42)), (Stat::IsConstant, exact(true))]),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+            );
+        assert_eq!(first.get_as::<bool>(Stat::IsConstant), Some(inexact(false)));
+        assert_eq!(first.get_as::<i32>(Stat::Min), Some(exact(42)));
+    }
+
+    #[test]
     fn merge_into_min() {
         let first = StatsSet::of(Stat::Min, exact(42)).merge_ordered(
             &StatsSet::default(),
@@ -566,12 +533,7 @@ mod test {
             &StatsSet::of(Stat::Min, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(
-            first
-                .get_as::<i32>(Stat::Min)
-                .map(DirectionalBound::into_value),
-            Some(exact(37))
-        );
+        assert_eq!(first.get_as::<i32>(Stat::Min), Some(exact(37)));
     }
 
     #[test]
@@ -598,21 +560,15 @@ mod test {
             &StatsSet::of(Stat::Max, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(
-            first.get_as::<i32>(Stat::Max),
-            Some(DirectionalBound::upper(exact(42)))
-        );
+        assert_eq!(first.get_as::<i32>(Stat::Max), Some(exact(42)));
     }
 
     #[test]
     fn merge_maxes_bound() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let first = StatsSet::of(Stat::Max, exact(42i32))
-            .merge_ordered(&StatsSet::of(Stat::Max, bound(43i32)), &dtype);
-        assert_eq!(
-            first.get_as::<i32>(Stat::Max),
-            Some(DirectionalBound::upper(bound(43)))
-        );
+            .merge_ordered(&StatsSet::of(Stat::Max, inexact(43i32)), &dtype);
+        assert_eq!(first.get_as::<i32>(Stat::Max), Some(inexact(43)));
     }
 
     #[test]
@@ -639,10 +595,7 @@ mod test {
             &StatsSet::of(Stat::TrueCount, exact(42)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(
-            first.get_as::<usize>(Stat::TrueCount),
-            Some(DirectionalBound::upper(exact(79usize)))
-        );
+        assert_eq!(first.get_as::<usize>(Stat::TrueCount), Some(exact(79usize)));
     }
 
     #[test]
@@ -675,7 +628,7 @@ mod test {
         );
         assert_eq!(
             first.get_as::<Vec<u64>>(Stat::BitWidthFreq),
-            Some(DirectionalBound::upper(exact(vec_out)))
+            Some(exact(vec_out))
         );
     }
 
@@ -709,7 +662,7 @@ mod test {
         );
         assert_eq!(
             first.get_as::<bool>(Stat::IsStrictSorted),
-            Some(DirectionalBound::upper(exact(true)))
+            Some(exact(true))
         );
     }
 
@@ -725,7 +678,7 @@ mod test {
         );
         assert_eq!(
             second.get_as::<bool>(Stat::IsStrictSorted),
-            Some(DirectionalBound::upper(exact(false)))
+            Some(exact(false))
         );
     }
 
@@ -741,7 +694,7 @@ mod test {
         );
         assert_eq!(
             second.get_as::<bool>(Stat::IsStrictSorted),
-            Some(DirectionalBound::upper(exact(false)))
+            Some(exact(false))
         );
     }
 
@@ -755,6 +708,22 @@ mod test {
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert!(first.get(Stat::IsStrictSorted).is_none());
+    }
+
+    #[test]
+    fn merge_sortedness_bound_min() {
+        let mut first = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        first.set(Stat::Max, exact(1));
+        let mut second = StatsSet::of(Stat::IsStrictSorted, exact(true));
+        second.set(Stat::Min, inexact(2));
+        first = first.merge_ordered(
+            &second,
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        );
+        assert_eq!(
+            first.get_as::<bool>(Stat::IsStrictSorted),
+            Some(exact(true))
+        );
     }
 
     #[test]
@@ -803,25 +772,19 @@ mod test {
     fn merge_min_bound_same() {
         // Merging a stat with a bound and another with an exact results in exact stat.
         // since bound for min is a lower bound, it can in fact contain any value >= bound.
-        let merged = StatsSet::of(Stat::Min, bound(5)).merge_ordered(
+        let merged = StatsSet::of(Stat::Min, inexact(5)).merge_ordered(
             &StatsSet::of(Stat::Min, exact(5)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(
-            merged.get_as::<i32>(Stat::Min),
-            Some(DirectionalBound::upper(exact(5)))
-        );
+        assert_eq!(merged.get_as::<i32>(Stat::Min), Some(exact(5)));
     }
 
     #[test]
     fn merge_min_bound_bound_lower() {
-        let merged = StatsSet::of(Stat::Min, bound(4)).merge_ordered(
+        let merged = StatsSet::of(Stat::Min, inexact(4)).merge_ordered(
             &StatsSet::of(Stat::Min, exact(5)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        assert_eq!(
-            merged.get_as::<i32>(Stat::Min),
-            Some(DirectionalBound::upper(bound(4)))
-        );
+        assert_eq!(merged.get_as::<i32>(Stat::Min), Some(inexact(4)));
     }
 }

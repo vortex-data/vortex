@@ -15,7 +15,7 @@ use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
     take, SearchResult, SearchSortedSide,
 };
-use crate::stats::{ArrayStatistics, Stat};
+use crate::stats::{ArrayStatistics, Max, Stat};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
@@ -86,7 +86,11 @@ impl Patches {
             "Patch indices must be shorter than the array length"
         );
         assert!(!indices.is_empty(), "Patch indices must not be empty");
-        if let Some(max) = indices.statistics().get_as::<u64>(Stat::Max) {
+        if let Some(max) = indices
+            .statistics()
+            .get_as::<u64>(Stat::Max)
+            .map(|s| s.bound::<Max>())
+        {
             assert!(
                 max < (array_len as u64),
                 "Patch indices {:?} are longer than the array length {}",
