@@ -43,6 +43,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.3.0
 
+      # Ensure the stub files are up-to-date with the public API of the native module.
+      - name: Stubtest - PyVortex
+        run: |
+          uv run stubtest vortex._lib
+        working-directory: pyvortex/
+
       - name: Pytest - PyVortex
         run: |
           uv run pytest --benchmark-disable test/
