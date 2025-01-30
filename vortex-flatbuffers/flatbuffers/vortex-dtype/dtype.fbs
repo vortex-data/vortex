@@ -49,14 +49,14 @@ table Extension {
 }
 
 union Type {
-    Null,
-    Bool,
-    Primitive,
-    Utf8,
-    Binary,
-    Struct_,
-    List,
-    Extension,
+    Null = 1,
+    Bool = 2,
+    Primitive = 3,
+    Utf8 = 5,
+    Binary = 6,
+    Struct_ = 7,
+    List = 8,
+    Extension = 9,
 }
 
 table DType {

@@ -133,7 +133,7 @@ impl flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 8;
+pub const ENUM_MAX_TYPE: u8 = 9;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
 pub const ENUM_VALUES_TYPE: [Type; 9] = [
@@ -157,14 +157,14 @@ impl Type {
   pub const Null: Self = Self(1);
   pub const Bool: Self = Self(2);
   pub const Primitive: Self = Self(3);
-  pub const Utf8: Self = Self(4);
-  pub const Binary: Self = Self(5);
-  pub const Struct_: Self = Self(6);
-  pub const List: Self = Self(7);
-  pub const Extension: Self = Self(8);
+  pub const Utf8: Self = Self(5);
+  pub const Binary: Self = Self(6);
+  pub const Struct_: Self = Self(7);
+  pub const List: Self = Self(8);
+  pub const Extension: Self = Self(9);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 8;
+  pub const ENUM_MAX: u8 = 9;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
