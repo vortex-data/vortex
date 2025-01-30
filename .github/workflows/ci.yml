@@ -172,6 +172,7 @@ jobs:
       - name: Rust Test
         run: cargo nextest run --workspace --all-features --no-fail-fast
       - name: Generate coverage report
+        if: github.ref == 'refs/heads/develop'
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
@@ -179,6 +180,7 @@ jobs:
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
+        if: github.ref == 'refs/heads/develop'
         with:
           file: ${{ env.GRCOV_OUTPUT_FILE }}
 
@@ -210,12 +212,19 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Run tests with Miri
+      - name: Run all tests with Miri
         run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar
+        # For now, we only run Miri against known "fiddly" crates.
+        if: false
+      - name: Run Miri
+        run: cargo miri nextest run --no-fail-fast -p vortex-buffer
 
   bench-test:
     name: "bench test"
     runs-on: ubuntu-latest
+    # NOTE(ngates): disable running benchmark tests for now since they take a very long time and don't often fail.
+    #  Instead, the Slack channel notifications have been made to subscribe only to CI failures.
+    if: false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
