@@ -1,13 +1,11 @@
 use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::fill_null;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPackedEncoding;
-use vortex_scalar::Scalar;
 
 use super::alp_rd::ALPRDCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
