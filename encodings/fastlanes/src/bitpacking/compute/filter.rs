@@ -78,7 +78,7 @@ fn filter_primitive_chunk_by_chunk<T: NativePType + BitPacking + ArrowNativeType
             .vortex_expect("AllTrue and AllFalse handled by filter fn")
             .indices()
             .iter()
-            .cloned(),
+            .copied(),
     );
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
