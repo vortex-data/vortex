@@ -68,7 +68,6 @@ where
     } else {
         exceptional_positions
             .into_iter()
-            // index is a valid usize because it is an index into values.as_slice::<T>()
             .filter(|index| validity.value(*index as usize))
             .collect()
     };
