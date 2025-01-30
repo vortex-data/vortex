@@ -165,6 +165,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install grcov
+        if: github.ref == 'refs/heads/develop'
         run: cargo install grcov
       - uses: taiki-e/install-action@v2
         with:
