@@ -45,7 +45,7 @@ pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult
 }
 
 #[pyfunction(name = "float_")]
-#[pyo3(signature = (width = 64, nullable = false))]
+#[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult<Py<PyDType>> {
     let dtype = match width {
         16 => DType::Primitive(PType::F16, nullable.into()),

@@ -1,7 +1,17 @@
-from typing import Literal
+from typing import Literal, final
 
+import pyarrow as pa
+
+@final
 class DType:
     """A Vortex data type."""
+
+    def maybe_columns(self) -> list[str] | None:
+        """Return the names of the columns in a struct data type."""
+
+    @classmethod
+    def from_arrow(cls, arrow_dtype: pa.DataType, *, non_nullable: bool = False) -> DType:
+        """Construct a Vortex data type from an Arrow data type."""
 
 def null() -> DType:
     """Construct the data type for a column containing only the null value.
@@ -197,9 +207,9 @@ def struct(fields: dict[str, DType] | None = None, *, nullable: bool = False) ->
     Examples
     --------
 
-    A data type permitting a struct with two fields, :code:`"name"` and :code:`"age"`, where :code:`"name"` is a UTF-8-encoded string and :code:`"age"` is a 32-bit signed integer.
+    A data type permitting a struct with two fields, :code:`"name"` and :code:`"age"`, where :code:`"name"` is a UTF-8-encoded string and :code:`"age"` is a 32-bit signed integer:
 
-        >>> import vortex as vx
-        >>> vx.struct({"name": vx.utf8(), "age": vx.int_(32)}, nullable=False)
-        struct({"name": utf8(nullable=False), "age": int(32, nullable=False)}, nullable=False)
+    >>> import vortex as vx
+    >>> vx.struct({"name": vx.utf8(), "age": vx.int_(32)})
+    struct({"name": utf8(nullable=False), "age": int(32, nullable=False)}, nullable=False)
     """

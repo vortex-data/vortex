@@ -113,8 +113,6 @@ class Expr:
       ]
     """
 
-    def __eq__(self, other: Expr) -> bool: ...
-
 def column(name: str) -> Expr:
     """Create an expression that refers to a column by its name.
 
@@ -134,6 +132,23 @@ def column(name: str) -> Expr:
     >>> ve.column("age")
     column("age")  # noqa: F821
 
+    """
+
+def ident() -> Expr:
+    """Create an expression that refers to the identity scope.
+
+    That is, it returns the full input that the extension is run against.
+
+    Returns
+    -------
+    :class:`vortex.Expr`
+
+    Examples
+    --------
+
+    >>> import vortex.expr as ve
+    >>> ve.ident()
+    ident()
     """
 
 def literal(dtype: vx.DType, value: Any) -> Expr:
@@ -156,5 +171,4 @@ def literal(dtype: vx.DType, value: Any) -> Expr:
     >>> import vortex.expr as ve
     >>> ve.literal(ve.int_(), 42)
     literal(int(), 42)
-
     """

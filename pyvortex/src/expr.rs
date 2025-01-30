@@ -136,6 +136,7 @@ impl PyExpr {
     }
 }
 
+// TODO(ngates): make dtype optional, casting if necessary.
 #[pyfunction]
 pub fn literal<'py>(
     dtype: &Bound<'py, PyDType>,
@@ -151,21 +152,6 @@ pub fn ident() -> PyExpr {
     }
 }
 
-/// A named column.
-///
-/// .. seealso::
-///     :class:`.Expr`
-///
-/// Example
-/// =======
-///
-/// A filter that selects only those rows whose name is `Joseph`:
-///
-/// >>> name = vortex.expr.column("name")
-/// >>> filter = name == "Joseph"
-///
-/// See :class:`.Expr` for more examples.
-///
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();

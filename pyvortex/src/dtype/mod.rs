@@ -61,17 +61,19 @@ impl PyDType {
     }
 
     #[classmethod]
+    #[pyo3(signature = (arrow_dtype, *, non_nullable))]
     fn from_arrow(
         cls: &Bound<PyType>,
         #[pyo3(from_py_with = "import_arrow_dtype")] arrow_dtype: DataType,
-        nullable: bool,
+        non_nullable: bool,
     ) -> PyResult<Py<Self>> {
         Self::wrap(
             cls.py(),
-            DType::from_arrow(&Field::new("_", arrow_dtype, nullable)),
+            DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
         )
     }
 
+    // TODO(ngates): move this into StructDType class
     fn maybe_columns(&self) -> Option<Vec<String>> {
         match &self.inner {
             DType::Null => None,

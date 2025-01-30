@@ -844,6 +844,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyarrow-stubs"
+version = "17.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyarrow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/20/1f/cb97ce441ecf64e93f703e8d6da4cab6a086bfb422c3180dff1bab4d14bc/pyarrow_stubs-17.16.tar.gz", hash = "sha256:ab74652db59855a09d5de7009f57d079f4fb318650ff767ec91841f3d2fa550c", size = 83462 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/99/3944ec099bb60cc11bf138dec98d1d42a3dc3f6afda42896b09461e0efb7/pyarrow_stubs-17.16-py3-none-any.whl", hash = "sha256:76eebeb2433fe93754c74a252e976b4e76a182f8f054748872aa3a98d347621d", size = 79881 },
+]
+
+[[package]]
 name = "pybtex"
 version = "0.24.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1393,6 +1405,7 @@ polars = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pyarrow-stubs" },
 ]
 
 [package.metadata]
@@ -1405,7 +1418,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "mypy", specifier = ">=1.14.1" }]
+dev = [
+    { name = "mypy", specifier = ">=1.14.1" },
+    { name = "pyarrow-stubs", specifier = ">=17.16" },
+]
 
 [[package]]
 name = "watchfiles"
