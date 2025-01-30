@@ -19,10 +19,8 @@ pub const ZIGZAG_COST: u8 = 0;
 pub const ALP_COST: u8 = 1;
 pub const ALP_RD_COST: u8 = 1;
 pub const DATE_TIME_PARTS_COST: u8 = 1;
+pub const DELTA_COST: u8 = 1;
 pub const DICT_COST: u8 = 1;
 pub const FOR_COST: u8 = 1;
 pub const FSST_COST: u8 = 1;
 pub const RUN_END_COST: u8 = 1;
-
-// "expensive" encodings
-pub const DELTA_COST: u8 = 2;

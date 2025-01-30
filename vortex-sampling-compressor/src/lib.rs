@@ -44,14 +44,14 @@ use vortex_sparse::SparseEncoding;
 
 use crate::compressors::alp_rd::ALPRDCompressor;
 
-pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
+pub const DEFAULT_COMPRESSORS: [CompressorRef; 16] = [
     &ALPCompressor as CompressorRef,
     &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
     &DateTimePartsCompressor,
-    // &DeltaCompressor,
+    &DeltaCompressor,
     &DictCompressor,
     &FoRCompressor,
     &FSSTCompressor,

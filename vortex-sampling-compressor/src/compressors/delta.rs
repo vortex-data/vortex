@@ -47,9 +47,11 @@ impl EncodingCompressor for DeltaCompressor {
         // Recursively compress the bases and deltas
         let bases = ctx
             .named("bases")
+            .excluding(self)
             .compress(bases.as_ref(), like.as_ref().and_then(|l| l.child(0)))?;
         let deltas = ctx
             .named("deltas")
+            .excluding(self)
             .compress(deltas.as_ref(), like.as_ref().and_then(|l| l.child(1)))?;
 
         Ok(CompressedArray::compressed(
