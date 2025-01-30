@@ -5,4 +5,4 @@ mod execution;
 mod format;
 mod opener;
 
-pub use format::{VortexFormat, VortexFormatOptions};
+pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};

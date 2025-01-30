@@ -59,8 +59,23 @@ impl Default for VortexFormatOptions {
 }
 
 /// Minimal factory to create [`VortexFormat`] instances.
-#[derive(Debug, Default)]
-pub struct VortexFormatFactory {}
+#[derive(Debug)]
+pub struct VortexFormatFactory {
+    context: ContextRef,
+}
+
+impl VortexFormatFactory {
+    // Because FileFormatFactory has a default method
+    /// Create a new [`VortexFormatFactory`] with the default encoding context.
+    pub fn default_config() -> Self {
+        Self::with_context(ContextRef::default())
+    }
+
+    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::Context).
+    pub fn with_context(context: ContextRef) -> Self {
+        Self { context }
+    }
+}
 
 impl GetExt for VortexFormatFactory {
     fn get_ext(&self) -> String {
@@ -75,7 +90,7 @@ impl FileFormatFactory for VortexFormatFactory {
         _state: &SessionState,
         _format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        Ok(self.default())
+        Ok(Arc::new(VortexFormat::new(self.context.clone())))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
@@ -290,5 +305,56 @@ impl FileFormat for VortexFormat {
         } else {
             Ok(FilePushdownSupport::NotSupportedForFilter)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::datasource::provider::DefaultTableFactory;
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion::prelude::SessionContext;
+    use tempfile::TempDir;
+
+    use super::*;
+
+    /// Utility function to register Vortex with a [`SessionStateBuilder`]
+    fn register_vortex_format_factory(
+        factory: VortexFormatFactory,
+        session_state_builder: &mut SessionStateBuilder,
+    ) {
+        if let Some(table_factories) = session_state_builder.table_factories() {
+            table_factories.insert(
+                factory.get_ext().to_uppercase(), // Has to be uppercase
+                Arc::new(DefaultTableFactory::new()),
+            );
+        }
+
+        if let Some(file_formats) = session_state_builder.file_formats() {
+            file_formats.push(Arc::new(factory));
+        }
+    }
+
+    #[tokio::test]
+    async fn create_table() {
+        let dir = TempDir::new().unwrap();
+
+        let factory = VortexFormatFactory::default_config();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+
+        register_vortex_format_factory(factory, &mut session_state_builder);
+
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        let df = session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL)
+                STORED AS vortex LOCATION '{}'",
+                dir.path().to_str().unwrap()
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(df.count().await.unwrap(), 0);
     }
 }
