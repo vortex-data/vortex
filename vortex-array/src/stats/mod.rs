@@ -12,7 +12,7 @@ use futures_util::TryStreamExt;
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-pub use statsset::*;
+pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
@@ -26,7 +26,7 @@ mod bound;
 pub mod flatbuffers;
 mod precision;
 mod stat_bound;
-mod statsset;
+mod stats_set;
 
 pub use bound::{LowerBound, UpperBound};
 pub use precision::{exact, inexact, Precision};
