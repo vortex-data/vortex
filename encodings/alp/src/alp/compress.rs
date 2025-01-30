@@ -260,6 +260,7 @@ mod tests {
         );
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
+        assert_eq!(original.as_slice::<f64>(), decompressed.as_slice::<f64>());
         assert_eq!(original.validity(), decompressed.validity());
     }
 }
