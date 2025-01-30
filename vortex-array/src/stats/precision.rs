@@ -61,20 +61,14 @@ impl<T> Precision<T> {
     }
 
     pub fn try_map<U, F: FnOnce(T) -> VortexResult<U>>(self, f: F) -> VortexResult<Precision<U>> {
-        let prec = match self {
+        let precision = match self {
             Exact(value) => Exact(f(value)?),
             Inexact(value) => Inexact(f(value)?),
         };
-        Ok(prec)
+        Ok(precision)
     }
 
-    pub fn value(&self) -> &T {
-        match self {
-            Exact(val) | Inexact(val) => val,
-        }
-    }
-
-    pub fn into_value(self) -> T {
+    pub(crate) fn into_value(self) -> T {
         match self {
             Exact(val) | Inexact(val) => val,
         }
