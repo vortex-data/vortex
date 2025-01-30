@@ -22,10 +22,9 @@ use crate::DictArray;
 pub const NULL_CODE: u64 = 0;
 
 mod private {
-    use vortex_dtype::half;
+    use vortex_dtype::{half, NativePType};
 
-    /// Value serves as a wrapper type to allow us to implement Hash and Eq on all of our
-    /// primitive types directly.
+    /// Value serves as a wrapper type to allow us to implement Hash and Eq on all primitive types.
     ///
     /// Rust does not define Hash/Eq for any of the float types due to the presence of
     /// NaN and +/- 0. We don't care about storing multiple NaNs or zeros in our dictionaries,
@@ -33,53 +32,48 @@ mod private {
     #[derive(Debug)]
     pub struct Value<T>(pub T);
 
-    macro_rules! prim_value_hash {
+    impl<T> PartialEq<Value<T>> for Value<T>
+    where
+        T: NativePType,
+    {
+        fn eq(&self, other: &Value<T>) -> bool {
+            self.0.is_eq(other.0)
+        }
+    }
+
+    impl<T> Eq for Value<T> where T: NativePType {}
+
+    macro_rules! prim_value {
         ($typ:ty) => {
             impl core::hash::Hash for Value<$typ> {
                 fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     self.0.hash(state);
                 }
             }
-
-            impl PartialEq<Self> for Value<$typ> {
-                fn eq(&self, other: &Self) -> bool {
-                    self.0.eq(&other.0)
-                }
-            }
-
-            impl Eq for Value<$typ> {}
         };
     }
 
-    macro_rules! float_value_hash {
+    macro_rules! float_value {
         ($typ:ty) => {
             impl core::hash::Hash for Value<$typ> {
                 fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     self.0.to_bits().hash(state);
                 }
             }
-
-            impl PartialEq<Self> for Value<$typ> {
-                fn eq(&self, other: &Self) -> bool {
-                    self.0.to_bits().eq(&other.0.to_bits())
-                }
-            }
-
-            impl Eq for Value<$typ> {}
         };
     }
 
-    prim_value_hash!(u8);
-    prim_value_hash!(u16);
-    prim_value_hash!(u32);
-    prim_value_hash!(u64);
-    prim_value_hash!(i8);
-    prim_value_hash!(i16);
-    prim_value_hash!(i32);
-    prim_value_hash!(i64);
-    float_value_hash!(half::f16);
-    float_value_hash!(f32);
-    float_value_hash!(f64);
+    prim_value!(u8);
+    prim_value!(u16);
+    prim_value!(u32);
+    prim_value!(u64);
+    prim_value!(i8);
+    prim_value!(i16);
+    prim_value!(i32);
+    prim_value!(i64);
+    float_value!(half::f16);
+    float_value!(f32);
+    float_value!(f64);
 }
 
 pub fn dict_encode(array: &ArrayData) -> VortexResult<DictArray> {
