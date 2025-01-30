@@ -214,11 +214,11 @@ def expression_reference(
 ) -> _expr.Expr:
     print(substrait_object)
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extended__expression.proto#L16
-    match substrait_object.WhichOneof("_expr_type"):
-        case "_expression":
+    match substrait_object.WhichOneof("expr_type"):
+        case "expression":
             return expression(substrait_object.expression, functions, schema)
         case _:
-            raise ValueError("unknown _expr_type: {}")
+            raise ValueError("unknown expr_type: {}")
 
 
 def extended_expression(substrait_object: ExtendedExpression) -> list[_expr.Expr]:
