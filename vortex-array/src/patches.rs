@@ -15,7 +15,7 @@ use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
     take, SearchResult, SearchSortedSide,
 };
-use crate::stats::{ArrayStatistics, GtOrd, Max, Stat};
+use crate::stats::{ArrayStatistics, Max, Stat};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
@@ -88,8 +88,7 @@ impl Patches {
         assert!(!indices.is_empty(), "Patch indices must not be empty");
         if let Some(max) = indices.comp_stats().get_as::<Max, u64>() {
             assert!(
-                !max.ge(&(array_len as u64))
-                    .vortex_expect("cannot compare max and u64"),
+                max < (array_len as u64),
                 "Patch indices {:?} are longer than the array length {}",
                 max,
                 array_len

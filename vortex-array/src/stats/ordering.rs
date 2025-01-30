@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 
 use crate::stats::Precision::{Bound, Exact};
 use crate::stats::{Precision, Stat};
@@ -49,26 +49,65 @@ impl<T: PartialOrd> PartialOrder<T> for LowerBound<T> {
 #[derive(Debug, Clone)]
 pub struct UpperBound<T>(Precision<T>);
 
-pub trait GtOrd<Rhs: ?Sized = Self> {
-    fn ge(&self, other: &Rhs) -> Option<bool>;
-}
-
-impl<T: PartialOrd> GtOrd for UpperBound<T> {
-    fn ge(&self, other: &Self) -> Option<bool> {
-        Some(match self.0.value().partial_cmp(other.0.value())? {
-            Ordering::Less => false,
-            Ordering::Equal => {
-                // for a fixed value v. exact(v) >= bound(v) is true
-                matches!((&self.0, &other.0), (Exact(_), _) | (Bound(_), Bound(_)))
-            }
-            Ordering::Greater => true,
-        })
+pub fn try_max<'a, T: PartialOrd + Clone>(lhs: &'a T, rhs: &'a T) -> Option<&'a T> {
+    if lhs.partial_cmp(rhs)? == Ordering::Greater {
+        Some(lhs)
+    } else {
+        Some(rhs)
     }
 }
 
-impl<T: PartialOrd> GtOrd<T> for UpperBound<T> {
-    fn ge(&self, other: &T) -> Option<bool> {
-        Some(self.0.value() >= other)
+impl<T: PartialEq> PartialEq for UpperBound<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.structural_eq(&other.0)
+    }
+}
+
+impl<T: PartialOrd + Clone> UpperBound<T> {
+    pub fn meet(&self, other: &Self) -> Option<UpperBound<T>> {
+        Some(UpperBound(match (&self.0, &other.0) {
+            (Exact(lhs), Exact(rhs)) => Exact(try_max(lhs, rhs)?.clone()),
+            (Bound(lhs), Bound(rhs)) => Bound(try_max(lhs, rhs)?.clone()),
+            (Bound(lhs), Exact(rhs)) => {
+                if rhs >= lhs {
+                    Exact(rhs.clone())
+                } else {
+                    Bound(lhs.clone())
+                }
+            }
+            (Exact(lhs), Bound(rhs)) => {
+                if lhs >= rhs {
+                    Exact(lhs.clone())
+                } else {
+                    Bound(rhs.clone())
+                }
+            }
+        }))
+    }
+}
+
+impl<T: PartialOrd> PartialEq<T> for UpperBound<T> {
+    fn eq(&self, other: &T) -> bool {
+        match &self.0 {
+            Exact(lhs) => lhs == other,
+            _ => false,
+        }
+    }
+}
+
+// We can only compare exact bound with values and bounded bounds can only be greater than a value
+impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+        match self {
+            UpperBound(Exact(lhs)) => lhs.partial_cmp(other),
+            UpperBound(Bound(lhs)) => lhs.partial_cmp(other).and_then(|o| {
+                if o == Ordering::Greater {
+                    None
+                } else {
+                    Some(o)
+                }
+            }),
+        }
     }
 }
 
@@ -83,5 +122,53 @@ impl<T: PartialOrd> PartialOrder<T> for UpperBound<T> {
 
     fn into_value(self) -> Precision<T> {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::empty;
+
+    use crate::stats::ordering::PartialOrder;
+    use crate::stats::{bound, exact, UpperBound};
+
+    #[test]
+    fn test_upper_bound_cmp() {
+        let ub = UpperBound::lift(exact(10i32));
+
+        assert_eq!(ub, 10);
+        assert!(ub > 9);
+        assert!(ub <= 10);
+        assert!(ub <= 10);
+
+        let ub = UpperBound::lift(bound(10i32));
+
+        assert_ne!(ub, 10);
+        assert!(ub < 11);
+        // We cannot say anything about a value in the bound.
+        assert!(!(ub >= 9));
+    }
+
+    #[test]
+    fn test_upper_bound_meet() {
+        let ub1: UpperBound<i32> = UpperBound::lift(exact(10i32));
+        let ub2 = UpperBound::lift(exact(12i32));
+
+        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2));
+
+        let ub1: UpperBound<i32> = UpperBound::lift(bound(10i32));
+        let ub2 = UpperBound::lift(exact(12i32));
+
+        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2));
+
+        let ub1: UpperBound<i32> = UpperBound::lift(exact(10i32));
+        let ub2 = UpperBound::lift(bound(12i32));
+
+        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2));
+
+        let ub1: UpperBound<i32> = UpperBound::lift(bound(10i32));
+        let ub2 = UpperBound::lift(bound(12i32));
+
+        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2))
     }
 }

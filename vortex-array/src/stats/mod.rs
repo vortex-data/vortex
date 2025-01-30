@@ -27,7 +27,7 @@ mod ordering;
 mod precision;
 mod statsset;
 
-pub use ordering::{GtOrd, LowerBound, PartialOrder, UpperBound};
+pub use ordering::{LowerBound, PartialOrder, UpperBound};
 pub use precision::{bound, exact, Precision};
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).

@@ -5,7 +5,7 @@ use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::{
-    exact, GtOrd, Max, Min, NullCount, PartialOrder, Precision, Stat, StatOrder, StatisticsCompare,
+    exact, Max, Min, NullCount, PartialOrder, Precision, Stat, StatOrder, StatisticsCompare,
     TrueCount, UncompressedSizeInBytes,
 };
 
@@ -165,6 +165,15 @@ impl StatsSet {
         self.get_as::<T>(S::STAT)
     }
 
+    pub fn get_asb<S, T>(&self) -> Option<S::BoundDirection>
+    where
+        S: StatOrder<T>,
+        T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + PartialOrd,
+    {
+        self.get_as::<T>(S::STAT)
+            .map(|s| S::BoundDirection::lift(s))
+    }
+
     pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -268,7 +277,7 @@ impl Extend<(Stat, Precision<ScalarValue>)> for StatsSet {
 // Merge helpers
 impl StatsSet {
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
-    /// contains stats from an array that is *appended* to the array represented by `self`.
+    /// contains stats from a disjoint array that is *appended* to the array represented by `self`.
     pub fn merge_ordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {
             match s {
@@ -289,7 +298,7 @@ impl StatsSet {
         self
     }
 
-    /// Merge stats set `other` into `self`, with no assumption on ordering.
+    /// Merge stats set `other` into `self`, from disjoint array, with no ordering assumptions.
     /// Stats that are not commutative (e.g., is_sorted) are dropped from the result.
     pub fn merge_unordered(mut self, other: &Self, dtype: &DType) -> Self {
         for s in all::<Stat>() {
@@ -328,9 +337,13 @@ impl StatsSet {
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
         match (self.getb::<Max>(dtype), other.getb::<Max>(dtype)) {
             (Some(m1), Some(m2)) => {
-                if m2.ge(&m1).vortex_expect("can compare max stats") {
-                    self.set(Stat::Max, m2.into_value().map(|s| s.into_value()));
-                }
+                self.set(
+                    Stat::Max,
+                    m2.meet(&m1)
+                        .vortex_expect("can compare scalar")
+                        .into_value()
+                        .map(|s| s.into_value()),
+                );
             }
             _ => self.clear(Stat::Max),
         }
@@ -469,7 +482,8 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{bound, exact, ArrayStatistics as _, Stat, StatsSet};
+    use crate::stats::ordering::PartialOrder;
+    use crate::stats::{bound, exact, ArrayStatistics as _, Max, Stat, StatsSet, UpperBound};
     use crate::IntoArrayData as _;
 
     #[test]
@@ -525,7 +539,7 @@ mod test {
     }
 
     #[test]
-    fn merge_into_max() {
+    fn merge_into_bound_max() {
         let first = StatsSet::of(Stat::Max, exact(42)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
@@ -549,6 +563,17 @@ mod test {
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert_eq!(first.get_as::<i32>(Stat::Max), Some(exact(42)));
+    }
+
+    #[test]
+    fn merge_maxes_bound() {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let first = StatsSet::of(Stat::Max, exact(42i32))
+            .merge_ordered(&StatsSet::of(Stat::Max, bound(43i32)), &dtype);
+        assert_eq!(
+            first.get_asb::<Max, i32>(),
+            Some(UpperBound::lift(bound(43)))
+        );
     }
 
     #[test]
