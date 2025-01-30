@@ -180,7 +180,7 @@ def binary(*, nullable: bool = False) -> DType:
         binary(nullable=False)
     """
 
-def struct(fields: dict[str, DType] = None, *, nullable: bool = False) -> DType:
+def struct(fields: dict[str, DType] | None = None, *, nullable: bool = False) -> DType:
     """Construct a struct data type.
 
     Parameters

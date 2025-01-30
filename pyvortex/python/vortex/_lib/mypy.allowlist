@@ -1,0 +1,3 @@
+# Allowlist of missing stubs for stubtest
+
+.*\.__all__
