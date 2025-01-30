@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FilePushdownSupport};
+use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
 use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
 use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
@@ -54,6 +54,27 @@ impl Default for VortexFormatOptions {
             concurrent_infer_schema_ops: 64,
             cache_size_mb: 256,
         }
+    }
+}
+
+/// Minimal factory to create [`VortexFormat`] instances.
+struct VortexFormatFactory {}
+
+impl FileFormatFactory for VortexFormatFactory {
+    fn create(
+        &self,
+        _state: &SessionState,
+        _format_options: &std::collections::HashMap<String, String>,
+    ) -> DFResult<Arc<dyn FileFormat>> {
+        Ok(Arc::new(self.default()))
+    }
+
+    fn default(&self) -> Arc<dyn FileFormat> {
+        Arc::new(VortexFormat::default())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
