@@ -163,19 +163,21 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             .map(|(index, _)| index as u64)
             .collect();
 
-        if let Some(fill_value) =
-            Self::find_first_non_patched_encoded_value(&encoded, &patch_indices)
-        {
-            for index in patch_indices.iter() {
-                let index = *index as usize;
-                encoded[index] = fill_value;
+        if !patch_indices.is_empty() {
+            if let Some(fill_value) =
+                Self::first_non_patched_encoded_value(&encoded, &patch_indices)
+            {
+                for index in patch_indices.iter() {
+                    let index = *index as usize;
+                    encoded[index] = fill_value;
+                }
             }
         }
 
         (encoded, patch_indices)
     }
 
-    fn find_first_non_patched_encoded_value(
+    fn first_non_patched_encoded_value(
         encoded: &[Self::ALPInt],
         patch_indices: &[u64],
     ) -> Option<Self::ALPInt> {
