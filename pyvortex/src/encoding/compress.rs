@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use vortex::sampling_compressor::SamplingCompressor;
 
-use crate::array::PyArray;
+use crate::encoding::PyArray;
 
 #[pyfunction]
 /// Attempt to compress a vortex array.

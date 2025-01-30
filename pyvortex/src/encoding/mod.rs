@@ -11,7 +11,25 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::{Array, IntoArray};
 
-use crate::array::PyArray;
+mod array;
+mod compress;
+
+pub use array::PyArray;
+
+use crate::install_module;
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "encoding")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.encoding", &m)?;
+
+    m.add_class::<PyArray>()?;
+
+    m.add_function(wrap_pyfunction!(_encode, &m)?)?;
+    m.add_function(wrap_pyfunction!(compress::compress, &m)?)?;
+
+    Ok(())
+}
 
 // Private, ergo not documented.
 #[pyfunction]

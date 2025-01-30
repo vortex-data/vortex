@@ -8,6 +8,8 @@ import pyarrow.compute as pc
 import pytest
 
 import vortex
+import vortex.dataset
+import vortex.io
 
 
 def record(x: int, columns=None) -> dict:

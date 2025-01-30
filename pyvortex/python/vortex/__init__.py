@@ -1,10 +1,11 @@
-from . import dataset, encoding
-from ._lib import __doc__ as module_docs
-from ._lib import dtype, expr, io, scalar
+from . import _lib
 
-__doc__ = module_docs
-del module_docs
-array = encoding.array
-compress = encoding.compress
+assert _lib, "Eager import the Vortex native library"
 
-__all__ = ["array", dtype, expr, io, encoding, scalar, dataset]
+from . import encoding
+
+# Re-export all symbols from the native DType module
+from ._lib.dtype import *
+
+# Export the 'array' factory function
+from .encoding import array

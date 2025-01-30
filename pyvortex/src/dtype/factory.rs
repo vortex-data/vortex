@@ -1,69 +1,10 @@
-use arrow::datatypes::{DataType, Field};
-use arrow::pyarrow::FromPyArrow;
 use pyo3::exceptions::PyValueError;
-use pyo3::types::PyType;
-use pyo3::{pyclass, pyfunction, pymethods, Bound, Py, PyAny, PyResult, Python};
-use vortex::arrow::FromArrowType;
-use vortex::dtype::{DType, PType};
+use pyo3::prelude::PyAnyMethods;
+use pyo3::types::PyDict;
+use pyo3::{pyfunction, Bound, Py, PyResult, Python};
+use vortex::dtype::{DType, FieldName, PType, StructDType};
 
-use crate::python_repr::PythonRepr;
-
-#[pyclass(name = "DType", module = "vortex", subclass)]
-/// A data type describes the set of operations available on a given column. These operations are
-/// implemented by the column *encoding*. Each data type is implemented by one or more encodings.
-pub struct PyDType {
-    inner: DType,
-}
-
-impl PyDType {
-    pub fn wrap(py: Python<'_>, inner: DType) -> PyResult<Py<Self>> {
-        Py::new(py, Self { inner })
-    }
-
-    pub fn unwrap(&self) -> &DType {
-        &self.inner
-    }
-}
-
-#[pymethods]
-impl PyDType {
-    fn __str__(&self) -> String {
-        format!("{}", self.inner)
-    }
-
-    fn __repr__(&self) -> String {
-        self.inner.python_repr().to_string()
-    }
-
-    #[classmethod]
-    fn from_arrow(
-        cls: &Bound<PyType>,
-        #[pyo3(from_py_with = "import_arrow_dtype")] arrow_dtype: DataType,
-        nullable: bool,
-    ) -> PyResult<Py<Self>> {
-        Self::wrap(
-            cls.py(),
-            DType::from_arrow(&Field::new("_", arrow_dtype, nullable)),
-        )
-    }
-
-    fn maybe_columns(&self) -> Option<Vec<String>> {
-        match &self.inner {
-            DType::Null => None,
-            DType::Bool(_) => None,
-            DType::Primitive(..) => None,
-            DType::Utf8(_) => None,
-            DType::Binary(_) => None,
-            DType::Struct(child, _) => Some(child.names().iter().map(|x| x.to_string()).collect()),
-            DType::List(..) => None,
-            DType::Extension(..) => None,
-        }
-    }
-}
-
-fn import_arrow_dtype(obj: &Bound<PyAny>) -> PyResult<DataType> {
-    DataType::from_pyarrow_bound(obj)
-}
+use crate::dtype::PyDType;
 
 #[pyfunction(name = "null")]
 #[pyo3(signature = ())]
@@ -80,12 +21,12 @@ fn import_arrow_dtype(obj: &Bound<PyAny>) -> PyResult<DataType> {
 ///
 ///     >>> vortex.dtype.null()
 ///     null()
-pub fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Null)
 }
 
-#[pyfunction(name = "bool")]
-#[pyo3(signature = (nullable = false))]
+#[pyfunction(name = "bool_")]
+#[pyo3(signature = (*, nullable = false))]
 /// Construct a Boolean data type.
 ///
 /// Parameters
@@ -109,11 +50,11 @@ pub fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
 ///
 ///     >>> vortex.dtype.bool(False)
 ///     bool(False)
-pub fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Bool(nullable.into()))
 }
 
-#[pyfunction(name = "int")]
+#[pyfunction(name = "int_")]
 #[pyo3(signature = (width = None, nullable = false))]
 /// Construct a signed integral data type.
 ///
@@ -141,7 +82,11 @@ pub fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
 ///
 ///     >>> vortex.dtype.int(32, False)
 ///     int(32, False)
-pub fn dtype_int(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_int(
+    py: Python<'_>,
+    width: Option<u16>,
+    nullable: bool,
+) -> PyResult<Py<PyDType>> {
     let dtype = if let Some(width) = width {
         match width {
             8 => DType::Primitive(PType::I8, nullable.into()),
@@ -184,7 +129,11 @@ pub fn dtype_int(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult
 ///
 ///     >>> vortex.dtype.uint(32, False)
 ///     uint(32, False)
-pub fn dtype_uint(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_uint(
+    py: Python<'_>,
+    width: Option<u16>,
+    nullable: bool,
+) -> PyResult<Py<PyDType>> {
     let dtype = if let Some(width) = width {
         match width {
             8 => DType::Primitive(PType::U8, nullable.into()),
@@ -199,7 +148,7 @@ pub fn dtype_uint(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResul
     PyDType::wrap(py, dtype)
 }
 
-#[pyfunction(name = "float")]
+#[pyfunction(name = "float_")]
 #[pyo3(signature = (width = None, nullable = false))]
 /// Construct an IEEE 754 binary floating-point data type.
 ///
@@ -225,7 +174,11 @@ pub fn dtype_uint(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResul
 ///
 ///     >>> vortex.dtype.float(16, False)
 ///     float(16, False)
-pub fn dtype_float(py: Python<'_>, width: Option<i8>, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_float(
+    py: Python<'_>,
+    width: Option<i8>,
+    nullable: bool,
+) -> PyResult<Py<PyDType>> {
     let dtype = if let Some(width) = width {
         match width {
             16 => DType::Primitive(PType::F16, nullable.into()),
@@ -240,7 +193,7 @@ pub fn dtype_float(py: Python<'_>, width: Option<i8>, nullable: bool) -> PyResul
 }
 
 #[pyfunction(name = "utf8")]
-#[pyo3(signature = (nullable = false))]
+#[pyo3(signature = (*, nullable = false))]
 /// Construct a UTF-8-encoded string data type.
 ///
 /// Parameters
@@ -260,12 +213,12 @@ pub fn dtype_float(py: Python<'_>, width: Option<i8>, nullable: bool) -> PyResul
 ///
 ///     >>> vortex.dtype.utf8(False)
 ///     utf8(False)
-pub fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Utf8(nullable.into()))
 }
 
 #[pyfunction(name = "binary")]
-#[pyo3(signature = (nullable = false))]
+#[pyo3(signature = (*, nullable = false))]
 /// Construct a data type for binary strings.
 ///
 /// Parameters
@@ -284,6 +237,32 @@ pub fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
 ///
 ///     >>> vortex.dtype.binary(False)
 ///     binary(False)
-pub fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Binary(nullable.into()))
+}
+
+#[pyfunction(name = "struct")]
+pub(super) fn dtype_struct(
+    py: Python<'_>,
+    fields: &Bound<'_, PyDict>,
+    nullable: bool,
+) -> PyResult<Py<PyDType>> {
+    let nfields = fields.len()?;
+    let mut names = Vec::with_capacity(nfields);
+    let mut dtypes = Vec::with_capacity(nfields);
+
+    for (name, field) in fields.into_iter() {
+        let field_name = FieldName::from(name.to_string());
+        let field_dtype: PyDType = field.extract()?;
+        names.push(field_name);
+        dtypes.push(field_dtype.unwrap().clone());
+    }
+
+    PyDType::wrap(
+        py,
+        DType::Struct(
+            StructDType::new(names.into(), dtypes).into(),
+            nullable.into(),
+        ),
+    )
 }

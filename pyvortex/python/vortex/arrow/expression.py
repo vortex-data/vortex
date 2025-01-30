@@ -2,8 +2,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from substrait.proto import ExtendedExpression
 
+from vortex.substrait import extended_expression
+
 from .._lib import expr
-from ..substrait import extended_expression
 
 
 def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> list[expr.Expr]:

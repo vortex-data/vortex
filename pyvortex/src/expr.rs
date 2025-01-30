@@ -7,6 +7,20 @@ use vortex::expr::{lit, BinaryExpr, ExprRef, GetItem, Operator};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
+use crate::install_module;
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "expr")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.expr", &m)?;
+
+    m.add_function(wrap_pyfunction!(column, &m)?)?;
+    m.add_function(wrap_pyfunction!(ident, &m)?)?;
+    m.add_function(wrap_pyfunction!(literal, &m)?)?;
+    m.add_class::<PyExpr>()?;
+
+    Ok(())
+}
 
 /// An expression describes how to filter rows when reading an array from a file.
 ///

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow
 
-from ._lib import encoding as _encoding
+from vortex._lib import encoding as _encoding
 
 try:
     import pandas

@@ -9,8 +9,21 @@ use vortex::sampling_compressor::SamplingCompressor;
 use vortex::Array;
 
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
+use crate::encoding::PyArray;
 use crate::expr::PyExpr;
-use crate::{PyArray, TOKIO_RUNTIME};
+use crate::{install_module, TOKIO_RUNTIME};
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "io")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.io", &m)?;
+
+    m.add_function(wrap_pyfunction!(read_url, &m)?)?;
+    m.add_function(wrap_pyfunction!(read_path, &m)?)?;
+    m.add_function(wrap_pyfunction!(write_path, &m)?)?;
+
+    Ok(())
+}
 
 /// Read a vortex struct array from the local filesystem.
 ///

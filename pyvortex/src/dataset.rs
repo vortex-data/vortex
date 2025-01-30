@@ -20,9 +20,21 @@ use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
+use crate::encoding::PyArray;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
-use crate::{PyArray, TOKIO_RUNTIME};
+use crate::{install_module, TOKIO_RUNTIME};
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "dataset")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.dataset", &m)?;
+
+    m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
+    m.add_function(wrap_pyfunction!(dataset_from_path, &m)?)?;
+
+    Ok(())
+}
 
 pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     vortex_file: &VortexFile<FileIoDriver<T>>,
