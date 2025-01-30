@@ -32,7 +32,7 @@ mod cost {
 
 mod decompression {
     // Macbook Pro with M4 Max CPU has 546 GB/s of memory bandwidth
-    pub const MAX_GIB_PER_S: f64 = 500.0;
+    pub const MAX_GIB_PER_S: f64 = 546.0;
 
     // structural pass-throughs
     pub const SPARSE_GIB_PER_S: f64 = MAX_GIB_PER_S;

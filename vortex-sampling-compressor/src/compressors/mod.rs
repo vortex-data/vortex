@@ -9,7 +9,7 @@ use vortex_array::tree::TreeFormatter;
 use vortex_array::{Array, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
-use crate::SamplingCompressor;
+use crate::{constants, SamplingCompressor};
 
 pub mod alp;
 pub mod alp_rd;
@@ -321,10 +321,16 @@ fn decompression_time_ms_recursive(
                 .iter()
                 .zip_longest(array.children().iter())
                 .map(|pair| match pair {
-                    EitherOrBoth::Both(Some(child_tree), child_array) => {
+                    EitherOrBoth::Both(child_tree, child_array) => decompression_time_ms_recursive(
+                        child_array,
+                        child_tree.as_ref(),
+                        assumed_compression_ratio,
+                    ),
+                    EitherOrBoth::Right(child_array) => {
+                        // if the child_tree is None, we have an uncompressed child array
                         decompression_time_ms_recursive(
                             child_array,
-                            Some(child_tree),
+                            None,
                             assumed_compression_ratio,
                         )
                     }
@@ -332,8 +338,7 @@ fn decompression_time_ms_recursive(
                         // this should never happen, since we validate on construction
                         vortex_panic!("Unreachable: child tree without child array!!")
                     }
-                    // if the child_tree is None, we have an uncompressed child array or both were None; costless either way
-                    _ => 0.0,
+                    EitherOrBoth::Left(None) => 0.0, // no child tree, no array -> costless
                 })
                 .sum::<f64>()
         })
@@ -349,7 +354,7 @@ fn decompression_time_ms_recursive(
     // get the decompression speed of this compressor
     let decompression_gib_per_sec = tree
         .map(|c| c.compressor().decompression_gib_per_second())
-        .unwrap_or(500.0);
+        .unwrap_or(constants::MAX_GIB_PER_S);
 
     // compute the time to decompress `self`
     let self_time_ms = (MS_PER_SEC / decompression_gib_per_sec) * uncompressed_size / BYTES_PER_GB;
