@@ -1,6 +1,3 @@
-use std::any::type_name;
-use std::ops::Shr;
-
 use num_traits::{CheckedShr, WrappingSub};
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
