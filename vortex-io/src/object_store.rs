@@ -104,7 +104,7 @@ impl VortexWrite for ObjectStoreWriter {
 
         const CHUNKS_SIZE: usize = 25 * 1024 * 1204;
 
-        for (chunk_idx, chunk) in slice.chunks(25 * 1024 * 1204).enumerate() {
+        for (chunk_idx, chunk) in slice.chunks(25 * 1024 * 1024).enumerate() {
             let payload = Bytes::copy_from_slice(&slice[chunk_idx * CHUNKS_SIZE..][..chunk.len()]);
             self.upload
                 .as_mut()
