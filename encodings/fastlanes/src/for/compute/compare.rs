@@ -52,9 +52,11 @@ where
             rhs = rhs.wrapping_sub(&reference);
         }
         // Since compare requires that both sides are of same dtype this will always succeed and not panic
+
+        let zero = T::zero();
         let rhs = match rhs.checked_shr(lhs.shift() as u32) {
             Some(v) => v,
-            None if rhs == T::zero() => T::zero(),
+            None if rhs == zero => zero,
             None => unreachable!(),
         };
 
