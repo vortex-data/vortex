@@ -155,7 +155,7 @@ def write_path(array: vx.Array, path: str, *, compress: bool = True):
 
     Parameters
     ----------
-    array : :class:`~vortex.encoding.Array`
+    array : :class:`~vortex.Array`
         The array. Must be an array of structures.
 
     path : :class:`str`
