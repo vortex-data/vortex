@@ -1,6 +1,7 @@
+use std::any::type_name;
 use std::ops::Shr;
 
-use num_traits::WrappingSub;
+use num_traits::{CheckedShr, WrappingSub};
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{Array, IntoArray};
@@ -35,7 +36,7 @@ fn compare_constant<T>(
     operator: Operator,
 ) -> VortexResult<Option<Array>>
 where
-    T: NativePType + Shr<u32, Output = T> + WrappingSub,
+    T: NativePType + WrappingSub + CheckedShr<Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
@@ -53,10 +54,9 @@ where
         if let Some(reference) = reference {
             rhs = rhs.wrapping_sub(&reference);
         }
-        if lhs.shift() > 0 {
-            // Since compare requires that both sides are of same dtype this will always succeed and not panic
-            rhs = rhs >> (lhs.shift() as u32)
-        }
+        // Since compare requires that both sides are of same dtype this will always succeed and not panic
+        rhs = rhs.checked_shr(lhs.shift() as u32).unwrap_or_default();
+
         rhs
     });
 
