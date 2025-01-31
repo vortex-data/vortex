@@ -181,7 +181,7 @@ impl PyArray {
     ///
     /// Returns
     /// -------
-    /// :class:`vortex.dtype.DType`
+    /// :class:`vortex.DType`
     ///
     /// Examples
     /// --------
