@@ -117,7 +117,6 @@ impl VortexWrite for ObjectStoreWriter {
 
     async fn flush(&mut self) -> io::Result<()> {
         self.upload.complete().await?;
-
         Ok(())
     }
 
