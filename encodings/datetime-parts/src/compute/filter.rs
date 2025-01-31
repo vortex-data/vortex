@@ -11,7 +11,7 @@ impl FilterFn<DateTimePartsArray> for DateTimePartsEncoding {
             array.dtype().clone(),
             filter(array.days().as_ref(), mask)?,
             filter(array.seconds().as_ref(), mask)?,
-            filter(array.subsecond().as_ref(), mask)?,
+            filter(array.subseconds().as_ref(), mask)?,
         )?
         .into_array())
     }

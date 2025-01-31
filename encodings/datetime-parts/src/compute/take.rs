@@ -10,7 +10,7 @@ impl TakeFn<DateTimePartsArray> for DateTimePartsEncoding {
             array.dtype().clone(),
             take(array.days(), indices)?,
             take(array.seconds(), indices)?,
-            take(array.subsecond(), indices)?,
+            take(array.subseconds(), indices)?,
         )?
         .into_array())
     }
