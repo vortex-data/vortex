@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use crate::stats::bound::{max, min, JoinResult};
 use crate::stats::{LowerBound, Precision, Stat, UpperBound};
 
-/// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound)
+/// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
+/// this is used to extract the bound from a `Precision` value, (e.g. p::bound<Max>()).
 pub trait StatType<T> {
     type Bound: StatBound<T>;
 
@@ -108,12 +109,6 @@ impl<T: PartialOrd + Clone> LowerBound<T> {
         self.0
     }
 }
-
-// impl<T> StatBound<T> for UpperBound<T> {
-//     fn lift(value: Precision<T>) -> Self {
-//         UpperBound(value)
-//     }
-// }
 
 impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
     fn lift(value: Precision<T>) -> Self {

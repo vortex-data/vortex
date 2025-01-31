@@ -23,6 +23,7 @@ impl<T> LowerBound<T> {
     }
 }
 
+/// The result of the fallible intersection of two bound, defined to avoid Option JoinResult mixup.
 pub enum JoinResult<T> {
     Join(T),
     None,
@@ -130,7 +131,7 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
     }
 }
 
-/// Interpret the value as an upper bound
+/// Interpret the value as an upper bound, see `LowerBound` for more details.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpperBound<T>(pub(crate) Precision<T>);
 

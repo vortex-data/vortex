@@ -108,7 +108,7 @@ impl Statistics for Array {
     }
 
     fn compute(&self, stat: Stat) -> Option<ScalarValue> {
-        if let Some(Precision::Exact(s)) = self.get(stat) {
+        if let Some(s) = self.get(stat).and_then(|v| v.ok_exact()) {
             return Some(s);
         }
         let s = self
