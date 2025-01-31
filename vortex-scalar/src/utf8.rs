@@ -21,10 +21,9 @@ impl PartialEq for Utf8Scalar<'_> {
 
 impl Eq for Utf8Scalar<'_> {}
 
-/// Ord is not implemented since it's undefined for different nullability
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
     }
 }
 

@@ -148,8 +148,8 @@ fn arrow_numeric(lhs: Array, rhs: Array, operator: BinaryNumericOperator) -> Vor
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs.clone())?;
-    let right = Datum::try_new(rhs.clone())?;
+    let left = Datum::try_new(lhs)?;
+    let right = Datum::try_new(rhs)?;
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,

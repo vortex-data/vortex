@@ -5,7 +5,7 @@ use std::str::Utf8Error;
 use crate::ByteBuffer;
 
 /// A wrapper around a [`ByteBuffer`] that guarantees that the buffer contains valid UTF-8.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BufferString(ByteBuffer);
 
 impl BufferString {

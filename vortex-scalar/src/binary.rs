@@ -22,7 +22,7 @@ impl Eq for BinaryScalar<'_> {}
 
 impl PartialOrd for BinaryScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
     }
 }
 
