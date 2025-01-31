@@ -100,7 +100,7 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
     })
 }
 
-#[pyclass(name = "Buffer", module = "vortex", sequence, subclass)]
+#[pyclass(name = "Buffer", module = "vortex.scalar", sequence, subclass)]
 /// A view of binary data from a Vortex array.
 pub struct PyBuffer {
     inner: ByteBuffer,
@@ -135,7 +135,7 @@ impl PyBuffer {
     }
 }
 
-#[pyclass(name = "BufferString", module = "vortex", sequence, subclass)]
+#[pyclass(name = "BufferString", module = "vortex.scalar", sequence, subclass)]
 /// A view of UTF-8 data from a Vortex array.
 pub struct PyBufferString {
     inner: BufferString,
@@ -170,7 +170,7 @@ impl PyBufferString {
     }
 }
 
-#[pyclass(name = "VortexList", module = "vortex", sequence, subclass)]
+#[pyclass(name = "VortexList", module = "vortex.scalar", sequence, subclass)]
 /// A view of a variable-length list of data from a Vortex array.
 pub struct PyVortexList {
     inner: Scalar,
@@ -214,7 +214,7 @@ fn to_python_list(py: Python, scalar: ListScalar<'_>, recursive: bool) -> PyResu
         .into_py(py))
 }
 
-#[pyclass(name = "VortexStruct", module = "vortex", sequence, subclass)]
+#[pyclass(name = "VortexStruct", module = "vortex.scalar", sequence, subclass)]
 /// A view of structured data from a Vortex array.
 pub struct PyVortexStruct {
     inner: Scalar,

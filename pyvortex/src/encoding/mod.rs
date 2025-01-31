@@ -1,3 +1,5 @@
+mod bool;
+
 use arrow::array::{make_array, ArrayData as ArrowArrayData};
 use arrow::datatypes::{DataType, Field};
 use arrow::ffi_stream::ArrowArrayStreamReader;
@@ -11,11 +13,8 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::{Array, IntoArray};
 
-mod array;
-mod compress;
-
-pub use array::PyArray;
-
+use crate::arrays::PyArray;
+use crate::encoding::bool::PyBoolArray;
 use crate::install_module;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -23,10 +22,9 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_submodule(&m)?;
     install_module("vortex._lib.encoding", &m)?;
 
-    m.add_class::<PyArray>()?;
-
     m.add_function(wrap_pyfunction!(_encode, &m)?)?;
-    m.add_function(wrap_pyfunction!(compress::compress, &m)?)?;
+
+    m.add_class::<PyBoolArray>()?;
 
     Ok(())
 }

@@ -4,9 +4,10 @@ Python API
 .. toctree::
    :maxdepth: 5
 
+   arrays
+   dtypes
    encoding
-   dtype
    io
    dataset
    expr
-   scalar
+   scalars

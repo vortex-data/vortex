@@ -1,5 +1,5 @@
-Arrays
-======
+Encoding
+========
 
 A Vortex array is a possibly compressed ordered set of homogeneously typed values. Each array has a
 logical type and a physical encoding. The logical type describes the set of operations applicable to

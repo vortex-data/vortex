@@ -20,7 +20,7 @@ use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
-use crate::encoding::PyArray;
+use crate::arrays::PyArray;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
 use crate::{install_module, TOKIO_RUNTIME};

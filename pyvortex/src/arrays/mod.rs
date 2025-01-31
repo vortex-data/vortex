@@ -10,8 +10,19 @@ use vortex::mask::Mask;
 use vortex::Array;
 
 use crate::dtype::PyDType;
+use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::scalar_into_py;
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "arrays")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.arrays", &m)?;
+
+    m.add_class::<PyArray>()?;
+
+    Ok(())
+}
 
 /// An array of zero or more *rows* each with the same set of *columns*.
 ///
@@ -78,6 +89,7 @@ use crate::scalar::scalar_into_py;
 ///        true
 ///     ]
 #[pyclass(name = "Array", module = "vortex", sequence, subclass)]
+#[derive(Clone)]
 pub struct PyArray {
     inner: Array,
 }

@@ -8,8 +8,8 @@ use vortex::file::VortexWriteOptions;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::Array;
 
+use crate::arrays::PyArray;
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
-use crate::encoding::PyArray;
 use crate::expr::PyExpr;
 use crate::{install_module, TOKIO_RUNTIME};
 
