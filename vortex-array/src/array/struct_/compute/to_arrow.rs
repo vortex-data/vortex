@@ -102,7 +102,7 @@ mod tests {
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs".into()]),
-            vec![xs.clone().into_array()],
+            vec![xs.into_array()],
             5,
             Validity::AllValid,
         )
