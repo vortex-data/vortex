@@ -51,16 +51,12 @@ where
         if let Some(reference) = reference {
             rhs = rhs.wrapping_sub(&reference);
         }
-        // Since compare requires that both sides are of same dtype this will always succeed and not panic
 
-        let zero = T::zero();
-        let rhs = match rhs.checked_shr(lhs.shift() as u32) {
-            Some(v) => v,
-            None if rhs == zero => zero,
-            None => unreachable!(),
-        };
+        let bit_width = (size_of::<T>() * 8) as u32;
 
-        rhs
+        // Since compare requires that both sides are of same dtype, shifting by bit_width should never have an effect.
+        assert!(bit_width >= lhs.shift() as u32);
+        rhs >> (lhs.shift() as u32 % bit_width)
     });
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
