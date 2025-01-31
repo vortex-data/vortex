@@ -10,8 +10,8 @@ use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    not_impl_err, ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue,
-    Statistics,
+    config_datafusion_err, not_impl_err, ColumnStatistics, DataFusionError, GetExt,
+    Result as DFResult, ScalarValue, Statistics,
 };
 use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
@@ -91,8 +91,14 @@ impl FileFormatFactory for VortexFormatFactory {
     fn create(
         &self,
         _state: &SessionState,
-        _format_options: &std::collections::HashMap<String, String>,
+        format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
+        if !format_options.is_empty() {
+            return Err(config_datafusion_err!(
+                "Vortex tables don't support any options"
+            ));
+        }
+
         Ok(Arc::new(VortexFormat::new(self.context.clone())))
     }
 
@@ -294,8 +300,8 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Overwrites are not implemented yet for Parquet");
         }
 
+        let sink_schema = conf.output_schema().clone();
         let sink = Arc::new(VortexSink::new(conf));
-        let sink_schema = input.schema();
 
         Ok(Arc::new(DataSinkExec::new(
             input,
@@ -325,29 +331,12 @@ impl FileFormat for VortexFormat {
 
 #[cfg(test)]
 mod tests {
-    use datafusion::datasource::provider::DefaultTableFactory;
     use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
     use tempfile::TempDir;
 
     use super::*;
-
-    /// Utility function to register Vortex with a [`SessionStateBuilder`]
-    fn register_vortex_format_factory(
-        factory: VortexFormatFactory,
-        session_state_builder: &mut SessionStateBuilder,
-    ) {
-        if let Some(table_factories) = session_state_builder.table_factories() {
-            table_factories.insert(
-                factory.get_ext().to_uppercase(), // Has to be uppercase
-                Arc::new(DefaultTableFactory::new()),
-            );
-        }
-
-        if let Some(file_formats) = session_state_builder.file_formats() {
-            file_formats.push(Arc::new(factory));
-        }
-    }
+    use crate::persistent::register_vortex_format_factory;
 
     #[tokio::test]
     async fn create_table() {
@@ -355,15 +344,13 @@ mod tests {
 
         let factory = VortexFormatFactory::default_config();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-
         register_vortex_format_factory(factory, &mut session_state_builder);
-
         let session = SessionContext::new_with_state(session_state_builder.build());
 
         let df = session
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
-                (c1 VARCHAR NOT NULL, c2 INT NOT NULL)
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex LOCATION '{}'",
                 dir.path().to_str().unwrap()
             ))
@@ -371,5 +358,30 @@ mod tests {
             .unwrap();
 
         assert_eq!(df.count().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn fail_table_config() {
+        let dir = TempDir::new().unwrap();
+
+        let factory = VortexFormatFactory::default_config();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex LOCATION '{}' \
+                OPTIONS( some_key 'value' );",
+                dir.path().to_str().unwrap()
+            ))
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
     }
 }
