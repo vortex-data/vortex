@@ -52,22 +52,6 @@ pub struct Scalar {
 }
 
 impl Scalar {
-    pub fn as_f16(&self) -> Option<f16> {
-        if !matches!(
-            self.dtype,
-            DType::Primitive(PType::F16, Nullability::NonNullable)
-        ) {
-            return None
-        }
-
-        match &self.value.0 {
-            InnerScalarValue::Primitive(PValue::U16(value)) => Some(f16::from_u16(value)).
-            _ => None,
-        }
-    }
-}
-
-impl Scalar {
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
         Self { dtype, value }
     }
