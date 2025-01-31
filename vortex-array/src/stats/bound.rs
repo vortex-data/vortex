@@ -24,6 +24,7 @@ impl<T> LowerBound<T> {
 }
 
 /// The result of the fallible intersection of two bound, defined to avoid Option JoinResult mixup.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JoinResult<T> {
     Join(T),
     None,
@@ -196,7 +197,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
                 }
             }
             (Exact(lhs), Inexact(rhs)) => {
-                if rhs <= lhs {
+                if rhs >= lhs {
                     JoinResult::Join(UpperBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
@@ -253,6 +254,7 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> Option<T> {
 #[cfg(test)]
 mod tests {
 
+    use crate::stats::bound::JoinResult;
     use crate::stats::{Precision, StatBound, UpperBound};
 
     #[test]
@@ -273,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_upper_bound_meet() {
+    fn test_upper_bound_union() {
         let ub1: UpperBound<i32> = UpperBound(Precision::exact(10i32));
         let ub2 = UpperBound(Precision::exact(12i32));
 
@@ -293,5 +295,18 @@ mod tests {
         let ub2 = UpperBound(Precision::inexact(12i32));
 
         assert_eq!(Some(ub2.clone()), ub1.union(&ub2))
+    }
+
+    #[test]
+    fn test_upper_bound_intersection() {
+        let ub1: UpperBound<i32> = UpperBound(Precision::exact(10i32));
+        let ub2 = UpperBound(Precision::inexact(12i32));
+
+        assert_eq!(Some(JoinResult::Join(ub1.clone())), ub1.intersection(&ub2));
+
+        let ub1: UpperBound<i32> = UpperBound(Precision::exact(13i32));
+        let ub2 = UpperBound(Precision::inexact(12i32));
+
+        assert_eq!(Some(JoinResult::None), ub1.intersection(&ub2));
     }
 }

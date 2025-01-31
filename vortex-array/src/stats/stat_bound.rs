@@ -11,11 +11,20 @@ pub trait StatType<T> {
     const STAT: Stat;
 }
 
+/// `StatBound` defines the operations that can be performed on a bound.
+/// The mains bounds are Upper (e.g. max) and Lower (e.g. min).
 pub trait StatBound<T>: Sized {
+    /// Creates a new bound from a Precision statistic.
     fn lift(value: Precision<T>) -> Self;
 
+    /// Finds the smallest bound that covers both bounds.
+    /// A.k.a. the `meet` of the bound.
     fn union(&self, other: &Self) -> Option<Self>;
 
+    /// Refines the bounds to the most precise estimate we can make for that bound.
+    /// If the bounds are disjoint, then the result is `JoinResult::None`.
+    /// e.g. `Precision::Inexact(5)` and `Precision::Exact(6)` would result in `Precision::Inexact(5)`.
+    /// A.k.a. the `meet` of the bound.
     fn intersection(&self, other: &Self) -> Option<JoinResult<Self>>;
 }
 
@@ -26,6 +35,8 @@ impl<T> Precision<T> {
     }
 }
 
+/// These structs allow the extraction of the bound from the `Precision` value.
+/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
 pub struct Max;
 pub struct Min;
 pub struct BitWidthFreq;
