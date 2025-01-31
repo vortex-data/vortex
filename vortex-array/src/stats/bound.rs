@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+
 use crate::stats::Precision;
 use crate::stats::Precision::{Exact, Inexact};
 
@@ -20,27 +21,50 @@ impl<T> LowerBound<T> {
     }
 }
 
+pub enum JoinResult<T> {
+    Join(T),
+    None,
+}
+
 impl<T: PartialOrd + Clone> LowerBound<T> {
     // The meet or tightest covering bound
     pub fn meet(&self, other: &Self) -> Option<LowerBound<T>> {
         Some(LowerBound(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => Exact(try_min(lhs, rhs)?.clone()),
             (Inexact(lhs), Inexact(rhs)) => Inexact(try_min(lhs, rhs)?.clone()),
-            (Inexact(lhs), Exact(rhs)) => {
+            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
                 if rhs <= lhs {
                     Exact(rhs.clone())
                 } else {
                     Inexact(lhs.clone())
                 }
             }
-            (Exact(lhs), Inexact(rhs)) => {
-                if lhs <= rhs {
-                    Exact(lhs.clone())
+        }))
+    }
+
+    // The join of the smallest intersection of both bounds, this can fail.
+    pub fn join(&self, other: &Self) -> Option<JoinResult<LowerBound<T>>> {
+        Some(match (&self.0, &other.0) {
+            (Exact(lhs), Exact(rhs)) => {
+                if lhs == rhs {
+                    JoinResult::Join(LowerBound(Exact(lhs.clone())))
                 } else {
-                    Inexact(rhs.clone())
+                    // The two intervals do not overlap
+                    JoinResult::None
                 }
             }
-        }))
+            (Inexact(lhs), Inexact(rhs)) => {
+                JoinResult::Join(LowerBound(Inexact(try_max(lhs, rhs)?.clone())))
+            }
+            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
+                if rhs >= lhs {
+                    JoinResult::Join(LowerBound(Exact(rhs.clone())))
+                } else {
+                    // The two intervals do not overlap
+                    JoinResult::None
+                }
+            }
+        })
     }
 }
 
@@ -95,21 +119,38 @@ impl<T: PartialOrd + Clone> UpperBound<T> {
         Some(UpperBound(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => Exact(try_max(lhs, rhs)?.clone()),
             (Inexact(lhs), Inexact(rhs)) => Inexact(try_max(lhs, rhs)?.clone()),
-            (Inexact(lhs), Exact(rhs)) => {
+            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
                 if rhs >= lhs {
                     Exact(rhs.clone())
                 } else {
                     Inexact(lhs.clone())
                 }
             }
-            (Exact(lhs), Inexact(rhs)) => {
-                if lhs >= rhs {
-                    Exact(lhs.clone())
+        }))
+    }
+
+    pub fn join(&self, other: &Self) -> Option<JoinResult<UpperBound<T>>> {
+        Some(match (&self.0, &other.0) {
+            (Exact(lhs), Exact(rhs)) => {
+                if lhs == rhs {
+                    JoinResult::Join(UpperBound(Exact(lhs.clone())))
                 } else {
-                    Inexact(rhs.clone())
+                    // The two intervals do not overlap
+                    JoinResult::None
                 }
             }
-        }))
+            (Inexact(lhs), Inexact(rhs)) => {
+                JoinResult::Join(UpperBound(Inexact(try_min(lhs, rhs)?.clone())))
+            }
+            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
+                if rhs <= lhs {
+                    JoinResult::Join(UpperBound(Exact(rhs.clone())))
+                } else {
+                    // The two intervals do not overlap
+                    JoinResult::None
+                }
+            }
+        })
     }
 }
 
