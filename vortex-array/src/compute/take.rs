@@ -88,9 +88,9 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 }
 
 fn derive_take_stats(arr: &Array) -> StatsSet {
-    let mut stats = arr.to_set();
+    let stats = arr.to_set();
 
-    stats.retain_approx_only(
+    stats.keep_exact_inexact_stats(
         // Any combination of elements from a constant array is still const
         &[Stat::IsConstant],
         &[
@@ -98,8 +98,7 @@ fn derive_take_stats(arr: &Array) -> StatsSet {
             Stat::Min,
             Stat::Max,
         ],
-    );
-    stats
+    )
 }
 
 fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {

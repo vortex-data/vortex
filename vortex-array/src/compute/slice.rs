@@ -82,9 +82,9 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 
 #[allow(dead_code)]
 fn derive_sliced_stats(arr: &Array) -> StatsSet {
-    let mut stats = arr.to_set();
+    let stats = arr.to_set();
 
-    stats.retain_approx_only(
+    stats.keep_exact_inexact_stats(
         &[Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted],
         &[
             Stat::Max,
@@ -94,8 +94,7 @@ fn derive_sliced_stats(arr: &Array) -> StatsSet {
             Stat::NullCount,
             Stat::UncompressedSizeInBytes,
         ],
-    );
-    stats
+    )
 }
 
 fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<()> {

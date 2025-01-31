@@ -194,13 +194,23 @@ impl StatsSet {
         }
     }
 
-    pub fn retain_approx_only(&mut self, exact_keep: &[Stat], inexact_keep: &[Stat]) {
-        if let Some(v) = &mut self.values {
-            v.retain(|(s, _)| exact_keep.contains(s) || inexact_keep.contains(s));
+    pub fn keep_exact_inexact_stats(self, exact_keep: &[Stat], inexact_keep: &[Stat]) -> Self {
+        if let Some(v) = self.values {
+            // v.retain(|(s, _)| exact_keep.contains(s) || inexact_keep.contains(s));
 
-            v.iter_mut()
-                .filter(|(s, _)| inexact_keep.contains(s))
-                .for_each(|(_, v)| v.mut_inexact());
+            v.into_iter()
+                .filter_map(|(s, v)| {
+                    if exact_keep.contains(&s) {
+                        Some((s, v))
+                    } else if inexact_keep.contains(&s) {
+                        Some((s, v.into_inexact()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            self
         }
     }
 
@@ -867,13 +877,13 @@ mod test {
 
     #[test]
     fn retain_approx() {
-        let mut set = StatsSet::from_iter([
+        let set = StatsSet::from_iter([
             (Stat::Max, Precision::exact(100)),
             (Stat::Min, Precision::exact(50)),
             (Stat::TrueCount, Precision::inexact(10)),
         ]);
 
-        set.retain_approx_only(&[Stat::Min], &[Stat::Max]);
+        let set = set.keep_exact_inexact_stats(&[Stat::Min], &[Stat::Max]);
 
         assert_eq!(set.len(), 2);
         assert_eq!(set.get_as::<i32>(Stat::Max), Some(Precision::inexact(100)));

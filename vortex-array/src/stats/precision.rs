@@ -30,11 +30,11 @@ impl<T> Precision<Option<T>> {
 }
 
 impl<T: Clone> Precision<T> {
-    pub fn mut_inexact(&mut self) {
+    pub fn into_inexact(self) -> Self {
         match self {
-            Exact(val) => *self = Inexact(val.clone()),
-            Inexact(_) => (),
-        };
+            Exact(val) => Inexact(val),
+            Inexact(_) => self,
+        }
     }
 }
 
