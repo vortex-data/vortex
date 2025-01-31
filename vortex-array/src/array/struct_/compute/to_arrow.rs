@@ -46,11 +46,12 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 .names()
                 .iter()
                 .zip(field_arrays.iter())
-                .map(|(name, field_array)| {
+                .zip(target_fields.iter())
+                .map(|((name, field_array), target_field)| {
                     Field::new(
                         &**name,
                         field_array.data_type().clone(),
-                        field_array.is_nullable(),
+                        target_field.is_nullable(),
                     )
                 })
                 .map(Arc::new)
