@@ -75,10 +75,7 @@ fn compare_fsst_constant(
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 
-    let rhs = ConstantArray::new(
-        Scalar::binary(encoded_scalar, left.dtype().nullability()),
-        left.len(),
-    );
+    let rhs = ConstantArray::new(encoded_scalar, left.len());
     compare(
         left.codes(),
         rhs,
@@ -113,7 +110,7 @@ mod tests {
         let compressor = fsst_train_compressor(&lhs).unwrap();
         let lhs = fsst_compress(&lhs, &compressor).unwrap();
 
-        let rhs = ConstantArray::new(Some("world".to_string()), lhs.len()).into_array();
+        let rhs = ConstantArray::new("world", lhs.len()).into_array();
 
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals: Vec<bool> = compare(&lhs, &rhs, Operator::Eq)

@@ -97,9 +97,7 @@ where
 mod tests {
     use vortex_array::array::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
-    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -290,7 +288,7 @@ mod tests {
 
     #[test]
     fn compare_to_null() {
-        let array = PrimitiveArray::new(buffer![1.234f32; 1025], Validity::AllValid);
+        let array = PrimitiveArray::from_iter([1.234f32; 1025]);
         let encoded = alp_encode(&array).unwrap();
 
         let other = ConstantArray::new(

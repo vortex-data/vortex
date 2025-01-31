@@ -38,10 +38,10 @@ mod tests {
 
     #[test]
     fn test_bin_bool_chunked() {
-        let arr0 = BoolArray::from_iter(vec![Some(true), Some(false)]).into_array();
-        let arr1 = BoolArray::from_iter(vec![Some(false), Some(false), Some(true)]).into_array();
+        let arr0 = BoolArray::from_iter(vec![true, false]).into_array();
+        let arr1 = BoolArray::from_iter(vec![false, false, true]).into_array();
         let chunked1 =
-            ChunkedArray::try_new(vec![arr0, arr1], DType::Bool(Nullability::Nullable)).unwrap();
+            ChunkedArray::try_new(vec![arr0, arr1], DType::Bool(Nullability::NonNullable)).unwrap();
 
         let arr2 = BoolArray::from_iter(vec![Some(false), Some(true)]).into_array();
         let arr3 = BoolArray::from_iter(vec![Some(false), None, Some(false)]).into_array();
