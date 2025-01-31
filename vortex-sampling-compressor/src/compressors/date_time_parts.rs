@@ -55,7 +55,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
             &downscale_integer_array(seconds)?,
             like.as_ref().and_then(|l| l.child(1)),
         )?;
-        let subsecond = ctx.named("subsecond").compress(
+        let subseconds = ctx.named("subseconds").compress(
             &downscale_integer_array(subseconds)?,
             like.as_ref().and_then(|l| l.child(2)),
         )?;
@@ -64,12 +64,12 @@ impl EncodingCompressor for DateTimePartsCompressor {
                 array.dtype().clone(),
                 days.array,
                 seconds.array,
-                subsecond.array,
+                subseconds.array,
             )?
             .into_array(),
             Some(CompressionTree::new(
                 self,
-                vec![days.path, seconds.path, subsecond.path],
+                vec![days.path, seconds.path, subseconds.path],
             )),
             array,
         ))

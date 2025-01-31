@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
-use arrow_schema::SchemaRef;
-use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
+use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener, FileScanConfig};
 use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
+use vortex_array::array::StructArray;
 use vortex_array::arrow::FromArrowType;
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldNames};
@@ -27,6 +26,7 @@ pub(crate) struct VortexFileOpener {
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
     pub(crate) file_layout_cache: FileLayoutCache,
+    pub config: FileScanConfig,
 }
 
 impl VortexFileOpener {
@@ -35,10 +35,10 @@ impl VortexFileOpener {
         object_store: Arc<dyn ObjectStore>,
         projection: Option<FieldNames>,
         predicate: Option<Arc<dyn PhysicalExpr>>,
-        arrow_schema: SchemaRef,
         file_layout_cache: FileLayoutCache,
+        config: FileScanConfig,
     ) -> VortexResult<Self> {
-        let dtype = DType::from_arrow(arrow_schema);
+        let dtype = DType::from_arrow(config.file_schema.clone());
         let filter = predicate
             .as_ref()
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
@@ -67,6 +67,7 @@ impl VortexFileOpener {
             projection,
             filter,
             file_layout_cache,
+            config,
         })
     }
 }
@@ -92,9 +93,14 @@ impl FileOpener for VortexFileOpener {
                 .open(read_at)
                 .await?;
 
+            let (projected_arrow_schema, ..) = this.config.project();
+
             Ok(vxf
                 .scan(Scan::new(this.projection.clone()).with_some_filter(this.filter.clone()))?
-                .map_ok(RecordBatch::try_from)
+                .map_ok(move |array| {
+                    let st = StructArray::try_from(array)?;
+                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                })
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())
                 .boxed())

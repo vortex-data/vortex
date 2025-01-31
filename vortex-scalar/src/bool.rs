@@ -6,19 +6,11 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, Vort
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
 }
-
-impl PartialEq for BoolScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
-    }
-}
-
-impl Eq for BoolScalar<'_> {}
 
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {

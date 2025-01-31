@@ -34,7 +34,7 @@ impl DateTimePartsArray {
         dtype: DType,
         days: Array,
         seconds: Array,
-        subsecond: Array,
+        subseconds: Array,
     ) -> VortexResult<Self> {
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
             vortex_bail!(
@@ -46,24 +46,24 @@ impl DateTimePartsArray {
         if !seconds.dtype().is_int() || seconds.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable integer", seconds.dtype());
         }
-        if !subsecond.dtype().is_int() || subsecond.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", subsecond.dtype());
+        if !subseconds.dtype().is_int() || subseconds.dtype().is_nullable() {
+            vortex_bail!(MismatchedTypes: "non-nullable integer", subseconds.dtype());
         }
 
         let length = days.len();
-        if length != seconds.len() || length != subsecond.len() {
+        if length != seconds.len() || length != subseconds.len() {
             vortex_bail!(
                 "Mismatched lengths {} {} {}",
                 days.len(),
                 seconds.len(),
-                subsecond.len()
+                subseconds.len()
             );
         }
 
         let metadata = DateTimePartsMetadata {
             days_ptype: days.dtype().try_into()?,
             seconds_ptype: seconds.dtype().try_into()?,
-            subseconds_ptype: subsecond.dtype().try_into()?,
+            subseconds_ptype: subseconds.dtype().try_into()?,
         };
 
         Self::try_from_parts(
@@ -71,7 +71,7 @@ impl DateTimePartsArray {
             length,
             SerdeMetadata(metadata),
             None,
-            Some([days, seconds, subsecond].into()),
+            Some([days, seconds, subseconds].into()),
             StatsSet::default(),
         )
     }
@@ -92,10 +92,10 @@ impl DateTimePartsArray {
             .vortex_expect("DatetimePartsArray missing seconds array")
     }
 
-    pub fn subsecond(&self) -> Array {
+    pub fn subseconds(&self) -> Array {
         self.as_ref()
             .child(2, &self.metadata().subseconds_ptype.into(), self.len())
-            .vortex_expect("DatetimePartsArray missing subsecond array")
+            .vortex_expect("DatetimePartsArray missing subseconds array")
     }
 
     pub fn validity(&self) -> VortexResult<Validity> {
@@ -125,7 +125,7 @@ impl ExtensionArrayTrait for DateTimePartsArray {
         let days = try_cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();
         StructArray::try_new(
             vec!["days".into(), "seconds".into(), "subseconds".into()].into(),
-            [days, self.seconds(), self.subsecond()].into(),
+            [days, self.seconds(), self.subseconds()].into(),
             self.len(),
             self.validity()
                 .vortex_expect("Failed to create struct array validity"),
@@ -153,7 +153,7 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
     ) -> VortexResult<()> {
         visitor.visit_child("days", &array.days())?;
         visitor.visit_child("seconds", &array.seconds())?;
-        visitor.visit_child("subsecond", &array.subsecond())
+        visitor.visit_child("subseconds", &array.subseconds())
     }
 }
 

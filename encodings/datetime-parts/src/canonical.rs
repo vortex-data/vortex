@@ -45,7 +45,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 
     // We start with the days component, which is always present.
     // And then add the seconds and subseconds components.
-    // We split this into separate passes because often the seconds and/org subsecond components
+    // We split this into separate passes because often the seconds and/org subseconds components
     // are constant.
     let mut values: BufferMut<i64> = days_buf
         .into_buffer_mut::<i64>()
@@ -68,7 +68,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         }
     }
 
-    if let Some(subseconds) = array.subsecond().as_constant() {
+    if let Some(subseconds) = array.subseconds().as_constant() {
         let subseconds = PrimitiveScalar::try_from(
             &subseconds.cast(&DType::Primitive(PType::I64, NonNullable))?,
         )?
@@ -79,12 +79,12 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         }
     } else {
         let subsecond_buf = try_cast(
-            array.subsecond(),
+            array.subseconds(),
             &DType::Primitive(PType::I64, NonNullable),
         )?
         .into_primitive()?;
-        for (v, subsecond) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
-            *v += *subsecond;
+        for (v, subseconds) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
+            *v += *subseconds;
         }
     }
 

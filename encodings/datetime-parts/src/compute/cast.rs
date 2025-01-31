@@ -18,7 +18,7 @@ impl CastFn<DateTimePartsArray> for DateTimePartsEncoding {
                 &array.days().dtype().with_nullability(dtype.nullability()),
             )?,
             array.seconds(),
-            array.subsecond(),
+            array.subseconds(),
         )?
         .into_array())
     }

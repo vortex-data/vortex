@@ -14,7 +14,7 @@ pub struct TemporalParts {
     pub subseconds: Array,
 }
 
-/// Compress a `TemporalArray` into day, second, and subsecond components.
+/// Compress a `TemporalArray` into day, second, and subseconds components.
 ///
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
@@ -40,18 +40,18 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
     let mut seconds = BufferMut::with_capacity(length);
-    let mut subsecond = BufferMut::with_capacity(length);
+    let mut subseconds = BufferMut::with_capacity(length);
 
     for &t in timestamps.as_slice::<i64>().iter() {
         days.push(t / (86_400 * divisor));
         seconds.push((t % (86_400 * divisor)) / divisor);
-        subsecond.push((t % (86_400 * divisor)) % divisor);
+        subseconds.push((t % (86_400 * divisor)) % divisor);
     }
 
     Ok(TemporalParts {
         days: PrimitiveArray::new(days, validity).into_array(),
         seconds: seconds.into_array(),
-        subseconds: subsecond.into_array(),
+        subseconds: subseconds.into_array(),
     })
 }
 
