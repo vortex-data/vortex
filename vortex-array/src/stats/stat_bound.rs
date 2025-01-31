@@ -4,7 +4,7 @@ use crate::stats::bound::{max, min, JoinResult};
 use crate::stats::{LowerBound, Precision, Stat, UpperBound};
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
-/// this is used to extract the bound from a `Precision` value, (e.g. p::bound<Max>()).
+/// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
 pub trait StatType<T> {
     type Bound: StatBound<T>;
 
