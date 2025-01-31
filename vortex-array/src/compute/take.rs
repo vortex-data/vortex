@@ -56,8 +56,7 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     // If the indices are all within bounds, we can skip bounds checking.
     let checked_indices = indices
         .statistics()
-        .get_as::<usize>(Stat::Max)
-        .map(|stat| stat.bound::<Max>())
+        .get_as_bound::<Max, usize>()
         .is_some_and(|max| max < array.len());
 
     let derived_stats = derive_take_stats(array);

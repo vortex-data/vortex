@@ -244,6 +244,14 @@ impl dyn Statistics + '_ {
             })
     }
 
+    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
+    where
+        S: StatType<U>,
+        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    {
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
+    }
+
     /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
     /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
     ///
