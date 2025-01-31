@@ -61,7 +61,7 @@ impl PyDType {
     }
 
     #[classmethod]
-    #[pyo3(signature = (arrow_dtype, *, non_nullable))]
+    #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
     fn from_arrow(
         cls: &Bound<PyType>,
         #[pyo3(from_py_with = "import_arrow_dtype")] arrow_dtype: DataType,

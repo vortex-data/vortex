@@ -46,7 +46,13 @@ def read_url(
 
     """
 
-def read_path() -> vx.Array:
+def read_path(
+    path: str,
+    *,
+    projection: list[str | int] | None = None,
+    row_filter: vx.expr.Expr | None = None,
+    indices: vx.Array | None = None,
+) -> vx.Array:
     """Read a vortex struct array from the local filesystem.
 
     Parameters
@@ -57,6 +63,8 @@ def read_path() -> vx.Array:
         The columns to read identified either by their index or name.
     row_filter : :class:`.Expr`
         Keep only the rows for which this expression evaluates to true.
+    indices : :class:`vortex.Array`
+        The indices of the rows to read.
 
     Examples
     --------

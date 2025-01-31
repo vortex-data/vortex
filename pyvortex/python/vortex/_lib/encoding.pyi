@@ -1,5 +1,8 @@
 from typing import Any, final
 
+import numpy as np
+import pandas as pd
+import polars as pl
 import pyarrow as pa
 
 import vortex as vx
@@ -447,3 +450,10 @@ class Array:
 
         Compressed arrays often have more complex, deeply nested encoding trees.
         """
+
+    def to_arrow_table(self) -> pa.Table: ...
+    def to_numpy(self, *, zero_copy_only: bool = True) -> np.ndarray: ...
+    def to_pandas_df(self) -> pd.DataFrame: ...
+    def to_polars_dataframe(self) -> pl.DataFrame: ...
+    def to_polars_series(self) -> pl.Series: ...
+    def to_pylist(self) -> list: ...

@@ -5,7 +5,7 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{DType, Nullability, PType};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
@@ -49,6 +49,22 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 pub struct Scalar {
     dtype: DType,
     value: ScalarValue,
+}
+
+impl Scalar {
+    pub fn as_f16(&self) -> Option<f16> {
+        if !matches!(
+            self.dtype,
+            DType::Primitive(PType::F16, Nullability::NonNullable)
+        ) {
+            return None
+        }
+
+        match &self.value.0 {
+            InnerScalarValue::Primitive(PValue::U16(value)) => Some(f16::from_u16(value)).
+            _ => None,
+        }
+    }
 }
 
 impl Scalar {
