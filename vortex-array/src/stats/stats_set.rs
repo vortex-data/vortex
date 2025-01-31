@@ -359,11 +359,8 @@ impl StatsSet {
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar(Stat::Min, dtype.clone())
-                .map(|s| s.bound::<Min>()),
-            other
-                .get_scalar(Stat::Min, dtype.clone())
-                .map(|s| s.bound::<Min>()),
+            self.get_scalar_bound::<Min>(dtype.clone()),
+            other.get_scalar_bound::<Min>(dtype.clone()),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
@@ -377,11 +374,8 @@ impl StatsSet {
 
     fn merge_max(&mut self, other: &Self, dtype: &DType) {
         match (
-            self.get_scalar(Stat::Max, dtype.clone())
-                .map(|s| s.bound::<Max>()),
-            other
-                .get_scalar(Stat::Max, dtype.clone())
-                .map(|s| s.bound::<Max>()),
+            self.get_scalar_bound::<Max>(dtype.clone()),
+            other.get_scalar_bound::<Max>(dtype.clone()),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
@@ -434,13 +428,10 @@ impl StatsSet {
             // We assume that it was the dropped case since the doesn't exist might imply sorted,
             // but this in-precision is correct.
             if let (Some(self_max), Some(other_min)) = (
-                self.get_scalar(Stat::Max, dtype.clone()),
-                other.get_scalar(Stat::Min, dtype.clone()),
+                self.get_scalar_bound::<Max>(dtype.clone()),
+                other.get_scalar_bound::<Min>(dtype.clone()),
             ) {
-                return if cmp(
-                    &self_max.bound::<Max>().max_value(),
-                    &other_min.bound::<Min>().min_value(),
-                ) {
+                return if cmp(&self_max.max_value(), &other_min.min_value()) {
                     // keep value
                 } else {
                     self.set(stat, Precision::inexact(false));
