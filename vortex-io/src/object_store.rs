@@ -100,12 +100,10 @@ impl ObjectStoreWriter {
 
 impl VortexWrite for ObjectStoreWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        let slice = buffer.as_slice();
+        const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
 
-        const CHUNKS_SIZE: usize = 25 * 1024 * 1204;
-
-        for (chunk_idx, chunk) in slice.chunks(25 * 1024 * 1024).enumerate() {
-            let payload = Bytes::copy_from_slice(&slice[chunk_idx * CHUNKS_SIZE..][..chunk.len()]);
+        for chunk in buffer.as_slice().chunks(CHUNKS_SIZE) {
+            let payload = Bytes::copy_from_slice(chunk);
             self.upload
                 .as_mut()
                 .put_part(PutPayload::from_bytes(payload))
