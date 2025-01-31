@@ -80,7 +80,6 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     Ok(sliced)
 }
 
-#[allow(dead_code)]
 fn derive_sliced_stats(arr: &Array) -> StatsSet {
     let stats = arr.to_set();
 
@@ -119,7 +118,7 @@ mod tests {
     use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
 
     #[test]
-    fn test_slice_prim() {
+    fn test_slice_primitive() {
         let c = PrimitiveArray::from_iter(0i32..100);
         c.compute_all(STATS_TO_WRITE).unwrap();
 
