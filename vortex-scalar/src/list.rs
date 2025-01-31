@@ -18,19 +18,19 @@ pub struct ListScalar<'a> {
 
 impl PartialEq for ListScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        if self.dtype != other.dtype {
-            return false;
-        }
-        self.elements() == other.elements()
+        self.dtype.eq_ignore_nullability(other.dtype) && self.elements() == other.elements()
     }
 }
 
 impl Eq for ListScalar<'_> {}
 
-/// Ord is not implemented since it's undefined for different DTypes
+/// Ord is not implemented since it's undefined for different element DTypes
 impl PartialOrd for ListScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.dtype() != other.dtype() {
+        if !self
+            .element_dtype
+            .eq_ignore_nullability(other.element_dtype)
+        {
             return None;
         }
         self.elements().partial_cmp(&other.elements())
