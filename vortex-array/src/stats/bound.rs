@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
 
 use vortex_error::{VortexError, VortexResult};
+use Precision::Inexact;
 
-use crate::stats::Precision;
-use crate::stats::Precision::{Exact, Inexact};
+use crate::stats::Precision::Exact;
+use crate::stats::{Precision, StatBound};
 
 /// Interpret the value as a lower bound.
 /// These format a partial order over successively more precise bounds
@@ -39,24 +40,35 @@ impl<T> JoinResult<T> {
     }
 }
 
-impl<T: PartialOrd + Clone> LowerBound<T> {
+impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
+    fn lift(value: Precision<T>) -> Self {
+        Self(value)
+    }
+
     // The meet or tightest covering bound
-    pub fn meet(&self, other: &Self) -> Option<LowerBound<T>> {
+    fn union(&self, other: &Self) -> Option<LowerBound<T>> {
         Some(LowerBound(match (&self.0, &other.0) {
-            (Exact(lhs), Exact(rhs)) => Exact(try_min(lhs, rhs)?.clone()),
-            (Inexact(lhs), Inexact(rhs)) => Inexact(try_min(lhs, rhs)?.clone()),
-            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
+            (Exact(lhs), Exact(rhs)) => Exact(min(lhs, rhs)?.clone()),
+            (Inexact(lhs), Inexact(rhs)) => Inexact(min(lhs, rhs)?.clone()),
+            (Inexact(lhs), Exact(rhs)) => {
                 if rhs <= lhs {
                     Exact(rhs.clone())
                 } else {
                     Inexact(lhs.clone())
                 }
             }
+            (Exact(lhs), Inexact(rhs)) => {
+                if rhs >= lhs {
+                    Exact(lhs.clone())
+                } else {
+                    Inexact(rhs.clone())
+                }
+            }
         }))
     }
 
     // The join of the smallest intersection of both bounds, this can fail.
-    pub fn join(&self, other: &Self) -> Option<JoinResult<LowerBound<T>>> {
+    fn intersection(&self, other: &Self) -> Option<JoinResult<LowerBound<T>>> {
         Some(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => {
                 if lhs == rhs {
@@ -67,10 +79,18 @@ impl<T: PartialOrd + Clone> LowerBound<T> {
                 }
             }
             (Inexact(lhs), Inexact(rhs)) => {
-                JoinResult::Join(LowerBound(Inexact(try_max(lhs, rhs)?.clone())))
+                JoinResult::Join(LowerBound(Inexact(max(lhs, rhs)?.clone())))
             }
-            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
+            (Inexact(lhs), Exact(rhs)) => {
                 if rhs >= lhs {
+                    JoinResult::Join(LowerBound(Exact(rhs.clone())))
+                } else {
+                    // The two intervals do not overlap
+                    JoinResult::None
+                }
+            }
+            (Exact(lhs), Inexact(rhs)) => {
+                if rhs <= lhs {
                     JoinResult::Join(LowerBound(Exact(rhs.clone())))
                 } else {
                     // The two intervals do not overlap
@@ -90,7 +110,7 @@ impl<T: PartialOrd> PartialEq<T> for LowerBound<T> {
     }
 }
 
-// We can only compare exact values with values and inexact values can only be greater than a value
+// We can only compare exact values with values and Precision::inexact values can only be greater than a value
 impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
     fn partial_cmp(&self, other: &T) -> Option<Ordering> {
         match &self.0 {
@@ -126,23 +146,34 @@ impl<T> UpperBound<T> {
     }
 }
 
-impl<T: PartialOrd + Clone> UpperBound<T> {
+impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
+    fn lift(value: Precision<T>) -> Self {
+        Self(value)
+    }
+
     /// The meet or tightest covering bound
-    pub fn meet(&self, other: &Self) -> Option<UpperBound<T>> {
+    fn union(&self, other: &Self) -> Option<UpperBound<T>> {
         Some(UpperBound(match (&self.0, &other.0) {
-            (Exact(lhs), Exact(rhs)) => Exact(try_max(lhs, rhs)?.clone()),
-            (Inexact(lhs), Inexact(rhs)) => Inexact(try_max(lhs, rhs)?.clone()),
-            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
+            (Exact(lhs), Exact(rhs)) => Exact(max(lhs, rhs)?.clone()),
+            (Inexact(lhs), Inexact(rhs)) => Inexact(max(lhs, rhs)?.clone()),
+            (Inexact(lhs), Exact(rhs)) => {
                 if rhs >= lhs {
                     Exact(rhs.clone())
                 } else {
                     Inexact(lhs.clone())
                 }
             }
+            (Exact(lhs), Inexact(rhs)) => {
+                if rhs <= lhs {
+                    Exact(lhs.clone())
+                } else {
+                    Inexact(rhs.clone())
+                }
+            }
         }))
     }
 
-    pub fn join(&self, other: &Self) -> Option<JoinResult<UpperBound<T>>> {
+    fn intersection(&self, other: &Self) -> Option<JoinResult<UpperBound<T>>> {
         Some(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => {
                 if lhs == rhs {
@@ -153,11 +184,19 @@ impl<T: PartialOrd + Clone> UpperBound<T> {
                 }
             }
             (Inexact(lhs), Inexact(rhs)) => {
-                JoinResult::Join(UpperBound(Inexact(try_min(lhs, rhs)?.clone())))
+                JoinResult::Join(UpperBound(Inexact(min(lhs, rhs)?.clone())))
             }
-            (Inexact(lhs), Exact(rhs)) | (Exact(rhs), Inexact(lhs)) => {
+            (Inexact(lhs), Exact(rhs)) => {
                 if rhs <= lhs {
                     JoinResult::Join(UpperBound(Exact(rhs.clone())))
+                } else {
+                    // The two intervals do not overlap
+                    JoinResult::None
+                }
+            }
+            (Exact(lhs), Inexact(rhs)) => {
+                if rhs <= lhs {
+                    JoinResult::Join(UpperBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
                     JoinResult::None
@@ -176,7 +215,7 @@ impl<T: PartialOrd> PartialEq<T> for UpperBound<T> {
     }
 }
 
-// We can only compare exact values with values and inexact values can only be greater than a value
+// We can only compare exact values with values and Precision::inexact values can only be greater than a value
 impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
     fn partial_cmp(&self, other: &T) -> Option<Ordering> {
         match &self.0 {
@@ -192,37 +231,39 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
     }
 }
 
-fn try_max<'a, T: PartialOrd + Clone>(lhs: &'a T, rhs: &'a T) -> Option<&'a T> {
-    if lhs.partial_cmp(rhs)? == Ordering::Greater {
-        Some(lhs)
+#[inline]
+pub fn min<T: PartialOrd>(a: T, b: T) -> Option<T> {
+    if a.partial_cmp(&b)? == Ordering::Less {
+        Some(a)
     } else {
-        Some(rhs)
+        Some(b)
     }
 }
 
-fn try_min<'a, T: PartialOrd + Clone>(lhs: &'a T, rhs: &'a T) -> Option<&'a T> {
-    if lhs.partial_cmp(rhs)? == Ordering::Less {
-        Some(lhs)
+#[inline]
+pub fn max<T: PartialOrd>(a: T, b: T) -> Option<T> {
+    if a.partial_cmp(&b)? == Ordering::Greater {
+        Some(a)
     } else {
-        Some(rhs)
+        Some(b)
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::stats::{exact, inexact, UpperBound};
+    use crate::stats::{Precision, StatBound, UpperBound};
 
     #[test]
     fn test_upper_bound_cmp() {
-        let ub = UpperBound(exact(10i32));
+        let ub = UpperBound(Precision::exact(10i32));
 
         assert_eq!(ub, 10);
         assert!(ub > 9);
         assert!(ub <= 10);
         assert!(ub <= 10);
 
-        let ub = UpperBound(inexact(10i32));
+        let ub = UpperBound(Precision::inexact(10i32));
 
         assert_ne!(ub, 10);
         assert!(ub < 11);
@@ -232,24 +273,24 @@ mod tests {
 
     #[test]
     fn test_upper_bound_meet() {
-        let ub1: UpperBound<i32> = UpperBound(exact(10i32));
-        let ub2 = UpperBound(exact(12i32));
+        let ub1: UpperBound<i32> = UpperBound(Precision::exact(10i32));
+        let ub2 = UpperBound(Precision::exact(12i32));
 
-        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2));
+        assert_eq!(Some(ub2.clone()), ub1.union(&ub2));
 
-        let ub1: UpperBound<i32> = UpperBound(inexact(10i32));
-        let ub2 = UpperBound(exact(12i32));
+        let ub1: UpperBound<i32> = UpperBound(Precision::inexact(10i32));
+        let ub2 = UpperBound(Precision::exact(12i32));
 
-        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2));
+        assert_eq!(Some(ub2.clone()), ub1.union(&ub2));
 
-        let ub1: UpperBound<i32> = UpperBound(exact(10i32));
-        let ub2 = UpperBound(inexact(12i32));
+        let ub1: UpperBound<i32> = UpperBound(Precision::exact(10i32));
+        let ub2 = UpperBound(Precision::inexact(12i32));
 
-        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2));
+        assert_eq!(Some(ub2.clone()), ub1.union(&ub2));
 
-        let ub1: UpperBound<i32> = UpperBound(inexact(10i32));
-        let ub2 = UpperBound(inexact(12i32));
+        let ub1: UpperBound<i32> = UpperBound(Precision::inexact(10i32));
+        let ub2 = UpperBound(Precision::inexact(12i32));
 
-        assert_eq!(Some(ub2.clone()), ub1.meet(&ub2))
+        assert_eq!(Some(ub2.clone()), ub1.union(&ub2))
     }
 }

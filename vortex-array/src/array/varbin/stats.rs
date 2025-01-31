@@ -9,7 +9,7 @@ use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
 use crate::array::{varbin_scalar, VarBinEncoding};
 use crate::compute::scalar_at;
-use crate::stats::{exact, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::Array;
 
@@ -24,7 +24,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>
     stat: Stat,
 ) -> VortexResult<StatsSet> {
     if stat == Stat::UncompressedSizeInBytes {
-        return Ok(StatsSet::of(stat, exact(array.nbytes())));
+        return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
     }
 
     if array.is_empty()
@@ -43,10 +43,10 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>
                 return Ok(StatsSet::nulls(array.len(), array.dtype()));
             }
 
-            let mut stats = StatsSet::of(Stat::NullCount, exact(null_count));
+            let mut stats = StatsSet::of(Stat::NullCount, Precision::exact(null_count));
             if null_count > 0 {
                 // we know that there is at least one null, but not all nulls, so it's not constant
-                stats.set(Stat::IsConstant, exact(false));
+                stats.set(Stat::IsConstant, Precision::exact(false));
             }
             stats
         }
@@ -56,15 +56,15 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>
                 // we know that the array is not empty
                 StatsSet::constant(scalar_at(array.deref(), 0)?, array.len())
             } else {
-                StatsSet::of(Stat::IsConstant, exact(is_constant))
+                StatsSet::of(Stat::IsConstant, Precision::exact(is_constant))
             }
         }
         Stat::Min | Stat::Max => compute_min_max(array)?,
         Stat::IsSorted => {
             let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
-            let mut stats = StatsSet::of(Stat::IsSorted, exact(is_sorted));
+            let mut stats = StatsSet::of(Stat::IsSorted, Precision::exact(is_sorted));
             if !is_sorted {
-                stats.set(Stat::IsStrictSorted, exact(false));
+                stats.set(Stat::IsStrictSorted, Precision::exact(false));
             }
             stats
         }
@@ -73,9 +73,9 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>
                 iter.flatten()
                     .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
             })?;
-            let mut stats = StatsSet::of(Stat::IsStrictSorted, exact(is_strict_sorted));
+            let mut stats = StatsSet::of(Stat::IsStrictSorted, Precision::exact(is_strict_sorted));
             if is_strict_sorted {
-                stats.set(Stat::IsSorted, exact(true));
+                stats.set(Stat::IsSorted, Precision::exact(true));
             }
             stats
         }
@@ -128,7 +128,7 @@ fn compute_min_max<T: ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> 
 
     if min == max {
         // get (don't compute) null count if `min == max` to determine if it's constant
-        if array.statistics().get_as::<u64>(Stat::NullCount) == Some(exact(0u64)) {
+        if array.statistics().get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64)) {
             // if there are no nulls, then the array is constant
             return Ok(StatsSet::constant(
                 varbin_scalar(min, array.dtype()),
@@ -136,11 +136,11 @@ fn compute_min_max<T: ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> 
             ));
         }
     } else {
-        stats.set(Stat::IsConstant, exact(false));
+        stats.set(Stat::IsConstant, Precision::exact(false));
     }
 
-    stats.set(Stat::Min, exact(min));
-    stats.set(Stat::Max, exact(max));
+    stats.set(Stat::Min, Precision::exact(min));
+    stats.set(Stat::Max, Precision::exact(max));
 
     Ok(stats)
 }

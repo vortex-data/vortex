@@ -80,6 +80,7 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     Ok(sliced)
 }
 
+#[allow(dead_code)]
 fn derive_sliced_stats(arr: &Array) -> StatsSet {
     let mut stats = arr.to_set();
 
@@ -116,7 +117,7 @@ mod tests {
 
     use crate::array::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
-    use crate::stats::{exact, inexact, Stat, Statistics, STATS_TO_WRITE};
+    use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
 
     #[test]
     fn test_slice_prim() {
@@ -126,8 +127,14 @@ mod tests {
         let c2 = slice(c, 10, 20).unwrap();
 
         let result_stats = c2.to_set();
-        assert_eq!(result_stats.get_as::<i32>(Stat::Max), Some(inexact(99)));
-        assert_eq!(result_stats.get_as::<i32>(Stat::Min), Some(inexact(0)));
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Max),
+            Some(Precision::inexact(99))
+        );
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Min),
+            Some(Precision::inexact(0))
+        );
     }
 
     #[test]
@@ -139,7 +146,13 @@ mod tests {
         let result_stats = c2.to_set();
 
         // Constant always knows its exact stats
-        assert_eq!(result_stats.get_as::<i32>(Stat::Max), Some(exact(10)));
-        assert_eq!(result_stats.get_as::<i32>(Stat::Min), Some(exact(10)));
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Max),
+            Some(Precision::exact(10))
+        );
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Min),
+            Some(Precision::exact(10))
+        );
     }
 }

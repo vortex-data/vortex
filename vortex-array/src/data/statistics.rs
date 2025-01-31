@@ -4,7 +4,7 @@ use vortex_error::{vortex_panic, VortexExpect as _};
 use vortex_scalar::ScalarValue;
 
 use crate::data::InnerArray;
-use crate::stats::{exact, Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::Array;
 
 impl Statistics for Array {
@@ -23,35 +23,40 @@ impl Statistics for Array {
             InnerArray::Viewed(v) => match stat {
                 Stat::Max => {
                     let max = v.flatbuffer().stats()?.max();
-                    max.and_then(|v| ScalarValue::try_from(v).ok()).map(exact)
+                    max.and_then(|v| ScalarValue::try_from(v).ok())
+                        .map(Precision::exact)
                 }
                 Stat::Min => {
                     let min = v.flatbuffer().stats()?.min();
-                    min.and_then(|v| ScalarValue::try_from(v).ok().map(exact))
+                    min.and_then(|v| ScalarValue::try_from(v).ok().map(Precision::exact))
                 }
-                Stat::IsConstant => v.flatbuffer().stats()?.is_constant().map(exact),
-                Stat::IsSorted => v.flatbuffer().stats()?.is_sorted().map(exact),
-                Stat::IsStrictSorted => v.flatbuffer().stats()?.is_strict_sorted().map(exact),
-                Stat::RunCount => v.flatbuffer().stats()?.run_count().map(exact),
-                Stat::TrueCount => v.flatbuffer().stats()?.true_count().map(exact),
-                Stat::NullCount => v.flatbuffer().stats()?.null_count().map(exact),
+                Stat::IsConstant => v.flatbuffer().stats()?.is_constant().map(Precision::exact),
+                Stat::IsSorted => v.flatbuffer().stats()?.is_sorted().map(Precision::exact),
+                Stat::IsStrictSorted => v
+                    .flatbuffer()
+                    .stats()?
+                    .is_strict_sorted()
+                    .map(Precision::exact),
+                Stat::RunCount => v.flatbuffer().stats()?.run_count().map(Precision::exact),
+                Stat::TrueCount => v.flatbuffer().stats()?.true_count().map(Precision::exact),
+                Stat::NullCount => v.flatbuffer().stats()?.null_count().map(Precision::exact),
                 Stat::BitWidthFreq => v
                     .flatbuffer()
                     .stats()?
                     .bit_width_freq()
                     .map(|v| v.iter().collect_vec())
-                    .map(exact),
+                    .map(Precision::exact),
                 Stat::TrailingZeroFreq => v
                     .flatbuffer()
                     .stats()?
                     .trailing_zero_freq()
                     .map(|v| v.iter().collect_vec())
-                    .map(exact),
+                    .map(Precision::exact),
                 Stat::UncompressedSizeInBytes => v
                     .flatbuffer()
                     .stats()?
                     .uncompressed_size_in_bytes()
-                    .map(exact),
+                    .map(Precision::exact),
             },
         }
     }

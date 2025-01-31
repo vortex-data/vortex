@@ -2,7 +2,7 @@ use std::cmp;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::stats::{exact, Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
 use vortex_array::IntoArrayVariant as _;
@@ -35,7 +35,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 
         let mut stats = StatsSet::default();
         if let Some(stat_value) = maybe_stat {
-            stats.set(stat, exact(stat_value));
+            stats.set(stat, Precision::exact(stat_value));
         }
         Ok(stats)
     }

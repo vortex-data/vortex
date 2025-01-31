@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
-use crate::stats::{exact, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
@@ -223,9 +223,12 @@ impl StatisticsVTable<StructArray> for StructEncoding {
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
-                .map(|size| StatsSet::of(stat, exact(size)))
+                .map(|size| StatsSet::of(stat, Precision::exact(size)))
                 .unwrap_or_default(),
-            Stat::NullCount => StatsSet::of(stat, exact(array.validity().null_count(array.len())?)),
+            Stat::NullCount => StatsSet::of(
+                stat,
+                Precision::exact(array.validity().null_count(array.len())?),
+            ),
             _ => StatsSet::default(),
         })
     }

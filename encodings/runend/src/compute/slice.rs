@@ -34,12 +34,12 @@ impl SliceFn<RunEndArray> for RunEndEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::slice;
+    use vortex_array::compute::{slice, SliceFn};
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::RunEndArray;
+    use crate::{RunEndArray, RunEndEncoding};
 
     #[test]
     fn slice_array() {
@@ -124,7 +124,9 @@ mod tests {
 
         assert_eq!(re_array.len(), 10);
 
-        let sliced_array = slice(&re_array, re_array.len(), re_array.len()).unwrap();
+        let sliced_array = RunEndEncoding
+            .slice(&re_array, re_array.len(), re_array.len())
+            .unwrap();
         assert!(sliced_array.is_empty());
 
         let re_slice = RunEndArray::try_from(sliced_array).unwrap();

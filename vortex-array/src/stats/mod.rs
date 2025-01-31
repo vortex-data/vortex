@@ -25,7 +25,7 @@ mod stat_bound;
 mod stats_set;
 
 pub use bound::{LowerBound, UpperBound};
-pub use precision::{exact, inexact, Precision};
+pub use precision::Precision;
 pub use stat_bound::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
@@ -196,7 +196,7 @@ pub trait Statistics {
         let mut stats_set = StatsSet::default();
         for stat in stats {
             if let Some(s) = self.compute(*stat) {
-                stats_set.set(*stat, exact(s))
+                stats_set.set(*stat, Precision::exact(s))
             }
         }
         Ok(stats_set)

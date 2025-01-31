@@ -19,8 +19,8 @@ use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
-use vortex_array::stats::{exact, inexact, Stat};
-use vortex_array::ContextRef;
+use vortex_array::stats::Stat;
+use vortex_array::{stats, ContextRef};
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
@@ -170,10 +170,10 @@ impl FileFormat for VortexFormat {
                 .iter()
                 .map(|s| {
                     s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or_else(|| inexact(0_usize))
+                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
                 })
-                .fold(exact(0_usize), |acc, s| {
-                    acc.and_then_prefer_inexact(|acc| s.map(|s| acc + s))
+                .fold(stats::Precision::exact(0_usize), |acc, s| {
+                    acc.zip(s).map(|(acc, s)| acc + s)
                 }),
         ));
 

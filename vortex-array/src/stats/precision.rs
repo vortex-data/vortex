@@ -6,18 +6,17 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::precision::Precision::{Exact, Inexact};
 
+/// A statistic has a precision `Exact` or `Inexact`. This represents uncertainty in that value.
+/// Exact values are computed, where can inexact values are likely inferred from compute functions.
+///
+/// Inexact statistics form a range of possible values that the statistic could be.
+/// This is statistic specific, for max this will be an upper bound. Meaning that the actual max
+/// in an array is guaranteed to be less than or equal to the inexact value, but equal to the exact
+/// value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Precision<T> {
     Exact(T),
     Inexact(T),
-}
-
-pub fn exact<S: Into<T>, T>(s: S) -> Precision<T> {
-    Exact(s.into())
-}
-
-pub fn inexact<S: Into<T>, T>(s: S) -> Precision<T> {
-    Inexact(s.into())
 }
 
 impl<T> Precision<Option<T>> {
@@ -30,30 +29,6 @@ impl<T> Precision<Option<T>> {
     }
 }
 
-// #[allow(dead_code)]
-// pub fn take<T, F>(mut_ref: &mut T, closure: F)
-// where
-//     F: FnOnce(T) -> T,
-// {
-//     use std::ptr;
-//
-//     unsafe {
-//         let old_t = ptr::read(mut_ref);
-//         let new_t = panic::catch_unwind(panic::AssertUnwindSafe(|| closure(old_t)))
-//             .unwrap_or_else(|_| ::std::process::abort());
-//         ptr::write(mut_ref, new_t);
-//     }
-// }
-
-// impl<T> Precision<T> {
-// pub fn mut_inexact(&mut self) {
-// take(self, |v| match v {
-//     Exact(val) => Inexact(val),
-//     Inexact(val) => Inexact(val),
-// })
-// }
-// }
-
 impl<T: Clone> Precision<T> {
     pub fn mut_inexact(&mut self) {
         match self {
@@ -64,6 +39,21 @@ impl<T: Clone> Precision<T> {
 }
 
 impl<T> Precision<T> {
+    pub fn exact<S: Into<T>>(s: S) -> Precision<T> {
+        Exact(s.into())
+    }
+
+    pub fn inexact<S: Into<T>>(s: S) -> Precision<T> {
+        Inexact(s.into())
+    }
+
+    pub fn as_ref(&self) -> Precision<&T> {
+        match self {
+            Exact(val) => Exact(val),
+            Inexact(val) => Inexact(val),
+        }
+    }
+
     pub fn ok_exact(self) -> Option<T> {
         match self {
             Exact(val) => Some(val),
@@ -89,13 +79,13 @@ impl<T> Precision<T> {
         }
     }
 
-    // Similar to option and then, but if either value is inexact, then the whole value is inexact.
-    pub fn and_then_prefer_inexact<U, F: FnOnce(T) -> Precision<U>>(self, f: F) -> Precision<U> {
-        match self {
-            Exact(value) => f(value),
-            Inexact(value) => match f(value) {
-                Exact(value) | Inexact(value) => Inexact(value),
-            },
+    /// Zip two `Precision` values into a tuple, keeping the inexactness if any.
+    pub fn zip<U>(self, other: Precision<U>) -> Precision<(T, U)> {
+        match (self, other) {
+            (Exact(lhs), Exact(rhs)) => Exact((lhs, rhs)),
+            (Inexact(lhs), Exact(rhs))
+            | (Exact(lhs), Inexact(rhs))
+            | (Inexact(lhs), Inexact(rhs)) => Inexact((lhs, rhs)),
         }
     }
 
