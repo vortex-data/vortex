@@ -30,19 +30,19 @@ uv add vortex-array
 Construct a Vortex array from lists of simple Python values:
 
 ```{doctest} pycon
->>> import vortex
->>> vtx = vortex.array([1, 2, 3, 4])
->>> vtx.dtype
-int(64, False)
+>>> import vortex as vx
+>>> arr = vx.array([1, 2, 3, 4])
+>>> arr.dtype
+int(64, nullable=False)
 ```
 
 Python's {obj}`None` represents a missing or null value and changes the dtype of the array from
 non-nullable 64-bit integers to nullable 64-bit integers:
 
 ```{doctest} pycon
->>> vtx = vortex.array([1, 2, None, 4])
->>> vtx.dtype
-int(64, True)
+>>> arr = vx.array([1, 2, None, 4])
+>>> arr.dtype
+int(64, nullable=True)
 ```
 
 A list of {class}`dict` is converted to an array of structures. Missing values may appear at any
@@ -50,7 +50,7 @@ level:
 
 ```{doctest} pycon
 
->>> vtx = vortex.array([
+>>> arr = vx.array([
 ...   {'name': 'Joseph', 'age': 25},
 ...   {'name': None, 'age': 31},
 ...   {'name': 'Angela', 'age': None},
@@ -58,14 +58,14 @@ level:
 ...   {'name': None, 'age': None},
 ...   None,
 ... ])
->>> vtx.dtype
-struct({"age": int(64, True), "name": utf8(True)}, True)
+>>> arr.dtype
+struct({"age": int(64, nullable=True), "name": utf8(nullable=True)}, nullable=True)
 ```
 
 {meth}`.Array.to_pylist` converts a Vortex array into a list of Python values.
 
 ```{doctest} pycon
->>> vtx.to_pylist()
+>>> arr.to_pylist()
 [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': None}, {'age': None, 'name': 'Angela'}, {'age': 57, 'name': 'Mikhail'}, {'age': None, 'name': None}, {'age': None, 'name': None}]
 ```
 
@@ -79,15 +79,15 @@ copies:
 >>> arrow = pa.array([1, 2, None, 3])
 >>> arrow.type
 DataType(int64)
->>> vtx = vortex.array(arrow)
->>> vtx.dtype
-int(64, True)
+>>> arr = vx.array(arrow)
+>>> arr.dtype
+int(64, nullable=True)
 ```
 
 {meth}`.Array.to_arrow_array` converts back to an Arrow array:
 
 ```{doctest} pycon
->>> vtx.to_arrow_array()
+>>> arr.to_arrow_array()
 <pyarrow.lib.Int64Array object at ...>
 [
 1,
@@ -100,13 +100,13 @@ null,
 If you have a struct array, use {meth}`.Array.to_arrow_table` to construct an Arrow table:
 
 ```{doctest} pycon
->>> struct_vtx = vortex.array([
+>>> struct_arr = vx.array([
 ... {'name': 'Joseph', 'age': 25},
 ... {'name': 'Narendra', 'age': 31},
 ... {'name': 'Angela', 'age': 33},
 ... {'name': 'Mikhail', 'age': 57},
 ... ])
->>> struct_vtx.to_arrow_table()
+>>> struct_arr.to_arrow_table()
 pyarrow.Table
 age: int64
 name: string_view
@@ -120,7 +120,7 @@ name: [["Joseph","Narendra","Angela","Mikhail"]]
 {meth}`.Array.to_pandas_df` converts a Vortex array into a Pandas DataFrame:
 
 ```{doctest} pycon
->>> df = struct_vtx.to_pandas_df()
+>>> df = struct_arr.to_pandas_df()
 >>> df
       age      name
    0   25    Joseph
@@ -132,7 +132,7 @@ name: [["Joseph","Narendra","Angela","Mikhail"]]
 {func}`~vortex.encoding.array` converts from a Pandas DataFrame into a Vortex array:
 
 ```pycon
->>> vortex.array(df).to_arrow_table()
+>>> vx.array(df).to_arrow_table()
 pyarrow.Table
 age: int64
 name: string_view
@@ -148,11 +148,11 @@ enables many Python-based query engines to pushdown row filters and column proje
 files. All the query engine examples use the same Vortex file:
 
 ```pycon
->>> import vortex
+>>> import vortex as vx
 >>> import pyarrow.parquet as pq
->>> vtx = vortex.array(pq.read_table("_static/example.parquet"))
->>> vortex.io.write_path(vtx, 'example.vortex')
->>> ds = vortex.dataset.from_path(
+>>> arr = vx.array(pq.read_table("_static/example.parquet"))
+>>> vx.io.write_path(arr, 'example.vortex')
+>>> ds = vx.dataset.from_path(
 >>> ...     'example.vortex'
 >>> ... )
 ```
