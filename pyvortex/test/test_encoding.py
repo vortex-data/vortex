@@ -1,3 +1,5 @@
+import pytest
+
 import vortex as vx
 
 
@@ -7,4 +9,11 @@ def test_bool_array():
 
     # Downcast to a BoolArray
     arr = vx.encoding.BoolArray(arr)
-    assert str(arr) == "BoolArray([True, False, True])"
+    # TODO(ngates): this is a horrible display format!
+    assert str(arr) == "vortex.bool(0x02)(bool, len=3)"
+
+    assert arr.true_count() == 2
+
+    # Fail to downcast to a BoolArray
+    with pytest.raises(ValueError):
+        vx.encoding.BoolArray(vx.array([1, 2, 3]))

@@ -41,7 +41,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
         let arrow_array = ArrowArrayData::from_pyarrow_bound(obj).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
         let enc_array = Array::from_arrow(arrow_array, is_nullable);
-        Bound::new(obj.py(), PyArray::new(enc_array))
+        Bound::new(obj.py(), PyArray(enc_array))
     } else if obj.is_instance(&chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr("chunks")?.extract()?;
         let encoded_chunks = chunks
@@ -58,7 +58,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
         Bound::new(
             obj.py(),
-            PyArray::new(ChunkedArray::try_new(encoded_chunks, dtype)?.into_array()),
+            PyArray(ChunkedArray::try_new(encoded_chunks, dtype)?.into_array()),
         )
     } else if obj.is_instance(&table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow_bound(obj)?;
@@ -70,7 +70,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .collect::<VortexResult<Vec<_>>>()?;
         Bound::new(
             obj.py(),
-            PyArray::new(ChunkedArray::try_new(chunks, dtype)?.into_array()),
+            PyArray(ChunkedArray::try_new(chunks, dtype)?.into_array()),
         )
     } else {
         Err(PyValueError::new_err(
