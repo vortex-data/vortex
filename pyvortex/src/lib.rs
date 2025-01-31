@@ -69,7 +69,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 /// >>> from vortex._lib.dtype import bool_
 /// ```
 ///
-/// See https://github.com/PyO3/pyo3/issues/759#issuecomment-1811992321
+/// See <https://github.com/PyO3/pyo3/issues/759#issuecomment-1811992321>.
 pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module
         .py()
