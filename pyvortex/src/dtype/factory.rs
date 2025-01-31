@@ -6,18 +6,83 @@ use vortex::dtype::{DType, FieldName, PType, StructDType};
 
 use crate::dtype::PyDType;
 
+/// Construct the data type for a column containing only the null value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting only :obj:`None`.
+///
+///     >>> import vortex as vx
+///     >>> vx.null()
+///     null()
 #[pyfunction(name = "null")]
 #[pyo3(signature = ())]
 pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Null)
 }
 
+/// Construct a Boolean data type.
+///
+/// Parameters
+/// ----------
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting :obj:`None`, :obj:`True`, and :obj:`False`.
+///
+///     >>> import vortex as vx
+///     >>> vx.bool_(nullable=True)
+///     bool(nullable=True)
+///
+/// A data type permitting just :obj:`True` and :obj:`False`.
+///
+///     >>> vx.bool_()
+///     bool(nullable=False)
 #[pyfunction(name = "bool_")]
 #[pyo3(signature = (*, nullable = false))]
 pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Bool(nullable.into()))
 }
 
+/// Construct a signed integral data type.
+///
+/// Parameters
+/// ----------
+/// width : Literal[8, 16, 32, 64].
+///     The bit width determines the span of valid values. If :obj:`None`, 64 is used.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting :obj:`None` and the integers from -128 to 127, inclusive:
+///
+///     >>> import vortex as vx
+///     >>> vx.int_(8, nullable=True)
+///     int(8, nullable=True)
+///
+/// A data type permitting just the integers from -2,147,483,648 to 2,147,483,647, inclusive:
+///
+///     >>> vx.int_(32)
+///     int(32, nullable=False)
 #[pyfunction(name = "int_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Py<PyDType>> {
@@ -31,6 +96,33 @@ pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<
     PyDType::wrap(py, dtype)
 }
 
+/// Construct an unsigned integral data type.
+///
+/// Parameters
+/// ----------
+/// width : Literal[8, 16, 32, 64].
+///     The bit width determines the span of valid values. If :obj:`None`, 64 is used.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting :obj:`None` and the integers from 0 to 255, inclusive:
+///
+///     >>> import vortex as vx
+///     >>> vx.uint(8, nullable=True)
+///     uint(8, True)
+///
+/// A data type permitting just the integers from 0 to 4,294,967,296 inclusive:
+///
+///     >>> vx.uint(32, nullable=False)
+///     uint(32, False)
 #[pyfunction(name = "uint")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Py<PyDType>> {
@@ -44,6 +136,31 @@ pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult
     PyDType::wrap(py, dtype)
 }
 
+/// Construct an IEEE 754 binary floating-point data type.
+///
+/// Parameters
+/// ----------
+/// width : Literal[16, 32, 64].
+///     The bit width determines the range and precision of the floating-point values. If
+///     :obj:`None`, 64 is used.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting :obj:`None` as well as IEEE 754 binary16 floating-point values. Values
+/// larger than 65,520 or less than -65,520 will respectively round to positive and negative
+/// infinity.
+///
+///     >>> import vortex as vx
+///     >>> vx.float_(16, nullable=False)
+///     float(16, nullable=False)
 #[pyfunction(name = "float_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult<Py<PyDType>> {
@@ -56,18 +173,78 @@ pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult
     PyDType::wrap(py, dtype)
 }
 
+/// Construct a UTF-8-encoded string data type.
+///
+/// Parameters
+/// ----------
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// ---------
+///
+/// A data type permitting any UTF-8-encoded string, such as :code:`"Hello World"`, but not
+/// permitting :obj:`None`.
+///
+///     >>> import vortex as vx
+///     >>> vx.utf8(nullable=False)
+///     utf8(nullable=False)
 #[pyfunction(name = "utf8")]
 #[pyo3(signature = (*, nullable = false))]
 pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Utf8(nullable.into()))
 }
 
+/// Construct a binary data type.
+///
+/// Parameters
+/// ----------
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting any string of bytes but not permitting :obj:`None`.
+///
+///     >>> import vortex as vx
+///     >>> vx.binary(nullable=False)
+///     binary(nullable=False)
 #[pyfunction(name = "binary")]
 #[pyo3(signature = (*, nullable = false))]
 pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
     PyDType::wrap(py, DType::Binary(nullable.into()))
 }
 
+/// Construct a struct data type.
+///
+/// Parameters
+/// ----------
+/// fields : :class:`dict`
+///     A mapping from field names to data types.
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting a struct with two fields, :code:`"name"` and :code:`"age"`, where :code:`"name"` is a UTF-8-encoded string and :code:`"age"` is a 32-bit signed integer:
+///
+///     >>> import vortex as vx
+///     >>> vx.struct({"name": vx.utf8(), "age": vx.int_(32)})
+///     struct({"name": utf8(nullable=False), "age": int(32, nullable=False)}, nullable=False)
 // TODO(ngates): return a StructDType to allow inspection of fields
 #[pyfunction(name = "struct")]
 #[pyo3(signature = (fields = None, *, nullable = false))]

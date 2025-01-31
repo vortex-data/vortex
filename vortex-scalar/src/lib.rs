@@ -5,7 +5,7 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;

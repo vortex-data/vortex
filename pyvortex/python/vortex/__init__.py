@@ -2,8 +2,7 @@ from . import _lib
 
 assert _lib, "Eager import the Vortex native library"
 
-from . import dataset, encoding
-from ._lib import expr, io, scalar
+from ._lib import expr, scalar
 
 # Re-export all symbols from the native DType module
 from ._lib.dtype import *

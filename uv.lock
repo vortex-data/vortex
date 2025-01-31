@@ -181,6 +181,7 @@ dependencies = [
     { name = "sphinx-inline-tabs" },
     { name = "sphinxcontrib-bibtex" },
     { name = "sphinxext-opengraph" },
+    { name = "stubdoc" },
     { name = "vortex-array" },
 ]
 
@@ -195,6 +196,7 @@ requires-dist = [
     { name = "sphinx-inline-tabs", specifier = ">=2023.4.21" },
     { name = "sphinxcontrib-bibtex", specifier = ">=2.6.3" },
     { name = "sphinxext-opengraph", specifier = ">=0.9.1" },
+    { name = "stubdoc", git = "https://github.com/bayashi-cl/stubdoc" },
     { name = "vortex-array", editable = "pyvortex" },
 ]
 
@@ -1287,6 +1289,14 @@ wheels = [
 ]
 
 [[package]]
+name = "stubdoc"
+version = "0.1.0"
+source = { git = "https://github.com/bayashi-cl/stubdoc#71c2519d3e93a6fc54641ab48495372cc9915235" }
+dependencies = [
+    { name = "sphinx" },
+]
+
+[[package]]
 name = "substrait"
 version = "0.23.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1407,6 +1417,7 @@ wheels = [
 
 [[package]]
 name = "vortex-array"
+version = "0.23.0"
 source = { editable = "pyvortex" }
 dependencies = [
     { name = "pyarrow" },
@@ -1427,6 +1438,7 @@ polars = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "numpy" },
     { name = "pandas-stubs" },
     { name = "pyarrow-stubs" },
 ]
@@ -1443,6 +1455,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.14.1" },
+    { name = "numpy", specifier = ">=2.2.2" },
     { name = "pandas-stubs", specifier = ">=2.2.3.241126" },
     { name = "pyarrow-stubs", specifier = ">=17.16" },
 ]

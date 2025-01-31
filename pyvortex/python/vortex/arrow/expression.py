@@ -4,10 +4,10 @@ from substrait.proto import ExtendedExpression
 
 from vortex.substrait import extended_expression
 
-from .._lib import expr
+import vortex as vx
 
 
-def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> list[expr.Expr]:
+def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> list[vx.expr.Expr]:
     substrait_object = ExtendedExpression()
     substrait_object.ParseFromString(arrow_expression.to_substrait(schema))
 

@@ -33,9 +33,9 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// Base class for all Vortex data types.
 #[pyclass(name = "DType", module = "vortex")]
 #[derive(Clone)]
-/// Base class for all Vortex data types.
 pub struct PyDType {
     inner: DType,
 }
@@ -60,6 +60,7 @@ impl PyDType {
         self.inner.python_repr().to_string()
     }
 
+    /// Construct a Vortex data type from an Arrow data type.
     #[classmethod]
     #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
     fn from_arrow(
@@ -73,6 +74,7 @@ impl PyDType {
         )
     }
 
+    /// Return the names of the columns in a struct data type.
     // TODO(ngates): move this into StructDType class
     fn maybe_columns(&self) -> Option<Vec<String>> {
         match &self.inner {
