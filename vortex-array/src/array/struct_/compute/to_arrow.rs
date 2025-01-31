@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{StructArray, StructEncoding};
-use crate::compute::{to_arrow, ToArrowFn};
+use crate::compute::{to_arrow, try_cast, ToArrowFn};
 use crate::variants::StructArrayTrait;
 
 impl ToArrowFn<StructArray> for StructEncoding {
@@ -24,6 +24,14 @@ impl ToArrowFn<StructArray> for StructEncoding {
             .iter()
             .zip_eq(array.children())
             .map(|(field, arr)| {
+                // We check that the Vortex array nullability is compatible with the field
+                // nullability. In other words, make sure we don't return any nulls for a
+                // non-nullable field.
+                let _ = try_cast(
+                    &arr,
+                    &arr.dtype().with_nullability(field.is_nullable().into()),
+                )?;
+
                 to_arrow(arr, field.data_type()).map_err(|err| {
                     err.with_context(format!("Failed to canonicalize field {}", field))
                 })
@@ -42,12 +50,12 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 .names()
                 .iter()
                 .zip(field_arrays.iter())
-                .zip(array.dtypes().iter())
-                .map(|((name, arrow_field), vortex_field)| {
+                .zip(target_fields.iter())
+                .map(|((name, field_array), target_field)| {
                     Field::new(
                         &**name,
-                        arrow_field.data_type().clone(),
-                        vortex_field.is_nullable(),
+                        field_array.data_type().clone(),
+                        target_field.is_nullable(),
                     )
                 })
                 .map(Arc::new)
@@ -59,5 +67,54 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 nulls,
             )?)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_dtype::FieldNames;
+
+    use super::*;
+    use crate::array::PrimitiveArray;
+    use crate::arrow::IntoArrowArray;
+    use crate::validity::Validity;
+    use crate::IntoArray as _;
+
+    #[test]
+    fn nullable_non_null_to_arrow() {
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into()]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        let fields = vec![Field::new("xs", DataType::Int64, false)];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        struct_a.into_array().into_arrow(&arrow_dt).unwrap();
+    }
+
+    #[test]
+    fn nullable_with_nulls_to_arrow() {
+        let xs =
+            PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into()]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        let fields = vec![Field::new("xs", DataType::Int64, false)];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        assert!(struct_a.into_array().into_arrow(&arrow_dt).is_err());
     }
 }
