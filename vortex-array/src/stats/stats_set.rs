@@ -1,5 +1,4 @@
 use enum_iterator::{all, Sequence};
-use futures_util::TryFutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect};
