@@ -26,7 +26,6 @@ extensions = [
     "sphinx_inline_tabs",
     "sphinxcontrib.bibtex",
     "sphinxext.opengraph",
-    "stubdoc",
 ]
 
 templates_path = ["_templates"]
@@ -76,7 +75,3 @@ ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"
 # -- Options for Sphinx BibTEX -------------------------------------------
 
 bibtex_bibfiles = ["references.bib"]
-
-# -- Options for stubdoc -----------------------------------------------------
-
-module_names = ["vortex._lib"]
