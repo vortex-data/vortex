@@ -42,12 +42,11 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 .names()
                 .iter()
                 .zip(field_arrays.iter())
-                .zip(array.dtypes().iter())
-                .map(|((name, arrow_field), vortex_field)| {
+                .map(|(name, arrow_field)| {
                     Field::new(
                         &**name,
                         arrow_field.data_type().clone(),
-                        vortex_field.is_nullable(),
+                        arrow_field.is_nullable(),
                     )
                 })
                 .map(Arc::new)
@@ -59,5 +58,55 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 nulls,
             )?)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_dtype::FieldNames;
+
+    use super::*;
+    use crate::array::PrimitiveArray;
+    use crate::arrow::IntoArrowArray;
+    use crate::validity::Validity;
+    use crate::IntoArray as _;
+
+    #[test]
+    fn nullable_non_null_to_arrow() {
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into()]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        let fields = vec![Field::new("xs", DataType::Int64, false)];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        struct_a.into_array().into_arrow(&arrow_dt).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn nullable_with_nulls_to_arrow() {
+        let xs =
+            PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into()]),
+            vec![xs.clone().into_array()],
+            5,
+            xs.validity(),
+        )
+        .unwrap();
+
+        let fields = vec![Field::new("xs", DataType::Int64, false)];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        struct_a.into_array().into_arrow(&arrow_dt).unwrap();
     }
 }
