@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -15,7 +16,7 @@ use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
-use vortex_io::ObjectStoreExt;
+use vortex_io::ObjectStoreWriter;
 
 pub struct VortexSink {
     config: FileSinkConfig,
@@ -76,19 +77,26 @@ impl DataSink for VortexSink {
                 .child(format!("{filename}.{}", VORTEX_FILE_EXTENSION))
         };
 
+        let vortex_writer = ObjectStoreWriter::new(object_store, path).await?;
+
+        // TODO(adam): This is a temporary hack
+        let row_counter = Arc::new(AtomicU64::new(0));
+
         let dtype = DType::from_arrow(data.schema());
         let stream = data
             .map_err(VortexError::from)
-            .map(|rb| rb.and_then(|rb| Array::try_from(rb)));
+            .map(|rb| rb.and_then(Array::try_from))
+            .map_ok(|rb| {
+                row_counter.fetch_add(rb.len() as u64, Ordering::SeqCst);
+                rb
+            });
 
         let stream = ArrayStreamAdapter::new(dtype, stream);
-        let vortex_writer = object_store.vortex_writer(&path).await?;
 
         let _ = VortexWriteOptions::default()
             .write(vortex_writer, stream)
             .await?;
 
-        // Also need to figure this out out, maybe push some atomic into the stream
-        Ok(0_u64)
+        Ok(row_counter.load(Ordering::SeqCst))
     }
 }
