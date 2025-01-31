@@ -3,11 +3,9 @@ use std::sync::Arc;
 use arrow_array::{Array, ArrayRef, StructArray as ArrowStructArray};
 use arrow_schema::{DataType, Field, Fields};
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{StructArray, StructEncoding};
-use crate::arrow::FromArrowType as _;
 use crate::compute::{to_arrow, try_cast, ToArrowFn};
 use crate::variants::StructArrayTrait;
 
@@ -26,8 +24,14 @@ impl ToArrowFn<StructArray> for StructEncoding {
             .iter()
             .zip_eq(array.children())
             .map(|(field, arr)| {
-                let target_dtype = DType::from_arrow(field.as_ref());
-                let arr = try_cast(arr, &target_dtype)?;
+                // We check that the Vortex array nullability is compatible with the field
+                // nullability. In other words, make sure we don't return any nulls for a
+                // non-nullable field.
+                let _ = try_cast(
+                    &arr,
+                    &arr.dtype().with_nullability(field.is_nullable().into()),
+                )?;
+
                 to_arrow(arr, field.data_type()).map_err(|err| {
                     err.with_context(format!("Failed to canonicalize field {}", field))
                 })
