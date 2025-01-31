@@ -124,7 +124,7 @@ impl ExtensionArrayTrait for DateTimePartsArray {
         // we don't want to write validity twice, so we pull it up to the top
         let days = try_cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();
         StructArray::try_new(
-            vec!["days".into(), "seconds".into(), "subseconds".into()].into(),
+            vec!["days".into(), "seconds".into(), "subsecond".into()].into(),
             [days, self.seconds(), self.subsecond()].into(),
             self.len(),
             self.validity()
