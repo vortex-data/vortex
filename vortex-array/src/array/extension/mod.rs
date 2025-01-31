@@ -106,7 +106,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
-    use crate::stats::{exact, Precision};
+    use crate::stats::exact;
     use crate::IntoArray;
 
     #[test]

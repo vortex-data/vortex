@@ -1,9 +1,7 @@
-use std::cmp::{max, Ordering};
+use std::cmp::Ordering;
 
-use vortex_scalar::Scalar;
-
+use crate::stats::Precision;
 use crate::stats::Precision::{Exact, Inexact};
-use crate::stats::{Precision, Stat};
 
 /// Interpret the value as a lower bound.
 /// These format a partial order over successively more precise bounds
@@ -158,7 +156,6 @@ fn try_min<'a, T: PartialOrd + Clone>(lhs: &'a T, rhs: &'a T) -> Option<&'a T> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::empty;
 
     use crate::stats::{exact, inexact, UpperBound};
 

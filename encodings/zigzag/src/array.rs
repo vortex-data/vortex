@@ -12,7 +12,6 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::ScalarValue;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compress::zigzag_encode;

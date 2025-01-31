@@ -3,7 +3,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
-use crate::stats::{exact,Stat, StatsSet};
+use crate::stats::{exact, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;

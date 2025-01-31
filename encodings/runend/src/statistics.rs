@@ -2,7 +2,7 @@ use std::cmp;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::stats::{exact,Stat, StatsSet};
+use vortex_array::stats::{exact, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
 use vortex_array::IntoArrayVariant as _;

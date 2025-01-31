@@ -1,6 +1,5 @@
 //! Traits and utilities to compute and access array statistics.
 
-use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
@@ -13,14 +12,11 @@ use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
-use crate::encoding::Encoding;
+use vortex_dtype::{DType, PType};
+use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_scalar::ScalarValue;
 
 use crate::Array;
-use crate::stats::Precision::{Exact, Inexact};
-
 
 mod bound;
 pub mod flatbuffers;

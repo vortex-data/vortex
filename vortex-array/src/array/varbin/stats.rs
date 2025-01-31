@@ -9,7 +9,7 @@ use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
 use crate::array::{varbin_scalar, VarBinEncoding};
 use crate::compute::scalar_at;
-use crate::stats::{exact, Precision,Stat, StatsSet};
+use crate::stats::{exact, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::Array;
 

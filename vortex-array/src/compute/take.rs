@@ -1,10 +1,7 @@
-use std::os::macos::raw::stat;
-
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{exact,  Max, Stat};
-
+use crate::stats::{Max, Stat};
 use crate::{Array, IntoArray, IntoCanonical};
 
 pub trait TakeFn<A> {

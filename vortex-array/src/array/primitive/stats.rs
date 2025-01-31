@@ -14,7 +14,6 @@ use vortex_scalar::ScalarValue;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::stats::{exact, inexact, Stat, StatsSet};
-
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
 
@@ -54,11 +53,8 @@ impl PrimitiveEncoding {
             Mask::AllTrue(_) => self.compute_statistics(array.as_slice::<P>(), stat),
             Mask::AllFalse(len) => Ok(StatsSet::nulls(len, array.dtype())),
             Mask::Values(v) => self.compute_statistics(
-                &NullableValues(
-                    array.as_slice::<P>(),
-                    v.boolean_buffer(),
-                ),
-                stat
+                &NullableValues(array.as_slice::<P>(), v.boolean_buffer()),
+                stat,
             ),
         }
     }

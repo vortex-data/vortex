@@ -63,11 +63,9 @@ impl Statistics for Array {
                 .read()
                 .unwrap_or_else(|_| vortex_panic!("Failed to acquire read lock on stats map"))
                 .clone(),
-            InnerArray::Viewed(_) => {
-                StatsSet::from_iter(all::<Stat>().filter_map(|stat| {
-                    self.get(stat).map(|v| (stat, v.map(|v| v)))
-                }))
-            }
+            InnerArray::Viewed(_) => StatsSet::from_iter(
+                all::<Stat>().filter_map(|stat| self.get(stat).map(|v| (stat, v.map(|v| v)))),
+            ),
         }
     }
 
