@@ -88,7 +88,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 pub trait ArrayBuilderExt: ArrayBuilder {
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        if !scalar.dtype().eq_ignore_nullability(self.dtype()) {
+        if scalar.dtype() != self.dtype() {
             vortex_bail!(
                 "Builder has dtype {:?}, scalar has {:?}",
                 self.dtype(),

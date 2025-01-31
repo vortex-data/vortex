@@ -108,6 +108,10 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
+    pub fn null() -> Self {
+        ScalarValue(InnerScalarValue::Null)
+    }
+
     pub fn is_null(&self) -> bool {
         self.0.is_null()
     }

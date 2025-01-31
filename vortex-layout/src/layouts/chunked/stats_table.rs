@@ -135,7 +135,12 @@ impl StatsAccumulator {
         stats.sort_by_key(|s| u8::from(*s));
         let builders = stats
             .iter()
-            .map(|s| builder_with_capacity(&s.dtype(&dtype).as_nullable(), 1024))
+            .map(|s| {
+                // We always store stats nullable in the stats table because some chunks may be
+                // missing the statistic.
+                let stat_dtype = s.dtype(&dtype).as_nullable();
+                builder_with_capacity(&stat_dtype, 1024)
+            })
             .collect();
         Self {
             column_dtype: dtype,
@@ -146,9 +151,13 @@ impl StatsAccumulator {
     }
 
     pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+        if &self.column_dtype != array.dtype() {
+            vortex_bail!("Chunk dtype does not match expected stats column dtype");
+        }
+
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.statistics().compute(*s) {
-                builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;
+                builder.append_scalar(&Scalar::new(s.dtype(array.dtype()).as_nullable(), v))?;
             } else {
                 builder.append_null();
             }

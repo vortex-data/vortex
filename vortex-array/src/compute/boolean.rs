@@ -74,7 +74,10 @@ pub fn binary_boolean(lhs: &Array, rhs: &Array, op: BinaryOperator) -> VortexRes
     if lhs.len() != rhs.len() {
         vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
     }
-    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
+    if lhs.dtype() != rhs.dtype() {
+        vortex_bail!("Boolean operations aren't supported on arrays of different types")
+    }
+    if !lhs.dtype().is_boolean() {
         vortex_bail!("Boolean operations are only supported on boolean arrays")
     }
 

@@ -98,13 +98,18 @@ pub fn compare(
     if left.len() != right.len() {
         vortex_bail!("Compare operations only support arrays of the same length");
     }
-    if !left.dtype().eq_ignore_nullability(right.dtype()) {
-        vortex_bail!("Compare operations only support arrays of the same type");
+    if left.dtype() != right.dtype() {
+        vortex_bail!(
+            "Cannot compare different DTypes {} and {}",
+            left.dtype(),
+            right.dtype()
+        );
     }
 
+    // TODO(ngates): no reason why not
     if left.dtype().is_struct() {
         vortex_bail!(
-            "Compare does not support arrays with Strcut DType, got: {} and {}",
+            "Compare does not support arrays with Struct DType, got: {} and {}",
             left.dtype(),
             right.dtype()
         )

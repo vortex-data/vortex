@@ -117,7 +117,7 @@ mod test {
                 .push_one(&mut segments, array.into_array())
                 .unwrap();
 
-            let expr = gt(Identity::new_expr(), lit(3i32));
+            let expr = gt(Identity::new_expr(), lit(Some(3i32)));
             let result = layout
                 .reader(Arc::new(segments), Default::default())
                 .unwrap()

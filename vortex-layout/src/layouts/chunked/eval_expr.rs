@@ -141,7 +141,7 @@ mod test {
             let reader = layout.reader(segments, Default::default()).unwrap();
 
             // Choose a prune-able expression
-            let expr = gt(Identity::new_expr(), lit(7));
+            let expr = gt(Identity::new_expr(), lit(Some(7)));
 
             let result = reader
                 .evaluate_expr(RowMask::new_valid_between(0, row_count), expr.clone())

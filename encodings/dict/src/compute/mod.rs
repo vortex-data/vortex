@@ -136,7 +136,7 @@ mod test {
     #[test]
     fn compare_sliced_dict() {
         let sliced = sliced_dict_array();
-        let compared = compare(sliced, ConstantArray::new(42, 3), Operator::Eq).unwrap();
+        let compared = compare(sliced, ConstantArray::new(Some(42), 3), Operator::Eq).unwrap();
 
         assert_eq!(
             scalar_at(&compared, 0).unwrap(),
