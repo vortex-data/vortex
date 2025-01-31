@@ -8,7 +8,7 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::LayoutWriter;
-use crate::{LayoutData, LayoutVTableRef};
+use crate::{Layout, LayoutVTableRef};
 
 pub struct FlatLayoutOptions {
     /// Stats to preserve when writing arrays
@@ -27,7 +27,7 @@ impl Default for FlatLayoutOptions {
 pub struct FlatLayoutWriter {
     options: FlatLayoutOptions,
     dtype: DType,
-    layout: Option<LayoutData>,
+    layout: Option<Layout>,
 }
 
 impl FlatLayoutWriter {
@@ -70,7 +70,7 @@ impl LayoutWriter for FlatLayoutWriter {
         let flatbuffer = ArrayPartsFlatBuffer::new(&chunk).write_flatbuffer_bytes();
         segment_ids.push(segments.put(flatbuffer.into_inner()));
 
-        self.layout = Some(LayoutData::new_owned(
+        self.layout = Some(Layout::new_owned(
             LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
@@ -81,7 +81,7 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, _segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, _segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))

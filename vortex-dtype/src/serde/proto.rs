@@ -20,7 +20,6 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Null(_) => Ok(Self::Null),
             DtypeType::Bool(b) => Ok(Self::Bool(b.nullable.into())),
             DtypeType::Primitive(p) => Ok(Self::Primitive(p.r#type().into(), p.nullable.into())),
-            DtypeType::Decimal(_) => todo!("Not Implemented"),
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
             DtypeType::Struct(s) => Ok(Self::Struct(

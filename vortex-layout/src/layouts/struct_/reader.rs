@@ -10,11 +10,11 @@ use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutReader, LayoutReaderExt, LayoutVTable};
+use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 #[derive(Clone)]
 pub struct StructReader {
-    layout: LayoutData,
+    layout: Layout,
     ctx: ContextRef,
 
     segments: Arc<dyn AsyncSegmentReader>,
@@ -26,7 +26,7 @@ pub struct StructReader {
 
 impl StructReader {
     pub(super) fn try_new(
-        layout: LayoutData,
+        layout: Layout,
         segments: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
     ) -> VortexResult<Self> {
@@ -107,7 +107,7 @@ impl StructReader {
 }
 
 impl LayoutReader for StructReader {
-    fn layout(&self) -> &LayoutData {
+    fn layout(&self) -> &Layout {
         &self.layout
     }
 }

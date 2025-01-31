@@ -13,33 +13,34 @@ use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 use crate::context::LayoutContextRef;
 use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId};
-use crate::vtable::{LayoutId, LayoutVTableRef};
+use crate::vtable::LayoutVTableRef;
+use crate::LayoutId;
 
-/// [`LayoutData`] is the lazy equivalent to [`vortex_array::Array`], providing a hierarchical
+/// [`Layout`] is the lazy equivalent to [`vortex_array::Array`], providing a hierarchical
 /// structure.
 #[derive(Debug, Clone)]
-pub struct LayoutData(Inner);
+pub struct Layout(Inner);
 
 #[derive(Debug, Clone)]
 enum Inner {
-    Owned(OwnedLayoutData),
-    Viewed(ViewedLayoutData),
+    Owned(OwnedLayout),
+    Viewed(ViewedLayout),
 }
 
 /// A layout that is fully deserialized and heap-allocated.
 #[derive(Debug, Clone)]
-pub struct OwnedLayoutData {
+pub struct OwnedLayout {
     vtable: LayoutVTableRef,
     dtype: DType,
     row_count: u64,
     segments: Option<Vec<SegmentId>>,
-    children: Option<Vec<LayoutData>>,
+    children: Option<Vec<Layout>>,
     metadata: Option<Bytes>,
 }
 
 /// A layout that is lazily deserialized from a flatbuffer message.
 #[derive(Debug, Clone)]
-struct ViewedLayoutData {
+struct ViewedLayout {
     vtable: LayoutVTableRef,
     dtype: DType,
     flatbuffer: ByteBuffer,
@@ -47,24 +48,24 @@ struct ViewedLayoutData {
     ctx: LayoutContextRef,
 }
 
-impl ViewedLayoutData {
+impl ViewedLayout {
     /// Return the flatbuffer layout message.
     fn flatbuffer(&self) -> layout::Layout<'_> {
         unsafe { layout::Layout::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 }
 
-impl LayoutData {
+impl Layout {
     /// Create a new owned layout.
     pub fn new_owned(
         vtable: LayoutVTableRef,
         dtype: DType,
         row_count: u64,
         segments: Option<Vec<SegmentId>>,
-        children: Option<Vec<LayoutData>>,
+        children: Option<Vec<Layout>>,
         metadata: Option<Bytes>,
     ) -> Self {
-        Self(Inner::Owned(OwnedLayoutData {
+        Self(Inner::Owned(OwnedLayout {
             vtable,
             dtype,
             row_count,
@@ -97,7 +98,7 @@ impl LayoutData {
             );
         }
 
-        Ok(Self(Inner::Viewed(ViewedLayoutData {
+        Ok(Self(Inner::Viewed(ViewedLayout {
             vtable,
             dtype,
             flatbuffer,
@@ -118,7 +119,7 @@ impl LayoutData {
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
     ) -> Self {
-        Self(Inner::Viewed(ViewedLayoutData {
+        Self(Inner::Viewed(ViewedLayout {
             vtable: encoding,
             dtype,
             flatbuffer,
@@ -175,7 +176,7 @@ impl LayoutData {
     /// ## Panics
     ///
     /// Panics if the child index is out of bounds.
-    pub fn child(&self, i: usize, dtype: DType) -> VortexResult<LayoutData> {
+    pub fn child(&self, i: usize, dtype: DType) -> VortexResult<Layout> {
         if i >= self.nchildren() {
             vortex_panic!("child index out of bounds");
         }
@@ -203,7 +204,7 @@ impl LayoutData {
                     .ok_or_else(|| {
                         vortex_err!("Child layout encoding {} not found", fb.encoding())
                     })?;
-                Ok(Self(Inner::Viewed(ViewedLayoutData {
+                Ok(Self(Inner::Viewed(ViewedLayout {
                     vtable: encoding,
                     dtype,
                     flatbuffer: v.flatbuffer.clone(),
@@ -302,9 +303,9 @@ impl LayoutData {
     }
 }
 
-impl FlatBufferRoot for LayoutData {}
+impl FlatBufferRoot for Layout {}
 
-impl WriteFlatBuffer for LayoutData {
+impl WriteFlatBuffer for Layout {
     type Target<'a> = layout::Layout<'a>;
 
     fn write_flatbuffer<'fb>(

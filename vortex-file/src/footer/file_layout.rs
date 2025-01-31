@@ -3,14 +3,14 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_flatbuffers::{footer as fb, FlatBufferRoot, WriteFlatBuffer};
-use vortex_layout::LayoutData;
+use vortex_layout::Layout;
 
 use crate::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct FileLayout {
-    root_layout: LayoutData,
+    root_layout: Layout,
     segments: Arc<[Segment]>,
 }
 
@@ -20,7 +20,7 @@ impl FileLayout {
     /// ## Panics
     ///
     /// Panics if the segments are not ordered by byte offset.
-    pub fn new(root_layout: LayoutData, segments: Arc<[Segment]>) -> Self {
+    pub fn new(root_layout: Layout, segments: Arc<[Segment]>) -> Self {
         // Note this assertion is `<=` since we allow zero-length segments
         assert!(segments
             .iter()
@@ -32,8 +32,8 @@ impl FileLayout {
         }
     }
 
-    /// Returns the root [`LayoutData`] of the file.
-    pub fn root_layout(&self) -> &LayoutData {
+    /// Returns the root [`Layout`] of the file.
+    pub fn root_layout(&self) -> &Layout {
         &self.root_layout
     }
 

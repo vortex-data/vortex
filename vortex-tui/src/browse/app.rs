@@ -15,7 +15,7 @@ use vortex::io::TokioFile;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{LayoutData, LayoutVTableRef};
+use vortex_layout::{Layout, LayoutVTableRef};
 // Add a shared Tokio Runtime for use in the app.
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -57,7 +57,7 @@ impl From<u16> for Encoding {
 pub struct LayoutCursor {
     path: Vec<usize>,
     file_layout: FileLayout,
-    layout: LayoutData,
+    layout: Layout,
     #[allow(unused)]
     segment_map: Arc<[Segment]>,
 }
@@ -160,7 +160,7 @@ impl LayoutCursor {
         self.layout.encoding()
     }
 
-    pub fn layout(&self) -> &LayoutData {
+    pub fn layout(&self) -> &Layout {
         &self.layout
     }
 

@@ -3,7 +3,8 @@ use vortex_array::aliases::hash_map::HashMap;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
-use crate::vtable::{LayoutId, LayoutVTableRef};
+use crate::vtable::LayoutVTableRef;
+use crate::LayoutId;
 
 #[derive(Debug, Clone)]
 pub struct LayoutContext {

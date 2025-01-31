@@ -7,6 +7,400 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.22.1...vortex-tui-v0.23.0) - 2025-01-30
+
+### Fixed
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- LayoutData -> Layout ([#2149](https://github.com/spiraldb/vortex/pull/2149))
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- rename vortex-cli to vortex-tui to avoid crates.io conflict (#2145)
+- Add bibtex to docs ([#2094](https://github.com/spiraldb/vortex/pull/2094))
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-datafusion` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.22.1...vortex-datafusion-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- IntoArrow compute function ([#2113](https://github.com/spiraldb/vortex/pull/2113))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Docs for DataFusion crate ([#2064](https://github.com/spiraldb/vortex/pull/2064))
+
+## `vortex-zigzag` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.22.1...vortex-zigzag-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-sampling-compressor` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.22.1...vortex-sampling-compressor-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+
+## `vortex-runend` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.22.1...vortex-runend-v0.23.0) - 2025-01-30
+
+### Added
+- teach RunEndArray NullCount and TrueCount (#2007)
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Emulate blob storage latency in benchmarks ([#2049](https://github.com/spiraldb/vortex/pull/2049))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-fsst` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.22.1...vortex-fsst-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-scan` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-scan-v0.22.1...vortex-scan-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+- Docs for vortex-scan ([#2065](https://github.com/spiraldb/vortex/pull/2065))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+
+## `vortex-layout` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.22.1...vortex-layout-v0.23.0) - 2025-01-30
+
+### Other
+- LayoutData -> Layout ([#2149](https://github.com/spiraldb/vortex/pull/2149))
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- LayoutVTable ([#2123](https://github.com/spiraldb/vortex/pull/2123))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Write some docs ([#2080](https://github.com/spiraldb/vortex/pull/2080))
+- configurable layouts for open options ([#2081](https://github.com/spiraldb/vortex/pull/2081))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Remove unused StructOfChunks in favour of VortexLayoutStrategy ([#2038](https://github.com/spiraldb/vortex/pull/2038))
+
+## `vortex-ipc` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.22.1...vortex-ipc-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-io` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.22.1...vortex-io-v0.23.0) - 2025-01-30
+
+### Other
+- update Cargo.lock dependencies
+
+## `vortex-file` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.22.1...vortex-file-v0.23.0) - 2025-01-30
+
+### Added
+- vortex-tui (#1911)
+
+### Other
+- LayoutData -> Layout ([#2149](https://github.com/spiraldb/vortex/pull/2149))
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- configurable layouts for open options ([#2081](https://github.com/spiraldb/vortex/pull/2081))
+- Remove old flatbuffers ([#2076](https://github.com/spiraldb/vortex/pull/2076))
+- Moka segment cache ([#2061](https://github.com/spiraldb/vortex/pull/2061))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Emulate blob storage latency in benchmarks ([#2049](https://github.com/spiraldb/vortex/pull/2049))
+- Remove unused StructOfChunks in favour of VortexLayoutStrategy ([#2038](https://github.com/spiraldb/vortex/pull/2038))
+
+## `vortex-expr` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.22.1...vortex-expr-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- remove arrow from Canonical::empty ([#2105](https://github.com/spiraldb/vortex/pull/2105))
+- make traversal module in vortex-expr public ([#2104](https://github.com/spiraldb/vortex/pull/2104))
+- Merge expression for structs ([#2095](https://github.com/spiraldb/vortex/pull/2095))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Emulate blob storage latency in benchmarks ([#2049](https://github.com/spiraldb/vortex/pull/2049))
+
+## `vortex-dict` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.22.1...vortex-dict-v0.23.0) - 2025-01-30
+
+### Fixed
+- Dict LikeFn length mismatch (#2043)
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- speed up dictionary encoding of primitives by ~2x (#2135)
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-datetime-parts` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.22.1...vortex-datetime-parts-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-bytebool` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.22.1...vortex-bytebool-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+- all scalars support cast (#1965)
+
+## `vortex-sparse` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-sparse-v0.22.1...vortex-sparse-v0.23.0) - 2025-01-30
+
+### Fixed
+- update setup instructions (rye -> uv) (#1176)
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+- link docs from README (#1521)
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags (#760)
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-fastlanes` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.22.1...vortex-fastlanes-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Fix search sorted implementations match scalar ordering ([#2110](https://github.com/spiraldb/vortex/pull/2110))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-scalar` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.22.1...vortex-scalar-v0.23.0) - 2025-01-30
+
+### Other
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Fix scalar eq, cmp, hash, etc. ([#2091](https://github.com/spiraldb/vortex/pull/2091))
+- smaller `ScalarValue` buffer variants ([#2079](https://github.com/spiraldb/vortex/pull/2079))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+- all scalars support cast (#1965)
+
+## `vortex-mask` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.22.1...vortex-mask-v0.23.0) - 2025-01-30
+
+### Added
+- small mask improvements (#2035)
+
+### Other
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Mask boolean iterator ([#2057](https://github.com/spiraldb/vortex/pull/2057))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+
+## `vortex-proto` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.22.1...vortex-proto-v0.23.0) - 2025-01-30
+
+### Other
+- update Cargo.lock dependencies
+
+## `vortex-flatbuffers` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.22.1...vortex-flatbuffers-v0.23.0) - 2025-01-30
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Write some docs ([#2080](https://github.com/spiraldb/vortex/pull/2080))
+- Remove old flatbuffers ([#2076](https://github.com/spiraldb/vortex/pull/2076))
+
+## `vortex-dtype` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.22.1...vortex-dtype-v0.23.0) - 2025-01-30
+
+### Other
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-datetime-dtype` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.22.1...vortex-datetime-dtype-v0.23.0) - 2025-01-30
+
+### Other
+- *(deps)* lock file maintenance (#2075)
+
+## `vortex-error` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.22.1...vortex-error-v0.23.0) - 2025-01-30
+
+### Other
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-buffer` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.22.1...vortex-buffer-v0.23.0) - 2025-01-30
+
+### Other
+- :zeroed properly sets length of the resulting buffer (#2099)
+- Add Buffer::slice_ref ([#2072](https://github.com/spiraldb/vortex/pull/2072))
+- Moka segment cache ([#2061](https://github.com/spiraldb/vortex/pull/2061))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex-array` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.22.1...vortex-array-v0.23.0) - 2025-01-30
+
+### Fixed
+- fix validity check in varbin fitler select by slice ([#2144](https://github.com/spiraldb/vortex/pull/2144))
+- remove allow unused_imports from vortex-array (#2133)
+- fix infering arrow lists with nullable elements ([#2112](https://github.com/spiraldb/vortex/pull/2112))
+- Dict LikeFn length mismatch (#2043)
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Fix ToArrow list element nullability ([#2139](https://github.com/spiraldb/vortex/pull/2139))
+- speed up dictionary encoding of primitives by ~2x (#2135)
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix PrimitiveArray search_sorted for AllInvalid arrays ([#2117](https://github.com/spiraldb/vortex/pull/2117))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- IntoArrow compute function ([#2113](https://github.com/spiraldb/vortex/pull/2113))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Fix search sorted implementations match scalar ordering ([#2110](https://github.com/spiraldb/vortex/pull/2110))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- remove arrow from Canonical::empty ([#2105](https://github.com/spiraldb/vortex/pull/2105))
+- use filter instead of take in Patches::filter (#2093)
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Stats use ScalarValues and not Scalars ([#2069](https://github.com/spiraldb/vortex/pull/2069))
+- Add Buffer::slice_ref ([#2072](https://github.com/spiraldb/vortex/pull/2072))
+- Explicitly handle null scalar value canonicalizing ConstantArray ([#2092](https://github.com/spiraldb/vortex/pull/2092))
+- Fix scalar eq, cmp, hash, etc. ([#2091](https://github.com/spiraldb/vortex/pull/2091))
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+- Smaller DType with Arc<StructDType> ([#2055](https://github.com/spiraldb/vortex/pull/2055))
+- Default to opaque encoding ([#2060](https://github.com/spiraldb/vortex/pull/2060))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+- all scalars support cast (#1965)
+
+## `vortex-alp` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.22.1...vortex-alp-v0.23.0) - 2025-01-30
+
+### Added
+- alp compare v2 (#2071)
+
+### Other
+- ArrayData -> Array ([#2137](https://github.com/spiraldb/vortex/pull/2137))
+- Encodings + VTables ([#2120](https://github.com/spiraldb/vortex/pull/2120))
+- impl Deref<Target=ArrayData> ([#2119](https://github.com/spiraldb/vortex/pull/2119))
+- Fix canonical vtable ([#2118](https://github.com/spiraldb/vortex/pull/2118))
+- Pull out vtable traits ([#2111](https://github.com/spiraldb/vortex/pull/2111))
+- Refactor Vortex Mask ([#2101](https://github.com/spiraldb/vortex/pull/2101))
+- LogicalValidity -> CanonicalValidity ([#2096](https://github.com/spiraldb/vortex/pull/2096))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+- Enforce metadata validation ([#2051](https://github.com/spiraldb/vortex/pull/2051))
+- Array Metadata ([#1985](https://github.com/spiraldb/vortex/pull/1985))
+
+## `vortex` - [0.23.0](https://github.com/spiraldb/vortex/compare/0.22.1...0.23.0) - 2025-01-30
+
+### Other
+- Move SparseArray into a crate ([#2090](https://github.com/spiraldb/vortex/pull/2090))
+- configurable layouts for open options ([#2081](https://github.com/spiraldb/vortex/pull/2081))
+- Replace FilterMask with vortex-mask ([#2056](https://github.com/spiraldb/vortex/pull/2056))
+
 ## `vortex-mask` - [0.22.1](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.22.0...vortex-mask-v0.22.1) - 2025-01-21
 
 ### Added

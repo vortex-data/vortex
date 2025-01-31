@@ -70,10 +70,10 @@ mod tests {
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
-    use crate::LayoutData;
+    use crate::Layout;
 
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<TestSegments>, LayoutData) {
+    fn struct_layout() -> (Arc<TestSegments>, Layout) {
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(

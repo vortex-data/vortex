@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -8,16 +8,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutReader};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct LayoutId(pub u16);
-
-impl Display for LayoutId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
+use crate::{Layout, LayoutId, LayoutReader};
 
 /// A reference to a layout VTable, either static or arc'd.
 #[derive(Debug, Clone)]
@@ -54,12 +45,12 @@ pub trait LayoutVTable: Debug + Send + Sync {
     /// Returns the globally unique ID for this type of layout.
     fn id(&self) -> LayoutId;
 
-    /// Construct a [`LayoutReader`] for the provided [`LayoutData`].
+    /// Construct a [`LayoutReader`] for the provided [`Layout`].
     ///
-    /// May panic if the provided `LayoutData` is not the same encoding as this `LayoutEncoding`.
+    /// May panic if the provided `Layout` is not the same encoding as this `LayoutEncoding`.
     fn reader(
         &self,
-        layout: LayoutData,
+        layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>>;
@@ -75,7 +66,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
     //  all nodes of the layout tree, often registering the same splits many times.
     fn register_splits(
         &self,
-        layout: &LayoutData,
+        layout: &Layout,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,

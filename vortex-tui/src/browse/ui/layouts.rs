@@ -20,7 +20,7 @@ use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{Array, Context};
 use vortex_layout::segments::SegmentId;
-use vortex_layout::LayoutData;
+use vortex_layout::Layout as VortexLayout;
 
 use crate::browse::app::{AppState, LayoutCursor};
 
@@ -128,7 +128,8 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     if is_stats_table {
         // Render the stats table horizontally
         let struct_array = array.as_struct_array().vortex_expect("stats table");
-        let field_count = struct_array.nfields();
+        // add 1 for the chunk column
+        let field_count = struct_array.nfields() + 1;
         let header = std::iter::once("chunk")
             .chain(struct_array.names().iter().map(|x| x.as_ref()))
             .map(Cell::from)
@@ -158,7 +159,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         });
 
         Widget::render(
-            Table::new(rows, (0..field_count).map(|_| Constraint::Length(6))).header(header),
+            Table::new(rows, (0..field_count).map(|_| Constraint::Min(6))).header(header),
             widget_area,
             buf,
         );
@@ -234,7 +235,7 @@ fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
 
 fn read_array(
     mut buffers: Vec<ByteBuffer>,
-    layout: &LayoutData,
+    layout: &VortexLayout,
     ctx: Arc<Context>,
     dtype: &DType,
 ) -> Array {

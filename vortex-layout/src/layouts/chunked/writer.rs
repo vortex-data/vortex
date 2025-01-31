@@ -4,7 +4,7 @@ use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::data::LayoutData;
+use crate::data::Layout;
 use crate::layouts::chunked::stats_table::StatsAccumulator;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -67,7 +67,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         // Call finish on each chunk's writer
         let mut children = vec![];
         for writer in self.chunks.iter_mut() {
@@ -91,7 +91,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
             None => None,
         };
 
-        Ok(LayoutData::new_owned(
+        Ok(Layout::new_owned(
             LayoutVTableRef::from_static(&ChunkedLayout),
             self.dtype.clone(),
             self.row_count,
