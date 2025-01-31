@@ -308,7 +308,7 @@ pub fn ident() -> PyExpr {
 ///
 ///     >>> import vortex.expr as ve
 ///     >>> ve.column("age")
-///     column("age")  # noqa: F821
+///     <vortex.Expr object at ...>
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();

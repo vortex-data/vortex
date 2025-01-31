@@ -119,13 +119,13 @@ impl PyArray {
     ///       3
     ///     ]
     fn to_arrow_array(self_: PyRef<'_, Self>) -> PyResult<Bound<PyAny>> {
-        ///NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
+        // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let py = self_.py();
         let vortex = &self_.inner;
 
         if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
-            ///We figure out a single Arrow Data Type to convert all chunks into, otherwise
-            ///the preferred type of each chunk may be different.
+            // We figure out a single Arrow Data Type to convert all chunks into, otherwise
+            // the preferred type of each chunk may be different.
             let arrow_dtype = infer_data_type(chunked_array.dtype())?;
 
             let chunks: Vec<ArrayRef> = chunked_array
@@ -141,7 +141,7 @@ impl PyArray {
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
                 .collect();
 
-            ///Combine into a chunked array
+            // Combine into a chunked array
             PyModule::import_bound(py, "pyarrow")?.call_method(
                 "chunked_array",
                 (PyList::new_bound(py, chunks?),),
@@ -190,17 +190,17 @@ impl PyArray {
     ///
     ///     >>> import vortex as vx
     ///     >>> vx.array([1, 2, 3]).dtype
-    ///     int(64, False)
+    ///     int(64, nullable=False)
     ///
     /// Including a :obj:`None` forces a nullable type:
     ///
     ///     >>> vx.array([1, None, 2, 3]).dtype
-    ///     int(64, True)
+    ///     int(64, nullable=True)
     ///
     /// A UTF-8 string array:
     ///
     ///     >>> vx.array(['hello, ', 'is', 'it', 'me?']).dtype
-    ///     utf8(False)
+    ///     utf8(nullable=False)
     #[getter]
     fn dtype(self_: PyRef<Self>) -> PyResult<Py<PyDType>> {
         PyDType::wrap(self_.py(), self_.inner.dtype().clone())

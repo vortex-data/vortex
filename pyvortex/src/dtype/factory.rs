@@ -117,12 +117,12 @@ pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<
 ///
 ///     >>> import vortex as vx
 ///     >>> vx.uint(8, nullable=True)
-///     uint(8, True)
+///     uint(8, nullable=True)
 ///
 /// A data type permitting just the integers from 0 to 4,294,967,296 inclusive:
 ///
 ///     >>> vx.uint(32, nullable=False)
-///     uint(32, False)
+///     uint(32, nullable=False)
 #[pyfunction(name = "uint")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
 pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Py<PyDType>> {
