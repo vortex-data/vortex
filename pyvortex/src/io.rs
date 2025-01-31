@@ -118,10 +118,10 @@ pub fn read_url(
 /// >>> vortex.io.write_path(a, "a.vortex")
 ///
 #[pyfunction]
-#[pyo3(signature = (array, f, *, compress=true))]
+#[pyo3(signature = (array, path, *, compress=true))]
 pub fn write_path(
     array: &Bound<'_, PyArray>,
-    f: &Bound<'_, PyString>,
+    path: &Bound<'_, PyString>,
     compress: bool,
 ) -> PyResult<()> {
     async fn run(array: &Array, fname: &str) -> PyResult<()> {
