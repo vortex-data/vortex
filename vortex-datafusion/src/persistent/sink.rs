@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(df.clone().count().await.unwrap(), 0);
         let my_tbl = session.table("my_tbl").await.unwrap();
 
-        // Its valuable to have two insert code paths because they actually behave slightly differently
+        // It's valuable to have two insert code paths because they actually behave slightly differently
         let values = Values {
             schema: Arc::new(my_tbl.schema().clone()),
             values: vec![vec![
