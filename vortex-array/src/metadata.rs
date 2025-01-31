@@ -4,9 +4,6 @@ use flexbuffers::FlexbufferSerializer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::encoding::Encoding;
-use crate::ArrayData;
-
 pub trait ArrayMetadata: SerializeMetadata + DeserializeMetadata + Display {}
 
 pub trait SerializeMetadata {
@@ -40,22 +37,6 @@ where
 
     /// Format metadata for display.
     fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result;
-}
-
-pub trait MetadataVTable<Array> {
-    fn validate_metadata(&self, metadata: Option<&[u8]>) -> VortexResult<()>;
-
-    fn display_metadata(&self, array: &Array, f: &mut Formatter<'_>) -> std::fmt::Result;
-}
-
-impl<E: Encoding> MetadataVTable<ArrayData> for E {
-    fn validate_metadata(&self, metadata: Option<&[u8]>) -> VortexResult<()> {
-        E::Metadata::deserialize(metadata).map(|_| ())
-    }
-
-    fn display_metadata(&self, array: &ArrayData, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <E::Metadata as DeserializeMetadata>::format(array.metadata_bytes(), f)
-    }
 }
 
 pub struct EmptyMetadata;

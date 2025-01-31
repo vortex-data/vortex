@@ -3,14 +3,14 @@ use itertools::Itertools;
 use vortex_error::{vortex_panic, VortexExpect as _};
 use vortex_scalar::ScalarValue;
 
-use crate::data::InnerArrayData;
+use crate::data::InnerArray;
 use crate::stats::{exact, Precision, Stat, Statistics, StatsSet};
-use crate::ArrayData;
+use crate::Array;
 
-impl Statistics for ArrayData {
+impl Statistics for Array {
     fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
         match &self.0 {
-            InnerArrayData::Owned(o) => o
+            InnerArray::Owned(o) => o
                 .stats_set
                 .read()
                 .unwrap_or_else(|_| {
@@ -20,7 +20,7 @@ impl Statistics for ArrayData {
                     )
                 })
                 .get(stat),
-            InnerArrayData::Viewed(v) => match stat {
+            InnerArray::Viewed(v) => match stat {
                 Stat::Max => {
                     let max = v.flatbuffer().stats()?.max();
                     max.and_then(|v| ScalarValue::try_from(v).ok()).map(exact)
@@ -58,12 +58,12 @@ impl Statistics for ArrayData {
 
     fn to_set(&self) -> StatsSet {
         match &self.0 {
-            InnerArrayData::Owned(o) => o
+            InnerArray::Owned(o) => o
                 .stats_set
                 .read()
                 .unwrap_or_else(|_| vortex_panic!("Failed to acquire read lock on stats map"))
                 .clone(),
-            InnerArrayData::Viewed(_) => {
+            InnerArray::Viewed(_) => {
                 StatsSet::from_iter(all::<Stat>().filter_map(|stat| {
                     self.get(stat).map(|v| (stat, v.map(|v| v)))
                 }))
@@ -73,7 +73,7 @@ impl Statistics for ArrayData {
 
     fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
         match &self.0 {
-            InnerArrayData::Owned(o) => o
+            InnerArray::Owned(o) => o
                 .stats_set
                 .write()
                 .unwrap_or_else(|_| {
@@ -84,7 +84,7 @@ impl Statistics for ArrayData {
                     )
                 })
                 .set(stat, value),
-            InnerArrayData::Viewed(_) => {
+            InnerArray::Viewed(_) => {
                 // We cannot modify stats on a view
             }
         }
@@ -92,13 +92,13 @@ impl Statistics for ArrayData {
 
     fn clear(&self, stat: Stat) {
         match &self.0 {
-            InnerArrayData::Owned(o) => {
+            InnerArray::Owned(o) => {
                 o.stats_set
                     .write()
                     .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
                     .clear(stat);
             }
-            InnerArrayData::Viewed(_) => {
+            InnerArray::Viewed(_) => {
                 // We cannot modify stats on a view
             }
         }
@@ -109,7 +109,7 @@ impl Statistics for ArrayData {
             return Some(s);
         }
         let s = self
-            .encoding()
+            .vtable()
             .compute_statistics(self, stat)
             .vortex_expect("compute_statistics must not fail")
             .get(stat)?;
@@ -121,13 +121,13 @@ impl Statistics for ArrayData {
 
     fn retain_only(&self, stats: &[Stat]) {
         match &self.0 {
-            InnerArrayData::Owned(o) => {
+            InnerArray::Owned(o) => {
                 o.stats_set
                     .write()
                     .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
                     .retain_only(stats);
             }
-            InnerArrayData::Viewed(_) => {
+            InnerArray::Viewed(_) => {
                 // We cannot modify stats on a view
             }
         }

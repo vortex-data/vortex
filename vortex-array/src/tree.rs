@@ -6,20 +6,19 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ChunkedEncoding;
-use crate::compute::Len;
-use crate::encoding::EncodingVTable;
 use crate::visitor::ArrayVisitor;
-use crate::ArrayData;
+use crate::vtable::EncodingVTable;
+use crate::Array;
 
-impl ArrayData {
+impl Array {
     pub fn tree_display(&self) -> TreeDisplayWrapper {
         TreeDisplayWrapper(self)
     }
 }
 
-pub struct TreeDisplayWrapper<'a>(&'a ArrayData);
+pub struct TreeDisplayWrapper<'a>(&'a Array);
 impl<'a> TreeDisplayWrapper<'a> {
-    pub fn new(array: &'a ArrayData) -> Self {
+    pub fn new(array: &'a Array) -> Self {
         Self(array)
     }
 }
@@ -43,7 +42,7 @@ pub struct TreeFormatter<'a, 'b: 'a> {
 /// TODO(ngates): I think we want to go back to the old explicit style. It gives arrays more
 ///  control over how their metadata etc is displayed.
 impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
-    fn visit_child(&mut self, name: &str, array: &ArrayData) -> VortexResult<()> {
+    fn visit_child(&mut self, name: &str, array: &Array) -> VortexResult<()> {
         let nbytes = array.nbytes();
         let total_size = self.total_size.unwrap_or(nbytes);
         writeln!(
@@ -57,7 +56,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
         )?;
         self.indent(|i| {
             write!(i.fmt, "{}metadata: ", i.indent)?;
-            array.encoding().display_metadata(array, i.fmt)?;
+            array.vtable().display_metadata(array, i.fmt)?;
             writeln!(i.fmt)
         })?;
 
@@ -69,13 +68,8 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             self.total_size = Some(total_size);
         }
 
-        self.indent(|i| {
-            array
-                .encoding()
-                .accept(array, i)
-                .map_err(fmt::Error::custom)
-        })
-        .map_err(VortexError::from)?;
+        self.indent(|i| array.vtable().accept(array, i).map_err(fmt::Error::custom))
+            .map_err(VortexError::from)?;
 
         self.total_size = old_total_size;
         Ok(())

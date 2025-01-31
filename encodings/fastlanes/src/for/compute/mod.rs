@@ -4,11 +4,12 @@ use std::ops::AddAssign;
 
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::{
-    filter, scalar_at, search_sorted, slice, take, CompareFn, ComputeVTable, FilterFn, ScalarAtFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
+    filter, scalar_at, search_sorted, slice, take, CompareFn, FilterFn, ScalarAtFn, SearchResult,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::vtable::ComputeVTable;
+use vortex_array::{Array, IntoArray};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -17,33 +18,33 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ComputeVTable for FoREncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 }
 
 impl TakeFn<FoRArray> for FoREncoding {
-    fn take(&self, array: &FoRArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &FoRArray, indices: &Array) -> VortexResult<Array> {
         FoRArray::try_new(
             take(array.encoded(), indices)?,
             array.reference_scalar(),
@@ -54,7 +55,7 @@ impl TakeFn<FoRArray> for FoREncoding {
 }
 
 impl FilterFn<FoRArray> for FoREncoding {
-    fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<Array> {
         FoRArray::try_new(
             filter(&array.encoded(), mask)?,
             array.reference_scalar(),
@@ -88,7 +89,7 @@ impl ScalarAtFn<FoRArray> for FoREncoding {
 }
 
 impl SliceFn<FoRArray> for FoREncoding {
-    fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<Array> {
         FoRArray::try_new(
             slice(array.encoded(), start, stop)?,
             array.reference_scalar(),
@@ -180,7 +181,7 @@ where
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
 
     use crate::{for_compress, FoRArray};
 

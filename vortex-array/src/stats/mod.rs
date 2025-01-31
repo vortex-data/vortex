@@ -8,7 +8,6 @@ use std::sync::Arc;
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
-use futures_util::TryStreamExt;
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -17,10 +16,11 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
-
 use crate::encoding::Encoding;
+
+use crate::Array;
 use crate::stats::Precision::{Exact, Inexact};
-use crate::ArrayData;
+
 
 mod bound;
 pub mod flatbuffers;
@@ -209,28 +209,18 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 }
 
-pub trait ArrayStatistics {
-    fn statistics(&self) -> &dyn Statistics;
-
-    fn inherit_statistics(&self, parent: &dyn Statistics);
-}
-
-/// Encoding VTable for computing array statistics.
-pub trait StatisticsVTable<Array: ?Sized> {
-    /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
+impl Array {
+    pub fn statistics(&self) -> &(dyn Statistics + '_) {
+        self
     }
-}
 
-impl<E: Encoding + 'static> StatisticsVTable<ArrayData> for E
-where
-    E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        StatisticsVTable::compute_statistics(encoding, array_ref, stat)
+    // FIXME(ngates): this is really slow...
+    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
+        let stats = self.statistics();
+        // The to_set call performs a slow clone of the stats
+        for (stat, scalar) in parent.to_set() {
+            stats.set(stat, scalar);
+        }
     }
 }
 
@@ -336,7 +326,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &ArrayData) -> u8 {
+pub fn trailing_zeros(array: &Array) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()
@@ -356,7 +346,7 @@ mod test {
     use enum_iterator::all;
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     #[test]
     fn min_of_nulls_is_not_panic() {

@@ -116,6 +116,8 @@ pub fn infer_schema(dtype: &DType) -> VortexResult<Schema> {
 }
 
 /// Try to convert a Vortex [`DType`] into an Arrow [`DataType`]
+/// Top level nulltability from the DType is dropped, Arrow represents
+/// nullability for a DataType in [`Field`]
 pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
     Ok(match dtype {
         DType::Null => DataType::Null,
@@ -150,9 +152,9 @@ pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
         // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
         // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
         // Arrow dtype because we do not how large our offsets are.
-        DType::List(l, null) => DataType::List(FieldRef::new(Field::new_list_field(
+        DType::List(l, _) => DataType::List(FieldRef::new(Field::new_list_field(
             infer_data_type(l.as_ref())?,
-            (*null).into(),
+            l.nullability().into(),
         ))),
         DType::Extension(ext_dtype) => {
             // Try and match against the known extension DTypes.
@@ -211,6 +213,32 @@ mod test {
                 FieldRef::from(Field::new("field_a", DataType::Boolean, false)),
                 FieldRef::from(Field::new("field_b", DataType::Utf8View, true)),
             ]))
+        );
+    }
+
+    #[test]
+    fn infer_nullable_list_element() {
+        let list_non_nullable = DType::List(
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+
+        let arrow_list_non_nullable = infer_data_type(&list_non_nullable).unwrap();
+
+        let list_nullable = DType::List(
+            Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        let arrow_list_nullable = infer_data_type(&list_nullable).unwrap();
+
+        assert_ne!(arrow_list_non_nullable, arrow_list_nullable);
+        assert_eq!(
+            arrow_list_nullable,
+            DataType::new_list(DataType::Int64, true)
+        );
+        assert_eq!(
+            arrow_list_non_nullable,
+            DataType::new_list(DataType::Int64, false)
         );
     }
 

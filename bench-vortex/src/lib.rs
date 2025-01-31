@@ -1,5 +1,6 @@
 #![feature(exit_status_error)]
 
+use std::clone::Clone;
 use std::env::temp_dir;
 use std::fs::{create_dir_all, File};
 use std::future::Future;
@@ -19,15 +20,18 @@ use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use rand::{Rng, SeedableRng as _};
 use serde::Serialize;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
-use vortex::array::ChunkedArray;
+use vortex::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
-use vortex::dtype::DType;
+use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::encodings::fastlanes::DeltaEncoding;
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{ArrayData, Context, ContextRef, IntoArrayData};
+use vortex::error::VortexResult;
+use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::validity::Validity;
+use vortex::{Array, ContextRef, IntoArray};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
@@ -50,9 +54,9 @@ const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
 pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
-        Context::default()
-            .with_encodings(SamplingCompressor::default().used_encodings())
-            .with_encoding(&DeltaEncoding),
+        (*(ALL_ENCODINGS_CONTEXT.clone()))
+            .clone()
+            .with_encoding(DeltaEncoding::vtable()),
     )
 });
 
@@ -183,7 +187,7 @@ pub fn setup_logger(level: LevelFilter) {
     .unwrap();
 }
 
-pub fn fetch_taxi_data() -> ArrayData {
+pub fn fetch_taxi_data() -> Array {
     let file = File::open(taxi_data_parquet()).unwrap();
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
     let reader = builder.with_batch_size(BATCH_SIZE).build().unwrap();
@@ -193,7 +197,7 @@ pub fn fetch_taxi_data() -> ArrayData {
         reader
             .into_iter()
             .map(|batch_result| batch_result.unwrap())
-            .map(ArrayData::try_from)
+            .map(Array::try_from)
             .map(Result::unwrap)
             .collect_vec(),
         DType::from_arrow(schema),
@@ -202,7 +206,7 @@ pub fn fetch_taxi_data() -> ArrayData {
     .into_array()
 }
 
-pub fn compress_taxi_data() -> ArrayData {
+pub fn compress_taxi_data() -> Array {
     CompressionStrategy::compress(&SamplingCompressor::default(), &fetch_taxi_data()).unwrap()
 }
 
@@ -335,6 +339,57 @@ pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
     SessionContext::new_with_config_rt(SessionConfig::default(), rt)
 }
 
+/// Creates a randomly generated struct array, where each field is a list of
+/// i64 of size one.
+pub fn generate_struct_of_list_of_ints_array(
+    num_columns: u32,
+    rows: u32,
+    chunk_count: u32,
+) -> VortexResult<ChunkedArray> {
+    let int_dtype = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
+    let list_of_ints_dtype = DType::List(int_dtype.clone(), Nullability::Nullable);
+    let struct_dtype: Arc<StructDType> = Arc::new(
+        (0..num_columns)
+            .map(|col_idx| (col_idx.to_string(), list_of_ints_dtype.clone()))
+            .collect(),
+    );
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+
+    let rows_per_chunk = (rows / chunk_count).max(1u32);
+    let arrays = (0..rows)
+        .step_by(rows_per_chunk as usize)
+        .map(|starting_row| rows_per_chunk.min(rows - starting_row))
+        .map(|chunk_row_count| {
+            let fields = (0u32..num_columns)
+                .map(|_| {
+                    let elements = PrimitiveArray::from_iter(
+                        (0u32..chunk_row_count).map(|_| rng.gen::<i64>()),
+                    );
+                    let offsets = PrimitiveArray::from_iter(0u32..=chunk_row_count);
+                    ListArray::try_new(
+                        elements.into_array(),
+                        offsets.into_array(),
+                        Validity::AllValid,
+                    )
+                    .map(|a| a.into_array())
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            StructArray::try_new(
+                struct_dtype.names().clone(),
+                fields,
+                chunk_row_count as usize,
+                Validity::NonNullable,
+            )
+            .map(|a| a.into_array())
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    ChunkedArray::try_new(
+        arrays,
+        DType::Struct(struct_dtype.clone(), Nullability::NonNullable),
+    )
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::File;
@@ -344,10 +399,10 @@ mod test {
     use arrow_array::{ArrayRef as ArrowArrayRef, StructArray as ArrowStructArray};
     use log::LevelFilter;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-    use vortex::arrow::FromArrowArray;
+    use vortex::arrow::{FromArrowArray, IntoArrowArray};
     use vortex::compress::CompressionStrategy;
     use vortex::sampling_compressor::SamplingCompressor;
-    use vortex::{ArrayData, IntoCanonical};
+    use vortex::Array;
 
     use crate::taxi_data::taxi_data_parquet;
     use crate::{compress_taxi_data, setup_logger};
@@ -369,8 +424,8 @@ mod test {
         for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
             let struct_arrow: ArrowStructArray = record_batch.into();
             let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
-            let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
-            let vortex_as_arrow = vortex_array.into_arrow().unwrap();
+            let vortex_array = Array::from_arrow(arrow_array.clone(), false);
+            let vortex_as_arrow = vortex_array.into_arrow_preferred().unwrap();
             assert_eq!(vortex_as_arrow.deref(), arrow_array.deref());
         }
     }
@@ -388,10 +443,10 @@ mod test {
         for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
             let struct_arrow: ArrowStructArray = record_batch.into();
             let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
-            let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
+            let vortex_array = Array::from_arrow(arrow_array.clone(), false);
 
             let compressed = compressor.compress(&vortex_array).unwrap();
-            let compressed_as_arrow = compressed.into_arrow().unwrap();
+            let compressed_as_arrow = compressed.into_arrow_preferred().unwrap();
             assert_eq!(compressed_as_arrow.deref(), arrow_array.deref());
         }
     }

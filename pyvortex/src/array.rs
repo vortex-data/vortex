@@ -4,9 +4,10 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
+use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::mask::Mask;
-use vortex::{ArrayDType, ArrayData, IntoCanonical};
+use vortex::Array;
 
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
@@ -77,15 +78,15 @@ use crate::scalar::scalar_into_py;
 ///   true
 /// ]
 pub struct PyArray {
-    inner: ArrayData,
+    inner: Array,
 }
 
 impl PyArray {
-    pub fn new(inner: ArrayData) -> PyArray {
+    pub fn new(inner: Array) -> PyArray {
         PyArray { inner }
     }
 
-    pub fn unwrap(&self) -> &ArrayData {
+    pub fn unwrap(&self) -> &Array {
         &self.inner
     }
 }
@@ -119,9 +120,13 @@ impl PyArray {
         let vortex = &self_.inner;
 
         if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
+            // We figure out a single Arrow Data Type to convert all chunks into, otherwise
+            // the preferred type of each chunk may be different.
+            let arrow_dtype = infer_data_type(chunked_array.dtype())?;
+
             let chunks: Vec<ArrayRef> = chunked_array
                 .chunks()
-                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow()?) })
+                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow(&arrow_dtype)?) })
                 .collect::<PyResult<Vec<ArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
@@ -141,7 +146,7 @@ impl PyArray {
         } else {
             Ok(vortex
                 .clone()
-                .into_arrow()?
+                .into_arrow_preferred()?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))
@@ -158,7 +163,7 @@ impl PyArray {
 
     #[getter]
     fn encoding(&self) -> String {
-        self.inner.encoding().id().to_string()
+        self.inner.encoding().to_string()
     }
 
     #[getter]

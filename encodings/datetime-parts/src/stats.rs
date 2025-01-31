@@ -1,5 +1,5 @@
-use vortex_array::stats::{exact, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::ArrayValidity;
+use vortex_array::stats::{exact, Stat, StatsSet};
+use vortex_array::vtable::StatisticsVTable;
 use vortex_error::VortexResult;
 use vortex_scalar::ScalarValue;
 

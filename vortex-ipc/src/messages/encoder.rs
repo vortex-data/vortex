@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use vortex_array::parts::ArrayPartsFlatBuffer;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexExpect};
@@ -11,7 +11,7 @@ use crate::ALIGNMENT;
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
-    Array(&'a ArrayData),
+    Array(&'a Array),
     Buffer(&'a ByteBuffer),
     DType(&'a DType),
 }

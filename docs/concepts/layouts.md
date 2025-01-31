@@ -15,12 +15,12 @@ In psuedo-code, a layout might look like this (note that unlike arrays, layouts 
 memory data):
 
 ```rust
-struct LayoutData {
+struct Layout {
     vtable: LayoutVTable,
     metadata: [u8],
     dtype: DType,
     length: u64,
-    children: [LayoutData],
+    children: [Layout],
     buffers: [BufferId],
 }
 ```
@@ -63,8 +63,8 @@ A `ChunkedLayout` holds a collection of row-wise partitioned child layouts. This
 computing statistics for each child chunk and only fetching chunks that are relevant to the expression being
 evaluated.
 
-* `chunks: [LayoutData]`: the first `n` children of a `ChunkedLayout` are the chunks themselves.
-* `statistics: LayoutData`: the last child is a statistics table, typically a `FlatLayout` (although different
+* `chunks: [Layout]`: the first `n` children of a `ChunkedLayout` are the chunks themselves.
+* `statistics: Layout`: the last child is a statistics table, typically a `FlatLayout` (although different
   layouts may be useful if some statistics grow very large, e.g. bloom filters). Each row corresponds to a chunk, and
   the columns hold statistics such as `min`, `max`, `null_count`, that are useful for pruning.
 
@@ -100,7 +100,7 @@ The Rust trait looks like this:
 
 ### File-level Compression
 
-While chunk-level compression can be handed off to a compression strategy, i.e. `fn(ArrayData) -> ArrayData`, there
+While chunk-level compression can be handed off to a compression strategy, i.e. `fn(Array) -> Array`, there
 are some compression techniques that benefit from file-level awareness. For example, sharing a dictionary across
 all chunks of a column.
 

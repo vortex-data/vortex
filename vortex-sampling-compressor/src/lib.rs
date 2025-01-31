@@ -12,7 +12,6 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
     ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::encoding::EncodingRef;
 use vortex_array::{Context, ContextRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
@@ -84,23 +83,23 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
-        &ALPEncoding as EncodingRef,
-        &ALPRDEncoding,
-        &ByteBoolEncoding,
-        &DateTimePartsEncoding,
-        &DictEncoding,
-        &BitPackedEncoding,
-        &DeltaEncoding,
-        &FoREncoding,
-        &FSSTEncoding,
-        &PrimitiveEncoding,
-        &RunEndEncoding,
-        &SparseEncoding,
-        &StructEncoding,
-        &ListEncoding,
-        &VarBinEncoding,
-        &VarBinViewEncoding,
-        &ZigZagEncoding,
+        ALPEncoding::vtable(),
+        ALPRDEncoding::vtable(),
+        ByteBoolEncoding::vtable(),
+        DateTimePartsEncoding::vtable(),
+        DictEncoding::vtable(),
+        BitPackedEncoding::vtable(),
+        DeltaEncoding::vtable(),
+        FoREncoding::vtable(),
+        FSSTEncoding::vtable(),
+        PrimitiveEncoding::vtable(),
+        RunEndEncoding::vtable(),
+        SparseEncoding::vtable(),
+        StructEncoding::vtable(),
+        ListEncoding::vtable(),
+        VarBinEncoding::vtable(),
+        VarBinViewEncoding::vtable(),
+        ZigZagEncoding::vtable(),
     ]))
 });
 

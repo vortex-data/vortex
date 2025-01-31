@@ -1,5 +1,6 @@
-use vortex_array::stats::{exact, ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::{ArrayLen, IntoArrayVariant};
+use vortex_array::stats::{exact, Stat, StatsSet};
+use vortex_array::vtable::StatisticsVTable;
+use vortex_array::IntoArrayVariant;
 use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
@@ -22,7 +23,6 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::stats::ArrayStatistics;
 
     use super::*;
 

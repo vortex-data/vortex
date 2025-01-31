@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, take, CompareFn, Operator};
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};
@@ -9,9 +9,9 @@ impl CompareFn<DictArray> for DictEncoding {
     fn compare(
         &self,
         lhs: &DictArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
             // Ensure the other is the same length as the dictionary

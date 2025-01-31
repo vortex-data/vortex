@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.3.0
 
       - name: build Python and Rust docs
         run: |

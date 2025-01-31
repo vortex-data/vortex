@@ -1,7 +1,6 @@
 use std::iter;
-use std::iter::{Peekable, TrustedLen};
 
-use crate::Mask;
+use crate::{AllOr, Mask};
 
 impl Mask {
     /// Provides a closure with an iterator over the boolean values of the mask.
@@ -15,132 +14,13 @@ impl Mask {
     where
         F: FnMut(&mut dyn Iterator<Item = bool>) -> T,
     {
-        if self.all_true() {
-            return f(&mut iter::repeat(true).take(self.len()));
-        }
-
-        if self.all_false() {
-            return f(&mut iter::repeat(false).take(self.len()));
-        }
-
-        // We check for representations in order of performance, with BooleanBuffer iteration last.
-
-        if let Some(indices) = self.0.maybe_indices() {
-            let mut iter = IndicesBoolIter {
-                indices: indices.iter().copied().peekable(),
-                pos: 0,
-                len: self.len(),
-            };
-            return f(&mut iter);
-        }
-
-        if let Some(slices) = self.0.maybe_slices() {
-            let mut iter = SlicesBoolIter {
-                slices: slices.iter().copied().peekable(),
-                pos: 0,
-                len: self.len(),
-            };
-            return f(&mut iter);
-        }
-
-        if let Some(buffer) = self.0.maybe_buffer() {
-            return f(&mut buffer.iter());
-        }
-
-        unreachable!()
-    }
-}
-
-struct IndicesBoolIter<I>
-where
-    I: Iterator<Item = usize>,
-{
-    indices: Peekable<I>,
-    pos: usize,
-    len: usize,
-}
-
-impl<I> Iterator for IndicesBoolIter<I>
-where
-    I: Iterator<Item = usize>,
-{
-    type Item = bool;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.indices.peek() {
-            None => {
-                if self.pos < self.len {
-                    self.pos += 1;
-                    return Some(false);
-                }
-                None
-            }
-            Some(next) => {
-                if *next == self.pos {
-                    self.indices.next();
-                    self.pos += 1;
-                    Some(true)
-                } else {
-                    self.pos += 1;
-                    Some(false)
-                }
-            }
+        match self.boolean_buffer() {
+            AllOr::All => f(&mut iter::repeat(true).take(self.len())),
+            AllOr::None => f(&mut iter::repeat(false).take(self.len())),
+            AllOr::Some(buffer) => f(&mut buffer.iter()),
         }
     }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.len - self.pos;
-        (remaining, Some(remaining))
-    }
 }
-
-unsafe impl<I: Iterator<Item = usize>> TrustedLen for IndicesBoolIter<I> {}
-
-#[allow(dead_code)]
-struct SlicesBoolIter<I>
-where
-    I: Iterator<Item = (usize, usize)>,
-{
-    slices: Peekable<I>,
-    pos: usize,
-    len: usize,
-}
-
-impl<I> Iterator for SlicesBoolIter<I>
-where
-    I: Iterator<Item = (usize, usize)>,
-{
-    type Item = bool;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let Some((start, end)) = self.slices.peek() else {
-            if self.pos < self.len {
-                self.pos += 1;
-                return Some(false);
-            }
-            return None;
-        };
-
-        if self.pos < *start {
-            self.pos += 1;
-            return Some(false);
-        }
-
-        if self.pos == *end - 1 {
-            self.slices.next();
-        }
-
-        self.pos += 1;
-        Some(true)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.len - self.pos;
-        (remaining, Some(remaining))
-    }
-}
-
-unsafe impl<I: Iterator<Item = (usize, usize)>> TrustedLen for SlicesBoolIter<I> {}
 
 #[cfg(test)]
 mod test {

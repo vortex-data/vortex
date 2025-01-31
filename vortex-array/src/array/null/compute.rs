@@ -1,29 +1,36 @@
+use arrow_array::{new_null_array, ArrayRef};
+use arrow_schema::DataType;
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::vtable::ComputeVTable;
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }
 
 impl SliceFn<NullArray> for NullEncoding {
-    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
@@ -35,7 +42,7 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 }
 
 impl TakeFn<NullArray> for NullEncoding {
-    fn take(&self, array: &NullArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &NullArray, indices: &Array) -> VortexResult<Array> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
@@ -50,12 +57,17 @@ impl TakeFn<NullArray> for NullEncoding {
         Ok(NullArray::new(indices.len()).into_array())
     }
 
-    unsafe fn take_unchecked(
-        &self,
-        _array: &NullArray,
-        indices: &ArrayData,
-    ) -> VortexResult<ArrayData> {
+    unsafe fn take_unchecked(&self, _array: &NullArray, indices: &Array) -> VortexResult<Array> {
         Ok(NullArray::new(indices.len()).into_array())
+    }
+}
+
+impl ToArrowFn<NullArray> for NullEncoding {
+    fn to_arrow(&self, array: &NullArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
+        if data_type != &DataType::Null {
+            vortex_bail!("Unsupported data type: {data_type}");
+        }
+        Ok(Some(new_null_array(data_type, array.len())))
     }
 }
 
@@ -63,11 +75,11 @@ impl TakeFn<NullArray> for NullEncoding {
 mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
+    use vortex_mask::Mask;
 
     use crate::array::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
-    use crate::validity::{ArrayValidity, LogicalValidity};
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArray;
 
     #[test]
     fn test_slice_nulls() {
@@ -78,7 +90,7 @@ mod test {
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
             sliced.logical_validity().unwrap(),
-            LogicalValidity::AllInvalid(4)
+            Mask::AllFalse(4)
         ));
     }
 
@@ -92,7 +104,7 @@ mod test {
         assert_eq!(taken.len(), 5);
         assert!(matches!(
             taken.logical_validity().unwrap(),
-            LogicalValidity::AllInvalid(5)
+            Mask::AllFalse(5)
         ));
     }
 

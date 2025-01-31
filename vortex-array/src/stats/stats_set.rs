@@ -2,7 +2,7 @@ use enum_iterator::{all, Sequence};
 use futures_util::TryFutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexUnwrap};
+use vortex_error::{vortex_panic, VortexError, VortexExpect};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::stat_bound::{Max, Min};
@@ -470,8 +470,8 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{exact, inexact, ArrayStatistics as _, Max, Stat, StatsSet};
-    use crate::IntoArrayData as _;
+    use crate::stats::{exact, inexact, Max,Stat, StatsSet};
+    use crate::IntoArray as _;
 
     #[test]
     fn test_iter() {

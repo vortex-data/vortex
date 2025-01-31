@@ -1,16 +1,17 @@
 use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::data::LayoutData;
+use crate::data::Layout;
 use crate::layouts::chunked::stats_table::StatsAccumulator;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::LayoutVTableRef;
 
 pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
@@ -53,11 +54,7 @@ impl ChunkedLayoutWriter {
 }
 
 impl LayoutWriter for ChunkedLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         self.row_count += chunk.len() as u64;
         self.stats_accumulator.push_chunk(&chunk)?;
 
@@ -70,7 +67,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         // Call finish on each chunk's writer
         let mut children = vec![];
         for writer in self.chunks.iter_mut() {
@@ -94,8 +91,8 @@ impl LayoutWriter for ChunkedLayoutWriter {
             None => None,
         };
 
-        Ok(LayoutData::new_owned(
-            &ChunkedLayout,
+        Ok(Layout::new_owned(
+            LayoutVTableRef::from_static(&ChunkedLayout),
             self.dtype.clone(),
             self.row_count,
             None,

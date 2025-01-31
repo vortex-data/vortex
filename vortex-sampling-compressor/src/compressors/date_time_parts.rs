@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::TemporalArray;
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
     split_temporal, DateTimePartsArray, DateTimePartsEncoding, TemporalParts,
@@ -24,7 +23,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
         constants::DATE_TIME_PARTS_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         if let Ok(temporal_array) = TemporalArray::try_from(array.clone()) {
             match temporal_array.temporal_metadata() {
                 // We only attempt to compress Timestamp arrays.
@@ -38,7 +37,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
@@ -76,7 +75,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&DateTimePartsEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([DateTimePartsEncoding::ID])
     }
 }

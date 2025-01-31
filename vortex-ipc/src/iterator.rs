@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{ArrayDType, ArrayData, ContextRef};
+use vortex_array::{Array, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -38,7 +38,7 @@ impl<R: Read> ArrayIterator for SyncIPCReader<R> {
 }
 
 impl<R: Read> Iterator for SyncIPCReader<R> {
-    type Item = VortexResult<ArrayData>;
+    type Item = VortexResult<Array>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.next()? {
@@ -154,7 +154,7 @@ mod test {
 
     use vortex_array::array::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArray, IntoArrayVariant};
 
     use super::*;
 
@@ -162,7 +162,8 @@ mod test {
     fn test_sync_stream() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let ipc_buffer = array
-            .to_array()
+            .clone()
+            .into_array()
             .into_array_iterator()
             .into_ipc()
             .collect_to_buffer()

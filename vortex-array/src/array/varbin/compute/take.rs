@@ -9,10 +9,10 @@ use crate::array::VarBinEncoding;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
-    fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinArray, indices: &Array) -> VortexResult<Array> {
         let offsets = array.offsets().into_primitive()?;
         let data = array.bytes();
         let indices = indices.clone().into_primitive()?;
@@ -38,7 +38,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
     validity: Validity,
 ) -> VortexResult<VarBinArray> {
     let logical_validity = validity.to_logical(offsets.len() - 1)?;
-    if let Some(v) = logical_validity.to_null_buffer()? {
+    if let Some(v) = logical_validity.to_null_buffer() {
         return Ok(take_nullable(dtype, offsets, data, indices, v));
     }
 

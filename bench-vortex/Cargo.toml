@@ -61,15 +61,11 @@ tokio = { workspace = true, features = ["full"] }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
+vortex-mask = { workspace = true }
 xshell = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
-
-[[bin]]
-name = "tpch_benchmark"
-test = false
-bench = false
 
 [[bench]]
 name = "compress"
@@ -82,21 +78,11 @@ test = false
 harness = false
 
 [[bench]]
-name = "tpch"
-test = false
-harness = false
-
-[[bench]]
 name = "bytes_at"
 test = false
 harness = false
 
 [[bench]]
-name = "compressor_throughput"
-test = false
-harness = false
-
-[[bench]]
-name = "clickbench"
+name = "sel_vec"
 test = false
 harness = false

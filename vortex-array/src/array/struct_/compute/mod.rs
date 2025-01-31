@@ -1,3 +1,5 @@
+mod to_arrow;
+
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -6,25 +8,30 @@ use vortex_scalar::Scalar;
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
 use crate::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+    filter, scalar_at, slice, take, FilterFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::variants::StructArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::vtable::ComputeVTable;
+use crate::{Array, IntoArray};
 
 impl ComputeVTable for StructEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }
@@ -42,7 +49,7 @@ impl ScalarAtFn<StructArray> for StructEncoding {
 }
 
 impl TakeFn<StructArray> for StructEncoding {
-    fn take(&self, array: &StructArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &StructArray, indices: &Array) -> VortexResult<Array> {
         StructArray::try_new(
             array.names().clone(),
             array
@@ -57,7 +64,7 @@ impl TakeFn<StructArray> for StructEncoding {
 }
 
 impl SliceFn<StructArray> for StructEncoding {
-    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<Array> {
         let fields = array
             .children()
             .map(|field| slice(&field, start, stop))
@@ -73,10 +80,10 @@ impl SliceFn<StructArray> for StructEncoding {
 }
 
 impl FilterFn<StructArray> for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<Array> {
         let validity = array.validity().filter(mask)?;
 
-        let fields: Vec<ArrayData> = array
+        let fields: Vec<Array> = array
             .children()
             .map(|field| filter(&field, mask))
             .try_collect()?;

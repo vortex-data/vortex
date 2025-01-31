@@ -9,8 +9,7 @@ use vortex_array::array::{
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
-use vortex_array::encoding::EncodingRef;
-use vortex_array::{ArrayData, IntoCanonical};
+use vortex_array::{Array, Encoding, IntoCanonical};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
@@ -42,14 +41,14 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
             }
             Action::SearchSorted(s, side) => {
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
-                let mut sorted = sort_canonical_array(&current_array);
+                let mut sorted = sort_canonical_array(&current_array).unwrap();
                 if !HashSet::from([
-                    &PrimitiveEncoding as EncodingRef,
-                    &VarBinEncoding,
-                    &VarBinViewEncoding,
-                    &BoolEncoding,
-                    &StructEncoding,
-                    &ListEncoding,
+                    PrimitiveEncoding::ID,
+                    VarBinEncoding::ID,
+                    VarBinViewEncoding::ID,
+                    BoolEncoding::ID,
+                    StructEncoding::ID,
+                    ListEncoding::ID,
                 ])
                 .contains(&current_array.encoding())
                 {
@@ -67,7 +66,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     Corpus::Keep
 });
 
-fn fuzz_compress(array: &ArrayData, compressor: &SamplingCompressor) -> Option<ArrayData> {
+fn fuzz_compress(array: &Array, compressor: &SamplingCompressor) -> Option<Array> {
     let compressed_array = compressor.compress(array, None).unwrap();
 
     compressed_array
@@ -77,7 +76,7 @@ fn fuzz_compress(array: &ArrayData, compressor: &SamplingCompressor) -> Option<A
 }
 
 fn assert_search_sorted(
-    array: ArrayData,
+    array: Array,
     s: Scalar,
     side: SearchSortedSide,
     expected: SearchResult,
@@ -85,8 +84,8 @@ fn assert_search_sorted(
 ) {
     let search_result = search_sorted(&array, s.clone(), side).unwrap();
     assert_eq!(
-        search_result,
         expected,
+        search_result,
         "Expected to find {s}({}) at {expected} in {} from {side} but instead found it at {search_result} in step {step}",
         s.dtype(),
         array.tree_display()
@@ -94,7 +93,7 @@ fn assert_search_sorted(
 }
 
 // TODO(ngates): this is horrific... we should have an array_equals compute function?
-fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
+fn assert_array_eq(lhs: &Array, rhs: &Array, step: usize) {
     assert_eq!(
         lhs.len(),
         rhs.len(),

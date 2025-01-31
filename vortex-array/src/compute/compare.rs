@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use crate::{Array, Canonical, IntoArray};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -70,38 +70,28 @@ impl Operator {
     }
 }
 
-pub trait CompareFn<Array> {
+pub trait CompareFn<A> {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported for these arrays.
-    fn compare(
-        &self,
-        lhs: &Array,
-        rhs: &ArrayData,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayData>>;
+    fn compare(&self, lhs: &A, rhs: &Array, operator: Operator) -> VortexResult<Option<Array>>;
 }
 
-impl<E: Encoding> CompareFn<ArrayData> for E
+impl<E: Encoding> CompareFn<Array> for E
 where
     E: CompareFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
 {
-    fn compare(
-        &self,
-        lhs: &ArrayData,
-        rhs: &ArrayData,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    fn compare(&self, lhs: &Array, rhs: &Array, operator: Operator) -> VortexResult<Option<Array>> {
         let (lhs_ref, encoding) = lhs.try_downcast_ref::<E>()?;
         CompareFn::compare(encoding, lhs_ref, rhs, operator)
     }
 }
 
 pub fn compare(
-    left: impl AsRef<ArrayData>,
-    right: impl AsRef<ArrayData>,
+    left: impl AsRef<Array>,
+    right: impl AsRef<Array>,
     operator: Operator,
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let left = left.as_ref();
     let right = right.as_ref();
 
@@ -124,7 +114,7 @@ pub fn compare(
         DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into());
 
     if left.is_empty() {
-        return Ok(Canonical::empty(&result_dtype)?.into_array());
+        return Ok(Canonical::empty(&result_dtype).into_array());
     }
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
@@ -133,7 +123,7 @@ pub fn compare(
     }
 
     if let Some(result) = left
-        .encoding()
+        .vtable()
         .compare_fn()
         .and_then(|f| f.compare(left, right, operator).transpose())
         .transpose()?
@@ -143,7 +133,7 @@ pub fn compare(
     }
 
     if let Some(result) = right
-        .encoding()
+        .vtable()
         .compare_fn()
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
         .transpose()?
@@ -157,8 +147,8 @@ pub fn compare(
     if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-            right.encoding().id(),
-            left.encoding().id(),
+            right.encoding(),
+            left.encoding(),
             operator.swap(),
         );
     }
@@ -170,14 +160,10 @@ pub fn compare(
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
-fn arrow_compare(
-    left: &ArrayData,
-    right: &ArrayData,
-    operator: Operator,
-) -> VortexResult<ArrayData> {
+fn arrow_compare(left: &Array, right: &Array, operator: Operator) -> VortexResult<Array> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = unsafe { Datum::try_new(left.clone())? };
-    let rhs = unsafe { Datum::try_new(right.clone())? };
+    let lhs = Datum::try_new(left.clone())?;
+    let rhs = Datum::try_new(right.clone())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -191,15 +177,15 @@ fn arrow_compare(
 }
 
 #[inline(always)]
-fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
+fn check_compare_result(result: &Array, lhs: &Array, rhs: &Array) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
         "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
         result.len(),
-        lhs.encoding().id(),
+        lhs.encoding(),
         lhs.len(),
-        rhs.encoding().id(),
+        rhs.encoding(),
         rhs.len()
     );
     debug_assert_eq!(
@@ -207,8 +193,8 @@ fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
         &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
         "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
         result.dtype(),
-        lhs.encoding().id(),
-        rhs.encoding().id(),
+        lhs.encoding(),
+        rhs.encoding(),
     );
 }
 
@@ -240,7 +226,7 @@ mod tests {
     use super::*;
     use crate::array::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();
@@ -248,8 +234,7 @@ mod tests {
             .validity()
             .to_logical(indices_bits.len())
             .unwrap()
-            .to_null_buffer()
-            .unwrap();
+            .to_null_buffer();
         let is_valid = |idx: usize| match null_buffer.as_ref() {
             None => true,
             Some(buffer) => buffer.is_valid(idx),

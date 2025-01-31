@@ -1,4 +1,5 @@
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::vtable::VariantsVTable;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 

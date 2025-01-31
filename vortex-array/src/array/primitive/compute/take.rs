@@ -7,11 +7,11 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
-    fn take(&self, array: &PrimitiveArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &PrimitiveArray, indices: &Array) -> VortexResult<Array> {
         let indices = indices.clone().into_primitive()?;
         let validity = array.validity().take(indices.as_ref())?;
 
@@ -26,8 +26,8 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     unsafe fn take_unchecked(
         &self,
         array: &PrimitiveArray,
-        indices: &ArrayData,
-    ) -> VortexResult<ArrayData> {
+        indices: &Array,
+    ) -> VortexResult<Array> {
         let indices = indices.clone().into_primitive()?;
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
 

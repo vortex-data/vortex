@@ -4,10 +4,10 @@ use vortex_error::VortexResult;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::InvertFn;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl InvertFn<BoolArray> for BoolEncoding {
-    fn invert(&self, array: &BoolArray) -> VortexResult<ArrayData> {
+    fn invert(&self, array: &BoolArray) -> VortexResult<Array> {
         Ok(BoolArray::try_new(array.boolean_buffer().not(), array.validity())?.into_array())
     }
 }

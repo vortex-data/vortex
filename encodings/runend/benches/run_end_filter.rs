@@ -4,7 +4,7 @@ use std::iter::Iterator;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use num_traits::ToPrimitive;
-use vortex_array::{ArrayLen, IntoArrayData};
+use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_runend::RunEndArray;
@@ -67,7 +67,10 @@ fn evenly_spaced(c: &mut Criterion) {
                     ),
                     |b| {
                         b.iter(|| {
-                            black_box(take_indices_unchecked(&array, mask.indices()).unwrap())
+                            black_box(
+                                take_indices_unchecked(&array, mask.values().unwrap().indices())
+                                    .unwrap(),
+                            )
                         });
                     },
                 );

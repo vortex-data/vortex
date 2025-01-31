@@ -4,7 +4,7 @@ use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -16,7 +16,7 @@ use crate::FSSTArray;
 /// # Panics
 ///
 /// If the `strings` array is not encoded as either [`VarBinArray`] or [`VarBinViewArray`].
-pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResult<FSSTArray> {
+pub fn fsst_compress(strings: &Array, compressor: &Compressor) -> VortexResult<FSSTArray> {
     let len = strings.len();
     let dtype = strings.dtype().clone();
 
@@ -36,7 +36,7 @@ pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResu
 
     vortex_bail!(
         "cannot fsst_compress array with unsupported encoding {:?}",
-        strings.encoding().id()
+        strings.encoding()
     )
 }
 
@@ -45,7 +45,7 @@ pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResu
 /// # Panics
 ///
 /// If the provided array is not FSST compressible.
-pub fn fsst_train_compressor(array: &ArrayData) -> VortexResult<Compressor> {
+pub fn fsst_train_compressor(array: &Array) -> VortexResult<Compressor> {
     if let Ok(varbin) = VarBinArray::try_from(array.clone()) {
         varbin
             .with_iterator(|iter| fsst_train_compressor_iter(iter))
@@ -57,7 +57,7 @@ pub fn fsst_train_compressor(array: &ArrayData) -> VortexResult<Compressor> {
     } else {
         vortex_bail!(
             "cannot fsst_compress array with unsupported encoding {:?}",
-            array.encoding().id()
+            array.encoding()
         )
     }
 }
