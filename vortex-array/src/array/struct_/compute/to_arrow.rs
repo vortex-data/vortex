@@ -3,10 +3,12 @@ use std::sync::Arc;
 use arrow_array::{Array, ArrayRef, StructArray as ArrowStructArray};
 use arrow_schema::{DataType, Field, Fields};
 use itertools::Itertools;
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{StructArray, StructEncoding};
-use crate::compute::{to_arrow, ToArrowFn};
+use crate::arrow::FromArrowType as _;
+use crate::compute::{to_arrow, try_cast, ToArrowFn};
 use crate::variants::StructArrayTrait;
 
 impl ToArrowFn<StructArray> for StructEncoding {
@@ -24,6 +26,8 @@ impl ToArrowFn<StructArray> for StructEncoding {
             .iter()
             .zip_eq(array.children())
             .map(|(field, arr)| {
+                let target_dtype = DType::from_arrow(field.as_ref());
+                let arr = try_cast(arr, &target_dtype)?;
                 to_arrow(arr, field.data_type()).map_err(|err| {
                     err.with_context(format!("Failed to canonicalize field {}", field))
                 })
@@ -42,11 +46,11 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 .names()
                 .iter()
                 .zip(field_arrays.iter())
-                .map(|(name, arrow_field)| {
+                .map(|(name, field_array)| {
                     Field::new(
                         &**name,
-                        arrow_field.data_type().clone(),
-                        arrow_field.is_nullable(),
+                        field_array.data_type().clone(),
+                        field_array.is_nullable(),
                     )
                 })
                 .map(Arc::new)
@@ -91,7 +95,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn nullable_with_nulls_to_arrow() {
         let xs =
             PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
@@ -100,13 +103,13 @@ mod tests {
             FieldNames::from(["xs".into()]),
             vec![xs.clone().into_array()],
             5,
-            xs.validity(),
+            Validity::AllValid,
         )
         .unwrap();
 
         let fields = vec![Field::new("xs", DataType::Int64, false)];
         let arrow_dt = DataType::Struct(fields.into());
 
-        struct_a.into_array().into_arrow(&arrow_dt).unwrap();
+        assert!(struct_a.into_array().into_arrow(&arrow_dt).is_err());
     }
 }
