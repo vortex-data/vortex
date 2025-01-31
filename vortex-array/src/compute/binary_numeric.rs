@@ -102,7 +102,7 @@ pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> Vo
     }
     if !matches!(lhs.dtype(), DType::Primitive(_, _))
         || !matches!(rhs.dtype(), DType::Primitive(_, _))
-        || lhs.dtype() != rhs.dtype()
+        || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
     {
         vortex_bail!(
             "Numeric operations are only supported on two arrays sharing the same primitive-type: {} {}",
@@ -114,16 +114,14 @@ pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> Vo
     // Check if LHS supports the operation directly.
     if let Some(fun) = lhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {
-            check_numeric_result(&result, lhs, rhs);
-            return Ok(result);
+            return Ok(check_numeric_result(result, lhs, rhs));
         }
     }
 
     // Check if RHS supports the operation directly.
     if let Some(fun) = rhs.vtable().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
-            check_numeric_result(&result, lhs, rhs);
-            return Ok(result);
+            return Ok(check_numeric_result(result, lhs, rhs));
         }
     }
 
@@ -135,7 +133,11 @@ pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> Vo
     );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
-    arrow_numeric(lhs.clone(), rhs.clone(), op)
+    Ok(check_numeric_result(
+        arrow_numeric(lhs.clone(), rhs.clone(), op)?,
+        lhs,
+        rhs,
+    ))
 }
 
 /// Implementation of `BinaryBooleanFn` using the Arrow crate.
@@ -158,13 +160,11 @@ fn arrow_numeric(lhs: Array, rhs: Array, operator: BinaryNumericOperator) -> Vor
         BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    let result = from_arrow_array_with_len(array, len, nullable)?;
-    check_numeric_result(&result, &lhs, &rhs);
-    Ok(result)
+    from_arrow_array_with_len(array, len, nullable)
 }
 
 #[inline(always)]
-fn check_numeric_result(result: &Array, lhs: &Array, rhs: &Array) {
+fn check_numeric_result(result: Array, lhs: &Array, rhs: &Array) -> Array {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -181,6 +181,7 @@ fn check_numeric_result(result: &Array, lhs: &Array, rhs: &Array) {
         "Numeric operation dtype mismatch {}",
         rhs.encoding()
     );
+    result
 }
 
 #[cfg(feature = "test-harness")]

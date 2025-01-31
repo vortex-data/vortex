@@ -98,7 +98,7 @@ pub fn compare(
     if left.len() != right.len() {
         vortex_bail!("Compare operations only support arrays of the same length");
     }
-    if left.dtype() != right.dtype() {
+    if !left.dtype().eq_ignore_nullability(right.dtype()) {
         vortex_bail!(
             "Cannot compare different DTypes {} and {}",
             left.dtype(),
