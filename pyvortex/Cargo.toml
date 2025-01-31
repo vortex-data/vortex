@@ -24,14 +24,12 @@ doctest = false
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }
-flume = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 pyo3 = { workspace = true }
 pyo3-log = { workspace = true }
-pyo3-stub-gen = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "python", "tokio"] }

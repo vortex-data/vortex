@@ -53,7 +53,7 @@ impl From<ViewedArray> for Array {
 
 impl Array {
     pub fn try_new_owned(
-        vtable: VTableRef,
+        encoding: VTableRef,
         dtype: DType,
         len: usize,
         metadata: Option<ByteBuffer>,
@@ -62,7 +62,7 @@ impl Array {
         statistics: StatsSet,
     ) -> VortexResult<Self> {
         Self::try_new(InnerArray::Owned(Arc::new(OwnedArray {
-            encoding: vtable,
+            encoding,
             dtype,
             len,
             metadata,
@@ -87,10 +87,10 @@ impl Array {
     {
         let array = flatbuffer_init(flatbuffer.as_ref())?;
         let flatbuffer_loc = array._tab.loc();
-        let vtable = ctx.lookup_encoding_or_opaque(array.encoding());
+        let encoding = ctx.lookup_encoding_or_opaque(array.encoding());
 
         let view = ViewedArray {
-            encoding: vtable,
+            encoding,
             dtype,
             len,
             flatbuffer,
