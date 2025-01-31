@@ -5,8 +5,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::Text;
 use ratatui::widgets::{
-    Block, BorderType, Borders, Cell, List, ListState, Paragraph, Row, StatefulWidget, Table,
-    Widget,
+    Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget,
 };
 use vortex::buffer::ByteBuffer;
 use vortex::compute::scalar_at;
@@ -41,12 +40,7 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
             app_state.cursor.is_stats_table(),
         );
     } else {
-        render_children_list(
-            &app_state.cursor,
-            detail_area,
-            buf,
-            &mut app_state.layouts_list_state,
-        );
+        render_children_list(app_state, detail_area, buf);
     }
 }
 
@@ -66,7 +60,19 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         Text::from(format!("Schema: {}", cursor.dtype()))
             .bold()
             .green(),
+        Text::from(format!("Segments: {}", cursor.layout().nsegments())),
+        Text::from(format!(
+            "Segment data size: {} bytes",
+            cursor.segment_size()
+        )),
     ];
+
+    if cursor.encoding().id() == FLAT_LAYOUT_ID {
+        rows.push(Text::from(format!(
+            "FlatBuffer Size: {} bytes",
+            cursor.flatbuffer_size()
+        )));
+    }
 
     if cursor.encoding().id() == CHUNKED_LAYOUT_ID {
         // Push any columnar stats.
@@ -137,6 +143,8 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .style(Style::default().fg(Color::Green).bg(Color::DarkGray))
             .height(1);
 
+        assert_eq!(app.cursor.dtype(), array.dtype());
+
         let field_arrays: Vec<Array> = (0..struct_array.nfields())
             .map(|x| {
                 struct_array
@@ -166,21 +174,26 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     } else {
         // Tree-display the active array
         Paragraph::new(array.tree_display().to_string()).render(widget_area, buf);
+        // Split view, show information about the child arrays (metadata, count, etc.)
     };
 }
 
-fn render_children_list(
-    cursor: &LayoutCursor,
-    area: Rect,
-    buf: &mut Buffer,
-    state: &mut ListState,
-) {
+fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
+    let cursor = &app.cursor;
     // TODO: add selection state.
     let layout = cursor.layout();
+    let state = &mut app.layouts_list_state;
 
     if layout.nchildren() > 0 {
         let list_items: Vec<String> = (0..layout.nchildren())
             .map(|idx| child_name(cursor, idx))
+            .filter(|name| {
+                if app.search_filter.is_empty() {
+                    true
+                } else {
+                    name.contains(&app.search_filter)
+                }
+            })
             .collect();
 
         let container = Block::new()
@@ -252,7 +265,7 @@ fn read_array(
         buffers,
     );
 
-    // // Decode into an Array.
+    // Decode into an Array.
     array_parts
         .decode(ctx, dtype.clone())
         .vortex_expect("decoding ArrayParts")

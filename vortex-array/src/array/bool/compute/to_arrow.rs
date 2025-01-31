@@ -12,7 +12,6 @@ impl ToArrowFn<BoolArray> for BoolEncoding {
         if data_type != &DataType::Boolean {
             vortex_bail!("Unsupported data type: {data_type}");
         }
-
         Ok(Some(Arc::new(ArrowBoolArray::new(
             array.boolean_buffer(),
             array.logical_validity()?.to_null_buffer(),

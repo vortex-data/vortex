@@ -6,16 +6,28 @@ use layouts::render_layouts;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Tabs};
 
-use super::app::{AppState, Tab};
+use super::app::{AppState, KeyMode, Tab};
 
 pub fn render_app(app: &mut AppState, frame: &mut Frame) {
     // Render the outer tab view, then render the inner frame view.
+    let bottom_text = if app.key_mode == KeyMode::Search {
+        Line::from(format!(
+            "Searching (press esc to exit): {}",
+            app.search_filter.as_str()
+        ))
+        .yellow()
+        .on_black()
+        .left_aligned()
+    } else {
+        Line::from("press q to quit |  ← to go up a level | ENTER to select | / to search")
+            .centered()
+    };
     let shell = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().magenta())
         .title_top("vx-browse")
-        .title_bottom("press q to quit |  ← to go up a level | ENTER to go down a level")
+        .title_bottom(bottom_text)
         .title_alignment(Alignment::Center);
 
     // The rest of the app is rendered inside the shell.

@@ -6,9 +6,8 @@ use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
-use vortex_array::array::StructArray;
 use vortex_array::arrow::FromArrowType;
-use vortex_array::ContextRef;
+use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
@@ -98,7 +97,7 @@ impl FileOpener for VortexFileOpener {
             Ok(vxf
                 .scan(Scan::new(this.projection.clone()).with_some_filter(this.filter.clone()))?
                 .map_ok(move |array| {
-                    let st = StructArray::try_from(array)?;
+                    let st = array.into_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
                 })
                 .map(|r| r.and_then(|inner| inner))
