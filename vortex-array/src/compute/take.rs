@@ -49,9 +49,9 @@ pub fn take(
     let array = array.as_ref();
     let indices = indices.as_ref();
 
-    if !indices.dtype().is_int() || indices.dtype().is_nullable() {
+    if !indices.dtype().is_int() {
         vortex_bail!(
-            "Take indices must be a non-nullable integer type, got {}",
+            "Take indices must be an integer type, got {}",
             indices.dtype()
         );
     }
