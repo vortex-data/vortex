@@ -1,4 +1,6 @@
-use num_traits::{CheckedShr, WrappingSub};
+use std::ops::Shr;
+
+use num_traits::WrappingSub;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{Array, IntoArray};
@@ -33,7 +35,7 @@ fn compare_constant<T>(
     operator: Operator,
 ) -> VortexResult<Option<Array>>
 where
-    T: NativePType + WrappingSub + CheckedShr<Output = T>,
+    T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
@@ -52,11 +54,10 @@ where
             rhs = rhs.wrapping_sub(&reference);
         }
 
-        let bit_width = (size_of::<T>() * 8) as u32;
-
         // Since compare requires that both sides are of same dtype, shifting by bit_width should never have an effect.
-        assert!(bit_width >= lhs.shift() as u32);
-        rhs >> (lhs.shift() as u32 % bit_width)
+        let bit_width = <T as NativePType>::PTYPE.bit_width();
+        assert!(bit_width >= lhs.shift() as usize);
+        rhs >> (lhs.shift() as usize % bit_width)
     });
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
