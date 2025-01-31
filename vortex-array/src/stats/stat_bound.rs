@@ -125,7 +125,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
     fn intersection(&self, other: &Self) -> Option<JoinResult<Self>> {
         Some(match (self, other) {
             (Precision::Exact(lhs), Precision::Exact(rhs)) => {
-                if lhs.partial_cmp(&rhs)? == Ordering::Equal {
+                if lhs.partial_cmp(rhs)? == Ordering::Equal {
                     JoinResult::Join(Precision::Exact(lhs.clone()))
                 } else {
                     JoinResult::None
