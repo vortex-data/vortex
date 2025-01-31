@@ -72,13 +72,21 @@ pub fn or_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult
 
 pub fn binary_boolean(lhs: &Array, rhs: &Array, op: BinaryOperator) -> VortexResult<Array> {
     if lhs.len() != rhs.len() {
-        vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
+        vortex_bail!(
+            "Boolean operations aren't supported on arrays of different lengths: {} and {}",
+            lhs.len(),
+            rhs.len()
+        )
+    }
+    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
+        vortex_bail!("Boolean operations are only supported on boolean arrays")
     }
     if lhs.dtype() != rhs.dtype() {
-        vortex_bail!("Boolean operations aren't supported on arrays of different types")
-    }
-    if !lhs.dtype().is_boolean() {
-        vortex_bail!("Boolean operations are only supported on boolean arrays")
+        vortex_bail!(
+            "Boolean operations aren't supported on arrays of different types: {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        )
     }
 
     // If LHS is constant, then we make sure it's on the RHS.
