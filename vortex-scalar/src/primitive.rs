@@ -14,20 +14,12 @@ use vortex_error::{
 use crate::pvalue::PValue;
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
     ptype: PType,
     pvalue: Option<PValue>,
 }
-
-impl PartialEq for PrimitiveScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype() == other.dtype() && self.pvalue == other.pvalue
-    }
-}
-
-impl Eq for PrimitiveScalar<'_> {}
 
 /// Ord is not implemented since it's undefined for different nullability
 impl PartialOrd for PrimitiveScalar<'_> {

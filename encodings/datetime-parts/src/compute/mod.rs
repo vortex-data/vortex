@@ -41,7 +41,7 @@ impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
             array.dtype().clone(),
             slice(array.days(), start, stop)?,
             slice(array.seconds(), start, stop)?,
-            slice(array.subsecond(), start, stop)?,
+            slice(array.subseconds(), start, stop)?,
         )?
         .into_array())
     }
@@ -79,7 +79,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
         let seconds: i64 = scalar_at(array.seconds(), index)?
             .cast(&DType::Primitive(PType::I64, NonNullable))?
             .try_into()?;
-        let subseconds: i64 = scalar_at(array.subsecond(), index)?
+        let subseconds: i64 = scalar_at(array.subseconds(), index)?
             .cast(&DType::Primitive(PType::I64, NonNullable))?
             .try_into()?;
 
