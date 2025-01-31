@@ -9,4 +9,4 @@ from ._lib import expr, io, scalar
 from ._lib.dtype import *
 
 # Export the 'array' factory function
-from .encoding import array
+from .encoding import Array, array

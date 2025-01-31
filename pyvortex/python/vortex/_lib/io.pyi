@@ -149,4 +149,34 @@ def read_path() -> vx.Array:
 
     """
 
-def write_path(): ...
+def write_path(array: vx.Array, path: str, *, compress: bool = True):
+    """
+    Write a vortex struct array to the local filesystem.
+
+    Parameters
+    ----------
+    array : :class:`~vortex.encoding.Array`
+        The array. Must be an array of structures.
+
+    path : :class:`str`
+        The file path.
+
+    compress : :class:`bool`
+        Compress the array before writing, defaults to ``True``.
+
+    Examples
+    --------
+
+    Write the array `a` to the local file `a.vortex`.
+
+    >>> import vortex as vx
+    >>> a = vx.array([
+    ...     {'x': 1},
+    ...     {'x': 2},
+    ...     {'x': 10},
+    ...     {'x': 11},
+    ...     {'x': None},
+    ... ])
+    >>> vx.io.write_path(a, "a.vortex")
+
+    """
