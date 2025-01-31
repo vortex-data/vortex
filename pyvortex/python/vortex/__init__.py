@@ -1,11 +1,22 @@
 from . import _lib
-
-assert _lib, "Eager import the Vortex native library"
-
 from ._lib import expr, scalar
-
-# Re-export all symbols from the native DType module
-from ._lib.dtype import *
-
-# Export the 'array' factory function
+from ._lib.dtype import binary, bool_, float_, int_, null, struct, uint, utf8
 from .encoding import Array, array, compress
+
+assert _lib, "Ensure we eagerly import the Vortex native library"
+
+__all__ = [
+    "expr",
+    "scalar",
+    "Array",
+    "array",
+    "compress",
+    "null",
+    "bool_",
+    "int_",
+    "uint",
+    "float_",
+    "utf8",
+    "binary",
+    "struct",
+]
