@@ -1,11 +1,11 @@
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexError, VortexExpect};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::stats::stat_bound::{Max, Min};
-use crate::stats::{exact, inexact, Precision, Stat};
+use crate::stats::{exact, inexact, Precision, Stat, StatType};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -146,6 +146,10 @@ impl StatsSet {
         })
     }
 
+    pub fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: DType) -> Option<S::Bound> {
+        self.get_scalar(S::STAT, dtype).map(|v| v.bound::<S>())
+    }
+
     pub fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -187,6 +191,16 @@ impl StatsSet {
     pub fn retain_only(&mut self, stats: &[Stat]) {
         if let Some(v) = &mut self.values {
             v.retain(|(s, _)| stats.contains(s));
+        }
+    }
+
+    pub fn retain_approx_only(&mut self, exact_keep: &[Stat], inexact_keep: &[Stat]) {
+        if let Some(v) = &mut self.values {
+            v.retain(|(s, _)| exact_keep.contains(s) || inexact_keep.contains(s));
+
+            v.iter_mut()
+                .filter(|(s, _)| inexact_keep.contains(s))
+                .for_each(|(_, v)| v.mut_inexact());
         }
     }
 
@@ -293,6 +307,54 @@ impl StatsSet {
         }
 
         self
+    }
+
+    // given two sets of stats (of differing precision) for the same array, combine them
+    pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
+        self.combine_max(other, dtype)?;
+        self.combine_min(other, dtype)
+    }
+
+    fn combine_min(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
+        match (
+            self.get_scalar_bound::<Min>(dtype.clone()),
+            other.get_scalar_bound::<Min>(dtype.clone()),
+        ) {
+            (Some(m1), Some(m2)) => {
+                let meet = m1
+                    .join(&m2)
+                    .vortex_expect("can always compare scalar")
+                    .ok_or_else(|| vortex_err!("Min bounds ({m1:?}, {m2:?}) do not overlap"))?;
+                if meet != m1 {
+                    self.set(Stat::Min, meet.into_value().map(Scalar::into_value));
+                }
+            }
+            (None, Some(m)) => self.set(Stat::Min, m.into_value().map(Scalar::into_value)),
+            (Some(_), _) => (),
+            (None, None) => self.clear(Stat::Min),
+        }
+        Ok(())
+    }
+
+    fn combine_max(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
+        match (
+            self.get_scalar_bound::<Max>(dtype.clone()),
+            other.get_scalar_bound::<Max>(dtype.clone()),
+        ) {
+            (Some(m1), Some(m2)) => {
+                let meet = m1
+                    .join(&m2)
+                    .vortex_expect("can always compare scalar")
+                    .ok_or_else(|| vortex_err!("Max bounds ({m1:?}, {m2:?}) do not overlap"))?;
+                if meet != m1 {
+                    self.set(Stat::Max, meet.into_value().map(Scalar::into_value));
+                }
+            }
+            (None, Some(m)) => self.set(Stat::Max, m.into_value().map(Scalar::into_value)),
+            (Some(_), None) => (),
+            (None, None) => self.clear(Stat::Max),
+        }
+        Ok(())
     }
 
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
@@ -785,5 +847,21 @@ mod test {
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         assert_eq!(merged.get_as::<i32>(Stat::Min), Some(inexact(4)));
+    }
+
+    #[test]
+    fn retain_approx() {
+        let mut set = StatsSet::from_iter([
+            (Stat::Max, exact(100)),
+            (Stat::Min, exact(50)),
+            (Stat::TrueCount, inexact(10)),
+        ]);
+
+        set.retain_approx_only(&[Stat::Min], &[Stat::Max]);
+
+        assert_eq!(set.len(), 2);
+        assert_eq!(set.get_as::<i32>(Stat::Max), Some(inexact(100)));
+        assert_eq!(set.get_as::<i32>(Stat::Min), Some(exact(50)));
+        assert_eq!(set.get_as::<i32>(Stat::TrueCount), None);
     }
 }

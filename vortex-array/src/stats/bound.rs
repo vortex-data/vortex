@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use vortex_error::{VortexError, VortexResult};
 
 use crate::stats::Precision;
 use crate::stats::Precision::{Exact, Inexact};
@@ -24,6 +25,18 @@ impl<T> LowerBound<T> {
 pub enum JoinResult<T> {
     Join(T),
     None,
+}
+
+impl<T> JoinResult<T> {
+    pub fn ok_or_else<F>(self, err: F) -> VortexResult<T>
+    where
+        F: FnOnce() -> VortexError,
+    {
+        match self {
+            JoinResult::Join(v) => Ok(v),
+            JoinResult::None => Err(err()),
+        }
+    }
 }
 
 impl<T: PartialOrd + Clone> LowerBound<T> {

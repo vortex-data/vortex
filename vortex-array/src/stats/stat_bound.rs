@@ -93,7 +93,7 @@ impl<T> StatType<T> for Max {
 impl<T> StatType<T> for Min {
     type Bound = LowerBound<T>;
 
-    const STAT: Stat = Stat::Max;
+    const STAT: Stat = Stat::Min;
 }
 
 impl<T> LowerBound<T> {

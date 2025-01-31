@@ -30,10 +30,50 @@ impl<T> Precision<Option<T>> {
     }
 }
 
+// #[allow(dead_code)]
+// pub fn take<T, F>(mut_ref: &mut T, closure: F)
+// where
+//     F: FnOnce(T) -> T,
+// {
+//     use std::ptr;
+//
+//     unsafe {
+//         let old_t = ptr::read(mut_ref);
+//         let new_t = panic::catch_unwind(panic::AssertUnwindSafe(|| closure(old_t)))
+//             .unwrap_or_else(|_| ::std::process::abort());
+//         ptr::write(mut_ref, new_t);
+//     }
+// }
+
+// impl<T> Precision<T> {
+// pub fn mut_inexact(&mut self) {
+// take(self, |v| match v {
+//     Exact(val) => Inexact(val),
+//     Inexact(val) => Inexact(val),
+// })
+// }
+// }
+
+impl<T: Clone> Precision<T> {
+    pub fn mut_inexact(&mut self) {
+        match self {
+            Exact(val) => *self = Inexact(val.clone()),
+            Inexact(_) => (),
+        };
+    }
+}
+
 impl<T> Precision<T> {
     pub fn ok_exact(self) -> Option<T> {
         match self {
             Exact(val) => Some(val),
+            _ => None,
+        }
+    }
+
+    pub fn ok_inexact(self) -> Option<T> {
+        match self {
+            Inexact(val) => Some(val),
             _ => None,
         }
     }
