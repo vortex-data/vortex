@@ -30,9 +30,9 @@ Vortex array:
 .. doctest::
 
    >>> import pyarrow.parquet as pq
-   >>> import vortex
+   >>> import vortex as vx
    >>> parquet = pq.read_table("_static/example.parquet")
-   >>> vtx = vortex.array(parquet)
+   >>> vtx = vx.array(parquet)
    >>> vtx.nbytes
    141055
 
@@ -43,7 +43,7 @@ Use :func:`~vortex.compress` to compress the Vortex array and check the relative
 
 .. doctest::
 
-   >>> cvtx = vortex.compress(vtx)
+   >>> cvtx = vx.compress(vtx)
    >>> cvtx.nbytes
    15755
    >>> cvtx.nbytes / vtx.nbytes
