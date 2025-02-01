@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -198,13 +199,7 @@ pub struct FieldInfo {
 impl StructDType {
     /// Create a new [`StructDType`] from a list of names and dtypes
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
-        if names.len() != dtypes.len() {
-            vortex_panic!(
-                "length mismatch between names ({}) and dtypes ({})",
-                names.len(),
-                dtypes.len()
-            );
-        }
+        Self::enforce_valid_structure(&names, dtypes.as_slice());
 
         let dtypes = dtypes
             .into_iter()
@@ -219,14 +214,7 @@ impl StructDType {
 
     /// Create a new [`StructDType`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
     pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
-        if names.len() != dtypes.len() {
-            vortex_panic!(
-                "length mismatch between names ({}) and dtypes ({})",
-                names.len(),
-                dtypes.len()
-            );
-        }
-
+        Self::enforce_valid_structure(&names, dtypes.as_slice());
         Self {
             names,
             dtypes: dtypes.into(),
@@ -295,6 +283,23 @@ impl StructDType {
         }
 
         Ok(StructDType::from_fields(names.into(), dtypes))
+    }
+
+    fn enforce_valid_structure<D>(names: &FieldNames, dtypes: &[D]) {
+        if names.len() != dtypes.len() {
+            vortex_panic!(
+                "length mismatch between names ({}) and dtypes ({})",
+                names.len(),
+                dtypes.len()
+            );
+        }
+
+        let mut unique_names = HashSet::new();
+        for name in names.iter() {
+            if !unique_names.insert(name.clone()) {
+                vortex_panic!("Filed names must be unique, {name} appeared at least twice");
+            }
+        }
     }
 }
 

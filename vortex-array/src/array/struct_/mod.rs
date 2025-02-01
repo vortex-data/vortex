@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -76,13 +75,6 @@ impl StructArray {
                     "Expected all struct fields to have length {length}, found {}",
                     field.len()
                 );
-            }
-        }
-
-        let mut unique_names = HashSet::new();
-        for name in names.iter() {
-            if !unique_names.insert(name.clone()) {
-                vortex_bail!("Filed names must be unique, {name} appeared at least twice");
             }
         }
 
