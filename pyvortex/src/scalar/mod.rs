@@ -5,12 +5,13 @@
 //! array.
 
 mod bool;
+pub mod factory;
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, Nullability, PType};
+use vortex::dtype::{DType, PType};
 use vortex::error::VortexExpect;
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
@@ -22,7 +23,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_submodule(&m)?;
     install_module("vortex._lib.scalar", &m)?;
 
-    m.add_function(wrap_pyfunction!(scalar_factory, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::scalar, &m)?)?;
 
     m.add_class::<PyScalar>()?;
     m.add_class::<PyBoolScalar>()?;
@@ -49,11 +50,6 @@ impl PyScalar {
     pub fn into_inner(self) -> Scalar {
         self.0
     }
-}
-
-#[pyfunction(name = "scalar")]
-pub fn scalar_factory() -> PyResult<PyScalar> {
-    Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
 }
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {

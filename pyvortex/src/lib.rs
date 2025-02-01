@@ -14,7 +14,7 @@ mod expr;
 mod io;
 mod object_store_urls;
 mod python_repr;
-mod scalar;
+pub(crate) mod scalar;
 
 use log::LevelFilter;
 use pyo3_log::{Caching, Logger};

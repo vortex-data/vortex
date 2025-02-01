@@ -1,13 +1,12 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::expr::{lit, BinaryExpr, ExprRef, GetItem, Operator};
-use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
 use crate::install_module;
+use crate::scalar::factory::scalar_helper;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new_bound(py, "expr")?;
@@ -326,50 +325,9 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     Bound::new(
         py,
         PyExpr {
-            inner: lit(scalar_helper(dtype, value)?),
+            inner: lit(scalar_helper(value, dtype)?),
         },
     )
-}
-
-pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar> {
-    match dtype {
-        DType::Null => {
-            value.downcast::<PyNone>()?;
-            Ok(Scalar::null(dtype))
-        }
-        DType::Bool(_) => {
-            let value = value.downcast::<PyBool>()?;
-            Ok(Scalar::from(value.extract::<bool>()?))
-        }
-        DType::Primitive(ptype, _) => match ptype {
-            PType::I8 => Ok(Scalar::from(value.extract::<i8>()?)),
-            PType::I16 => Ok(Scalar::from(value.extract::<i16>()?)),
-            PType::I32 => Ok(Scalar::from(value.extract::<i32>()?)),
-            PType::I64 => Ok(Scalar::from(value.extract::<i64>()?)),
-            PType::U8 => Ok(Scalar::from(value.extract::<u8>()?)),
-            PType::U16 => Ok(Scalar::from(value.extract::<u16>()?)),
-            PType::U32 => Ok(Scalar::from(value.extract::<u32>()?)),
-            PType::U64 => Ok(Scalar::from(value.extract::<u64>()?)),
-            PType::F16 => {
-                let float = value.extract::<f32>()?;
-                Ok(Scalar::from(f16::from_f32(float)))
-            }
-            PType::F32 => Ok(Scalar::from(value.extract::<f32>()?)),
-            PType::F64 => Ok(Scalar::from(value.extract::<f64>()?)),
-        },
-        DType::Utf8(_) => Ok(Scalar::from(value.extract::<String>()?)),
-        DType::Binary(_) => Ok(Scalar::from(value.extract::<&[u8]>()?)),
-        DType::Struct(..) => todo!(),
-        DType::List(element_type, _) => {
-            let list = value.downcast::<PyList>();
-            let values = list
-                .iter()
-                .map(|element| scalar_helper(element_type.as_ref().clone(), element))
-                .collect::<PyResult<Vec<_>>>()?;
-            Ok(Scalar::list(element_type, values, Nullability::Nullable))
-        }
-        DType::Extension(..) => todo!(),
-    }
 }
 
 pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {

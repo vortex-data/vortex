@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, final
 
 def scalar(value: Any) -> Scalar: ...
 
 class Scalar: ...
 
+@final
 class BoolScalar:
     def as_py(self) -> bool | None: ...
 
