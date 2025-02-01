@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -298,7 +297,8 @@ impl StructDType {
             );
         }
 
-        let mut unique_names = HashSet::new();
+        #[allow(clippy::disallowed_types)]
+        let mut unique_names = std::collections::HashSet::new();
         for name in names.iter() {
             if !unique_names.insert(name.clone()) {
                 vortex_panic!("Filed names must be unique, '{name}' appeared at least twice");
