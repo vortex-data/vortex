@@ -40,7 +40,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Base class for Vortex scalar types.
 #[pyclass(name = "Scalar", module = "vortex", subclass, frozen, eq, hash)]
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct PyScalar(Scalar);
+pub struct PyScalar(pub Scalar);
 
 impl PyScalar {
     pub fn inner(&self) -> &Scalar {

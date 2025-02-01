@@ -325,7 +325,7 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     Bound::new(
         py,
         PyExpr {
-            inner: lit(scalar_helper(value, dtype)?),
+            inner: lit(scalar_helper(value, Some(&dtype))?),
         },
     )
 }
