@@ -197,7 +197,9 @@ pub struct FieldInfo {
 }
 
 impl StructDType {
-    /// Create a new [`StructDType`] from a list of names and dtypes
+    /// Create a new [`StructDType`] from a list of names and dtypes.
+    ///
+    /// Will panic if the number of fields and types don't match or if one of the name appears more then twice.
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
         Self::enforce_valid_structure(&names, dtypes.as_slice());
 
@@ -213,6 +215,8 @@ impl StructDType {
     }
 
     /// Create a new [`StructDType`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
+    ///
+    /// Will panic if the number of fields and types don't match or if one of the name appears more then twice.
     pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
         Self::enforce_valid_structure(&names, dtypes.as_slice());
         Self {
