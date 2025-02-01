@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -75,6 +76,13 @@ impl StructArray {
                     "Expected all struct fields to have length {length}, found {}",
                     field.len()
                 );
+            }
+        }
+
+        let mut unique_names = HashSet::new();
+        for name in names.iter() {
+            if !unique_names.insert(name.clone()) {
+                vortex_bail!("Filed names must be unique, {name} appeared at least twice");
             }
         }
 
@@ -279,5 +287,22 @@ mod test {
 
         let prims = PrimitiveArray::try_from(struct_b.maybe_null_field_by_idx(1).unwrap()).unwrap();
         assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn non_unique_field_names() {
+        let xs_1 = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
+        let xs_2 = VarBinArray::from_vec(
+            vec!["a", "b", "c", "d", "e"],
+            DType::Utf8(Nullability::NonNullable),
+        );
+
+        assert!(StructArray::try_new(
+            FieldNames::from(["xs".into(), "xs".into()]),
+            vec![xs_1.into_array(), xs_2.into_array()],
+            5,
+            Validity::NonNullable,
+        )
+        .is_err())
     }
 }
