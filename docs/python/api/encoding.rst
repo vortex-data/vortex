@@ -7,6 +7,8 @@ specific physical encoding where such a Python class exists, otherwise a base :c
 Each encoding-specific class may have additional methods and properties that are specific to that encoding.
 To be concise, we do not show the base class methods in this encoding-specific class documentation.
 
+.. autofunction:: vortex.compress
+
 .. autoclass:: vortex.encoding.BoolArray
     :members:
     :show-inheritance:
