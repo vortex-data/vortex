@@ -102,23 +102,23 @@ jobs:
         config:
           - name: "all-features"
             command: "build"
-            args: "--all-features --all-targets"
+            args: "--locked --all-features --all-targets"
           - name: "default features"
             command: "build"
-            args: "--all-targets"
+            args: "--locked --all-targets"
           - name: "with tokio dispatcher"
             command: "build"
-            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
+            args: "--locked --no-default-features --features tokio --all-targets --ignore-unknown-features"
           - name: "with compio dispatcher"
             command: "build"
-            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
+            args: "--locked --no-default-features --features compio --all-targets --ignore-unknown-features"
           - name: "with tokio+compio dispatcher"
             command: "build"
-            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
+            args: "--locked --no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
-            args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-tui"
+            args: "--locked --target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-tui"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -142,15 +142,15 @@ jobs:
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rust Lint - Clippy All Features
-        run: cargo clippy --all-features --all-targets
+        run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
-        run: cargo clippy --all-targets
+        run: cargo clippy --locked --all-targets
       - name: Rust Lint - Clippy No Default Features
         run: |
           set -ex
 
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          for package in $(cargo check -p  2>&1 | grep '^    ')
+          for package in $(cargo check --locked -p  2>&1 | grep '^    ')
           do
               echo ---- $package ----
               cargo clippy --package $package --no-default-features
@@ -177,7 +177,7 @@ jobs:
         with:
           tool: nextest
       - name: Rust Test
-        run: cargo nextest run --workspace --all-features --no-fail-fast
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
