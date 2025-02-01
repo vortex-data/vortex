@@ -84,12 +84,3 @@ pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module.setattr("__name__", name)?;
     Ok(())
 }
-
-#[cfg(test)]
-mod test {
-    // A dummy test so our IDE lets us run tests on this crate.
-    #[test]
-    fn test() {
-        assert_eq!(2 + 2, 4);
-    }
-}
