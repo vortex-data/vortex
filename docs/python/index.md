@@ -71,7 +71,7 @@ struct({"age": int(64, nullable=True), "name": utf8(nullable=True)}, nullable=Tr
 
 ### Arrow
 
-The {func}`~vortex.encoding.array` function constructs a Vortex array from an Arrow one without any
+The {func}`~vortex.array` function constructs a Vortex array from an Arrow one without any
 copies:
 
 ```{doctest} pycon
@@ -129,7 +129,7 @@ name: [["Joseph","Narendra","Angela","Mikhail"]]
    3   57   Mikhail
 ```
 
-{func}`~vortex.encoding.array` converts from a Pandas DataFrame into a Vortex array:
+{func}`~vortex.array` converts from a Pandas DataFrame into a Vortex array:
 
 ```pycon
 >>> vx.array(df).to_arrow_table()

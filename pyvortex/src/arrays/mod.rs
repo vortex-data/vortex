@@ -206,7 +206,7 @@ impl PyArray {
     /// Examples
     /// --------
     ///
-    /// By default, :func:`~vortex.encoding.array` uses the largest available bit-width:
+    /// By default, :func:`~vortex.array` uses the largest available bit-width:
     ///
     ///     >>> import vortex as vx
     ///     >>> vx.array([1, 2, 3]).dtype

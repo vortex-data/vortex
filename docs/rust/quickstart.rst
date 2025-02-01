@@ -24,7 +24,7 @@ Convert
 You can either use your own Parquet file or download the `example used here
 <https://spiraldb.github.io/vortex/docs/_static/example.parquet>`__.
 
-Use Arrow to read a Parquet file and then use :func:`~vortex.encoding.array` to construct an uncompressed
+Use Arrow to read a Parquet file and then use :func:`~vortex.array` to construct an uncompressed
 Vortex array:
 
 .. doctest::
@@ -39,7 +39,7 @@ Vortex array:
 Compress
 ^^^^^^^^
 
-Use :func:`~vortex.encoding.compress` to compress the Vortex array and check the relative size:
+Use :func:`~vortex.compress` to compress the Vortex array and check the relative size:
 
 .. doctest::
 
