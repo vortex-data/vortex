@@ -301,7 +301,7 @@ impl StructDType {
         let mut unique_names = HashSet::new();
         for name in names.iter() {
             if !unique_names.insert(name.clone()) {
-                vortex_panic!("Filed names must be unique, {name} appeared at least twice");
+                vortex_panic!("Filed names must be unique, '{name}' appeared at least twice");
             }
         }
     }
@@ -325,7 +325,7 @@ where
 mod test {
     use crate::dtype::DType;
     use crate::field::Field;
-    use crate::{Nullability, PType, StructDType};
+    use crate::{FieldNames, Nullability, PType, StructDType};
 
     #[test]
     fn nullability() {
@@ -385,5 +385,15 @@ mod test {
         assert_eq!(sdt.find_name("A"), Some(0));
         assert_eq!(sdt.find_name("B"), Some(1));
         assert_eq!(sdt.find_name("C"), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "Filed names must be unique, 'a' appeared at least twice")]
+    fn test_non_unique_names() {
+        let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
+        let b_type = DType::Bool(Nullability::NonNullable);
+        let names = FieldNames::from(["a".into(), "a".into()]);
+
+        StructDType::new(names, vec![a_type, b_type]);
     }
 }

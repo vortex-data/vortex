@@ -282,6 +282,7 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
     fn non_unique_field_names() {
         let xs_1 = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
         let xs_2 = VarBinArray::from_vec(
@@ -289,12 +290,11 @@ mod test {
             DType::Utf8(Nullability::NonNullable),
         );
 
-        assert!(StructArray::try_new(
+        _ = StructArray::try_new(
             FieldNames::from(["xs".into(), "xs".into()]),
             vec![xs_1.into_array(), xs_2.into_array()],
             5,
             Validity::NonNullable,
-        )
-        .is_err())
+        );
     }
 }
