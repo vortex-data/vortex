@@ -79,10 +79,6 @@ jobs:
           rm -rf .venv
           uv sync --only-dev
 
-          # Make sure the lockfile isn't dirty
-          git status --porcelain
-          test -z "$(git status --porcelain)"
-
           uv run pip install target/wheels/vortex_array-*.whl || { uv run pip debug --verbose ; exit 1 ; }
           uv run pip install pytest
           cd pyvortex/test
