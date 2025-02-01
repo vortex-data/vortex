@@ -4,6 +4,8 @@
 //! :meth:`.Array.scalar_at`. They represent shared-memory views into individual values of a Vortex
 //! array.
 
+mod bool;
+
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use vortex::buffer::{BufferString, ByteBuffer};
@@ -26,6 +28,21 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyVortexStruct>()?;
 
     Ok(())
+}
+
+/// Base class for Vortex scalar types.
+#[pyclass(name = "Scalar", module = "vortex", frozen, eq, hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct PyScalar(Scalar);
+
+impl PyScalar {
+    pub fn inner(&self) -> &Scalar {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Scalar {
+        self.0
+    }
 }
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
