@@ -95,7 +95,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub struct PyArray(pub Array);
 
 impl PyArray {
-    pub fn unwrap(self) -> Array {
+    pub fn inner(&self) -> &Array {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Array {
         self.0
     }
 }

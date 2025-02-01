@@ -232,7 +232,7 @@ pub fn write_path(
     }
 
     let fname = path.to_str()?; // TODO(dk): support file objects
-    let mut array = array.extract::<PyArray>()?.unwrap();
+    let mut array = array.extract::<PyArray>()?.into_inner();
 
     if compress {
         let compressor = SamplingCompressor::default();

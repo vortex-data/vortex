@@ -120,7 +120,7 @@ impl TokioFileDataset {
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
-            indices.cloned().map(PyArray::unwrap),
+            indices.cloned().map(PyArray::into_inner),
         )
         .await?;
         Ok(PyArray(inner))
@@ -138,7 +138,7 @@ impl TokioFileDataset {
             scan = scan.with_filter(filter);
         }
 
-        if let Some(indices) = indices.cloned().map(PyArray::unwrap) {
+        if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
             let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
@@ -209,7 +209,7 @@ impl ObjectStoreUrlDataset {
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
-            indices.cloned().map(PyArray::unwrap),
+            indices.cloned().map(PyArray::into_inner),
         )
         .await?;
         Ok(PyArray(inner))
@@ -227,7 +227,7 @@ impl ObjectStoreUrlDataset {
             scan = scan.with_filter(filter);
         }
 
-        if let Some(indices) = indices.cloned().map(PyArray::unwrap) {
+        if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
             let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
