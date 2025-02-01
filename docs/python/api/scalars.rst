@@ -8,18 +8,21 @@ binary data, UTF-8 strings, variable-length lists, and structures, Vortex return
 of the Array data. The ``into_python`` method of each view will copy the scalar into a native Python
 value.
 
-.. autosummary::
-   :nosignatures:
+Factory Function
+----------------
 
-   ~vortex.scalar.Buffer
-   ~vortex.scalar.BufferString
-   ~vortex.scalar.VortexList
-   ~vortex.scalar.VortexStruct
+.. autofunction:: vortex.scalar
 
-.. raw:: html
 
-   <hr>
+Base Class
+----------
 
-.. automodule:: vortex.scalar
+.. autoclass:: vortex.Scalar
    :members:
-   :imported-members:
+
+
+Scalar Classes
+--------------
+
+.. autoclass:: vortex.BoolScalar
+   :members:

@@ -10,16 +10,22 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, PType};
+use vortex::dtype::{DType, Nullability, PType};
 use vortex::error::VortexExpect;
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 use crate::install_module;
+use crate::scalar::bool::PyBoolScalar;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new_bound(py, "scalar")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.scalar", &m)?;
+
+    m.add_function(wrap_pyfunction!(scalar_factory, &m)?)?;
+
+    m.add_class::<PyScalar>()?;
+    m.add_class::<PyBoolScalar>()?;
 
     // TODO(ngates): rename these based on DType, e.g. Utf8Scalar, BinaryScalar
     m.add_class::<PyBuffer>()?;
@@ -31,7 +37,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 /// Base class for Vortex scalar types.
-#[pyclass(name = "Scalar", module = "vortex", frozen, eq, hash)]
+#[pyclass(name = "Scalar", module = "vortex", subclass, frozen, eq, hash)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyScalar(Scalar);
 
@@ -43,6 +49,11 @@ impl PyScalar {
     pub fn into_inner(self) -> Scalar {
         self.0
     }
+}
+
+#[pyfunction(name = "scalar")]
+pub fn scalar_factory() -> PyResult<PyScalar> {
+    Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
 }
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {

@@ -9,9 +9,9 @@ pub struct PyBoolScalar;
 
 #[pymethods]
 impl PyBoolScalar {
+    /// Return this value as a Python bool.
     pub fn as_py(self_: PyRef<'_, Self>) -> Option<bool> {
-        let bool: BoolScalar = self_.as_scalar_ref();
-        bool.value()
+        self_.as_scalar_ref().value()
     }
 }
 
