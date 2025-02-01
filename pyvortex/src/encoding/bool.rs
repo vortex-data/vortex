@@ -31,10 +31,7 @@ impl PyBoolArray {
 
         Ok((PyBoolArray, PyArray(array)))
     }
-}
 
-#[pymethods]
-impl PyBoolArray {
     /// Compute the number of true values in the array.
     pub fn true_count(self_: PyRef<'_, Self>) -> PyResult<usize> {
         self_

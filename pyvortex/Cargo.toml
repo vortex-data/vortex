@@ -20,7 +20,7 @@ workspace = true
 [lib]
 name = "pyvortex"
 crate-type = ["rlib", "cdylib"]
-doctest = false
+doctest = false # TODO(ngates): why?
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }
@@ -28,7 +28,7 @@ futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
-pyo3 = { workspace = true, features = ["multiple-pymethods"] }
+pyo3 = { workspace = true }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }
