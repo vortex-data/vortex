@@ -86,7 +86,7 @@ fastlanes = "0.1.5"
 flatbuffers = "25"
 flexbuffers = "25"
 flume = "0.11"
-fsst-rs = "0.4.1"
+fsst-rs = "0.5.0"
 futures = { version = "0.3", default-features = false }
 futures-executor = "0.3"
 futures-util = "0.3"
