@@ -1,26 +1,12 @@
-Encoding
-========
+Encodings
+=========
 
-A Vortex array is a possibly compressed ordered set of homogeneously typed values. Each array has a
-logical type and a physical encoding. The logical type describes the set of operations applicable to
-the values of this array. The physical encoding describes how this array is realized in memory, on
-disk, and over the wire and how to apply operations to that realization.
+Vortex arrays have both a logical data type and a physical encoding. Arrays in PyVortex are downcast to their
+specific physical encoding where such a Python class exists, otherwise a base :class:`~vortex.Array` is used.
 
-.. autosummary::
-   :nosignatures:
+Each encoding-specific class may have additional methods and properties that are specific to that encoding.
+To be concise, we do not show the base class methods in this encoding-specific class documentation.
 
-   ~vortex.encoding.array
-   ~vortex.encoding.compress
-   ~vortex.encoding.Array
-
-.. raw:: html
-
-   <hr>
-
-.. autofunction:: vortex.encoding.array
-
-.. autofunction:: vortex.encoding.compress
-
-.. autoclass:: vortex.encoding.Array
-   :members:
-   :special-members: __len__
+.. autoclass:: vortex.encoding.BoolArray
+    :members:
+    :show-inheritance:

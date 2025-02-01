@@ -6,7 +6,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
 
-from vortex import encoding
+import vortex as vx
 from vortex._lib import dataset as _dataset
 from vortex.arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
@@ -231,7 +231,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         """
         return self._dataset.to_array(
-            columns=columns, row_filter=filter, indices=encoding.array(indices.cast(pa.uint64()))
+            columns=columns, row_filter=filter, indices=vx.array(indices.cast(pa.uint64()))
         ).to_arrow_table()
 
     def to_record_batch_reader(

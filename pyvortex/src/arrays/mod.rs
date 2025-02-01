@@ -431,12 +431,12 @@ impl PyArray {
     ///
     /// Parameters
     /// ----------
-    /// indices : :class:`~vortex.encoding.Array`
+    /// indices : :class:`~vortex.Array`
     ///     An array of indices to keep.
     ///
     /// Returns
     /// -------
-    /// :class:`~vortex.encoding.Array`
+    /// :class:`~vortex.Array`
     ///
     /// Examples
     /// --------
@@ -490,7 +490,7 @@ impl PyArray {
     ///
     /// Returns
     /// -------
-    /// :class:`~vortex.encoding.Array`
+    /// :class:`~vortex.Array`
     ///
     /// Examples
     /// --------

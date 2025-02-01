@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 
-import vortex
+import vortex as vx
 import vortex.dataset
 import vortex.io
 
@@ -26,7 +26,7 @@ def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
 
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
-        arr = vortex.encoding.compress(vortex.array(a))
+        arr = vx.compress(vx.array(a))
         vortex.io.write_path(arr, str(fname))
     return vortex.dataset.VortexDataset.from_path(str(fname))
 

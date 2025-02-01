@@ -18,7 +18,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// Parameters
 /// ----------
-/// array : :class:`~vortex.encoding.Array`
+/// array : :class:`~vortex.Array`
 ///     The array.
 ///
 /// Examples

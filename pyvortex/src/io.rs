@@ -191,7 +191,7 @@ pub fn read_url(
 ///
 /// Parameters
 /// ----------
-/// array : :class:`~vortex.encoding.Array`
+/// array : :class:`~vortex.Array`
 ///     The array. Must be an array of structures.
 ///
 /// f : :class:`str`

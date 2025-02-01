@@ -1,6 +1,7 @@
 import pytest
 
 import vortex as vx
+from vortex.encoding import BoolArray
 
 
 def test_bool_array():
@@ -8,7 +9,8 @@ def test_bool_array():
     assert arr.dtype == vx.bool_(nullable=True)
 
     # Downcast to a BoolArray
-    arr = vx.encoding.BoolArray(arr)
+    # TODO(ngates): I think this should be automatic if we have a registered Python class for the encoding
+    arr = BoolArray(arr)
     assert str(arr) == "vortex.bool(0x02)(bool?, len=4)"
 
     # Test the bool-specific true_count method
@@ -16,4 +18,4 @@ def test_bool_array():
 
     # Fail to downcast a non-boolean array BoolArray
     with pytest.raises(ValueError):
-        vx.encoding.BoolArray(vx.array([1, 2, 3]))
+        BoolArray(vx.array([1, 2, 3]))

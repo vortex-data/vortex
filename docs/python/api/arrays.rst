@@ -7,11 +7,11 @@ functions, serialized, and otherwise manipulated as a generic array.
 
 There are two ways of "downcasting" an array for more specific access patterns:
 
-1. Into an encoding-specific array, like :class:`vortex.encoding.BitPackedArray`.vortex.
-2. Into a type-specific array, like :class:`vortex.array.BoolTypeArray`.
+1. Into an encoding-specific array, like `vortex.encoding.BitPackedArray`.vortex.
+2. Into a type-specific array, like `vortex.array.BoolTypeArray`.
 
 Be careful to note that :class:`vortex.encoding.BoolArray` represents an array that stores physical data
- as a bit-buffer of booleans, vs :class:`vortex.array.BoolTypeArray` which represents any array that has a logical
+ as a bit-buffer of booleans, vs `vortex.array.BoolTypeArray` which represents any array that has a logical
  type of boolean.
 
 Factory Functions
