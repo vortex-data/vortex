@@ -28,7 +28,7 @@ impl CanonicalVTable<FSSTArray> for FSSTEncoding {
 
             // Decompres the full dataset.
             #[allow(clippy::cast_possible_truncation)]
-            let mut total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
+            let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
                uncompressed_lens_array.as_slice::<$P>().iter().map(|x| *x as usize).sum()
             });
 
