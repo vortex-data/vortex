@@ -306,7 +306,7 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
 
     Returns
     -------
-    :class:`vortex.encoding.Array`
+    :class:`vortex.Array`
 
     Examples
     --------
