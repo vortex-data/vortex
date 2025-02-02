@@ -5,6 +5,7 @@ use vortex::scalar::ListScalar;
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
 use crate::PyVortex;
 
+/// Concrete class for list scalars.
 #[pyclass(name = "ListScalar", module = "vortex", extends=PyScalar, frozen)]
 pub(crate) struct PyListScalar;
 

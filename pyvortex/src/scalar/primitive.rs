@@ -3,6 +3,7 @@ use vortex::scalar::PrimitiveScalar;
 
 use crate::scalar::{PyScalar, ScalarSubclass};
 
+/// Concrete class for primitive scalars.
 #[pyclass(name = "PrimitiveScalar", module = "vortex", extends=PyScalar, frozen)]
 pub(crate) struct PyPrimitiveScalar;
 

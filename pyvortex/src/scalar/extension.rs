@@ -4,6 +4,7 @@ use vortex::scalar::ExtScalar;
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
 use crate::PyVortex;
 
+/// Concrete class for extension scalars.
 #[pyclass(name = "ExtensionScalar", module = "vortex", extends=PyScalar, frozen)]
 pub(crate) struct PyExtensionScalar;
 
