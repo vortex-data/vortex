@@ -154,7 +154,7 @@ impl PyArray {
         // discovered at runtime using entry points or manual registration.
 
         // Otherwise, we return the base type.
-        Ok(Bound::new(py, PyArray(array))?)
+        Bound::new(py, PyArray(array))
     }
 
     fn with_subclass<S: PyClass<BaseType = PyArray>>(
