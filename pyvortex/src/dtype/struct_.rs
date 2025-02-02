@@ -12,6 +12,16 @@ pub(crate) struct PyStructDType;
 
 #[pymethods]
 impl PyStructDType {
+    /// Returns the names of the struct fields.
+    pub fn names(self_: PyRef<'_, Self>) -> PyResult<Vec<String>> {
+        let DType::Struct(dtype, _) = self_.as_ref().deref() else {
+            vortex_panic!("Not a struct DType");
+        };
+
+        Ok(dtype.names().iter().map(|name| name.to_string()).collect())
+    }
+
+    /// Returns the field DTypes of the struct.
     pub fn fields(self_: PyRef<'_, Self>) -> PyResult<Vec<Bound<PyDType>>> {
         let DType::Struct(dtype, _) = self_.as_ref().deref() else {
             vortex_panic!("Not a struct DType");

@@ -18,10 +18,46 @@ Factory Functions
 .. autofunction:: vortex.struct
 .. autofunction:: vortex.list_
 
-Type Classes
-------------
+Base Class
+----------
 
 Do not instantiate these classes directly. Instead, call one of the factory functions above.
 
 .. autoclass:: vortex.DType
    :members:
+
+
+DType Classes
+-------------
+
+.. autoclass:: vortex.NullDType
+   :members:
+
+
+.. autoclass:: vortex.BoolDType
+    :members:
+
+
+.. autoclass:: vortex.PrimitiveDType
+    :members:
+
+
+.. autoclass:: vortex.Utf8DType
+    :members:
+
+
+.. autoclass:: vortex.BinaryDType
+    :members:
+
+
+.. autoclass:: vortex.StructDType
+    :members:
+
+
+.. autoclass:: vortex.ListDType
+    :members:
+
+
+.. autoclass:: vortex.ExtensionDType
+    :members:
+

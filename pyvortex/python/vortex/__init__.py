@@ -1,6 +1,25 @@
 from . import _lib
 from ._lib.compress import compress
-from ._lib.dtype import DType, binary, bool_, float_, int_, list_, null, struct, uint, utf8
+from ._lib.dtype import (
+    BinaryDType,
+    BoolDType,
+    DType,
+    ExtensionDType,
+    ListDType,
+    NullDType,
+    PrimitiveDType,
+    StructDType,
+    Utf8DType,
+    binary,
+    bool_,
+    float_,
+    int_,
+    list_,
+    null,
+    struct,
+    uint,
+    utf8,
+)
 from ._lib.scalar import (
     BinaryScalar,
     BoolScalar,
@@ -23,6 +42,14 @@ __all__ = [
     "compress",
     # DTypes
     "DType",
+    "NullDType",
+    "BoolDType",
+    "PrimitiveDType",
+    "Utf8DType",
+    "BinaryDType",
+    "StructDType",
+    "ListDType",
+    "ExtensionDType",
     "null",
     "bool_",
     "int_",
