@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use pyo3::prelude::PyAnyMethods;
 use pyo3::types::{PyBool, PyBytes, PyFloat, PyInt, PyString};
-use pyo3::{pyfunction, Bound, PyAny, PyResult};
+use pyo3::{pyfunction, Bound, IntoPy, PyAny, PyClassInitializer, PyObject, PyResult, Python};
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::{DType, Nullability};
-use vortex::scalar::Scalar;
+use vortex::error::VortexError;
+use vortex::layout::LayoutReaderExt;
+use vortex::scalar::{BoolScalar, Scalar};
 
 use crate::dtype::PyDType;
+use crate::scalar::bool::PyBoolScalar;
 use crate::scalar::{bool, PyScalar};
 
 #[allow(unused_variables)]
@@ -16,6 +19,35 @@ use crate::scalar::{bool, PyScalar};
 pub fn scalar(value: Bound<'_, PyAny>, dtype: Option<PyDType>) -> PyResult<PyScalar> {
     let scalar = scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?;
     Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
+}
+
+#[allow(unused_variables)]
+#[pyfunction(name = "scalar2")]
+#[pyo3(signature = (value, *, dtype=None))]
+pub fn scalar2(value: Bound<'_, PyAny>, dtype: Option<PyDType>) -> PyResult<PyScalar> {
+    let scalar = scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?;
+    Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
+}
+
+pub trait ScalarSubclass: for<'a> TryFrom<&'a Scalar, Error = VortexError> {}
+
+impl ScalarSubclass for BoolScalar<'_> {}
+
+pub struct PyScalar2<S: ScalarSubclass>(Scalar);
+
+impl<S: ScalarSubclass> IntoPy<PyObject> for PyScalar2<S> {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        match self.0.dtype() {
+            DType::Bool(_) => Bound::new(
+                py,
+                PyClassInitializer::from(PyScalar(self.0)).add_subclass(PyBoolScalar),
+            )
+            .expect("Failed to create PyScalar2")
+            .into_any()
+            .into_py(py),
+            _ => unreachable!(),
+        }
+    }
 }
 
 pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResult<Scalar> {
