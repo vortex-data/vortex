@@ -24,5 +24,26 @@ Base Class
 Scalar Classes
 --------------
 
+.. autoclass:: vortex.NullScalar
+   :members:
+
 .. autoclass:: vortex.BoolScalar
+   :members:
+
+.. autoclass:: vortex.PrimitiveScalar
+   :members:
+
+.. autoclass:: vortex.Utf8Scalar
+   :members:
+
+.. autoclass:: vortex.BinaryScalar
+   :members:
+
+.. autoclass:: vortex.StructScalar
+   :members:
+
+.. autoclass:: vortex.ListScalar
+   :members:
+
+.. autoclass:: vortex.ExtensionScalar
    :members:

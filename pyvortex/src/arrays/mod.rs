@@ -4,7 +4,7 @@ use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyInt, PyList};
+use pyo3::types::{IntoPyDict, PyList};
 use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
@@ -12,8 +12,9 @@ use vortex::mask::Mask;
 use vortex::Array;
 
 use crate::dtype::PyDType;
+use crate::install_module;
 use crate::python_repr::PythonRepr;
-use crate::{install_module, PyVortex};
+use crate::scalar::PyScalar;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new_bound(py, "arrays")?;
@@ -353,12 +354,7 @@ impl PyArray {
     ///
     /// Returns
     /// -------
-    /// one of :class:`int`, :class:`float`, :class:`bool`, :class:`vortex.Buffer`,
-    ///     :class:`vortex.BufferString`, :class:`vortex.VortexList`,
-    ///     :class:`vortex.VortexStruct`.
-    ///     If this array contains numbers or Booleans, this array returns the corresponding
-    ///     primitive Python type, i.e. int, float, and bool. For structures and variable-length
-    ///     data types, a zero-copy view of the underlying data is returned.
+    /// :class:`vortex.Scalar`
     ///
     /// Examples
     /// --------
@@ -366,20 +362,13 @@ impl PyArray {
     /// Retrieve the last element from an array of integers:
     ///
     ///     >>> import vortex as vx
-    ///     >>> vx.array([10, 42, 999, 1992]).scalar_at(3)
+    ///     >>> vx.array([10, 42, 999, 1992]).scalar_at(3).as_py()
     ///     1992
     ///
     /// Retrieve the third element from an array of strings:
     ///
     ///     >>> array = vx.array(["hello", "goodbye", "it", "is"])
-    ///     >>> array.scalar_at(2)
-    ///     <vortex.BufferString ...>
-    ///
-    /// Vortex, by default, returns a view into the array's data. This avoids copying the data,
-    /// which can be expensive if done repeatedly. :meth:`.BufferString.into_python` forcibly copies
-    /// the scalar data into a Python data structure.
-    ///
-    ///     >>> array.scalar_at(2).into_python()
+    ///     >>> array.scalar_at(2).as_py()
     ///     'it'
     ///
     /// Retrieve an element from an array of structures:
@@ -391,19 +380,12 @@ impl PyArray {
     ///     ...     None,
     ///     ...     {'name': 'Mikhail', 'age': 57},
     ///     ... ])
-    ///     >>> array.scalar_at(2).into_python()
-    ///     {'age': 33, 'name': <vortex.BufferString ...>}
-    ///
-    /// Notice that :meth:`.VortexStruct.into_python` only copies one "layer" of data into
-    /// Python. If we want to ensure the entire structure is recurisvely copied into Python we can
-    /// specify ``recursive=True``:
-    ///
-    ///     >>> array.scalar_at(2).into_python(recursive=True)
+    ///     >>> array.scalar_at(2).as_py()
     ///     {'age': 33, 'name': 'Angela'}
     ///
     /// Retrieve a missing element from an array of structures:
     ///
-    ///     >>> array.scalar_at(3) is None
+    ///     >>> array.scalar_at(3).as_py() is None
     ///     True
     ///
     /// Out of bounds accesses are prohibited:
@@ -421,8 +403,8 @@ impl PyArray {
     ///     ...
     ///     OverflowError: can't convert negative int to unsigned
     // TODO(ngates): return a vortex.Scalar
-    fn scalar_at(&self, index: &Bound<PyInt>) -> PyResult<PyObject> {
-        Ok(PyVortex(&scalar_at(&self.0, index.extract()?)?).into_py(index.py()))
+    fn scalar_at(self_: PyRef<'_, Self>, index: usize) -> PyResult<Bound<PyScalar>> {
+        PyScalar::init(self_.py(), scalar_at(&self_.0, index)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

@@ -15,6 +15,8 @@ Factory Functions
 .. autofunction:: vortex.uint
 .. autofunction:: vortex.utf8
 .. autofunction:: vortex.binary
+.. autofunction:: vortex.struct
+.. autofunction:: vortex.list_
 
 Type Classes
 ------------

@@ -29,6 +29,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_utf8, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_binary, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_struct, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
 
     Ok(())
 }

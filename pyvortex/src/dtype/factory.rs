@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
@@ -281,4 +283,38 @@ pub(super) fn dtype_struct(
             ),
         )
     }
+}
+
+/// Construct a list data type.
+///
+/// Parameters
+/// ----------
+/// element : :class:`DType`
+///     The type of the list element.
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value (this is not element nullability).
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting a list of 32-bit signed integers, but not permitting :obj:`None`.
+///
+///     >>> import vortex as vx
+///     >>> vx.list_(vx.int_(32), nullable=False)
+///     list(int(32, nullable=False), nullable=False)
+#[pyfunction(name = "list_")]
+#[pyo3(signature = (element, *, nullable = false))]
+pub(super) fn dtype_list(
+    py: Python<'_>,
+    element: &Bound<PyDType>,
+    nullable: bool,
+) -> PyResult<Py<PyDType>> {
+    PyDType::wrap(
+        py,
+        DType::List(Arc::new(element.get().inner().clone()), nullable.into()),
+    )
 }
