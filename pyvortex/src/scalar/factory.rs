@@ -1,53 +1,24 @@
 use std::sync::Arc;
 
-use pyo3::prelude::PyAnyMethods;
+use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyFloat, PyInt, PyString};
-use pyo3::{pyfunction, Bound, IntoPy, PyAny, PyClassInitializer, PyObject, PyResult, Python};
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::VortexError;
-use vortex::layout::LayoutReaderExt;
-use vortex::scalar::{BoolScalar, Scalar};
+use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
-use crate::scalar::bool::PyBoolScalar;
 use crate::scalar::{bool, PyScalar};
 
 #[allow(unused_variables)]
 #[pyfunction(name = "scalar")]
 #[pyo3(signature = (value, *, dtype=None))]
-pub fn scalar(value: Bound<'_, PyAny>, dtype: Option<PyDType>) -> PyResult<PyScalar> {
+pub fn scalar<'py>(
+    py: Python<'py>,
+    value: Bound<'py, PyAny>,
+    dtype: Option<PyDType>,
+) -> PyResult<Bound<'py, PyScalar>> {
     let scalar = scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?;
-    Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
-}
-
-#[allow(unused_variables)]
-#[pyfunction(name = "scalar2")]
-#[pyo3(signature = (value, *, dtype=None))]
-pub fn scalar2(value: Bound<'_, PyAny>, dtype: Option<PyDType>) -> PyResult<PyScalar> {
-    let scalar = scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?;
-    Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
-}
-
-pub trait ScalarSubclass: for<'a> TryFrom<&'a Scalar, Error = VortexError> {}
-
-impl ScalarSubclass for BoolScalar<'_> {}
-
-pub struct PyScalar2<S: ScalarSubclass>(Scalar);
-
-impl<S: ScalarSubclass> IntoPy<PyObject> for PyScalar2<S> {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        match self.0.dtype() {
-            DType::Bool(_) => Bound::new(
-                py,
-                PyClassInitializer::from(PyScalar(self.0)).add_subclass(PyBoolScalar),
-            )
-            .expect("Failed to create PyScalar2")
-            .into_any()
-            .into_py(py),
-            _ => unreachable!(),
-        }
-    }
+    PyScalar::init(py, scalar)
 }
 
 pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResult<Scalar> {
@@ -56,7 +27,7 @@ pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResul
     // If a dtype was provided, attempt to  cast the scalar to that dtype.
     // This is a trivially cheap no-op if the scalar is already of the correct type.
     if let Some(dtype) = dtype {
-        Ok(scalar.cast(&dtype)?)
+        Ok(scalar.cast(dtype)?)
     } else {
         Ok(scalar)
     }
