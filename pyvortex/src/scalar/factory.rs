@@ -141,7 +141,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         if let Some(DType::List(element_dtype, ..)) = dtype {
             let elements = list
                 .iter()
-                .map(|e| scalar_helper_inner(&e, Some(&element_dtype)))
+                .map(|e| scalar_helper_inner(&e, Some(element_dtype)))
                 .try_collect()?;
             Scalar::list(element_dtype.clone(), elements, Nullability::NonNullable);
         } else {

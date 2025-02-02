@@ -4,6 +4,7 @@ use pyo3::{IntoPy, PyObject, Python};
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
+use vortex::error::{vortex_err, VortexExpect};
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 use crate::PyVortex;
@@ -59,7 +60,8 @@ impl IntoPy<PyObject> for PyVortex<StructScalar<'_>> {
         let dict = PyDict::new_bound(py);
         for (child, name) in fields.iter().zip(self.0.struct_dtype().names().iter()) {
             dict.set_item(name.to_string(), PyVortex(child).into_py(py))
-                .expect("Failed to set item in dictionary");
+                .map_err(|e| vortex_err!("Failed to set item in dictionary {}", e))
+                .vortex_expect("Failed to set item in dictionary");
         }
         dict.into_py(py)
     }
