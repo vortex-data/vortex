@@ -132,8 +132,8 @@ impl PyScalar {
 impl PyScalar {
     /// Return the :class:`~vortex.DType` of the scalar.
     #[getter]
-    pub fn dtype(self_: PyRef<'_, Self>) -> PyResult<Py<PyDType>> {
-        PyDType::wrap(self_.py(), self_.0.dtype().clone())
+    pub fn dtype(self_: PyRef<'_, Self>) -> PyResult<Bound<PyDType>> {
+        PyDType::init(self_.py(), self_.0.dtype().clone())
     }
 
     /// Return the scalar value as a Python object.

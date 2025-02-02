@@ -222,8 +222,8 @@ impl PyArray {
     ///     >>> vx.array(['hello, ', 'is', 'it', 'me?']).dtype
     ///     utf8(nullable=False)
     #[getter]
-    fn dtype(self_: PyRef<Self>) -> PyResult<Py<PyDType>> {
-        PyDType::wrap(self_.py(), self_.0.dtype().clone())
+    fn dtype(self_: PyRef<Self>) -> PyResult<Bound<PyDType>> {
+        PyDType::init(self_.py(), self_.0.dtype().clone())
     }
 
     ///Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326

@@ -1,13 +1,34 @@
+mod binary;
+mod bool;
+mod extension;
 mod factory;
+mod list;
+mod null;
+mod primitive;
+mod struct_;
+mod utf8;
+
+use std::ops::Deref;
 
 use arrow::datatypes::{DataType, Field};
 use arrow::pyarrow::FromPyArrow;
-use pyo3::prelude::{PyModule, PyModuleMethods};
+use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
-use pyo3::{pyclass, pymethods, wrap_pyfunction, Bound, Py, PyAny, PyResult, Python};
+use pyo3::{
+    pyclass, pymethods, wrap_pyfunction, Bound, PyAny, PyClass, PyClassInitializer, PyResult,
+    Python,
+};
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 
+use crate::dtype::binary::PyBinaryDType;
+use crate::dtype::bool::PyBoolDType;
+use crate::dtype::extension::PyExtensionDType;
+use crate::dtype::list::PyListDType;
+use crate::dtype::null::PyNullDType;
+use crate::dtype::primitive::PyPrimitiveDType;
+use crate::dtype::struct_::PyStructDType;
+use crate::dtype::utf8::PyUtf8DType;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 
@@ -19,6 +40,14 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     // Register the DType class.
     m.add_class::<PyDType>()?;
+    m.add_class::<PyNullDType>()?;
+    m.add_class::<PyBoolDType>()?;
+    m.add_class::<PyPrimitiveDType>()?;
+    m.add_class::<PyUtf8DType>()?;
+    m.add_class::<PyBinaryDType>()?;
+    m.add_class::<PyStructDType>()?;
+    m.add_class::<PyListDType>()?;
+    m.add_class::<PyExtensionDType>()?;
 
     // Register factory functions.
     m.add_function(wrap_pyfunction!(factory::dtype_null, &m)?)?;
@@ -37,61 +66,81 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Base class for all Vortex data types.
 #[pyclass(name = "DType", module = "vortex", frozen, eq, hash)]
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct PyDType {
-    inner: DType,
+pub struct PyDType(DType);
+
+impl Deref for PyDType {
+    type Target = DType;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl PyDType {
-    pub fn wrap(py: Python<'_>, inner: DType) -> PyResult<Py<Self>> {
-        Py::new(py, Self { inner })
+    /// Initialize a [`PyDType`] from a Vortex [`DType`], ensuring the correct subclass is
+    /// returned.
+    pub fn init(py: Python, dtype: DType) -> PyResult<Bound<PyDType>> {
+        match dtype {
+            DType::Null => Self::with_subclass(py, dtype, PyNullDType),
+            DType::Bool(_) => Self::with_subclass(py, dtype, PyBoolDType),
+            DType::Primitive(..) => Self::with_subclass(py, dtype, PyPrimitiveDType),
+            DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
+            DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
+            DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
+            DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
+            DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
+        }
     }
 
+    /// Initialize a [`PyDType`] from a Vortex [`DType`], with the given subclass.
+    /// We keep this a private method to ensure we correctly match on the DType in init.
+    fn with_subclass<S: PyClass<BaseType = PyDType>>(
+        py: Python,
+        dtype: DType,
+        subclass: S,
+    ) -> PyResult<Bound<PyDType>> {
+        Ok(Bound::new(
+            py,
+            PyClassInitializer::from(PyDType(dtype)).add_subclass(subclass),
+        )?
+        .into_any()
+        .downcast_into::<PyDType>()?)
+    }
+
+    /// Return the inner [`DType`] value.
     pub fn inner(&self) -> &DType {
-        &self.inner
+        &self.0
     }
 
+    /// Return the inner [`DType`] value.
+    #[allow(dead_code)]
     pub fn into_inner(self) -> DType {
-        self.inner
+        self.0
     }
 }
 
 #[pymethods]
 impl PyDType {
     fn __str__(&self) -> String {
-        format!("{}", self.inner)
+        format!("{}", self.0)
     }
 
     fn __repr__(&self) -> String {
-        self.inner.python_repr().to_string()
+        self.0.python_repr().to_string()
     }
 
     /// Construct a Vortex data type from an Arrow data type.
     #[classmethod]
     #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
-    fn from_arrow(
-        cls: &Bound<PyType>,
+    fn from_arrow<'py>(
+        cls: &'py Bound<'py, PyType>,
         #[pyo3(from_py_with = "import_arrow_dtype")] arrow_dtype: DataType,
         non_nullable: bool,
-    ) -> PyResult<Py<Self>> {
-        Self::wrap(
+    ) -> PyResult<Bound<'py, PyDType>> {
+        Self::init(
             cls.py(),
             DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
         )
-    }
-
-    /// Return the names of the columns in a struct data type.
-    // TODO(ngates): move this into StructDType class
-    fn maybe_columns(&self) -> Option<Vec<String>> {
-        match &self.inner {
-            DType::Null => None,
-            DType::Bool(_) => None,
-            DType::Primitive(..) => None,
-            DType::Utf8(_) => None,
-            DType::Binary(_) => None,
-            DType::Struct(child, _) => Some(child.names().iter().map(|x| x.to_string()).collect()),
-            DType::List(..) => None,
-            DType::Extension(..) => None,
-        }
     }
 }
 

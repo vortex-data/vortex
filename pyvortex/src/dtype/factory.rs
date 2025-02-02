@@ -3,7 +3,7 @@ use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
-use pyo3::{pyfunction, Bound, Py, PyResult, Python};
+use pyo3::{pyfunction, Bound, PyResult, Python};
 use vortex::dtype::{DType, FieldName, PType, StructDType};
 
 use crate::dtype::PyDType;
@@ -24,8 +24,8 @@ use crate::dtype::PyDType;
 ///     null()
 #[pyfunction(name = "null")]
 #[pyo3(signature = ())]
-pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Null)
+pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Bound<PyDType>> {
+    PyDType::init(py, DType::Null)
 }
 
 /// Construct a Boolean data type.
@@ -54,8 +54,8 @@ pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Py<PyDType>> {
 ///     bool(nullable=False)
 #[pyfunction(name = "bool_")]
 #[pyo3(signature = (*, nullable = false))]
-pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Bool(nullable.into()))
+pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDType>> {
+    PyDType::init(py, DType::Bool(nullable.into()))
 }
 
 /// Construct a signed integral data type.
@@ -87,7 +87,7 @@ pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>
 ///     int(32, nullable=False)
 #[pyfunction(name = "int_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
-pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Bound<PyDType>> {
     let dtype = match width {
         8 => DType::Primitive(PType::I8, nullable.into()),
         16 => DType::Primitive(PType::I16, nullable.into()),
@@ -95,7 +95,7 @@ pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<
         64 => DType::Primitive(PType::I64, nullable.into()),
         _ => return Err(PyValueError::new_err("Invalid int width")),
     };
-    PyDType::wrap(py, dtype)
+    PyDType::init(py, dtype)
 }
 
 /// Construct an unsigned integral data type.
@@ -127,7 +127,7 @@ pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<
 ///     uint(32, nullable=False)
 #[pyfunction(name = "uint")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
-pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Bound<PyDType>> {
     let dtype = match width {
         8 => DType::Primitive(PType::U8, nullable.into()),
         16 => DType::Primitive(PType::U16, nullable.into()),
@@ -135,7 +135,7 @@ pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult
         64 => DType::Primitive(PType::U64, nullable.into()),
         _ => return Err(PyValueError::new_err("Invalid uint width")),
     };
-    PyDType::wrap(py, dtype)
+    PyDType::init(py, dtype)
 }
 
 /// Construct an IEEE 754 binary floating-point data type.
@@ -165,14 +165,14 @@ pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult
 ///     float(16, nullable=False)
 #[pyfunction(name = "float_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
-pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult<Py<PyDType>> {
+pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult<Bound<PyDType>> {
     let dtype = match width {
         16 => DType::Primitive(PType::F16, nullable.into()),
         32 => DType::Primitive(PType::F32, nullable.into()),
         64 => DType::Primitive(PType::F64, nullable.into()),
         _ => return Err(PyValueError::new_err("Invalid float width")),
     };
-    PyDType::wrap(py, dtype)
+    PyDType::init(py, dtype)
 }
 
 /// Construct a UTF-8-encoded string data type.
@@ -197,8 +197,8 @@ pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult
 ///     utf8(nullable=False)
 #[pyfunction(name = "utf8")]
 #[pyo3(signature = (*, nullable = false))]
-pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Utf8(nullable.into()))
+pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDType>> {
+    PyDType::init(py, DType::Utf8(nullable.into()))
 }
 
 /// Construct a binary data type.
@@ -222,8 +222,8 @@ pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>
 ///     binary(nullable=False)
 #[pyfunction(name = "binary")]
 #[pyo3(signature = (*, nullable = false))]
-pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(py, DType::Binary(nullable.into()))
+pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDType>> {
+    PyDType::init(py, DType::Binary(nullable.into()))
 }
 
 /// Construct a struct data type.
@@ -250,11 +250,11 @@ pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDTyp
 // TODO(ngates): return a StructDType to allow inspection of fields
 #[pyfunction(name = "struct")]
 #[pyo3(signature = (fields = None, *, nullable = false))]
-pub(super) fn dtype_struct(
-    py: Python<'_>,
-    fields: Option<&Bound<'_, PyDict>>,
+pub(super) fn dtype_struct<'py>(
+    py: Python<'py>,
+    fields: Option<&'py Bound<'py, PyDict>>,
     nullable: bool,
-) -> PyResult<Py<PyDType>> {
+) -> PyResult<Bound<'py, PyDType>> {
     if let Some(fields) = fields {
         let nfields = fields.len()?;
         let mut names = Vec::with_capacity(nfields);
@@ -267,7 +267,7 @@ pub(super) fn dtype_struct(
             dtypes.push(field_dtype.inner().clone());
         }
 
-        PyDType::wrap(
+        PyDType::init(
             py,
             DType::Struct(
                 StructDType::new(names.into(), dtypes).into(),
@@ -275,7 +275,7 @@ pub(super) fn dtype_struct(
             ),
         )
     } else {
-        PyDType::wrap(
+        PyDType::init(
             py,
             DType::Struct(
                 StructDType::new(vec![].into(), vec![]).into(),
@@ -308,13 +308,12 @@ pub(super) fn dtype_struct(
 ///     list(int(32, nullable=False), nullable=False)
 #[pyfunction(name = "list_")]
 #[pyo3(signature = (element, *, nullable = false))]
-pub(super) fn dtype_list(
-    py: Python<'_>,
-    element: &Bound<PyDType>,
+pub(super) fn dtype_list<'py>(
+    element: &'py Bound<'py, PyDType>,
     nullable: bool,
-) -> PyResult<Py<PyDType>> {
-    PyDType::wrap(
-        py,
+) -> PyResult<Bound<'py, PyDType>> {
+    PyDType::init(
+        element.py(),
         DType::List(Arc::new(element.get().inner().clone()), nullable.into()),
     )
 }
