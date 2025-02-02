@@ -17,8 +17,10 @@ pub fn scalar<'py>(
     value: Bound<'py, PyAny>,
     dtype: Option<PyDType>,
 ) -> PyResult<Bound<'py, PyScalar>> {
-    let scalar = scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?;
-    PyScalar::init(py, scalar)
+    PyScalar::init(
+        py,
+        scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?,
+    )
 }
 
 pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResult<Scalar> {

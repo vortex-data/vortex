@@ -5,7 +5,7 @@ use vortex::scalar::StructScalar;
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
 use crate::PyVortex;
 
-#[pyclass(name = "PrimitiveScalar", module = "vortex", extends=PyScalar, frozen)]
+#[pyclass(name = "StructScalar", module = "vortex", extends=PyScalar, frozen)]
 pub(crate) struct PyStructScalar;
 
 impl ScalarSubclass for PyStructScalar {
@@ -20,6 +20,6 @@ impl PyStructScalar {
         let child = scalar
             .field_by_name(name)
             .ok_or_else(|| PyKeyError::new_err(format!("Field not found {}", name)))?;
-        Ok(PyVortex(child).into_py(self_.py()))
+        Ok(PyVortex(&child).into_py(self_.py()))
     }
 }

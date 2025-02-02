@@ -1,6 +1,7 @@
 use pyo3::prelude::PyDictMethods;
 use pyo3::types::{PyDict, PyList};
 use pyo3::{IntoPy, PyObject, Python};
+use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
@@ -28,12 +29,24 @@ impl IntoPy<PyObject> for PyVortex<&'_ Scalar> {
                     PType::F64 => p.typed_value::<f64>().into_py(py),
                 }
             }
-            DType::Utf8(_) => self.0.as_utf8().value().map(|v| v.as_str()).into_py(py),
-            DType::Binary(_) => self.0.as_binary().value().map(|v| v.as_slice()).into_py(py),
+            DType::Utf8(_) => self.0.as_utf8().value().map(PyVortex).into_py(py),
+            DType::Binary(_) => self.0.as_binary().value().map(PyVortex).into_py(py),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_py(py),
             DType::List(..) => PyVortex(self.0.as_list()).into_py(py),
-            DType::Extension(_) => PyVortex(self.0.as_extension().storage()).into_py(py),
+            DType::Extension(_) => PyVortex(&self.0.as_extension().storage()).into_py(py),
         }
+    }
+}
+
+impl IntoPy<PyObject> for PyVortex<BufferString> {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        self.0.as_str().into_py(py)
+    }
+}
+
+impl IntoPy<PyObject> for PyVortex<ByteBuffer> {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        self.0.as_slice().into_py(py)
     }
 }
 
@@ -62,7 +75,7 @@ impl IntoPy<PyObject> for PyVortex<ListScalar<'_>> {
             py,
             elements
                 .into_iter()
-                .map(|child| PyVortex(child).into_py(py)),
+                .map(|child| PyVortex(&child).into_py(py)),
         )
         .into_py(py)
     }

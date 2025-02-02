@@ -12,9 +12,8 @@ use vortex::mask::Mask;
 use vortex::Array;
 
 use crate::dtype::PyDType;
-use crate::install_module;
 use crate::python_repr::PythonRepr;
-use crate::scalar::scalar_into_py;
+use crate::{install_module, PyVortex};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new_bound(py, "arrays")?;
@@ -423,8 +422,7 @@ impl PyArray {
     ///     OverflowError: can't convert negative int to unsigned
     // TODO(ngates): return a vortex.Scalar
     fn scalar_at(&self, index: &Bound<PyInt>) -> PyResult<PyObject> {
-        let scalar = scalar_at(&self.0, index.extract()?)?;
-        scalar_into_py(index.py(), scalar, false)
+        Ok(PyVortex(&scalar_at(&self.0, index.extract()?)?).into_py(index.py()))
     }
 
     /// Filter, permute, and/or repeat elements by their index.

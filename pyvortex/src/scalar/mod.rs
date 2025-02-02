@@ -4,11 +4,16 @@
 //! :meth:`.Array.scalar_at`. They represent shared-memory views into individual values of a Vortex
 //! array.
 
+mod binary;
 mod bool;
+mod extension;
 pub mod factory;
 mod into_py;
+mod list;
+mod null;
 mod primitive;
 mod struct_;
+mod utf8;
 
 use pyo3::prelude::*;
 use pyo3::PyClass;
@@ -16,8 +21,15 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::scalar::Scalar;
 
+use crate::dtype::PyDType;
+use crate::scalar::binary::PyBinaryScalar;
 use crate::scalar::bool::PyBoolScalar;
+use crate::scalar::extension::PyExtensionScalar;
+use crate::scalar::list::PyListScalar;
+use crate::scalar::null::PyNullScalar;
 use crate::scalar::primitive::PyPrimitiveScalar;
+use crate::scalar::struct_::PyStructScalar;
+use crate::scalar::utf8::PyUtf8Scalar;
 use crate::{install_module, PyVortex};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -28,7 +40,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::scalar, &m)?)?;
 
     m.add_class::<PyScalar>()?;
+
+    m.add_class::<PyBinaryScalar>()?;
     m.add_class::<PyBoolScalar>()?;
+    m.add_class::<PyExtensionScalar>()?;
+    m.add_class::<PyListScalar>()?;
+    m.add_class::<PyNullScalar>()?;
+    m.add_class::<PyPrimitiveScalar>()?;
+    m.add_class::<PyUtf8Scalar>()?;
+    m.add_class::<PyStructScalar>()?;
 
     Ok(())
 }
@@ -68,9 +88,14 @@ impl PyScalar {
     pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyScalar>> {
         // TODO(ngates): Bound::as_super would be great, but it's in newer PyO3.
         match scalar.dtype() {
+            DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
             DType::Primitive(..) => Self::with_subclass(py, scalar, PyPrimitiveScalar),
-            _ => unreachable!(),
+            DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
+            DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
+            DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
+            DType::List(..) => Self::with_subclass(py, scalar, PyListScalar),
+            DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
         }
     }
 
@@ -105,6 +130,12 @@ impl PyScalar {
 /// methods and there's currently no good way to do this in PyO3.
 #[pymethods]
 impl PyScalar {
+    /// Return the :class:`~vortex.DType` of the scalar.
+    #[getter]
+    pub fn dtype(self_: PyRef<'_, Self>) -> PyResult<Py<PyDType>> {
+        PyDType::wrap(self_.py(), self_.0.dtype().clone())
+    }
+
     /// Return the scalar value as a Python object.
     pub fn as_py(&self, py: Python) -> PyObject {
         PyVortex(&self.0).into_py(py)
