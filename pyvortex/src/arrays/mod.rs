@@ -1,5 +1,4 @@
-mod canonical;
-mod chunked;
+mod builtins;
 
 use std::ops::Deref;
 
@@ -9,7 +8,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyList};
 use pyo3::PyClass;
-use vortex::array::{ChunkedArray, ChunkedEncoding};
+use vortex::array::{ChunkedArray, ChunkedEncoding, ConstantEncoding, VarBinEncoding};
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::dtype::DType;
@@ -17,11 +16,10 @@ use vortex::error::{VortexError, VortexExpect};
 use vortex::mask::Mask;
 use vortex::{Array, Encoding};
 
-use crate::arrays::canonical::{
-    PyBoolArray, PyExtensionArray, PyListArray, PyNullArray, PyPrimitiveArray, PyStructArray,
-    PyVarBinViewArray,
+use crate::arrays::builtins::{
+    PyBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray, PyNullArray,
+    PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
 };
-use crate::arrays::chunked::PyChunkedArray;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
@@ -34,17 +32,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyArray>()?;
 
-    // Canonical encodings
+    // Builtin encodings
+    m.add_class::<PyConstantArray>()?;
+    m.add_class::<PyChunkedArray>()?;
     m.add_class::<PyNullArray>()?;
     m.add_class::<PyBoolArray>()?;
     m.add_class::<PyPrimitiveArray>()?;
+    m.add_class::<PyVarBinArray>()?;
     m.add_class::<PyVarBinViewArray>()?;
     m.add_class::<PyStructArray>()?;
     m.add_class::<PyListArray>()?;
     m.add_class::<PyExtensionArray>()?;
-
-    // Other builtins
-    m.add_class::<PyChunkedArray>()?;
 
     Ok(())
 }
@@ -132,6 +130,8 @@ impl PyArray {
     //  additional subclasses for their own encodings.
     pub fn init(py: Python, array: Array) -> PyResult<Bound<PyArray>> {
         // Make sure we always downcast canonical arrays to their subclass.
+        // We use an exhaustive match here to ensure a compilation error if we ever add a new
+        // canonical encoding.
         if array.is_canonical() {
             return match array.dtype() {
                 DType::Null => Self::with_subclass(py, array, PyNullArray),
@@ -146,8 +146,14 @@ impl PyArray {
             };
         }
 
+        if array.is_encoding(ConstantEncoding::ID) {
+            return Self::with_subclass(py, array, PyConstantArray);
+        }
         if array.is_encoding(ChunkedEncoding::ID) {
             return Self::with_subclass(py, array, PyChunkedArray);
+        }
+        if array.is_encoding(VarBinEncoding::ID) {
+            return Self::with_subclass(py, array, PyVarBinArray);
         }
 
         // For other arrays, we should check in a registry of encoding subclasses, these are

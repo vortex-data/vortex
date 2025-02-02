@@ -20,9 +20,52 @@ Factory Functions
 .. autofunction:: vortex.array
 
 
-Type Classes
-------------
+Base Class
+----------
 
 .. autoclass:: vortex.Array
    :members:
    :special-members: __len__
+
+
+Builtin Encodings
+-----------------
+
+.. autoclass:: vortex.encoding.ChunkedArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.ConstantArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.NullArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.BoolArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.PrimitiveArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.VarBinArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.VarBinViewArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.StructArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.ListArray
+   :members:
+
+
+.. autoclass:: vortex.encoding.ExtensionArray
+   :members:

@@ -6,8 +6,8 @@ Python API
 
    arrays
    dtypes
-   encoding
+   scalars
+   expr
+   compression
    io
    dataset
-   expr
-   scalars

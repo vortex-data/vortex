@@ -1,5 +1,9 @@
+mod chunked;
+mod constant;
 mod struct_;
 
+pub(crate) use chunked::*;
+pub(crate) use constant::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;
 
@@ -16,6 +20,10 @@ pub(crate) struct PyBoolArray;
 /// Concrete class for arrays with `vortex.primitive` encoding.
 #[pyclass(name = "PrimitiveArray", module = "vortex", extends=PyArray, frozen)]
 pub(crate) struct PyPrimitiveArray;
+
+/// Concrete class for arrays with `vortex.varbin` encoding.
+#[pyclass(name = "VarBinArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyVarBinArray;
 
 /// Concrete class for arrays with `vortex.varbinview` encoding.
 #[pyclass(name = "VarBinViewArray", module = "vortex", extends=PyArray, frozen)]
