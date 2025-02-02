@@ -12,8 +12,9 @@ use crate::scalar::{bool, PyScalar};
 
 #[allow(unused_variables)]
 #[pyfunction(name = "scalar")]
-#[pyo3(signature = (value, dtype=None))]
+#[pyo3(signature = (value, *, dtype=None))]
 pub fn scalar(value: Bound<'_, PyAny>, dtype: Option<PyDType>) -> PyResult<PyScalar> {
+    let scalar = scalar_helper(&value, dtype.as_ref().map(|dtype| dtype.inner()))?;
     Ok(PyScalar(Scalar::bool(true, Nullability::Nullable)))
 }
 

@@ -7,6 +7,7 @@
 mod bool;
 pub mod factory;
 
+use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use vortex::buffer::{BufferString, ByteBuffer};
@@ -43,12 +44,32 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub struct PyScalar(pub Scalar);
 
 impl PyScalar {
+    pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyAny>> {
+        match scalar.dtype() {
+            DType::Bool(_) => Ok(Bound::new(
+                py,
+                PyClassInitializer::from(PyScalar(scalar)).add_subclass(PyBoolScalar),
+            )?
+            .into_any()),
+            _ => unreachable!(),
+        }
+    }
+
     pub fn inner(&self) -> &Scalar {
         &self.0
     }
 
     pub fn into_inner(self) -> Scalar {
         self.0
+    }
+}
+
+#[pymethods]
+impl PyScalar {
+    pub fn as_py(&self) -> PyResult<PyScalar> {
+        Err(PyNotImplementedError::new_err(
+            "Scalar subclass should implement as_py",
+        ))
     }
 }
 

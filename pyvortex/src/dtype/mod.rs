@@ -45,8 +45,12 @@ impl PyDType {
         Py::new(py, Self { inner })
     }
 
-    pub fn unwrap(&self) -> &DType {
+    pub fn inner(&self) -> &DType {
         &self.inner
+    }
+
+    pub fn into_inner(self) -> DType {
+        self.inner
     }
 }
 

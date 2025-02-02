@@ -267,7 +267,7 @@ pub fn literal<'py>(
     dtype: &Bound<'py, PyDType>,
     value: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
-    scalar(dtype.borrow().unwrap().clone(), value)
+    scalar(dtype.borrow().inner().clone(), value)
 }
 
 /// Create an expression that refers to the identity scope.

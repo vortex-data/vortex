@@ -1,8 +1,11 @@
 from typing import Any, final
 
-def scalar(value: Any) -> Scalar: ...
+import vortex as vx
 
-class Scalar: ...
+def scalar(value: Any, *, dtype: vx.DType | None = None) -> Scalar: ...
+
+class Scalar:
+    def as_py(self) -> Any: ...
 
 @final
 class BoolScalar:

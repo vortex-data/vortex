@@ -262,7 +262,7 @@ pub(super) fn dtype_struct(
             let field_name = FieldName::from(name.to_string());
             let field_dtype: PyDType = field.extract()?;
             names.push(field_name);
-            dtypes.push(field_dtype.unwrap().clone());
+            dtypes.push(field_dtype.inner().clone());
         }
 
         PyDType::wrap(
