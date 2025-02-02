@@ -84,3 +84,6 @@ pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module.setattr("__name__", name)?;
     Ok(())
 }
+
+/// An adapter struct used to localize trait impls to this crate.
+pub struct PyVortex<T>(pub T);
