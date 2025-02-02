@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyFloat, PyInt, PyString};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
 use vortex::buffer::ByteBuffer;
-use vortex::dtype::{DType, Nullability};
+use vortex::dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -91,46 +93,84 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         ));
     }
 
-    Err(pyo3::exceptions::PyTypeError::new_err(
-        "Invalid scalar type",
-    ))
-    //
-    // match dtype {
-    //     DType::Null => {
-    //         value.downcast::<PyNone>()?;
-    //         Ok(Scalar::null(dtype))
-    //     }
-    //     DType::Bool(_) => {
-    //         let value = value.downcast::<PyBool>()?;
-    //         Ok(Scalar::from(value.extract::<bool>()?))
-    //     }
-    //     DType::Primitive(ptype, _) => match ptype {
-    //         PType::I8 => Ok(Scalar::from(value.extract::<i8>()?)),
-    //         PType::I16 => Ok(Scalar::from(value.extract::<i16>()?)),
-    //         PType::I32 => Ok(Scalar::from(value.extract::<i32>()?)),
-    //         PType::I64 => Ok(Scalar::from(value.extract::<i64>()?)),
-    //         PType::U8 => Ok(Scalar::from(value.extract::<u8>()?)),
-    //         PType::U16 => Ok(Scalar::from(value.extract::<u16>()?)),
-    //         PType::U32 => Ok(Scalar::from(value.extract::<u32>()?)),
-    //         PType::U64 => Ok(Scalar::from(value.extract::<u64>()?)),
-    //         PType::F16 => {
-    //             let float = value.extract::<f32>()?;
-    //             Ok(Scalar::from(f16::from_f32(float)))
-    //         }
-    //         PType::F32 => Ok(Scalar::from(value.extract::<f32>()?)),
-    //         PType::F64 => Ok(Scalar::from(value.extract::<f64>()?)),
-    //     },
-    //     DType::Utf8(_) => Ok(Scalar::from(value.extract::<String>()?)),
-    //     DType::Binary(_) => Ok(Scalar::from(value.extract::<&[u8]>()?)),
-    //     DType::Struct(..) => todo!(),
-    //     DType::List(element_type, _) => {
-    //         let list = value.downcast::<PyList>();
-    //         let values = list
-    //             .iter()
-    //             .map(|element| scalar_helper(element, element_type.as_ref().clone()))
-    //             .collect::<PyResult<Vec<_>>>()?;
-    //         Ok(Scalar::list(element_type, values, Nullability::Nullable))
-    //     }
-    //     DType::Extension(..) => todo!(),
-    // }
+    // dict
+    if let Ok(dict) = value.downcast::<PyDict>() {
+        // Extract the field names from the dictionary keys
+        let names: FieldNames = dict
+            .keys()
+            .iter()
+            .map(|key| key.extract::<String>())
+            .map_ok(Arc::from)
+            .collect::<PyResult<Vec<FieldName>>>()?
+            .into();
+
+        if let Some(DType::Struct(dtype, nullability)) = dtype {
+            if &names != dtype.names() {
+                return Err(PyValueError::new_err(format!(
+                    "Dictionary field names {:?} do not match target dtype names {:?}",
+                    &names,
+                    dtype.names()
+                )));
+            }
+
+            return Ok(Scalar::struct_(
+                DType::Struct(dtype.clone(), *nullability),
+                dict.values()
+                    .into_iter()
+                    .map(|item| scalar_helper_inner(&item, None))
+                    .try_collect()?,
+            ));
+        } else {
+            let values: Vec<Scalar> = dict
+                .values()
+                .into_iter()
+                .map(|value| scalar_helper_inner(&value, None))
+                .try_collect()?;
+            let dtype = DType::Struct(
+                Arc::new(StructDType::new(
+                    names,
+                    values.iter().map(|value| value.dtype().clone()).collect(),
+                )),
+                Nullability::NonNullable,
+            );
+            return Ok(Scalar::struct_(dtype, values));
+        };
+    }
+
+    if let Ok(list) = value.downcast::<PyList>() {
+        if let Some(DType::List(element_dtype, ..)) = dtype {
+            let elements = list
+                .iter()
+                .map(|e| scalar_helper_inner(&e, Some(&element_dtype)))
+                .try_collect()?;
+            Scalar::list(element_dtype.clone(), elements, Nullability::NonNullable);
+        } else {
+            // If no dtype was provided, we need to infer the element dtype from the list contents.
+            // We do this in a greedy way taking the first element dtype we find.
+            let mut elements = Vec::with_capacity(list.len());
+            let mut element_dtype = None;
+
+            for element in list.iter() {
+                let scalar = scalar_helper_inner(&element, element_dtype.as_ref())?;
+                if element_dtype.is_none() {
+                    element_dtype = Some(scalar.dtype().clone());
+                }
+                elements.push(scalar);
+            }
+
+            return Ok(Scalar::list(
+                element_dtype
+                    .map(Arc::new)
+                    // Empty list defaults to Null dtype
+                    .unwrap_or_else(|| Arc::new(DType::Null)),
+                elements,
+                Nullability::NonNullable,
+            ));
+        }
+    }
+
+    Err(pyo3::exceptions::PyTypeError::new_err(format!(
+        "Cannot convert Python object to Vortex scalar: {}",
+        value.get_type()
+    )))
 }
