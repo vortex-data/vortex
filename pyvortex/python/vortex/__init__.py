@@ -2,11 +2,13 @@ from . import _lib
 from ._lib.arrays import (
     BoolArray,
     ChunkedArray,
+    ConstantArray,
     ExtensionArray,
     ListArray,
     NullArray,
     PrimitiveArray,
     StructArray,
+    VarBinArray,
     VarBinViewArray,
 )
 from ._lib.compress import compress
@@ -51,10 +53,12 @@ __all__ = [
     "compress",
     # Arrays and builtin encodings
     "Array",
+    "ConstantArray",
     "ChunkedArray",
     "NullArray",
     "BoolArray",
     "PrimitiveArray",
+    "VarBinArray",
     "VarBinViewArray",
     "StructArray",
     "ListArray",

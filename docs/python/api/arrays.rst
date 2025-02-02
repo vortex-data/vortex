@@ -7,10 +7,10 @@ functions, serialized, and otherwise manipulated as a generic array.
 
 There are two ways of "downcasting" an array for more specific access patterns:
 
-1. Into an encoding-specific array, like `vortex.encoding.BitPackedArray`.vortex.
+1. Into an encoding-specific array, like `vortex.BitPackedArray`.vortex.
 2. Into a type-specific array, like `vortex.array.BoolTypeArray`.
 
-Be careful to note that :class:`vortex.encoding.BoolArray` represents an array that stores physical data
+Be careful to note that :class:`vortex.BoolArray` represents an array that stores physical data
  as a bit-buffer of booleans, vs `vortex.array.BoolTypeArray` which represents any array that has a logical
  type of boolean.
 
@@ -31,41 +31,41 @@ Base Class
 Builtin Encodings
 -----------------
 
-.. autoclass:: vortex.encoding.ChunkedArray
+.. autoclass:: vortex.ChunkedArray
    :members:
 
 
-.. autoclass:: vortex.encoding.ConstantArray
+.. autoclass:: vortex.ConstantArray
    :members:
 
 
-.. autoclass:: vortex.encoding.NullArray
+.. autoclass:: vortex.NullArray
    :members:
 
 
-.. autoclass:: vortex.encoding.BoolArray
+.. autoclass:: vortex.BoolArray
    :members:
 
 
-.. autoclass:: vortex.encoding.PrimitiveArray
+.. autoclass:: vortex.PrimitiveArray
    :members:
 
 
-.. autoclass:: vortex.encoding.VarBinArray
+.. autoclass:: vortex.VarBinArray
    :members:
 
 
-.. autoclass:: vortex.encoding.VarBinViewArray
+.. autoclass:: vortex.VarBinViewArray
    :members:
 
 
-.. autoclass:: vortex.encoding.StructArray
+.. autoclass:: vortex.StructArray
    :members:
 
 
-.. autoclass:: vortex.encoding.ListArray
+.. autoclass:: vortex.ListArray
    :members:
 
 
-.. autoclass:: vortex.encoding.ExtensionArray
+.. autoclass:: vortex.ExtensionArray
    :members:

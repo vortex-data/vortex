@@ -8,6 +8,6 @@ Python API
    dtypes
    scalars
    expr
-   compression
+   compress
    io
    dataset
