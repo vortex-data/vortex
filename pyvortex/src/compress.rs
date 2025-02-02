@@ -46,8 +46,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    >>> str(vx.compress(a))
 ///    'vortex.alp(0x11)(f64?, len=1000)'
 #[pyfunction]
-pub fn compress(array: &Bound<PyArray>) -> PyResult<PyArray> {
+pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
     let compressor = SamplingCompressor::default();
     let inner = compressor.compress(&array.borrow(), None)?.into_array();
-    Ok(PyArray(inner))
+    PyArray::init(array.py(), inner)
 }

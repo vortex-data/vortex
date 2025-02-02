@@ -122,14 +122,14 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     >>> # b.to_arrow_array()
 #[pyfunction]
 #[pyo3(signature = (path, *, projection = None, row_filter = None, indices = None))]
-pub fn read_path(
-    path: Bound<PyString>,
-    projection: Option<Vec<Bound<PyAny>>>,
-    row_filter: Option<&Bound<PyExpr>>,
+pub fn read_path<'py>(
+    path: Bound<'py, PyString>,
+    projection: Option<Vec<Bound<'py, PyAny>>>,
+    row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<&PyArray>,
-) -> PyResult<PyArray> {
+) -> PyResult<Bound<'py, PyArray>> {
     let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
-    dataset.to_array(projection, row_filter, indices)
+    dataset.to_array(path.py(), projection, row_filter, indices)
 }
 
 /// Read a vortex struct array from a URL.
@@ -176,14 +176,14 @@ pub fn read_path(
 ///
 #[pyfunction]
 #[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None))]
-pub fn read_url(
-    url: Bound<PyString>,
-    projection: Option<Vec<Bound<PyAny>>>,
-    row_filter: Option<&Bound<PyExpr>>,
+pub fn read_url<'py>(
+    url: Bound<'py, PyString>,
+    projection: Option<Vec<Bound<'py, PyAny>>>,
+    row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<&PyArray>,
-) -> PyResult<PyArray> {
+) -> PyResult<Bound<'py, PyArray>> {
     let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
-    dataset.to_array(projection, row_filter, indices)
+    dataset.to_array(url.py(), projection, row_filter, indices)
 }
 
 /// Write a vortex struct array to the local filesystem.

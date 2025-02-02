@@ -115,15 +115,14 @@ impl TokioFileDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        let inner = read_array_from_reader(
+    ) -> PyResult<Array> {
+        Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
             indices.cloned().map(PyArray::into_inner),
         )
-        .await?;
-        Ok(PyArray(inner))
+        .await?)
     }
 
     async fn async_to_record_batch_reader(
@@ -159,13 +158,17 @@ impl TokioFileDataset {
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
-    pub fn to_array(
+    pub fn to_array<'py>(
         &self,
-        columns: Option<Vec<Bound<'_, PyAny>>>,
-        row_filter: Option<&Bound<'_, PyExpr>>,
+        py: Python<'py>,
+        columns: Option<Vec<Bound<'py, PyAny>>>,
+        row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))
+    ) -> PyResult<Bound<'py, PyArray>> {
+        PyArray::init(
+            py,
+            TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))?,
+        )
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
@@ -204,15 +207,14 @@ impl ObjectStoreUrlDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        let inner = read_array_from_reader(
+    ) -> PyResult<Array> {
+        Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
             indices.cloned().map(PyArray::into_inner),
         )
-        .await?;
-        Ok(PyArray(inner))
+        .await?)
     }
 
     async fn async_to_record_batch_reader(
@@ -247,13 +249,17 @@ impl ObjectStoreUrlDataset {
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
-    pub fn to_array(
+    pub fn to_array<'py>(
         &self,
-        columns: Option<Vec<Bound<'_, PyAny>>>,
-        row_filter: Option<&Bound<'_, PyExpr>>,
+        py: Python<'py>,
+        columns: Option<Vec<Bound<'py, PyAny>>>,
+        row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))
+    ) -> PyResult<Bound<'py, PyArray>> {
+        PyArray::init(
+            py,
+            TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))?,
+        )
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]

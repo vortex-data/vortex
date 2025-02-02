@@ -1,3 +1,6 @@
+mod canonical;
+mod chunked;
+
 use std::ops::Deref;
 
 use arrow::array::{Array as ArrowArray, ArrayRef};
@@ -5,12 +8,20 @@ use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyList};
-use vortex::array::ChunkedArray;
+use pyo3::PyClass;
+use vortex::array::{ChunkedArray, ChunkedEncoding};
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
+use vortex::dtype::DType;
+use vortex::error::{VortexError, VortexExpect};
 use vortex::mask::Mask;
-use vortex::Array;
+use vortex::{Array, Encoding};
 
+use crate::arrays::canonical::{
+    PyBoolArray, PyExtensionArray, PyListArray, PyNullArray, PyPrimitiveArray, PyStructArray,
+    PyVarBinViewArray,
+};
+use crate::arrays::chunked::PyChunkedArray;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
@@ -22,6 +33,18 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.arrays", &m)?;
 
     m.add_class::<PyArray>()?;
+
+    // Canonical encodings
+    m.add_class::<PyNullArray>()?;
+    m.add_class::<PyBoolArray>()?;
+    m.add_class::<PyPrimitiveArray>()?;
+    m.add_class::<PyVarBinViewArray>()?;
+    m.add_class::<PyStructArray>()?;
+    m.add_class::<PyListArray>()?;
+    m.add_class::<PyExtensionArray>()?;
+
+    // Other builtins
+    m.add_class::<PyChunkedArray>()?;
 
     Ok(())
 }
@@ -92,23 +115,67 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     ]
 #[pyclass(name = "Array", module = "vortex", sequence, subclass)]
 #[derive(Clone)]
-pub struct PyArray(pub Array);
-
-impl PyArray {
-    pub fn inner(&self) -> &Array {
-        &self.0
-    }
-
-    pub fn into_inner(self) -> Array {
-        self.0
-    }
-}
+pub struct PyArray(Array);
 
 impl Deref for PyArray {
     type Target = Array;
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl PyArray {
+    /// Initialize a [`PyArray`] from a Vortex [`Array`], ensuring the correct subclass is
+    /// returned if possible.
+    // TODO(ngates): in future, we should use a Python registry to allow users to register
+    //  additional subclasses for their own encodings.
+    pub fn init(py: Python, array: Array) -> PyResult<Bound<PyArray>> {
+        // Make sure we always downcast canonical arrays to their subclass.
+        if array.is_canonical() {
+            return match array.dtype() {
+                DType::Null => Self::with_subclass(py, array, PyNullArray),
+                DType::Bool(_) => Self::with_subclass(py, array, PyBoolArray),
+                DType::Primitive(..) => Self::with_subclass(py, array, PyPrimitiveArray),
+                DType::Utf8(_) | DType::Binary(_) => {
+                    Self::with_subclass(py, array, PyVarBinViewArray)
+                }
+                DType::Struct(..) => Self::with_subclass(py, array, PyStructArray),
+                DType::List(..) => Self::with_subclass(py, array, PyListArray),
+                DType::Extension(_) => Self::with_subclass(py, array, PyExtensionArray),
+            };
+        }
+
+        if array.is_encoding(ChunkedEncoding::ID) {
+            return Self::with_subclass(py, array, PyChunkedArray);
+        }
+
+        // For other arrays, we should check in a registry of encoding subclasses, these are
+        // discovered at runtime using entry points or manual registration.
+
+        // Otherwise, we return the base type.
+        Ok(Bound::new(py, PyArray(array))?)
+    }
+
+    fn with_subclass<S: PyClass<BaseType = PyArray>>(
+        py: Python,
+        array: Array,
+        subclass: S,
+    ) -> PyResult<Bound<PyArray>> {
+        Ok(Bound::new(
+            py,
+            PyClassInitializer::from(PyArray(array)).add_subclass(subclass),
+        )?
+        .into_any()
+        .downcast_into::<PyArray>()?)
+    }
+
+    pub fn inner(&self) -> &Array {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Array {
+        self.0
     }
 }
 
@@ -543,5 +610,25 @@ impl PyArray {
     /// Compressed arrays often have more complex, deeply nested encoding trees.
     fn tree_display(&self) -> String {
         self.0.tree_display().to_string()
+    }
+}
+
+/// A marker trait indicating a PyO3 class is a subclass of Vortex `Array`.
+pub trait ArraySubclass: PyClass<BaseType = PyArray> {
+    type Encoding: Encoding;
+}
+
+/// Unwrap a downcasted Vortex array from a `PyRef<ArraySubclass>`.
+pub trait AsArrayRef<T> {
+    fn as_array_ref(&self) -> &T;
+}
+
+impl<A: ArraySubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
+where
+    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&'a Array, Error = VortexError>,
+{
+    fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
+        <&<A::Encoding as Encoding>::Array>::try_from(self.as_super().inner())
+            .vortex_expect("Failed to downcast array")
     }
 }
