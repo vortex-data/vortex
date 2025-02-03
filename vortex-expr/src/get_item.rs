@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::Array;
-use vortex_dtype::FieldName;
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::field::DisplayFieldName;
@@ -74,6 +74,12 @@ impl VortexExpr for GetItem {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 1);
         Self::new_expr(self.field().clone(), children[0].clone())
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        scope_dtype
+            .as_struct()
+            .map(|dtype| dtype.field_by_name(self.field()))
     }
 }
 
