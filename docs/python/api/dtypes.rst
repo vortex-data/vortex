@@ -24,40 +24,40 @@ Base Class
 Do not instantiate these classes directly. Instead, call one of the factory functions above.
 
 .. autoclass:: vortex.DType
-   :members:
+    :members:
 
 
 DType Classes
 -------------
 
 .. autoclass:: vortex.NullDType
-   :members:
+    :members:
 
 
 .. autoclass:: vortex.BoolDType
-    :members:
+     :members:
 
 
 .. autoclass:: vortex.PrimitiveDType
-    :members:
+     :members:
 
 
 .. autoclass:: vortex.Utf8DType
-    :members:
+     :members:
 
 
 .. autoclass:: vortex.BinaryDType
-    :members:
+     :members:
 
 
 .. autoclass:: vortex.StructDType
-    :members:
+     :members:
 
 
 .. autoclass:: vortex.ListDType
-    :members:
+     :members:
 
 
 .. autoclass:: vortex.ExtensionDType
-    :members:
+     :members:
 

@@ -6,7 +6,7 @@ import vortex.expr
 from vortex.substrait import extended_expression
 
 
-def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> list[vortex.expr.Expr]:
+def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> vortex.expr.Expr:
     substrait_object = ExtendedExpression()
     substrait_object.ParseFromString(arrow_expression.to_substrait(schema))
 
