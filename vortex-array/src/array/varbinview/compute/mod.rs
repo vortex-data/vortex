@@ -85,7 +85,11 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         Ok(VarBinViewArray::try_new(
             views_buffer,
             array.buffers().collect(),
-            array.dtype().clone(),
+            if array.dtype().is_nullable() {
+                array.dtype().clone()
+            } else {
+                array.dtype().with_nullability(validity.nullability())
+            },
             validity,
         )?
         .into_array())

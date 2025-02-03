@@ -5302,6 +5302,7 @@ dependencies = [
  "divan",
  "num-traits",
  "rand",
+ "rkyv",
  "rustc-hash",
  "serde",
  "vortex-array",
@@ -5310,7 +5311,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
- "vortex-sparse",
 ]
 
 [[package]]

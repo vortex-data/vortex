@@ -1,5 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_scalar::Scalar;
 
+use crate::array::ConstantArray;
 use crate::encoding::Encoding;
 use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
 use crate::{Array, IntoArray, IntoCanonical};
@@ -46,6 +48,13 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     let array = array.as_ref();
     let indices = indices.as_ref();
 
+    if indices.validity_mask()?.all_false() {
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                .into_array(),
+        );
+    }
+
     if !indices.dtype().is_int() {
         vortex_bail!(
             "Take indices must be an integer type, got {}",
@@ -79,12 +88,17 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
         "Take length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
-        array.dtype(),
-        taken.dtype(),
-        "Take dtype mismatch {}",
-        array.encoding()
-    );
+    #[cfg(debug_assertions)]
+    {
+        if indices.invalid_count()? > 0 && taken.dtype() != &array.dtype().as_nullable() {
+            vortex_bail!(
+                "TakeFn {} returned wrong array dtype from {} to {}",
+                array.encoding(),
+                array.dtype(),
+                taken.dtype()
+            );
+        }
+    }
 
     Ok(taken)
 }
@@ -119,14 +133,6 @@ fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexRes
         } else {
             take_fn.take(array, indices)
         }?;
-        if array.dtype() != result.dtype() {
-            vortex_bail!(
-                "TakeFn {} changed array dtype from {} to {}",
-                array.encoding(),
-                array.dtype(),
-                result.dtype()
-            );
-        }
         return Ok(result);
     }
 

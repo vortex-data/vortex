@@ -109,7 +109,7 @@ impl Scalar {
         }
     }
 
-    pub fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
+    fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
         assert!(!matches!(target, DType::Extension(..)));
         if self.is_null() {
             if target.is_nullable() {

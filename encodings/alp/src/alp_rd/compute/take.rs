@@ -12,9 +12,14 @@ impl TakeFn<ALPRDArray> for ALPRDEncoding {
             .transpose()?
             .flatten();
 
+        let taken_left_parts = take(array.left_parts(), indices)?;
         Ok(ALPRDArray::try_new(
-            array.dtype().clone(),
-            take(array.left_parts(), indices)?,
+            if taken_left_parts.dtype().is_nullable() {
+                array.dtype().as_nullable()
+            } else {
+                array.dtype().clone()
+            },
+            taken_left_parts,
             array.left_parts_dict(),
             take(array.right_parts(), indices)?,
             array.right_bit_width(),
