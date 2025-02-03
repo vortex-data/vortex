@@ -18,7 +18,6 @@ use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
