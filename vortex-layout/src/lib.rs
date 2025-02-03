@@ -12,8 +12,9 @@ use std::fmt::{Display, Formatter};
 pub use reader::*;
 
 pub mod segments;
-pub mod strategies;
+pub mod strategy;
 pub mod vtable;
+mod writer;
 
 /// The layout ID for a flat layout
 pub(crate) const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);

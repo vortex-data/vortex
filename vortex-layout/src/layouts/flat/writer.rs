@@ -7,7 +7,7 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::LayoutWriter;
+use crate::writer::LayoutWriter;
 use crate::{Layout, LayoutVTableRef};
 
 pub struct FlatLayoutOptions {
@@ -103,7 +103,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
-    use crate::strategies::LayoutWriterExt;
+    use crate::writer::LayoutWriterExt;
 
     #[test]
     fn flat_stats() {

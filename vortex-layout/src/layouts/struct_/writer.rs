@@ -6,7 +6,8 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexRe
 use crate::data::Layout;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::strategy::LayoutStrategy;
+use crate::writer::LayoutWriter;
 use crate::LayoutVTableRef;
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers

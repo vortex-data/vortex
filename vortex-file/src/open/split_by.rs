@@ -61,7 +61,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath};
     use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
-    use vortex_layout::strategies::LayoutWriterExt;
+    use vortex_layout::writer::LayoutWriterExt;
 
     use super::*;
     use crate::segments::writer::BufferedSegmentWriter;
