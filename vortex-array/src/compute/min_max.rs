@@ -82,7 +82,8 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
         debug_assert!(
             min <= max,
             "min > max: min={} max={} encoding={}",
-            min, max,
+            min,
+            max,
             array.encoding()
         );
     }

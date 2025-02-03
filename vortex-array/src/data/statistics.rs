@@ -108,10 +108,10 @@ impl Statistics for Array {
     }
 
     fn compute(&self, stat: Stat) -> Option<ScalarValue> {
-        self
-            .compute_statistics(stat)
+        self.compute_statistics(stat)
             .vortex_expect("compute_statistics must not fail")
-            .get(stat)?.some_exact()
+            .get(stat)?
+            .some_exact()
     }
 
     fn retain_only(&self, stats: &[Stat]) {
