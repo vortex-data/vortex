@@ -38,6 +38,11 @@ impl DictArray {
         if !values.dtype().is_nullable() && null_code.is_some() {
             vortex_bail!("Can only provide null code when values are nullable")
         }
+        if let Some(null_code) = null_code {
+            if values.is_valid(null_code as usize)? {
+                vortex_bail!("Null code {null_code} points to a valid value")
+            }
+        }
 
         Self::try_from_parts(
             values.dtype().clone(),
@@ -111,16 +116,17 @@ impl ValidityVTable<DictArray> for DictEncoding {
             return Ok(true);
         }
 
-        let values = array.values();
-        // Otherwise, check each code
-        let primitive_codes = array.codes().into_primitive()?;
-        match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-            for code in primitive_codes.as_slice::<$P>() {
-                if !values.is_valid(*code as usize)? {
-                    return Ok(false);
+        if let Some(null_code) = array.null_code() {
+            let primitive_codes = array.codes().into_primitive()?;
+            match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+                let null_code_p = null_code as $P;
+                for code in primitive_codes.as_slice::<$P>() {
+                    if *code == null_code_p  {
+                        return Ok(false);
+                    }
                 }
-            }
-        });
+            });
+        }
 
         Ok(true)
     }
@@ -129,9 +135,10 @@ impl ValidityVTable<DictArray> for DictEncoding {
         if let Some(null_code) = array.null_code() {
             let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+                let null_code_p = null_code as $P;
                 let is_valid = primitive_codes.as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
-                    is_valid[idx] != null_code as $P
+                    is_valid[idx] != null_code_p
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
             })
