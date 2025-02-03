@@ -3,10 +3,11 @@ use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
-use vortex_layout::strategy::{LayoutStrategy, VortexLayoutStrategy};
+use vortex_layout::LayoutStrategy;
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::writer::BufferedSegmentWriter;
+use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct VortexWriteOptions {
