@@ -20,7 +20,7 @@ impl PyFastLanesBitPackedEncoding {
 
     /// Returns the bit width of the packed values.
     #[getter]
-    fn packed_bit_width(self_: PyRef<'_, Self>) -> u8 {
+    fn bit_width(self_: PyRef<'_, Self>) -> u8 {
         self_.as_array_ref().bit_width()
     }
 }
