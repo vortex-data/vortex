@@ -77,9 +77,13 @@ impl VortexExpr for GetItem {
     }
 
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        scope_dtype
+        let dtype = scope_dtype
             .as_struct()
-            .map(|dtype| dtype.field_by_name(self.field()))
+            .ok_or_else(|| vortex_err!("GetItem: scope dtype is not a struct"))?;
+        let idx = dtype
+            .find_name(self.field())
+            .ok_or_else(|| vortex_err!("GetItem: field {} not found", self.field))?;
+        dtype.field_dtype(idx)
     }
 }
 
