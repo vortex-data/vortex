@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use num_traits::{AsPrimitive, NumCast};
+use num_traits::NumCast;
 use serde::{Deserialize, Serialize};
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::StatsSet;
