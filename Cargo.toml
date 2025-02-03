@@ -103,7 +103,7 @@ jiff = "0.1.29"
 libfuzzer-sys = "0.4"
 log = "0.4.21"
 mimalloc = "0.1.42"
-moka = {version = "0.12.10", default-features = false}
+moka = { version = "0.12.10", default-features = false }
 governor = "0.8"
 num-traits = "0.2.19"
 num_enum = "0.7.2"
@@ -124,7 +124,13 @@ rand_distr = "0.4"
 ratatui = "0.29"
 rayon = "1.10.0"
 regex = "1.11.0"
-reqwest = { version = "0.12.0", features = ["charset", "http2", "macos-system-configuration", "blocking", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12.0", features = [
+    "charset",
+    "http2",
+    "macos-system-configuration",
+    "blocking",
+    "rustls-tls",
+], default-features = false }
 # TODO(ngates): remove the unaligned rkyv feature when we move to 8-byte metadata.
 rkyv = { version = "0.8.10", features = [
     "little_endian",
