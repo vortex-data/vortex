@@ -102,23 +102,23 @@ jobs:
         config:
           - name: "all-features"
             command: "build"
-            args: "--locked --all-features --all-targets"
+            args: "--all-features --all-targets"
           - name: "default features"
             command: "build"
-            args: "--locked --all-targets"
+            args: "--all-targets"
           - name: "with tokio dispatcher"
             command: "build"
-            args: "--locked --no-default-features --features tokio --all-targets --ignore-unknown-features"
+            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
           - name: "with compio dispatcher"
             command: "build"
-            args: "--locked --no-default-features --features compio --all-targets --ignore-unknown-features"
+            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
           - name: "with tokio+compio dispatcher"
             command: "build"
-            args: "--locked --no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
+            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
-            args: "--locked --target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-tui"
+            args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-tui"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -132,7 +132,7 @@ jobs:
       - name: Check build with minimal versions
         run: cargo minimal-versions check --direct --workspace --ignore-private
       - name: Rust Build (${{matrix.config.name}})
-        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
+        run: cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
 
 
 
