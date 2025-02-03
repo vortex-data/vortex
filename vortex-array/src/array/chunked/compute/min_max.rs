@@ -31,15 +31,27 @@ impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
             min: min_values
                 .into_iter()
                 .flatten()
-                .fold(None, |acc, x| acc.and_then(|acc| partial_min(x, acc)))
+                .fold(None, |acc, x| {
+                    if let Some(acc) = acc {
+                        partial_min(x, acc)
+                    } else {
+                        Some(x)
+                    }
+                })
                 .ok_or_else(|| {
-                    vortex_err!("Incomparable scalars (from partial_min), this is likely a bug")
+                    vortex_err!("Incomparable scalars (from partial_min), this is likely a bug",)
                 })?,
             max: max_values
                 .into_iter()
                 .flatten()
-                .fold(None, |acc, x| acc.and_then(|acc| partial_max(x, acc)))
-                .ok_or_else(|| vortex_err!("Incomparable scalars, this is likely a bug"))?,
+                .fold(None, |acc, x| {
+                    if let Some(acc) = acc {
+                        partial_max(x, acc)
+                    } else {
+                        Some(x)
+                    }
+                })
+                .ok_or_else(|| vortex_err!("Incomparable scalars, this is likely a bug",))?,
         }))
     }
 }
