@@ -35,7 +35,7 @@ mod private {
 }
 
 pub trait ALPFloat: private::Sealed + Float + Display + 'static {
-    type ALPInt: PrimInt + Display + ToPrimitive + Copy;
+    type ALPInt: PrimInt + Display + ToPrimitive + Copy + Default;
 
     const FRACTIONAL_BITS: u8;
     const MAX_EXPONENT: u8;
@@ -164,13 +164,11 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             .collect();
 
         if !patch_indices.is_empty() {
-            if let Some(fill_value) =
-                Self::first_non_patched_encoded_value(&encoded, &patch_indices)
-            {
-                for index in patch_indices.iter() {
-                    let index = *index as usize;
-                    encoded[index] = fill_value;
-                }
+            let fill_value =
+                Self::first_non_patched_encoded_value(&encoded, &patch_indices).unwrap_or_default();
+            for index in patch_indices.iter() {
+                let index = *index as usize;
+                encoded[index] = fill_value;
             }
         }
 
