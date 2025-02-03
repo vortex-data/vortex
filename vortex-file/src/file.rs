@@ -92,7 +92,7 @@ impl Scan {
 
     /// Compute a mask of field paths referenced by this scan.
     pub fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldMask>> {
-        // TODO(joe): simplify this expr once
+        // TODO(joe): simplify this expr once, and re-use the Scan in VortexFileOpener
         let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
         let filter = self
             .filter
