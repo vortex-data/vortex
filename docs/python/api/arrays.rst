@@ -7,7 +7,7 @@ functions, serialized, and otherwise manipulated as a generic array.
 
 There are two ways of "downcasting" an array for more specific access patterns:
 
-1. Into an encoding-specific array, like :class:`vortex.BitPackedEncoding`.vortex.
+1. Into an encoding-specific array, like :class:`vortex.FastLanesBitPackedEncoding`.vortex.
 2. Into a type-specific array, like :class:`vortex.BoolTypeArray`.
 
 Be careful to note that :class:`vortex.BoolEncoding` represents an array that stores physical data
