@@ -1,3 +1,4 @@
+use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -28,7 +29,12 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<MinMaxResult> {
     let min_max = if let Some(fn_) = array.vtable().min_max_fn() {
         fn_.min_max(array)?
     } else {
+        println!("NotImplemented: min_max {:?}, ", array.encoding());
         let canonical = array.clone().into_canonical()?;
+        println!(
+            "NotImplemented, into_canonical: min_max {:?}, try",
+            canonical.encoding()
+        );
         if let Some(fn_) = canonical.vtable().min_max_fn() {
             fn_.min_max(canonical.as_ref())?
         } else {
@@ -39,7 +45,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<MinMaxResult> {
     if let (Some(min), _) = &min_max {
         debug_assert_eq!(
             min.dtype(),
-            array.dtype(),
+            &array.dtype().with_nullability(NonNullable),
             "MinMax min dtype mismatch {}",
             array.encoding()
         );
@@ -50,7 +56,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<MinMaxResult> {
     if let (_, Some(max)) = &min_max {
         debug_assert_eq!(
             max.dtype(),
-            array.dtype(),
+            &array.dtype().with_nullability(NonNullable),
             "MinMax min dtype mismatch {}",
             array.encoding()
         );

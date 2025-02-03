@@ -1,7 +1,8 @@
 use vortex_error::{VortexError, VortexResult};
 
+use crate::compute::min_max;
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::Array;
 
 /// Encoding VTable for computing array statistics.
@@ -24,35 +25,33 @@ where
 }
 
 pub fn compute_statistics(array: &Array, stat: Stat) -> VortexResult<StatsSet> {
-    let mut set = array.vtable().compute_statistics(array, stat)?;
+    if array.is_empty() {
+        return Ok(StatsSet::empty_array());
+    }
 
-    /// TODO(joe): infer more stats from other stat combinations.
+    let mut set = if stat == Stat::Min || stat == Stat::Max {
+        // min max sets the array stats
+        let _min_max = min_max(array)?;
+        array.to_set()
+    } else {
+        array.vtable().compute_statistics(array, stat)?
+    };
+
     if stat == Stat::Min || stat == Stat::Max {
         if let (Some(min), Some(max)) = (
             set.get_scalar(Stat::Min, array.dtype().clone()),
             set.get_scalar(Stat::Max, array.dtype().clone()),
         ) {
-            if min.is_exact() && min == max {
+            if min.is_exact()
+                && min == max
+                && set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
+            {
                 set.set(Stat::IsConstant, Precision::exact(true));
             }
         }
     }
 
+    // TODO(joe): infer more stats from other stat combinations.
+
     Ok(set)
 }
-
-//         if stat == Stat::Max || stat == Stat::Min {
-//             let result = self.min_max(array);
-//                 let mut stats = StatsSet::default();
-//
-//                 if let Some((min, max)) = res {
-//                     if min.is_exact() && min == max {
-//                         stats.set(Stat::IsConstant, Precision::exact(true));
-//                     }
-//
-//                     stats.set(Stat::Min, min.map(|s| s.into_value()));
-//                     stats.set(Stat::Max, max.map(|s| s.into_value()));
-//                 }
-//                 return Ok(stats);
-//             }
-//         }
