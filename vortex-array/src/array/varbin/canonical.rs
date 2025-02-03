@@ -37,12 +37,12 @@ mod test {
     #[case(DType::Binary(Nullability::Nullable))]
     fn test_canonical_varbin(#[case] dtype: DType) {
         let mut varbin = VarBinBuilder::<i32>::with_capacity(10);
-        varbin.push_null();
-        varbin.push_null();
+        varbin.append_null();
+        varbin.append_null();
         // inlined value
-        varbin.push_value("123456789012".as_bytes());
+        varbin.append_value("123456789012".as_bytes());
         // non-inlinable value
-        varbin.push_value("1234567890123".as_bytes());
+        varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
         let canonical = varbin.into_varbinview().unwrap();

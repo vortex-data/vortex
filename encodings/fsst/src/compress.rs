@@ -96,7 +96,7 @@ where
     for string in iter {
         match string {
             None => {
-                builder.push_null();
+                builder.append_null();
                 uncompressed_lengths.push(0);
             }
             Some(s) => {
@@ -105,7 +105,7 @@ where
                 // SAFETY: buffer is large enough
                 unsafe { compressor.compress_into(s, &mut buffer) };
 
-                builder.push_value(&buffer);
+                builder.append_value(&buffer);
             }
         }
     }

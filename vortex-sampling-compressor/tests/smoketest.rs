@@ -207,7 +207,7 @@ mod tests {
         let values = ["zzzz", "bbbbbb", "cccccc", "ddddd"];
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         for i in 0..count {
-            builder.push_value(values[i % values.len()].as_bytes());
+            builder.append_value(values[i % values.len()].as_bytes());
         }
 
         builder
@@ -219,7 +219,7 @@ mod tests {
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         let random: Vec<u8> = (0..count).map(|_| rand::random::<u8>()).collect();
         for i in 1..=count {
-            builder.push_value(&random[0..i]);
+            builder.append_value(&random[0..i]);
         }
 
         builder

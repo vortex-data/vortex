@@ -17,11 +17,11 @@ macro_rules! assert_nth_scalar {
 // this function is VERY slow on miri, so we only want to run it once
 fn build_fsst_array() -> Array {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
-    input_array.push_value(b"The Greeks never said that the limit could not be overstepped");
-    input_array.push_value(
+    input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
+    input_array.append_value(
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
-    input_array.push_value(b"Nothing in present history can contradict them");
+    input_array.append_value(b"Nothing in present history can contradict them");
     let input_array = input_array
         .finish(DType::Utf8(Nullability::NonNullable))
         .into_array();

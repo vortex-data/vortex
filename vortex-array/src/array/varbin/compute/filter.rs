@@ -70,7 +70,7 @@ where
             });
         }
         AllOr::None => {
-            builder.push_n_nulls(selection_count);
+            builder.append_n_nulls(selection_count);
         }
         AllOr::Some(validity) => {
             for (start, end) in mask_slices.iter().copied() {
@@ -92,9 +92,9 @@ where
                                     offsets[idx + start + 1]
                                 )
                             })?;
-                            builder.push_value(&data[s..e])
+                            builder.append_value(&data[s..e])
                         } else {
-                            builder.push_null()
+                            builder.append_null()
                         }
                     }
                 }
@@ -127,7 +127,7 @@ fn update_non_nullable_slice<O>(
         .iter()
         .map(|o| *o - offsets[start])
         .dropping(1);
-    builder.push_values(new_data, new_offsets, end - start)
+    builder.append_values(new_data, new_offsets, end - start)
 }
 
 fn filter_select_var_bin_by_index(
@@ -168,9 +168,9 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
                 })?,
             );
-            builder.push_value(&data[start..end])
+            builder.append_value(&data[start..end])
         } else {
-            builder.push_null()
+            builder.append_null()
         }
     }
     Ok(builder.finish(dtype))

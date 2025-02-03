@@ -155,7 +155,7 @@ impl VarBinArray {
     {
         let mut builder = VarBinBuilder::<O>::with_capacity(vec.len());
         for v in vec {
-            builder.push_value(v.as_ref());
+            builder.append_value(v.as_ref());
         }
         builder.finish(dtype)
     }
@@ -168,7 +168,7 @@ impl VarBinArray {
         let iter = iter.into_iter();
         let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
         for v in iter {
-            builder.push(v.as_ref().map(|o| o.as_ref()));
+            builder.append(v.as_ref().map(|o| o.as_ref()));
         }
         builder.finish(dtype)
     }
@@ -180,7 +180,7 @@ impl VarBinArray {
         let iter = iter.into_iter();
         let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
         for v in iter {
-            builder.push_value(v);
+            builder.append_value(v);
         }
         builder.finish(dtype)
     }
