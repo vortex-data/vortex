@@ -32,7 +32,7 @@ where
                 .as_slice::<T>()
                 .iter()
                 .zip(v.boolean_buffer().iter())
-                .filter_map(|(v, m)| m.then_some(m)),
+                .filter_map(|(v, m)| m.then_some(v)),
             array.dtype(),
         ),
     })
