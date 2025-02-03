@@ -143,8 +143,6 @@ jobs:
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
-
-
   rust-lint:
     name: "Rust (lint)"
     runs-on: ubuntu-latest
