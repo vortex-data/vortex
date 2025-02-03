@@ -105,7 +105,7 @@ fn enc_impls() -> Vec<Array> {
             .unwrap()
             .into_array(),
         fsst_array(),
-        FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into(), 5)
+        FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into())
             .unwrap()
             .into_array(),
         ListArray::try_new(

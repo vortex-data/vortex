@@ -61,12 +61,8 @@ impl EncodingCompressor for FoRCompressor {
             like.as_ref().and_then(|l| l.child(0)),
         )?;
         Ok(CompressedArray::compressed(
-            FoRArray::try_new(
-                compressed_child.array,
-                compressed.reference_scalar(),
-                compressed.shift(),
-            )
-            .map(|a| a.into_array())?,
+            FoRArray::try_new(compressed_child.array, compressed.reference_scalar())
+                .map(|a| a.into_array())?,
             Some(CompressionTree::new(self, vec![compressed_child.path])),
             array,
         ))

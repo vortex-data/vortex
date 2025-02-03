@@ -18,6 +18,7 @@ use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
 
@@ -131,6 +132,47 @@ impl Array {
         // This is called for both Owned and Viewed array data since there are public functions
         // for constructing an Array, e.g. `try_new_owned`.
         array.vtable().validate(&array)?;
+
+        #[derive(Default)]
+        struct CountVisitor {
+            nbuffers: usize,
+            nchildren: usize,
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            impl ArrayVisitor for CountVisitor {
+                fn visit_child(&mut self, _name: &str, _array: &Array) -> VortexResult<()> {
+                    self.nchildren += 1;
+                    Ok(())
+                }
+
+                fn visit_buffer(&mut self, _buffer: &ByteBuffer) -> VortexResult<()> {
+                    self.nbuffers += 1;
+                    Ok(())
+                }
+            }
+
+            let mut visitor = CountVisitor::default();
+            array.vtable().accept(&array, &mut visitor)?;
+
+            assert_eq!(
+                visitor.nbuffers,
+                array.nbuffers(),
+                "Array visitor gave {} buffers, but Array has {} buffers, {}",
+                visitor.nbuffers,
+                array.nbuffers(),
+                array.encoding(),
+            );
+            assert_eq!(
+                visitor.nchildren,
+                array.nchildren(),
+                "Array visitor gave {} children, but Array has {} children, {}",
+                visitor.nchildren,
+                array.nchildren(),
+                array.encoding(),
+            );
+        }
 
         Ok(array)
     }
