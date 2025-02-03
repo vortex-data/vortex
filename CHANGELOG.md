@@ -7,6 +7,180 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.23.0...vortex-tui-v0.24.0) - 2025-02-03
+
+### Added
+- better keybinding for vortex-tui (#2180)
+- *(tui)* allow searching inputs, limited vim key support (#2178)
+
+### Fixed
+- *(tui)* off-by-one in table constraints for stats table (#2163)
+
+## `vortex-datafusion` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.23.0...vortex-datafusion-v0.24.0) - 2025-02-03
+
+### Added
+- Datafusion file sink (#2155)
+- Add VortexFormatFactory to the datafusion integration (#2159)
+
+### Fixed
+- Field nullability mismatch when converting struct arrays to arrow (#2174)
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- VortexFormatFactory followup ([#2160](https://github.com/spiraldb/vortex/pull/2160))
+
+## `vortex-zigzag` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.23.0...vortex-zigzag-v0.24.0) - 2025-02-03
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-sampling-compressor` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.23.0...vortex-sampling-compressor-v0.24.0) - 2025-02-03
+
+### Fixed
+- add missing vtables to ALL_ENCODINGS_CONTEXT (#2162)
+
+### Other
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+- consistently use subseconds over subsecond (#2169)
+
+## `vortex-runend` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.23.0...vortex-runend-v0.24.0) - 2025-02-03
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-fsst` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.23.0...vortex-fsst-v0.24.0) - 2025-02-03
+
+### Added
+- use decompress_into to reduce memory needed for FSST canonical (#2184)
+
+### Other
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-scan` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-scan-v0.23.0...vortex-scan-v0.24.0) - 2025-02-03
+
+### Other
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-layout` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-layout-v0.23.0...vortex-layout-v0.24.0) - 2025-02-03
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-ipc` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.23.0...vortex-ipc-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-io` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.23.0...vortex-io-v0.24.0) - 2025-02-03
+
+### Added
+- Datafusion file sink (#2155)
+
+## `vortex-file` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.23.0...vortex-file-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-expr` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.23.0...vortex-expr-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-dict` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.23.0...vortex-dict-v0.24.0) - 2025-02-03
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-datetime-parts` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.23.0...vortex-datetime-parts-v0.24.0) - 2025-02-03
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+- consistently use subseconds over subsecond (#2169)
+
+## `vortex-bytebool` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.23.0...vortex-bytebool-v0.24.0) - 2025-02-03
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-sparse` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-sparse-v0.23.0...vortex-sparse-v0.24.0) - 2025-02-03
+
+### Other
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-fastlanes` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.23.0...vortex-fastlanes-v0.24.0) - 2025-02-03
+
+### Fixed
+- Fix shr overflow in FoR compare (#2176)
+
+### Other
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
+## `vortex-scalar` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.23.0...vortex-scalar-v0.24.0) - 2025-02-03
+
+### Other
+- PyVortex vortex.Scalar and subclasses ([#2192](https://github.com/spiraldb/vortex/pull/2192))
+- Fix scalar eq for booleans ([#2168](https://github.com/spiraldb/vortex/pull/2168))
+
+## `vortex-mask` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-mask-v0.23.0...vortex-mask-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-proto` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.23.0...vortex-proto-v0.24.0) - 2025-02-03
+
+### Other
+- remove unused Decimal dtype in proto/fbs (#2156)
+
+## `vortex-flatbuffers` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.23.0...vortex-flatbuffers-v0.24.0) - 2025-02-03
+
+### Fixed
+- keep DType flatbuffer backward compatible (#2157)
+
+### Other
+- remove unused Decimal dtype in proto/fbs (#2156)
+
+## `vortex-dtype` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.23.0...vortex-dtype-v0.24.0) - 2025-02-03
+
+### Other
+- remove unused Decimal dtype in proto/fbs (#2156)
+
+## `vortex-datetime-dtype` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.23.0...vortex-datetime-dtype-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-error` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.23.0...vortex-error-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-buffer` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.23.0...vortex-buffer-v0.24.0) - 2025-02-03
+
+### Other
+- update Cargo.toml dependencies
+
+## `vortex-array` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.23.0...vortex-array-v0.24.0) - 2025-02-03
+
+### Fixed
+- Field nullability mismatch when converting struct arrays to arrow (#2174)
+
+### Other
+- Combine stats and derive for compute fns ([#2166](https://github.com/spiraldb/vortex/pull/2166))
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+- PyVortex array subclasses ([#2194](https://github.com/spiraldb/vortex/pull/2194))
+- Fix `vortex-array` dependency's features on `vortex-scalar` (#2153)
+
+## `vortex-alp` - [0.24.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.23.0...vortex-alp-v0.24.0) - 2025-02-03
+
+### Other
+- Avoid try_cast in IntoArrow  ([#2198](https://github.com/spiraldb/vortex/pull/2198))
+
 ## `vortex-tui` - [0.23.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.22.1...vortex-tui-v0.23.0) - 2025-01-30
 
 ### Fixed
