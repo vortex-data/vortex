@@ -185,7 +185,7 @@ where
     }
 
     fn null_code(&self) -> Option<u64> {
-        self.null_code.clone()
+        self.null_code
     }
 }
 
@@ -318,7 +318,7 @@ impl DictEncoder for BytesDictBuilder {
     }
 
     fn null_code(&self) -> Option<u64> {
-        self.null_code.clone()
+        self.null_code
     }
 }
 

@@ -101,9 +101,13 @@ fn enc_impls() -> Vec<Array> {
         ))
         .unwrap()
         .into_array(),
-        DictArray::try_new(buffer![0u32, 1, 0].into_array(), buffer![1, 2].into_array(), None)
-            .unwrap()
-            .into_array(),
+        DictArray::try_new(
+            buffer![0u32, 1, 0].into_array(),
+            buffer![1, 2].into_array(),
+            None,
+        )
+        .unwrap()
+        .into_array(),
         fsst_array(),
         FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into(), 5)
             .unwrap()
