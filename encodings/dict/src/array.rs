@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::compute::{scalar_at, take};
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::{Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
@@ -94,7 +94,31 @@ impl ValidityVTable<DictArray> for DictEncoding {
     }
 
     fn all_valid(&self, array: &DictArray) -> VortexResult<bool> {
-        array.values().all_valid()
+        // If the values are all valid, then the dictionary must be all valid
+        if array.values().all_valid()? {
+            return Ok(true);
+        }
+
+        // Otherwise, find the null code.
+        // For now, we assume this must be code zero.
+        assert!(scalar_at(array.values(), 0)?.is_null());
+
+        // Attempt to short-circuit with a min statistic
+        if let Some(min) = array.codes().statistics().compute_as::<u64>(Stat::Min) {
+            return Ok(min > 0);
+        }
+
+        // Otherwise, check each code
+        let primitive_codes = array.codes().into_primitive()?;
+        match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+            for code in primitive_codes.as_slice::<$P>() {
+                if *code == 0 {
+                    return Ok(false);
+                }
+            }
+        });
+
+        Ok(true)
     }
 
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
