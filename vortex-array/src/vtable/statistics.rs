@@ -34,8 +34,10 @@ impl Array {
             return Ok(StatsSet::empty_array());
         }
 
-        if self.get(stat).is_some() {
-            return Ok(self.to_set());
+        if let Some(stat) = self.get(stat) {
+            if stat.is_exact() {
+                return Ok(self.to_set());
+            }
         }
 
         let mut set = if stat == Stat::Min || stat == Stat::Max {
