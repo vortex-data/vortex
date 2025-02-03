@@ -128,8 +128,13 @@ jobs:
           targets: ${{matrix.config.target || ''}}
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
+      - name: Check build with minimal versions
+        run: cargo minimal-versions check --workspace --ignore-private
       - name: Rust Build (${{matrix.config.name}})
         run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
+      - uses: taiki-e/install-action@cargo-minimal-versions
+
+
 
   rust-lint:
     name: "Rust (lint)"

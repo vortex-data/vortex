@@ -833,17 +833,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fe8bc9e08b21482403f5f5ada7e2837c62333ee2cbb90514acf1a3c92def509"
 dependencies = [
  "compio-buf",
- "compio-dispatcher",
  "compio-driver",
  "compio-fs",
  "compio-io",
  "compio-log",
  "compio-macros",
  "compio-net",
- "compio-process",
- "compio-quic",
  "compio-runtime",
- "compio-signal",
 ]
 
 [[package]]
@@ -855,18 +851,6 @@ dependencies = [
  "arrayvec",
  "bytes",
  "libc",
-]
-
-[[package]]
-name = "compio-dispatcher"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e69a3e5af510b251ddbb96be9bfcc65295e4c7f7e4d898f4ce9ea79ddb31709a"
-dependencies = [
- "compio-driver",
- "compio-runtime",
- "flume",
- "futures-channel",
 ]
 
 [[package]]
@@ -883,7 +867,6 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-queue",
  "futures-util",
- "io-uring",
  "libc",
  "once_cell",
  "paste",
@@ -962,43 +945,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compio-process"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f52cb61fe13a0287ea9297d1631fa058ae5f524234eaa6a151306cceeb03ba2"
-dependencies = [
- "cfg-if",
- "compio-buf",
- "compio-driver",
- "compio-io",
- "compio-runtime",
- "futures-util",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "compio-quic"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b66c4195fe7da5e6010b5a9853e38c706cbb0f61de37ac0e4b56b987510494c"
-dependencies = [
- "cfg_aliases",
- "compio-buf",
- "compio-io",
- "compio-log",
- "compio-net",
- "compio-runtime",
- "flume",
- "futures-util",
- "libc",
- "quinn-proto",
- "rustc-hash",
- "rustls",
- "thiserror 2.0.11",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "compio-runtime"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1014,24 +960,7 @@ dependencies = [
  "libc",
  "once_cell",
  "scoped-tls",
- "slab",
  "socket2",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "compio-signal"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc7737cb9233aab3b5abb44138ea38c67574035e69368ea2be1b326cb706d89"
-dependencies = [
- "compio-buf",
- "compio-driver",
- "compio-runtime",
- "libc",
- "once_cell",
- "os_pipe",
- "slab",
  "windows-sys 0.52.0",
 ]
 
@@ -2588,17 +2517,6 @@ name = "integer-encoding"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
-
-[[package]]
-name = "io-uring"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab01638bb6a279897b7691f87f3f3c232451711fd419a69ced980ce61074fa46"
-dependencies = [
- "bitflags 2.8.0",
- "cfg-if",
- "libc",
-]
 
 [[package]]
 name = "ipnet"
