@@ -112,13 +112,6 @@ impl<T> Precision<T> {
             Exact(val) | Inexact(val) => val,
         }
     }
-
-    // Get the underlying value in the enum
-    pub fn value(&self) -> &T {
-        match self {
-            Exact(val) | Inexact(val) => val,
-        }
-    }
 }
 
 impl<T: Display> Display for Precision<T> {
