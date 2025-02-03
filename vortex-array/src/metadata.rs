@@ -100,8 +100,12 @@ impl<M> DeserializeMetadata for RkyvMetadata<M>
 where
     M: Debug,
     M: rkyv::Archive,
-    M::Archived: for<'a> rkyv::bytecheck::CheckBytes<rkyv::api::high::HighValidator<'a, VortexError>>
-        + rkyv::Deserialize<M, rkyv::rancor::Strategy<rkyv::de::Pool, VortexError>>,
+    M::Archived:
+        for<'a> rkyv::bytecheck::CheckBytes<rkyv::api::high::HighValidator<'a, VortexError>>,
+    // Safe deserialization requires a pool
+    M::Archived: rkyv::Deserialize<M, rkyv::rancor::Strategy<rkyv::de::Pool, VortexError>>,
+    // Unsafe deserialization doesn't require a pool.
+    M::Archived: rkyv::Deserialize<M, rkyv::rancor::Strategy<(), VortexError>>,
 {
     type Output = M;
 
@@ -109,6 +113,15 @@ where
         rkyv::from_bytes::<M, VortexError>(
             metadata.ok_or_else(|| vortex_err!("Missing expected metadata"))?,
         )
+    }
+
+    unsafe fn deserialize_unchecked(metadata: Option<&[u8]>) -> Self::Output {
+        unsafe {
+            rkyv::api::low::from_bytes_unchecked(
+                metadata.vortex_expect("Missing expected metadata"),
+            )
+            .vortex_expect("Failed to deserialize metadata")
+        }
     }
 
     #[allow(clippy::use_debug)]
