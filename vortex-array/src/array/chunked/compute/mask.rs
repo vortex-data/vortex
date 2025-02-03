@@ -51,12 +51,13 @@ fn mask_indices(
                 .chunk(current_chunk_id)
                 .vortex_expect("find_chunk_idx must return valid chunk ID");
             let masked_chunk = mask(&chunk, Mask::from_indices(chunk.len(), chunk_indices))?;
+            // Advance the chunk forward, reset the chunk indices buffer.
             chunk_indices = Vec::new();
             new_chunks.push(masked_chunk);
             current_chunk_id += 1;
 
-            // Advance the chunk forward, reset the chunk indices buffer.
             while current_chunk_id < chunk_id {
+                // Chunks that are not affected by the mask, must still be casted to the correct dtype.
                 let chunk = array
                     .chunk(current_chunk_id)
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
@@ -101,15 +102,15 @@ fn mask_slices(
         .map(|(chunk, chunk_filter)| -> VortexResult<Array> {
             Ok(match chunk_filter {
                 ChunkFilter::All => {
-                    // All => entire chunk is masked out
+                    // entire chunk is masked out
                     ConstantArray::new(Scalar::null(new_dtype.clone()), chunk.len()).into_array()
                 }
                 ChunkFilter::None => {
-                    // None => preserve the entire chunk unmasked
+                    // entire chunk is not affected by mask
                     chunk
                 }
-                // Slices => turn the slices into a boolean buffer.
                 ChunkFilter::Slices(slices) => {
+                    // Slices of indices that must be set to null
                     mask(&chunk, Mask::from_slices(chunk.len(), slices))?
                 }
             })

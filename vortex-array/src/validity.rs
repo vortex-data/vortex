@@ -267,9 +267,9 @@ impl Validity {
                 }
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
-                    let bools = BoolArray::try_from(is_valid.clone())?.boolean_buffer();
+                    let is_valid = BoolArray::try_from(is_valid.clone())?.boolean_buffer();
                     let keep_valid = make_invalid.not();
-                    Validity::from(bools.bitand(&keep_valid))
+                    Validity::from(is_valid.bitand(&keep_valid))
                 }
             }),
         }
@@ -384,7 +384,7 @@ impl Validity {
     }
 
     /// Convert into a variant compatible with the given nullability, if possible.
-    pub fn with_nullability(self, nullability: Nullability) -> VortexResult<Validity> {
+    pub fn cast_nullability(self, nullability: Nullability) -> VortexResult<Validity> {
         match nullability {
             Nullability::NonNullable => self.into_non_nullable().ok_or_else(|| {
                 vortex_err!("cannot cast array with invalid values to non-nullable type")

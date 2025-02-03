@@ -61,7 +61,7 @@ impl CastFn<StructArray> for StructEncoding {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         }
 
-        let validity = array.validity().with_nullability(dtype.nullability())?;
+        let validity = array.validity().cast_nullability(dtype.nullability())?;
 
         StructArray::try_new(
             target_sdtype.names().clone(),

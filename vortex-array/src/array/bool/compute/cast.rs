@@ -11,7 +11,7 @@ impl CastFn<BoolArray> for BoolEncoding {
             vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);
         };
 
-        let new_validity = array.validity().with_nullability(*new_nullability)?;
+        let new_validity = array.validity().cast_nullability(*new_nullability)?;
         BoolArray::try_new(array.boolean_buffer(), new_validity).map(IntoArray::into_array)
     }
 }
