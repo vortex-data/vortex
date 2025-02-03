@@ -12,7 +12,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
 impl_encoding!(
@@ -124,11 +124,11 @@ impl ValidityVTable<DictArray> for DictEncoding {
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
         if array.dtype().is_nullable() {
             let primitive_codes = array.codes().into_primitive()?;
+            let values = array.values();
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-                let is_valid = primitive_codes
-                    .as_slice::<$P>();
+                let is_valid = primitive_codes.as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
-                    is_valid[idx] != 0
+                    values.is_valid(idx).vortex_unwrap()
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
             })
