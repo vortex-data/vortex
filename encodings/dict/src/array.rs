@@ -35,8 +35,8 @@ impl DictArray {
         if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
         }
-        if !values.dtype().is_nullable() && null_code.is_some() {
-            vortex_bail!("Can only provide null code when values are nullable")
+        if values.dtype().is_nullable() && null_code.is_none() {
+            vortex_bail!("Must provide a null code when values are nullable")
         }
 
         Self::try_from_parts(
