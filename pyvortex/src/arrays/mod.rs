@@ -204,29 +204,6 @@ impl PyArray {
 
 #[pymethods]
 impl PyArray {
-    /// Construct an encoding subclass of an :class:`Array`.
-    #[new]
-    fn new(cls: Bound<PyType>, array: PyArray) -> PyResult<PyArray> {
-        if !cls.is_subclass_of::<PyArray>()? {
-            return Err(PyValueError::new_err("Must be a subclass of Array"));
-        }
-
-        let encoding_id = cls
-            .getattr("id")
-            .map_err(|_| PyValueError::new_err("Encoding subclass must define an 'id' attribute"))?
-            .extract::<String>()?;
-
-        if array.deref().encoding().as_ref() != encoding_id.as_str() {
-            return Err(PyValueError::new_err(format!(
-                "Array has encoding {}, expected {}",
-                array.encoding(),
-                encoding_id
-            )));
-        }
-
-        Ok(array)
-    }
-
     /// Convert a PyArrow object into a Vortex array.
     ///
     /// One of :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, or :class:`pyarrow.Table`.
