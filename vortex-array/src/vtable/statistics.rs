@@ -75,7 +75,7 @@ impl Array {
         // TODO(joe): infer more stats from other stat combinations.
 
         if let Some(stat_val) = set.get(stat) {
-            self.set(stat, stat_val.clone());
+            self.set(stat, stat_val);
         }
 
         Ok(set)
