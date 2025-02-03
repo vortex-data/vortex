@@ -66,24 +66,4 @@ impl ComputeVTable for BoolEncoding {
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
-
-    fn binary_numeric_fn(&self) -> Option<&dyn crate::compute::BinaryNumericFn<Array>> {
-        None
-    }
-
-    fn compare_fn(&self) -> Option<&dyn crate::compute::CompareFn<Array>> {
-        None
-    }
-
-    fn like_fn(&self) -> Option<&dyn crate::compute::LikeFn<Array>> {
-        None
-    }
-
-    fn search_sorted_fn(&self) -> Option<&dyn crate::compute::SearchSortedFn<Array>> {
-        None
-    }
-
-    fn search_sorted_usize_fn(&self) -> Option<&dyn crate::compute::SearchSortedUsizeFn<Array>> {
-        None
-    }
 }
