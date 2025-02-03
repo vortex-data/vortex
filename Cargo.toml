@@ -70,7 +70,7 @@ bzip2 = "0.5.0"
 cfg-if = "1"
 chrono = "0.4.38"
 clap = "4"
-compio = {version = "0.13", default-features = false}
+compio = { version = "0.13", features = ["io-uring"], default-features = false }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 croaring = "2.1.0"
 crossterm = "0.28"
