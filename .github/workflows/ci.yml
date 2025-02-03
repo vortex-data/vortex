@@ -128,12 +128,20 @@ jobs:
           targets: ${{matrix.config.target || ''}}
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
-      - uses: taiki-e/install-action@cargo-minimal-versions
-      - name: Check build with minimal versions
-        run: cargo minimal-versions check --direct --workspace --ignore-private
       - name: Rust Build (${{matrix.config.name}})
         run: cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
-
+  
+  check-min-deps:
+    name: "Check build with minimal dependencies"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+      - uses: taiki-e/install-action@cargo-hack
+      - uses: taiki-e/install-action@cargo-minimal-versions
+      - run: cargo minimal-versions check --direct --workspace --ignore-private
 
 
 
