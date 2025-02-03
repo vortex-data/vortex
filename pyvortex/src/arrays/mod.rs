@@ -7,7 +7,7 @@ use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyList};
+use pyo3::types::{IntoPyDict, PyList, PyType};
 use pyo3::PyClass;
 use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
@@ -122,7 +122,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///        false,
 ///        true
 ///     ]
-#[pyclass(name = "Array", module = "vortex", sequence, subclass)]
+#[pyclass(name = "Array", module = "vortex", sequence, subclass, frozen)]
 #[derive(Clone)]
 pub struct PyArray(Array);
 
@@ -162,6 +162,24 @@ impl PyArray {
         }
     }
 
+    /// Initialize a [`PyArray`] with an [`EncodingSubclass`].
+    pub fn init_encoding<S: EncodingSubclass>(
+        array: Bound<PyArray>,
+        subclass: S,
+    ) -> PyResult<Bound<S>> {
+        if array.get().deref().encoding() != <<S as EncodingSubclass>::Encoding as Encoding>::ID {
+            return Err(PyValueError::new_err(format!(
+                "Array has encoding {}, expected {}",
+                array.get().deref().encoding(),
+                <<S as EncodingSubclass>::Encoding as Encoding>::ID
+            )));
+        }
+        Bound::new(
+            array.py(),
+            PyClassInitializer::from(array.get().clone()).add_subclass(subclass),
+        )
+    }
+
     fn with_subclass<S: PyClass<BaseType = PyArray>>(
         py: Python,
         array: Array,
@@ -186,6 +204,29 @@ impl PyArray {
 
 #[pymethods]
 impl PyArray {
+    /// Construct an encoding subclass of an :class:`Array`.
+    #[new]
+    fn new(cls: Bound<PyType>, array: PyArray) -> PyResult<PyArray> {
+        if !cls.is_subclass_of::<PyArray>()? {
+            return Err(PyValueError::new_err("Must be a subclass of Array"));
+        }
+
+        let encoding_id = cls
+            .getattr("id")
+            .map_err(|_| PyValueError::new_err("Encoding subclass must define an 'id' attribute"))?
+            .extract::<String>()?;
+
+        if array.deref().encoding().as_ref() != encoding_id.as_str() {
+            return Err(PyValueError::new_err(format!(
+                "Array has encoding {}, expected {}",
+                array.encoding(),
+                encoding_id
+            )));
+        }
+
+        Ok(array)
+    }
+
     /// Convert a PyArrow object into a Vortex array.
     ///
     /// One of :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, or :class:`pyarrow.Table`.
@@ -631,7 +672,7 @@ impl PyArray {
 }
 
 /// A marker trait indicating a PyO3 class is a subclass of Vortex `Array`.
-pub trait ArraySubclass: PyClass<BaseType = PyArray> {
+pub trait EncodingSubclass: PyClass<BaseType = PyArray> {
     type Encoding: Encoding;
 }
 
@@ -640,7 +681,7 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<A: ArraySubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
+impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
 where
     for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&'a Array, Error = VortexError>,
 {
