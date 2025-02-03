@@ -94,7 +94,7 @@ pub trait DictEncoder {
 
     fn values(&mut self) -> Array;
 
-    fn null_code(&self) -> Option<u32>;
+    fn null_code(&self) -> Option<u64>;
 }
 
 /// Dictionary encode primitive array with given PType.
@@ -184,8 +184,8 @@ where
         PrimitiveArray::new(self.values.clone().freeze(), values_validity).into_array()
     }
 
-    fn null_code(&self) -> Option<u32> {
-        self.null_code.map(|v| v as u32).clone()
+    fn null_code(&self) -> Option<u64> {
+        self.null_code.clone()
     }
 }
 
@@ -317,8 +317,8 @@ impl DictEncoder for BytesDictBuilder {
         .into_array()
     }
 
-    fn null_code(&self) -> Option<u32> {
-        self.null_code.map(|v| v as u32).clone()
+    fn null_code(&self) -> Option<u64> {
+        self.null_code.clone()
     }
 }
 

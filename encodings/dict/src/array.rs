@@ -26,11 +26,12 @@ impl_encoding!(
 pub struct DictMetadata {
     codes_ptype: PType,
     values_len: usize, // TODO(ngates): make this a u32
-    null_code: Option<u32>,
+    // TODO(robert): Should this be a u32?
+    null_code: Option<u64>,
 }
 
 impl DictArray {
-    pub fn try_new(codes: Array, values: Array, null_code: Option<u32>) -> VortexResult<Self> {
+    pub fn try_new(codes: Array, values: Array, null_code: Option<u64>) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
         }
@@ -68,7 +69,7 @@ impl DictArray {
     }
 
     #[inline]
-    pub fn null_code(&self) -> Option<u32> {
+    pub fn null_code(&self) -> Option<u64> {
         self.metadata().null_code
     }
 }
@@ -163,7 +164,7 @@ mod test {
             SerdeMetadata(DictMetadata {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
-                null_code: Some(u32::MAX),
+                null_code: Some(u64::MAX),
             }),
         );
     }
