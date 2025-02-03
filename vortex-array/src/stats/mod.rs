@@ -140,13 +140,13 @@ impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
     const STAT: Stat = Stat::UncompressedSizeInBytes;
 }
 
-impl<T: PartialOrd + Clone> StatType<T> for Max {
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Max {
     type Bound = UpperBound<T>;
 
     const STAT: Stat = Stat::Max;
 }
 
-impl<T: PartialOrd + Clone> StatType<T> for Min {
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
     type Bound = LowerBound<T>;
 
     const STAT: Stat = Stat::Min;

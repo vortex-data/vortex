@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-use crate::stats::bound::{max, min, JoinResult};
+use crate::partial_min;
+use crate::stats::bound::IntersectionResult;
 use crate::stats::{LowerBound, Precision, Stat};
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
@@ -22,10 +23,10 @@ pub trait StatBound<T>: Sized {
     fn union(&self, other: &Self) -> Option<Self>;
 
     /// Refines the bounds to the most precise estimate we can make for that bound.
-    /// If the bounds are disjoint, then the result is `JoinResult::None`.
+    /// If the bounds are disjoint, then the result is `None`.
     /// e.g. `Precision::Inexact(5)` and `Precision::Exact(6)` would result in `Precision::Inexact(5)`.
     /// A.k.a. the `join` of the bound.
-    fn intersection(&self, other: &Self) -> Option<JoinResult<Self>>;
+    fn intersection(&self, other: &Self) -> Option<IntersectionResult<Self>>;
 
     // Returns the exact value from the bound, if that value is exact, otherwise `None`.
     fn as_exact(&self) -> Option<&T>;
@@ -53,25 +54,25 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
     fn union(&self, other: &Self) -> Option<Self> {
         self.clone()
             .zip(other.clone())
-            .map(|(lhs, rhs)| min(lhs, rhs))
+            .map(|(lhs, rhs)| partial_min(&lhs, &rhs).cloned())
             .transpose()
     }
 
-    fn intersection(&self, other: &Self) -> Option<JoinResult<Self>> {
+    fn intersection(&self, other: &Self) -> Option<IntersectionResult<Self>> {
         Some(match (self, other) {
             (Precision::Exact(lhs), Precision::Exact(rhs)) => {
                 if lhs.partial_cmp(rhs)? == Ordering::Equal {
-                    JoinResult::Join(Precision::Exact(lhs.clone()))
+                    IntersectionResult::Value(Precision::Exact(lhs.clone()))
                 } else {
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
             (Precision::Exact(exact), Precision::Inexact(_))
             | (Precision::Inexact(_), Precision::Exact(exact)) => {
-                JoinResult::Join(Precision::Inexact(exact.clone()))
+                IntersectionResult::Value(Precision::Inexact(exact.clone()))
             }
             (Precision::Inexact(lhs), Precision::Inexact(rhs)) => {
-                JoinResult::Join(Precision::Inexact(max(lhs, rhs)?.clone()))
+                IntersectionResult::Value(Precision::Inexact(partial_min(lhs, rhs)?.clone()))
             }
         })
     }

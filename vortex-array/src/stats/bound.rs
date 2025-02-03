@@ -5,6 +5,7 @@ use Precision::Inexact;
 
 use crate::stats::Precision::Exact;
 use crate::stats::{Precision, StatBound};
+use crate::{partial_max, partial_min};
 
 /// Interpret the value as a lower bound.
 /// These form a partial order over successively more precise bounds
@@ -25,19 +26,21 @@ impl<T> LowerBound<T> {
 
 /// The result of the fallible intersection of two bound, defined to avoid Option JoinResult mixup.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JoinResult<T> {
-    Join(T),
+pub enum IntersectionResult<T> {
+    /// An intersection result was found
+    Value(T),
+    /// Values has no intersection.
     None,
 }
 
-impl<T> JoinResult<T> {
+impl<T> IntersectionResult<T> {
     pub fn ok_or_else<F>(self, err: F) -> VortexResult<T>
     where
         F: FnOnce() -> VortexError,
     {
         match self {
-            JoinResult::Join(v) => Ok(v),
-            JoinResult::None => Err(err()),
+            IntersectionResult::Value(v) => Ok(v),
+            IntersectionResult::None => Err(err()),
         }
     }
 }
@@ -50,8 +53,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
     // The meet or tightest covering bound
     fn union(&self, other: &Self) -> Option<LowerBound<T>> {
         Some(LowerBound(match (&self.0, &other.0) {
-            (Exact(lhs), Exact(rhs)) => Exact(min(lhs, rhs)?.clone()),
-            (Inexact(lhs), Inexact(rhs)) => Inexact(min(lhs, rhs)?.clone()),
+            (Exact(lhs), Exact(rhs)) => Exact(partial_min(lhs, rhs)?.clone()),
+            (Inexact(lhs), Inexact(rhs)) => Inexact(partial_min(lhs, rhs)?.clone()),
             (Inexact(lhs), Exact(rhs)) => {
                 if rhs <= lhs {
                     Exact(rhs.clone())
@@ -70,33 +73,33 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
     }
 
     // The join of the smallest intersection of both bounds, this can fail.
-    fn intersection(&self, other: &Self) -> Option<JoinResult<LowerBound<T>>> {
+    fn intersection(&self, other: &Self) -> Option<IntersectionResult<LowerBound<T>>> {
         Some(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => {
                 if lhs == rhs {
-                    JoinResult::Join(LowerBound(Exact(lhs.clone())))
+                    IntersectionResult::Value(LowerBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
             (Inexact(lhs), Inexact(rhs)) => {
-                JoinResult::Join(LowerBound(Inexact(max(lhs, rhs)?.clone())))
+                IntersectionResult::Value(LowerBound(Inexact(partial_max(lhs, rhs)?.clone())))
             }
             (Inexact(lhs), Exact(rhs)) => {
                 if rhs >= lhs {
-                    JoinResult::Join(LowerBound(Exact(rhs.clone())))
+                    IntersectionResult::Value(LowerBound(Exact(rhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
             (Exact(lhs), Inexact(rhs)) => {
                 if rhs <= lhs {
-                    JoinResult::Join(LowerBound(Exact(rhs.clone())))
+                    IntersectionResult::Value(LowerBound(Exact(rhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
         })
@@ -160,8 +163,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
     /// The meet or tightest covering bound
     fn union(&self, other: &Self) -> Option<UpperBound<T>> {
         Some(UpperBound(match (&self.0, &other.0) {
-            (Exact(lhs), Exact(rhs)) => Exact(max(lhs, rhs)?.clone()),
-            (Inexact(lhs), Inexact(rhs)) => Inexact(max(lhs, rhs)?.clone()),
+            (Exact(lhs), Exact(rhs)) => Exact(partial_max(lhs, rhs)?.clone()),
+            (Inexact(lhs), Inexact(rhs)) => Inexact(partial_max(lhs, rhs)?.clone()),
             (Inexact(lhs), Exact(rhs)) => {
                 if rhs >= lhs {
                     Exact(rhs.clone())
@@ -179,33 +182,33 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
         }))
     }
 
-    fn intersection(&self, other: &Self) -> Option<JoinResult<UpperBound<T>>> {
+    fn intersection(&self, other: &Self) -> Option<IntersectionResult<UpperBound<T>>> {
         Some(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => {
                 if lhs == rhs {
-                    JoinResult::Join(UpperBound(Exact(lhs.clone())))
+                    IntersectionResult::Value(UpperBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
             (Inexact(lhs), Inexact(rhs)) => {
-                JoinResult::Join(UpperBound(Inexact(min(lhs, rhs)?.clone())))
+                IntersectionResult::Value(UpperBound(Inexact(partial_min(lhs, rhs)?.clone())))
             }
             (Inexact(lhs), Exact(rhs)) => {
                 if rhs <= lhs {
-                    JoinResult::Join(UpperBound(Exact(rhs.clone())))
+                    IntersectionResult::Value(UpperBound(Exact(rhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
             (Exact(lhs), Inexact(rhs)) => {
                 if rhs >= lhs {
-                    JoinResult::Join(UpperBound(Exact(lhs.clone())))
+                    IntersectionResult::Value(UpperBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    JoinResult::None
+                    IntersectionResult::None
                 }
             }
         })
@@ -241,30 +244,10 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
     }
 }
 
-/// Returns the minimum of two values, if they are comparable.
-#[inline]
-pub fn min<T: PartialOrd>(a: T, b: T) -> Option<T> {
-    if a.partial_cmp(&b)? == Ordering::Less {
-        Some(a)
-    } else {
-        Some(b)
-    }
-}
-
-/// Returns the maximum of two values, if they are comparable.
-#[inline]
-pub fn max<T: PartialOrd>(a: T, b: T) -> Option<T> {
-    if a.partial_cmp(&b)? == Ordering::Greater {
-        Some(a)
-    } else {
-        Some(b)
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
-    use crate::stats::bound::JoinResult;
+    use crate::stats::bound::IntersectionResult;
     use crate::stats::{Precision, StatBound, UpperBound};
 
     #[test]
@@ -312,11 +295,14 @@ mod tests {
         let ub1: UpperBound<i32> = UpperBound(Precision::exact(10i32));
         let ub2 = UpperBound(Precision::inexact(12i32));
 
-        assert_eq!(Some(JoinResult::Join(ub1.clone())), ub1.intersection(&ub2));
+        assert_eq!(
+            Some(IntersectionResult::Value(ub1.clone())),
+            ub1.intersection(&ub2)
+        );
 
         let ub1: UpperBound<i32> = UpperBound(Precision::exact(13i32));
         let ub2 = UpperBound(Precision::inexact(12i32));
 
-        assert_eq!(Some(JoinResult::None), ub1.intersection(&ub2));
+        assert_eq!(Some(IntersectionResult::None), ub1.intersection(&ub2));
     }
 }
