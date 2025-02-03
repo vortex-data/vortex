@@ -77,7 +77,8 @@ impl VortexExpr for GetItem {
     }
 
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let dtype = scope_dtype
+        let child_dtype = self.child().return_dtype(scope_dtype)?;
+        let dtype = child_dtype
             .as_struct()
             .ok_or_else(|| vortex_err!("GetItem: scope dtype is not a struct"))?;
         let idx = dtype
