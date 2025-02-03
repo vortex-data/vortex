@@ -133,14 +133,17 @@ impl Array {
         // for constructing an Array, e.g. `try_new_owned`.
         array.vtable().validate(&array)?;
 
-        #[derive(Default)]
-        struct CountVisitor {
-            nbuffers: usize,
-            nchildren: usize,
-        }
-
+        // Validate that the ArrayVisitor correctly returns the number of buffers and children
         #[cfg(debug_assertions)]
         {
+            use crate::visitor::ArrayVisitor;
+
+            #[derive(Default)]
+            struct CountVisitor {
+                nbuffers: usize,
+                nchildren: usize,
+            }
+
             impl ArrayVisitor for CountVisitor {
                 fn visit_child(&mut self, _name: &str, _array: &Array) -> VortexResult<()> {
                     self.nchildren += 1;
