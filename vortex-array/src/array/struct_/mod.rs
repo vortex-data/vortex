@@ -215,6 +215,9 @@ impl VisitorVTable<StructArray> for StructEncoding {
                 .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
+
+        visitor.visit_validity(&array.validity())?;
+
         Ok(())
     }
 }
