@@ -235,7 +235,7 @@ impl PyArray {
     /// -------
     /// :class:`~vortex.Array`
     #[staticmethod]
-    fn from_arrow<'py>(obj: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
+    fn from_arrow(obj: Bound<'_, PyAny>) -> PyResult<Bound<'_, PyArray>> {
         from_arrow::from_arrow(&obj)
     }
 
