@@ -32,8 +32,6 @@ jobs:
     strategy:
       matrix:
         benchmark:
-          - id: datafusion
-            name: DataFusion
           - id: random_access
             name: Random Access
           - id: compress

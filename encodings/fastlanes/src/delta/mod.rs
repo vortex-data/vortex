@@ -1,37 +1,37 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 pub use compress::*;
-use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.delta", ids::FL_DELTA, Delta);
+impl_encoding!(
+    "fastlanes.delta",
+    encoding_ids::FL_DELTA,
+    Delta,
+    RkyvMetadata<DeltaMetadata>
+);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
 pub struct DeltaMetadata {
     validity: ValidityMetadata,
     deltas_len: u64,
     offset: u16, // must be <1024
-}
-
-impl Display for DeltaMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 /// A FastLanes-style delta-encoded array of primitive values.
@@ -86,8 +86,8 @@ impl DeltaArray {
     }
 
     pub fn try_from_delta_compress_parts(
-        bases: ArrayData,
-        deltas: ArrayData,
+        bases: Array,
+        deltas: Array,
         validity: Validity,
     ) -> VortexResult<Self> {
         let logical_len = deltas.len();
@@ -95,8 +95,8 @@ impl DeltaArray {
     }
 
     pub fn try_new(
-        bases: ArrayData,
-        deltas: ArrayData,
+        bases: Array,
+        deltas: Array,
         validity: Validity,
         offset: usize,
         logical_len: usize,
@@ -141,7 +141,7 @@ impl DeltaArray {
         let delta = Self::try_from_parts(
             dtype,
             logical_len,
-            metadata,
+            RkyvMetadata(metadata),
             None,
             Some(children.into()),
             StatsSet::default(),
@@ -170,14 +170,14 @@ impl DeltaArray {
     }
 
     #[inline]
-    pub fn bases(&self) -> ArrayData {
+    pub fn bases(&self) -> Array {
         self.as_ref()
             .child(0, self.dtype(), self.bases_len())
             .vortex_expect("DeltaArray is missing bases child array")
     }
 
     #[inline]
-    pub fn deltas(&self) -> ArrayData {
+    pub fn deltas(&self) -> Array {
         self.as_ref()
             .child(1, self.dtype(), self.deltas_len())
             .vortex_expect("DeltaArray is missing deltas child array")
@@ -232,18 +232,22 @@ impl VariantsVTable<DeltaArray> for DeltaEncoding {
 
 impl PrimitiveArrayTrait for DeltaArray {}
 
-impl IntoCanonical for DeltaArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        delta_decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<DeltaArray> for DeltaEncoding {
+    fn into_canonical(&self, array: DeltaArray) -> VortexResult<Canonical> {
+        delta_decompress(array).map(Canonical::Primitive)
     }
 }
 
 impl ValidityVTable<DeltaArray> for DeltaEncoding {
-    fn is_valid(&self, array: &DeltaArray, index: usize) -> bool {
+    fn is_valid(&self, array: &DeltaArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DeltaArray) -> LogicalValidity {
+    fn all_valid(&self, array: &DeltaArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &DeltaArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -261,6 +265,7 @@ impl StatisticsVTable<DeltaArray> for DeltaEncoding {}
 mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
+    use vortex_array::RkyvMetadata;
 
     use crate::DeltaMetadata;
 
@@ -269,11 +274,11 @@ mod test {
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            DeltaMetadata {
+            RkyvMetadata(DeltaMetadata {
                 offset: u16::MAX,
                 validity: ValidityMetadata::AllValid,
                 deltas_len: u64::MAX,
-            },
+            }),
         );
     }
 }

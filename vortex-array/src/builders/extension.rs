@@ -7,7 +7,7 @@ use vortex_scalar::ExtScalar;
 
 use crate::array::ExtensionArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
@@ -74,7 +74,7 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_nulls(n)
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayData> {
+    fn finish(&mut self) -> VortexResult<Array> {
         let storage = self.storage.finish()?;
         Ok(ExtensionArray::new(self.ext_dtype(), storage).into_array())
     }

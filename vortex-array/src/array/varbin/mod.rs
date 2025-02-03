@@ -13,25 +13,31 @@ use vortex_scalar::Scalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen};
+use crate::vtable::ValidateVTable;
+use crate::{impl_encoding, Array, RkyvMetadata};
 
 mod accessor;
 mod array;
-mod arrow;
 pub mod builder;
 mod canonical;
 mod compute;
 mod stats;
 mod variants;
 
-impl_encoding!("vortex.varbin", ids::VAR_BIN, VarBin);
+impl_encoding!(
+    "vortex.varbin",
+    encoding_ids::VAR_BIN,
+    VarBin,
+    RkyvMetadata<VarBinMetadata>
+);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct VarBinMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) offsets_ptype: PType,
@@ -46,7 +52,7 @@ impl Display for VarBinMetadata {
 
 impl VarBinArray {
     pub fn try_new(
-        offsets: ArrayData,
+        offsets: Array,
         bytes: ByteBuffer,
         dtype: DType,
         validity: Validity,
@@ -83,7 +89,7 @@ impl VarBinArray {
         Self::try_from_parts(
             dtype,
             length,
-            metadata,
+            RkyvMetadata(metadata),
             Some([bytes].into()),
             Some(children.into()),
             StatsSet::default(),
@@ -91,7 +97,7 @@ impl VarBinArray {
     }
 
     #[inline]
-    pub fn offsets(&self) -> ArrayData {
+    pub fn offsets(&self) -> Array {
         self.as_ref()
             .child(
                 0,
@@ -149,7 +155,7 @@ impl VarBinArray {
     {
         let mut builder = VarBinBuilder::<O>::with_capacity(vec.len());
         for v in vec {
-            builder.push_value(v.as_ref());
+            builder.append_value(v.as_ref());
         }
         builder.finish(dtype)
     }
@@ -162,7 +168,7 @@ impl VarBinArray {
         let iter = iter.into_iter();
         let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
         for v in iter {
-            builder.push(v.as_ref().map(|o| o.as_ref()));
+            builder.append(v.as_ref().map(|o| o.as_ref()));
         }
         builder.finish(dtype)
     }
@@ -174,7 +180,7 @@ impl VarBinArray {
         let iter = iter.into_iter();
         let mut builder = VarBinBuilder::<u32>::with_capacity(iter.size_hint().0);
         for v in iter {
-            builder.push_value(v);
+            builder.append_value(v);
         }
         builder.finish(dtype)
     }
@@ -216,7 +222,7 @@ impl VarBinArray {
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, ByteBuffer, ArrayData, Validity) {
+    pub fn into_parts(self) -> (DType, ByteBuffer, Array, Validity) {
         (
             self.dtype().clone(),
             self.bytes(),
@@ -296,10 +302,10 @@ mod test {
     use crate::array::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
-    use crate::{ArrayData, IntoArrayData};
+    use crate::{Array, IntoArray};
 
     #[fixture]
-    fn binary_array() -> ArrayData {
+    fn binary_array() -> Array {
         let values = Buffer::copy_from("hello worldhello world this is a long string".as_bytes());
         let offsets = PrimitiveArray::from_iter([0, 11, 44]);
 
@@ -314,7 +320,7 @@ mod test {
     }
 
     #[rstest]
-    pub fn test_scalar_at(binary_array: ArrayData) {
+    pub fn test_scalar_at(binary_array: Array) {
         assert_eq!(binary_array.len(), 2);
         assert_eq!(scalar_at(&binary_array, 0).unwrap(), "hello world".into());
         assert_eq!(
@@ -324,7 +330,7 @@ mod test {
     }
 
     #[rstest]
-    pub fn slice_array(binary_array: ArrayData) {
+    pub fn slice_array(binary_array: Array) {
         let binary_arr = slice(&binary_array, 1, 2).unwrap();
         assert_eq!(
             scalar_at(&binary_arr, 0).unwrap(),

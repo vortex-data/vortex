@@ -43,6 +43,8 @@ impl PartialEq for PValue {
     }
 }
 
+impl Eq for PValue {}
+
 impl PartialOrd for PValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
@@ -275,8 +277,9 @@ impl TryFrom<PValue> for f16 {
     type Error = VortexError;
 
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        // We serialize f16 as u16.
+        // We serialize f16 as u16, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
+            PValue::U8(u) => Some(Self::from_bits(u as u16)),
             PValue::U16(u) => Some(Self::from_bits(u)),
             PValue::F16(u) => Some(u),
             PValue::F32(f) => <Self as NumCast>::from(f),

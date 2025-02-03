@@ -37,6 +37,8 @@ struct Args {
     queries: Option<Vec<usize>>,
     #[arg(long, default_value = "false")]
     emit_plan: bool,
+    #[arg(long, default_value = "false")]
+    emulate_object_store: bool,
 }
 
 fn main() {
@@ -120,7 +122,7 @@ fn main() {
     let mut all_measurements = Vec::default();
 
     for format in &formats {
-        let session_context = get_session_with_cache();
+        let session_context = get_session_with_cache(args.emulate_object_store);
         let context = session_context.clone();
         match format {
             Format::Parquet => runtime.block_on(async {

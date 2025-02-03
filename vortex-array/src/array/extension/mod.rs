@@ -1,34 +1,30 @@
-use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use enum_iterator::all;
-use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
-use crate::encoding::ids;
-use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use crate::variants::{ExtensionArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use crate::encoding::encoding_ids;
+use crate::stats::{Stat, StatsSet};
+use crate::variants::ExtensionArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
+};
+use crate::{impl_encoding, Array, Canonical, EmptyMetadata};
 
 mod compute;
 
-impl_encoding!("vortex.ext", ids::EXTENSION, Extension);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtensionMetadata;
-
-impl Display for ExtensionMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
+impl_encoding!(
+    "vortex.ext",
+    encoding_ids::EXTENSION,
+    Extension,
+    EmptyMetadata
+);
 
 impl ExtensionArray {
-    pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
+    pub fn new(ext_dtype: Arc<ExtDType>, storage: Array) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
             storage.dtype(),
@@ -38,15 +34,15 @@ impl ExtensionArray {
         Self::try_from_parts(
             DType::Extension(ext_dtype),
             storage.len(),
-            ExtensionMetadata,
+            EmptyMetadata,
             None,
             Some([storage].into()),
-            Default::default(),
+            StatsSet::default(),
         )
         .vortex_expect("Invalid ExtensionArray")
     }
 
-    pub fn storage(&self) -> ArrayData {
+    pub fn storage(&self) -> Array {
         self.as_ref()
             .child(0, self.ext_dtype().storage_dtype(), self.len())
             .vortex_expect("Missing storage array for ExtensionArray")
@@ -71,24 +67,28 @@ impl VariantsVTable<ExtensionArray> for ExtensionEncoding {
 }
 
 impl ExtensionArrayTrait for ExtensionArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         self.storage()
     }
 }
 
-impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
+impl CanonicalVTable<ExtensionArray> for ExtensionEncoding {
+    fn into_canonical(&self, array: ExtensionArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array))
     }
 }
 
 impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
-    fn is_valid(&self, array: &ExtensionArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ExtensionArray, index: usize) -> VortexResult<bool> {
         array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ExtensionArray) -> LogicalValidity {
-        array.storage().logical_validity()
+    fn all_valid(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        array.storage().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ExtensionArray) -> VortexResult<Mask> {
+        array.storage().validity_mask()
     }
 }
 
@@ -100,17 +100,7 @@ impl VisitorVTable<ExtensionArray> for ExtensionEncoding {
 
 impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
     fn compute_statistics(&self, array: &ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = array.storage().statistics().compute_all(&[stat])?;
-
-        // for e.g., min/max, we want to cast to the extension array's dtype
-        // for other stats, we don't need to change anything
-        for stat in all::<Stat>().filter(|s| s.has_same_dtype_as_array()) {
-            if let Some(value) = stats.get(stat) {
-                stats.set(stat, value.cast(array.dtype())?);
-            }
-        }
-
-        Ok(stats)
+        array.storage().statistics().compute_all(&[stat])
     }
 }
 
@@ -118,10 +108,10 @@ impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::IntoArrayData;
+    use crate::stats::Precision;
+    use crate::IntoArray;
 
     #[test]
     fn compute_statistics() {
@@ -130,7 +120,7 @@ mod tests {
             DType::from(PType::I64).into(),
             None,
         ));
-        let array = ExtensionArray::new(ext_dtype.clone(), buffer![1i64, 2, 3, 4, 5].into_array());
+        let array = ExtensionArray::new(ext_dtype, buffer![1i64, 2, 3, 4, 5].into_array());
 
         let stats = array
             .statistics()
@@ -143,14 +133,14 @@ mod tests {
             num_stats
         );
 
+        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(Precision::exact(1i64)));
         assert_eq!(
-            stats.get(Stat::Min),
-            Some(&Scalar::extension(ext_dtype.clone(), Scalar::from(1_i64)))
+            stats.get_as::<i64>(Stat::Max),
+            Some(Precision::exact(5_i64))
         );
         assert_eq!(
-            stats.get(Stat::Max),
-            Some(&Scalar::extension(ext_dtype, Scalar::from(5_i64)))
+            stats.get_as::<usize>(Stat::NullCount),
+            Some(Precision::exact(0usize))
         );
-        assert_eq!(stats.get(Stat::NullCount), Some(&0u64.into()));
     }
 }

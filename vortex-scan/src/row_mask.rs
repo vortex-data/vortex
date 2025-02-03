@@ -1,22 +1,22 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
-use std::ops::{BitAnd, RangeBounds};
+use std::ops::RangeBounds;
 
-use vortex_array::array::{BooleanBuffer, PrimitiveArray, SparseArray};
-use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::Buffer;
+use vortex_array::array::BooleanBuffer;
+use vortex_array::compute::{filter, slice, try_cast};
+use vortex_array::{Array, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 /// A RowMask captures a set of selected rows within a range.
 ///
-/// The range itself can be [`u64`], but the length of the range must fit into a [`usize`].
+/// The range itself can be [`u64`], but the length of the range must fit into a [`usize`], this
+/// allows us to use a `usize` filter mask within a much larger file.
 #[derive(Debug, Clone)]
 pub struct RowMask {
-    mask: FilterMask,
+    mask: Mask,
     begin: u64,
     end: u64,
 }
@@ -36,7 +36,8 @@ impl Display for RowMask {
 }
 
 impl RowMask {
-    pub fn new(mask: FilterMask, begin: u64) -> Self {
+    /// Define a new [`RowMask`] with the given mask and offset into the file.
+    pub fn new(mask: Mask, begin: u64) -> Self {
         let end = begin + (mask.len() as u64);
         Self { mask, begin, end }
     }
@@ -49,18 +50,18 @@ impl RowMask {
     pub fn new_valid_between(begin: u64, end: u64) -> Self {
         let length =
             usize::try_from(end - begin).vortex_expect("Range length does not fit into a usize");
-        RowMask::new(FilterMask::from(BooleanBuffer::new_set(length)), begin)
+        RowMask::new(Mask::from(BooleanBuffer::new_set(length)), begin)
     }
 
     /// Construct a RowMask which is invalid everywhere in the given range.
     pub fn new_invalid_between(begin: u64, end: u64) -> Self {
         let length =
             usize::try_from(end - begin).vortex_expect("Range length does not fit into a usize");
-        RowMask::new(FilterMask::from(BooleanBuffer::new_unset(length)), begin)
+        RowMask::new(Mask::from(BooleanBuffer::new_unset(length)), begin)
     }
 
     /// Creates a RowMask from an array, only supported boolean and integer types.
-    pub fn from_array(array: &ArrayData, begin: u64, end: u64) -> VortexResult<Self> {
+    pub fn from_array(array: &Array, begin: u64, end: u64) -> VortexResult<Self> {
         if array.dtype().is_int() {
             Self::from_index_array(array, begin, end)
         } else if array.dtype().is_boolean() {
@@ -76,33 +77,22 @@ impl RowMask {
     /// Construct a RowMask from a Boolean typed array.
     ///
     /// True-valued positions are kept by the returned mask.
-    fn from_mask_array(array: &ArrayData, begin: u64) -> VortexResult<Self> {
-        match array.logical_validity() {
-            LogicalValidity::AllValid(_) => {
-                Ok(Self::new(FilterMask::try_from(array.clone())?, begin))
-            }
-            LogicalValidity::AllInvalid(_) => {
-                Ok(Self::new_invalid_between(begin, begin + array.len() as u64))
-            }
-            LogicalValidity::Array(validity) => {
-                let bitmask = and(array.clone(), validity)?;
-                Ok(Self::new(FilterMask::try_from(bitmask)?, begin))
-            }
-        }
+    fn from_mask_array(array: &Array, begin: u64) -> VortexResult<Self> {
+        Ok(Self::new(array.validity_mask()?, begin))
     }
 
     /// Construct a RowMask from an integral array.
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
     #[allow(clippy::cast_possible_truncation)]
-    fn from_index_array(array: &ArrayData, begin: u64, end: u64) -> VortexResult<Self> {
+    fn from_index_array(array: &Array, begin: u64, end: u64) -> VortexResult<Self> {
         let length = usize::try_from(end - begin)
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 
         let indices =
             try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
-        let mask = FilterMask::from_indices(
+        let mask = Mask::from_indices(
             length,
             indices
                 .as_slice::<u64>()
@@ -118,7 +108,7 @@ impl RowMask {
     ///
     /// This function may return false negatives, but never false positives.
     ///
-    /// TODO(ngates): improve this function to take into account the [`FilterMask`].
+    /// TODO(ngates): improve this function to take into account the [`Mask`].
     pub fn is_disjoint(&self, range: impl RangeBounds<u64>) -> bool {
         use std::ops::Bound;
 
@@ -140,86 +130,20 @@ impl RowMask {
         self.end <= start || end <= self.begin
     }
 
-    /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
-    pub fn and_bitmask(&self, bitmask: ArrayData) -> VortexResult<Self> {
-        // If we are a dense all true bitmap just take the bitmask array
-        if self.mask.true_count() == self.len() {
-            if bitmask.len() != self.len() {
-                vortex_bail!(
-                    "Bitmask length {} does not match our length {}",
-                    bitmask.len(),
-                    self.mask.len()
-                );
-            }
-            Self::from_mask_array(&bitmask, self.begin)
-        } else {
-            // TODO(robert): Avoid densifying sparse values just to get true indices
-            let sparse_mask =
-                SparseArray::try_new(self.to_indices_array()?, bitmask, self.len(), false.into())?
-                    .into_array()
-                    .into_bool()?;
-            Self::from_mask_array(sparse_mask.as_ref(), self.begin())
-        }
-    }
-
-    pub fn and_rowmask(self, other: RowMask) -> VortexResult<Self> {
-        if other.true_count() == other.len() {
-            return Ok(self);
-        }
-
-        // If both masks align perfectly
-        if self.begin == other.begin && self.end == other.end {
-            return Ok(RowMask::new(self.mask.bitand(&other.mask), self.begin));
-        }
-
-        // Disjoint row ranges
-        if self.end <= other.begin || self.begin >= other.end {
-            return Ok(RowMask::new_invalid_between(
-                min(self.begin, other.begin),
-                max(self.end, other.end),
-            ));
-        }
-
-        let output_begin = min(self.begin, other.begin);
-        let output_end = max(self.end, other.end);
-        let output_len = usize::try_from(output_end - output_begin)
-            .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
-
-        let output_mask = FilterMask::from_intersection_indices(
-            output_len,
-            self.mask
-                .indices()
-                .iter()
-                .copied()
-                .map(|v| v as u64 + self.begin - output_begin)
-                .map(|v| usize::try_from(v).vortex_expect("mask index must fit into usize")),
-            other
-                .mask
-                .indices()
-                .iter()
-                .copied()
-                .map(|v| v as u64 + other.begin - output_begin)
-                .map(|v| usize::try_from(v).vortex_expect("mask index must fit into usize")),
-        );
-
-        Ok(Self::new(output_mask, output_begin))
-    }
-
-    #[inline]
-    pub fn is_all_false(&self) -> bool {
-        self.mask.true_count() == 0
-    }
-
+    /// The beginning of the masked range.
     #[inline]
     pub fn begin(&self) -> u64 {
         self.begin
     }
 
+    /// The end of the masked range.
     #[inline]
     pub fn end(&self) -> u64 {
         self.end
     }
 
+    /// The length of the mask is the number of possible rows between the `begin` and `end`,
+    /// regardless of how many appear in the mask. For the number of masked rows, see `true_count`.
     #[inline]
     // There is good definition of is_empty, does it mean len == 0 or true_count == 0?
     #[allow(clippy::len_without_is_empty)]
@@ -227,8 +151,8 @@ impl RowMask {
         self.mask.len()
     }
 
-    /// Returns the [`FilterMask`] whose true values are relative to the range of this `RowMask`.
-    pub fn filter_mask(&self) -> &FilterMask {
+    /// Returns the [`Mask`] whose true values are relative to the range of this `RowMask`.
+    pub fn filter_mask(&self) -> &Mask {
         &self.mask
     }
 
@@ -255,7 +179,7 @@ impl RowMask {
     ///
     /// This function assumes that Array is no longer than the mask length and that the mask starts on same offset as the array,
     /// i.e. the beginning of the array corresponds to the beginning of the mask with begin = 0
-    pub fn filter_array(&self, array: impl AsRef<ArrayData>) -> VortexResult<Option<ArrayData>> {
+    pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
         let true_count = self.mask.true_count();
         if true_count == 0 {
             return Ok(None);
@@ -283,18 +207,6 @@ impl RowMask {
         filter(sliced, &self.mask).map(Some)
     }
 
-    fn to_indices_array(&self) -> VortexResult<ArrayData> {
-        Ok(PrimitiveArray::new(
-            self.mask
-                .indices()
-                .iter()
-                .map(|i| *i as u64)
-                .collect::<Buffer<u64>>(),
-            Validity::NonNullable,
-        )
-        .into_array())
-    }
-
     /// Shift the [`RowMask`] down by the given offset.
     pub fn shift(self, offset: u64) -> VortexResult<RowMask> {
         let valid_shift = self.begin >= offset;
@@ -307,7 +219,7 @@ impl RowMask {
         Ok(RowMask::new(self.mask, self.begin - offset))
     }
 
-    // Get the true count of the underlying mask.
+    /// The number of masked rows within the range.
     pub fn true_count(&self) -> usize {
         self.mask.true_count()
     }
@@ -317,35 +229,35 @@ impl RowMask {
 mod tests {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::FilterMask;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::{buffer, Buffer};
     use vortex_error::VortexUnwrap;
+    use vortex_mask::Mask;
 
     use super::*;
 
     #[rstest]
     #[case(
-        RowMask::new(FilterMask::from_iter([true, true, true, false, false, false, false, false, true, true]), 0), (0, 1),
-        RowMask::new(FilterMask::from_iter([true]), 0))]
+        RowMask::new(Mask::from_iter([true, true, true, false, false, false, false, false, true, true]), 0), (0, 1),
+        RowMask::new(Mask::from_iter([true]), 0))]
     #[case(
-        RowMask::new(FilterMask::from_iter([false, false, false, false, false, true, true, true, true, true]), 0), (2, 5),
-        RowMask::new(FilterMask::from_iter([false, false, false]), 2)
+        RowMask::new(Mask::from_iter([false, false, false, false, false, true, true, true, true, true]), 0), (2, 5),
+        RowMask::new(Mask::from_iter([false, false, false]), 2)
     )]
     #[case(
-        RowMask::new(FilterMask::from_iter([true, true, true, true, false, false, false, false, false, false]), 0), (2, 5),
-        RowMask::new(FilterMask::from_iter([true, true, false]), 2)
+        RowMask::new(Mask::from_iter([true, true, true, true, false, false, false, false, false, false]), 0), (2, 5),
+        RowMask::new(Mask::from_iter([true, true, false]), 2)
     )]
     #[case(
-        RowMask::new(FilterMask::from_iter([true, true, true, false, false, true, true, false, false, false]), 0), (2, 6),
-        RowMask::new(FilterMask::from_iter([true, false, false, true]), 2))]
+        RowMask::new(Mask::from_iter([true, true, true, false, false, true, true, false, false, false]), 0), (2, 6),
+        RowMask::new(Mask::from_iter([true, false, false, true]), 2))]
     #[case(
-        RowMask::new(FilterMask::from_iter([false, false, false, false, false, true, true, true, true, true]), 0), (7, 11),
-        RowMask::new(FilterMask::from_iter([true, true, true]), 7))]
+        RowMask::new(Mask::from_iter([false, false, false, false, false, true, true, true, true, true]), 0), (7, 11),
+        RowMask::new(Mask::from_iter([true, true, true]), 7))]
     #[case(
-        RowMask::new(FilterMask::from_iter([false, true, true, true, true, true]), 3), (0, 5),
-        RowMask::new(FilterMask::from_iter([false, true]), 3))]
+        RowMask::new(Mask::from_iter([false, true, true, true, true, true]), 3), (0, 5),
+        RowMask::new(Mask::from_iter([false, true]), 3))]
     #[cfg_attr(miri, ignore)]
     fn slice(#[case] first: RowMask, #[case] range: (u64, u64), #[case] expected: RowMask) {
         assert_eq!(first.slice(range.0, range.1).vortex_unwrap(), expected);
@@ -355,7 +267,7 @@ mod tests {
     #[should_panic]
     #[cfg_attr(miri, ignore)]
     fn shift_invalid() {
-        RowMask::new(FilterMask::from_iter([true, true, true, true, true]), 5)
+        RowMask::new(Mask::from_iter([true, true, true, true, true]), 5)
             .shift(7)
             .unwrap();
     }
@@ -364,10 +276,10 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn shift() {
         assert_eq!(
-            RowMask::new(FilterMask::from_iter([true, true, true, true, true]), 5)
+            RowMask::new(Mask::from_iter([true, true, true, true, true]), 5)
                 .shift(5)
                 .unwrap(),
-            RowMask::new(FilterMask::from_iter([true, true, true, true, true]), 0)
+            RowMask::new(Mask::from_iter([true, true, true, true, true]), 0)
         );
     }
 
@@ -375,7 +287,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn filter_array() {
         let mask = RowMask::new(
-            FilterMask::from_iter([
+            Mask::from_iter([
                 false, false, false, false, false, true, true, true, true, true,
             ]),
             0,
@@ -393,71 +305,5 @@ mod tests {
     fn test_row_mask_type_validation() {
         let array = PrimitiveArray::new(buffer![1.0, 2.0], Validity::AllInvalid).into_array();
         RowMask::from_array(&array, 0, 2).unwrap();
-    }
-
-    #[test]
-    fn test_and_rowmap_disjoint() {
-        let a = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-        let b = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            15,
-            20,
-        )
-        .unwrap();
-
-        let output = a.and_rowmask(b).unwrap();
-
-        assert_eq!(output.begin, 0);
-        assert_eq!(output.end, 20);
-        assert!(output.is_all_false());
-    }
-
-    #[test]
-    fn test_and_rowmap_aligned() {
-        let a = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-        let b = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 7], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-
-        let output = a.and_rowmask(b).unwrap();
-
-        assert_eq!(output.begin, 0);
-        assert_eq!(output.end, 10);
-        assert_eq!(output.true_count(), 2);
-    }
-
-    #[test]
-    fn test_and_rowmap_intersect() {
-        let a = RowMask::from_array(
-            PrimitiveArray::new(buffer![1, 2, 3], Validity::AllValid).as_ref(),
-            0,
-            10,
-        )
-        .unwrap();
-        let b = RowMask::from_array(
-            PrimitiveArray::new(buffer!(1, 2, 7), Validity::AllValid).as_ref(),
-            5,
-            15,
-        )
-        .unwrap();
-
-        let output = a.and_rowmask(b).unwrap();
-
-        assert_eq!(output.begin, 0);
-        assert_eq!(output.end, 15);
-        assert_eq!(output.true_count(), 0);
     }
 }

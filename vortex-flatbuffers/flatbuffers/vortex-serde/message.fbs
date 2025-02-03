@@ -9,7 +9,7 @@ enum Compression: uint8 {
     None = 0,
 }
 
-/// An ArrayData describes the hierarchy of an array as well as the locations of the data buffers that appear
+/// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
 /// immediately after the message in the byte stream.
 table ArrayMessage {
     /// The array's hierarchical definition.

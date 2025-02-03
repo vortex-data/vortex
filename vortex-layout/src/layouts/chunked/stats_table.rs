@@ -4,11 +4,12 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{ArrayStatistics as _, Stat, StatsSet};
-use vortex_array::validity::{ArrayValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
@@ -19,17 +20,13 @@ pub struct StatsTable {
     // The DType of the column for which these stats are computed.
     column_dtype: DType,
     // The struct array backing the stats table
-    array: ArrayData,
+    array: Array,
     // The statistics that are included in the table.
     stats: Arc<[Stat]>,
 }
 
 impl StatsTable {
-    pub fn try_new(
-        column_dtype: DType,
-        array: ArrayData,
-        stats: Arc<[Stat]>,
-    ) -> VortexResult<Self> {
+    pub fn try_new(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
@@ -43,11 +40,9 @@ impl StatsTable {
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         DType::Struct(
-            StructDType::from_iter(
-                present_stats
-                    .iter()
-                    .map(|stat| (stat.name(), stat.dtype(column_dtype).as_nullable())),
-            ),
+            Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
+                (stat.name(), stat.dtype(column_dtype).as_nullable())
+            }))),
             Nullability::NonNullable,
         )
     }
@@ -58,7 +53,7 @@ impl StatsTable {
     }
 
     /// The struct array backing the stats table
-    pub fn array(&self) -> &ArrayData {
+    pub fn array(&self) -> &Array {
         &self.array
     }
 
@@ -80,7 +75,7 @@ impl StatsTable {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max => {
                     if let Some(s) = array.statistics().compute(*stat) {
-                        stats_set.set(*stat, s)
+                        stats_set.set(*stat, Precision::exact(s))
                     }
                 }
                 // These stats sum up
@@ -89,13 +84,15 @@ impl StatsTable {
                     let parray =
                         try_cast(array, &DType::Primitive(PType::U64, Nullability::Nullable))?
                             .into_primitive()?;
+                    let validity = parray.validity_mask()?;
+
                     let sum: u64 = parray
                         .as_slice::<u64>()
                         .iter()
                         .enumerate()
-                        .filter_map(|(i, v)| parray.validity().is_valid(i).then_some(*v))
+                        .filter_map(|(i, v)| validity.value(i).then_some(*v))
                         .sum();
-                    stats_set.set(*stat, sum);
+                    stats_set.set(*stat, Precision::exact(sum));
                 }
                 // We could implement these aggregations in the future, but for now they're unused
                 Stat::BitWidthFreq
@@ -110,7 +107,7 @@ impl StatsTable {
     }
 
     /// Return the array for a given stat.
-    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayData>> {
+    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<Array>> {
         Ok(self
             .array
             .as_struct_array()
@@ -148,10 +145,10 @@ impl StatsAccumulator {
         }
     }
 
-    pub fn push_chunk(&mut self, array: &ArrayData) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.statistics().compute(*s) {
-                builder.append_scalar(&v.cast(builder.dtype())?)?;
+                builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;
             } else {
                 builder.append_null();
             }
@@ -175,7 +172,7 @@ impl StatsAccumulator {
                 .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
 
             // We drop any all-null stats columns
-            if values.logical_validity().null_count()? == values.len() {
+            if values.null_count()? == values.len() {
                 continue;
             }
 

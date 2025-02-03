@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::future::{ready, try_join_all};
 use futures::FutureExt;
 use vortex_array::array::{ChunkedArray, ConstantArray};
-use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_scalar::Scalar;
@@ -14,16 +14,9 @@ use crate::ExprEvaluator;
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
-    async fn evaluate_expr(
-        self: &Self,
-        row_mask: RowMask,
-        expr: ExprRef,
-    ) -> VortexResult<ArrayData> {
+    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Compute the result dtype of the expression.
-        let dtype = expr
-            .evaluate(&Canonical::empty(self.dtype())?.into_array())?
-            .dtype()
-            .clone();
+        let dtype = expr.return_dtype(self.dtype())?;
 
         // First we need to compute the pruning mask
         let pruning_mask = self.pruning_mask(&expr).await?;
@@ -86,7 +79,7 @@ mod test {
 
     use futures::executor::block_on;
     use vortex_array::array::{BoolArray, ChunkedArray, ConstantArray};
-    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -97,10 +90,10 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
-    use crate::LayoutData;
+    use crate::Layout;
 
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Arc<TestSegments>, LayoutData) {
+    fn chunked_layout() -> (Arc<TestSegments>, Layout) {
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
             &DType::Primitive(PType::I32, NonNullable),

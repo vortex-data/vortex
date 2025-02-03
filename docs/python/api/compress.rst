@@ -1,0 +1,4 @@
+Compression
+===========
+
+.. autofunction:: vortex.compress

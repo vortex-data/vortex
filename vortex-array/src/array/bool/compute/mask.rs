@@ -1,12 +1,13 @@
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::compute::{FilterMask, MaskFn};
-use crate::{ArrayData, IntoArrayData};
+use crate::compute::MaskFn;
+use crate::{Array, IntoArray};
 
 impl MaskFn<BoolArray> for BoolEncoding {
-    fn mask(&self, array: &BoolArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn mask(&self, array: &BoolArray, mask: Mask) -> VortexResult<Array> {
         BoolArray::try_new(array.boolean_buffer(), array.validity().mask(&mask)?)
-            .map(IntoArrayData::into_array)
+            .map(IntoArray::into_array)
     }
 }

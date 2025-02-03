@@ -3,35 +3,33 @@ use std::cmp::Ordering;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::scalar_at;
-use vortex_array::validity::ArrayValidity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::take::take_canonical_array;
 
-pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
+pub fn sort_canonical_array(array: &Array) -> VortexResult<Array> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool().unwrap();
+            let bool_array = array.clone().into_bool()?;
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
                 .zip(
                     bool_array
-                        .logical_validity()
-                        .into_array()
-                        .into_bool()
-                        .unwrap()
-                        .boolean_buffer()
+                        .validity_mask()
+                        .vortex_expect("Failed to get logical validity")
+                        .to_boolean_buffer()
                         .iter(),
                 )
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
-            sort_opt_slice(&mut opt_values);
-            BoolArray::from_iter(opt_values).into_array()
+            opt_values.sort();
+            Ok(BoolArray::from_iter(opt_values).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive().unwrap();
+            let primitive_array = array.clone().into_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 let mut opt_values = primitive_array
                     .as_slice::<$P>()
@@ -39,26 +37,22 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                     .copied()
                     .zip(
                         primitive_array
-                            .logical_validity()
-                            .into_array()
-                            .into_bool()
-                            .unwrap()
-                            .boolean_buffer()
+                            .validity_mask()?
+                            .to_boolean_buffer()
                             .iter(),
                     )
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
-                PrimitiveArray::from_option_iter(opt_values).into_array()
+                Ok(PrimitiveArray::from_option_iter(opt_values).into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview().unwrap();
-            let mut opt_values = utf8
-                .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
-                .unwrap();
-            sort_opt_slice(&mut opt_values);
-            VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array()
+            let utf8 = array.clone().into_varbinview()?;
+            let mut opt_values =
+                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
+            opt_values.sort();
+            Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
@@ -88,17 +82,7 @@ fn sort_primitive_slice<T: NativePType>(s: &mut [Option<T>]) {
     s.sort_by(|a, b| match (a, b) {
         (Some(v), Some(w)) => v.total_compare(*w),
         (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-    });
-}
-
-/// Reverse sorting of Option<T> such that None is last (Greatest)
-fn sort_opt_slice<T: Ord>(s: &mut [Option<T>]) {
-    s.sort_by(|a, b| match (a, b) {
-        (Some(v), Some(w)) => v.cmp(w),
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
     });
 }

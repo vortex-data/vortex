@@ -19,12 +19,13 @@ use vortex::dtype::DType;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
-use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_datafusion::memory::VortexMemTableOptions;
+use vortex::{Array, IntoArray, IntoArrayVariant};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
+use crate::{
+    get_session_with_cache, idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE,
+};
 
 pub mod dbgen;
 mod execute;
@@ -40,8 +41,9 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
 pub async fn load_datasets<P: AsRef<Path>>(
     base_dir: P,
     format: Format,
+    emulate_object_store: bool,
 ) -> anyhow::Result<SessionContext> {
-    let context = SessionContext::new();
+    let context = get_session_with_cache(emulate_object_store);
     let base_dir = base_dir.as_ref();
 
     let customer = base_dir.join("customer.tbl");
@@ -61,17 +63,8 @@ pub async fn load_datasets<P: AsRef<Path>>(
                 Format::Parquet => {
                     register_parquet(&context, stringify!($name), &$name, $schema).await
                 }
-                Format::InMemoryVortex {
-                    enable_pushdown, ..
-                } => {
-                    register_vortex(
-                        &context,
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                        enable_pushdown,
-                    )
-                    .await
+                Format::InMemoryVortex => {
+                    register_vortex(&context, stringify!($name), &$name, $schema).await
                 }
                 Format::OnDiskVortex { enable_compression } => {
                     register_vortex_file(
@@ -221,11 +214,11 @@ async fn register_vortex_file(
         // Create a ChunkedArray from the set of chunks.
         let sts = record_batches
             .into_iter()
-            .map(ArrayData::try_from)
+            .map(Array::try_from)
             .map(|a| a.unwrap().into_struct().unwrap())
             .collect::<Vec<_>>();
 
-        let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();
+        let mut arrays_map: HashMap<Arc<str>, Vec<Array>> = HashMap::default();
         let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
 
         for st in sts.into_iter() {
@@ -302,7 +295,6 @@ async fn register_vortex(
     name: &str,
     file: &Path,
     schema: &Schema,
-    enable_pushdown: bool,
 ) -> anyhow::Result<()> {
     let record_batches = session
         .read_csv(
@@ -318,26 +310,22 @@ async fn register_vortex(
         .await?;
 
     // Create a ChunkedArray from the set of chunks.
-    let chunks: Vec<ArrayData> = record_batches
+    let chunks: Vec<Array> = record_batches
         .into_iter()
         .map(ArrowStructArray::from)
-        .map(|struct_array| ArrayData::from_arrow(&struct_array, false))
+        .map(|struct_array| Array::from_arrow(&struct_array, false))
         .collect();
 
     let dtype = chunks[0].dtype().clone();
     let chunked_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
 
-    session.register_mem_vortex_opts(
-        name,
-        chunked_array,
-        VortexMemTableOptions::default().with_pushdown(enable_pushdown),
-    )?;
+    session.register_mem_vortex(name, chunked_array)?;
 
     Ok(())
 }
 
 /// Load a table as an uncompressed Vortex array.
-pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> ArrayData {
+pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> Array {
     // Create a local session to load the CSV file from the path.
     let path = data_dir
         .as_ref()
@@ -361,10 +349,10 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
         .await
         .unwrap();
 
-    let chunks: Vec<ArrayData> = record_batches
+    let chunks: Vec<Array> = record_batches
         .into_iter()
         .map(ArrowStructArray::from)
-        .map(|struct_array| ArrayData::from_arrow(&struct_array, false))
+        .map(|struct_array| Array::from_arrow(&struct_array, false))
         .collect();
 
     let dtype = chunks[0].dtype().clone();

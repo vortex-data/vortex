@@ -98,13 +98,12 @@ pub mod io;
 mod open;
 pub mod read;
 pub mod segments;
-mod strategy;
 #[cfg(test)]
 mod tests;
 mod writer;
 
 pub use file::*;
-pub use footer::FileLayout;
+pub use footer::{FileLayout, Segment};
 pub use forever_constant::*;
 pub use open::*;
 pub use writer::*;

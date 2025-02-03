@@ -3,167 +3,70 @@
 //! When callers only want to make assumptions about the DType, and not about any specific
 //! encoding, they can use these traits to write encoding-agnostic code.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldName, FieldNames, PType};
-use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_panic, VortexResult};
 
-use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, ArrayTrait};
+use crate::Array;
 
-/// An Array encoding must declare which DTypes it can be downcast into.
-pub trait VariantsVTable<Array> {
-    fn as_null_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn NullArrayTrait> {
-        None
-    }
-
-    fn as_bool_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn BoolArrayTrait> {
-        None
-    }
-
-    fn as_primitive_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn PrimitiveArrayTrait> {
-        None
-    }
-
-    fn as_utf8_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn Utf8ArrayTrait> {
-        None
-    }
-
-    fn as_binary_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn BinaryArrayTrait> {
-        None
-    }
-
-    fn as_struct_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn StructArrayTrait> {
-        None
-    }
-
-    fn as_list_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn ListArrayTrait> {
-        None
-    }
-
-    fn as_extension_array<'a>(&self, _array: &'a Array) -> Option<&'a dyn ExtensionArrayTrait> {
-        None
-    }
-}
-
-impl<E: Encoding> VariantsVTable<ArrayData> for E
-where
-    E: VariantsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    fn as_null_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn NullArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_null_array(encoding, array_ref)
-    }
-
-    fn as_bool_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn BoolArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_bool_array(encoding, array_ref)
-    }
-
-    fn as_primitive_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn PrimitiveArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_primitive_array(encoding, array_ref)
-    }
-
-    fn as_utf8_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn Utf8ArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_utf8_array(encoding, array_ref)
-    }
-
-    fn as_binary_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn BinaryArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_binary_array(encoding, array_ref)
-    }
-
-    fn as_struct_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn StructArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_struct_array(encoding, array_ref)
-    }
-
-    fn as_list_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn ListArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_list_array(encoding, array_ref)
-    }
-
-    fn as_extension_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn ExtensionArrayTrait> {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        VariantsVTable::as_extension_array(encoding, array_ref)
-    }
-}
-
-/// Provide functions on type-erased ArrayData to downcast into dtype-specific array variants.
-impl ArrayData {
+/// Provide functions on type-erased Array to downcast into dtype-specific array variants.
+impl Array {
     pub fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
         matches!(self.dtype(), DType::Null)
-            .then(|| self.encoding().as_null_array(self))
+            .then(|| self.vtable().as_null_array(self))
             .flatten()
     }
 
     pub fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
         matches!(self.dtype(), DType::Bool(..))
-            .then(|| self.encoding().as_bool_array(self))
+            .then(|| self.vtable().as_bool_array(self))
             .flatten()
     }
 
     pub fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
         matches!(self.dtype(), DType::Primitive(..))
-            .then(|| self.encoding().as_primitive_array(self))
+            .then(|| self.vtable().as_primitive_array(self))
             .flatten()
     }
 
     pub fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
         matches!(self.dtype(), DType::Utf8(..))
-            .then(|| self.encoding().as_utf8_array(self))
+            .then(|| self.vtable().as_utf8_array(self))
             .flatten()
     }
 
     pub fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
         matches!(self.dtype(), DType::Binary(..))
-            .then(|| self.encoding().as_binary_array(self))
+            .then(|| self.vtable().as_binary_array(self))
             .flatten()
     }
 
     pub fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
         matches!(self.dtype(), DType::Struct(..))
-            .then(|| self.encoding().as_struct_array(self))
+            .then(|| self.vtable().as_struct_array(self))
             .flatten()
     }
 
     pub fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
         matches!(self.dtype(), DType::List(..))
-            .then(|| self.encoding().as_list_array(self))
+            .then(|| self.vtable().as_list_array(self))
             .flatten()
     }
 
     pub fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
         matches!(self.dtype(), DType::Extension(..))
-            .then(|| self.encoding().as_extension_array(self))
+            .then(|| self.vtable().as_extension_array(self))
             .flatten()
     }
 }
 
-pub trait NullArrayTrait: ArrayTrait {}
+pub trait NullArrayTrait {}
 
-pub trait BoolArrayTrait: ArrayTrait {}
+pub trait BoolArrayTrait {}
 
-pub trait PrimitiveArrayTrait: ArrayTrait {
+pub trait PrimitiveArrayTrait: Deref<Target = Array> {
     /// The logical primitive type of the array.
     ///
     /// This is a type that can safely be converted into a `NativePType` for use in
@@ -177,11 +80,11 @@ pub trait PrimitiveArrayTrait: ArrayTrait {
     }
 }
 
-pub trait Utf8ArrayTrait: ArrayTrait {}
+pub trait Utf8ArrayTrait {}
 
-pub trait BinaryArrayTrait: ArrayTrait {}
+pub trait BinaryArrayTrait {}
 
-pub trait StructArrayTrait: ArrayTrait {
+pub trait StructArrayTrait: Deref<Target = Array> {
     fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
@@ -209,10 +112,10 @@ pub trait StructArrayTrait: ArrayTrait {
     }
 
     /// Return a field's array by index, ignoring struct nullability
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData>;
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array>;
 
     /// Return a field's array by name, ignoring struct nullability
-    fn maybe_null_field_by_name(&self, name: &str) -> Option<ArrayData> {
+    fn maybe_null_field_by_name(&self, name: &str) -> Option<Array> {
         let field_idx = self
             .names()
             .iter()
@@ -221,19 +124,19 @@ pub trait StructArrayTrait: ArrayTrait {
         field_idx.and_then(|field_idx| self.maybe_null_field_by_idx(field_idx))
     }
 
-    fn maybe_null_field(&self, field: &Field) -> Option<ArrayData> {
+    fn maybe_null_field(&self, field: &Field) -> Option<Array> {
         match field {
             Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
             Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
         }
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData>;
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array>;
 }
 
-pub trait ListArrayTrait: ArrayTrait {}
+pub trait ListArrayTrait {}
 
-pub trait ExtensionArrayTrait: ArrayTrait {
+pub trait ExtensionArrayTrait: Deref<Target = Array> {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &Arc<ExtDType> {
         let DType::Extension(ext_dtype) = self.dtype() else {
@@ -242,6 +145,6 @@ pub trait ExtensionArrayTrait: ArrayTrait {
         ext_dtype
     }
 
-    /// Returns the underlying [`ArrayData`], without the [`ExtDType`].
-    fn storage_data(&self) -> ArrayData;
+    /// Returns the underlying [`Array`], without the [`ExtDType`].
+    fn storage_data(&self) -> Array;
 }

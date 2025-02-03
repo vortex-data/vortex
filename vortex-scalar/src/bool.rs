@@ -1,13 +1,24 @@
+use std::cmp::Ordering;
+
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
 
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
+}
+
+impl PartialOrd for BoolScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.dtype != other.dtype {
+            return None;
+        }
+        self.value.partial_cmp(&other.value)
+    }
 }
 
 impl<'a> BoolScalar<'a> {
@@ -20,14 +31,14 @@ impl<'a> BoolScalar<'a> {
         self.value
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        match dtype {
-            DType::Bool(_) => Ok(Scalar::bool(
-                self.value().ok_or_else(|| vortex_err!("not a bool"))?,
-                dtype.nullability(),
-            )),
-            _ => vortex_bail!("Can't cast {} to bool", dtype),
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        if !matches!(dtype, DType::Bool(..)) {
+            vortex_bail!("Can't cast bool to {}", dtype)
         }
+        Ok(Scalar::bool(
+            self.value.vortex_expect("nullness handled in Scalar::cast"),
+            dtype.nullability(),
+        ))
     }
 
     pub fn invert(self) -> BoolScalar<'a> {

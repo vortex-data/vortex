@@ -1,30 +1,31 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::variants::BoolArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
+use vortex_array::{encoding_ids, impl_encoding, Canonical, SerdeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
-impl_encoding!("vortex.bytebool", ids::BYTE_BOOL, ByteBool);
+impl_encoding!(
+    "vortex.bytebool",
+    encoding_ids::BYTE_BOOL,
+    ByteBool,
+    SerdeMetadata<ByteBoolMetadata>
+);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ByteBoolMetadata {
     validity: ValidityMetadata,
-}
-
-impl Display for ByteBoolMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl ByteBoolArray {
@@ -38,12 +39,13 @@ impl ByteBoolArray {
 
     pub fn try_new(buffer: ByteBuffer, validity: Validity) -> VortexResult<Self> {
         let length = buffer.len();
+
         Self::try_from_parts(
             DType::Bool(validity.nullability()),
             length,
-            ByteBoolMetadata {
+            SerdeMetadata(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
-            },
+            }),
             Some([buffer.into_byte_buffer()].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
@@ -99,10 +101,10 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
     }
 }
 
-impl IntoCanonical for ByteBoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let boolean_buffer = BooleanBuffer::from(self.as_slice());
-        let validity = self.validity();
+impl CanonicalVTable<ByteBoolArray> for ByteBoolEncoding {
+    fn into_canonical(&self, array: ByteBoolArray) -> VortexResult<Canonical> {
+        let boolean_buffer = BooleanBuffer::from(array.as_slice());
+        let validity = array.validity();
 
         Ok(Canonical::Bool(BoolArray::try_new(
             boolean_buffer,
@@ -112,11 +114,15 @@ impl IntoCanonical for ByteBoolArray {
 }
 
 impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
-    fn is_valid(&self, array: &ByteBoolArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ByteBoolArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ByteBoolArray) -> LogicalValidity {
+    fn all_valid(&self, array: &ByteBoolArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ByteBoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -131,7 +137,6 @@ impl VisitorVTable<ByteBoolArray> for ByteBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::validity::ArrayValidity;
 
     use super::*;
 
@@ -140,9 +145,9 @@ mod tests {
     fn test_bytebool_metadata() {
         check_metadata(
             "bytebool.metadata",
-            ByteBoolMetadata {
+            SerdeMetadata(ByteBoolMetadata {
                 validity: ValidityMetadata::AllValid,
-            },
+            }),
         );
     }
 
@@ -155,14 +160,14 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(arr.is_valid(idx));
+            assert!(arr.is_valid(idx).unwrap());
         }
 
         let v = vec![Some(true), None, Some(false)];
         let arr = ByteBoolArray::from(v);
-        assert!(arr.is_valid(0));
-        assert!(!arr.is_valid(1));
-        assert!(arr.is_valid(2));
+        assert!(arr.is_valid(0).unwrap());
+        assert!(!arr.is_valid(1).unwrap());
+        assert!(arr.is_valid(2).unwrap());
         assert_eq!(arr.len(), 3);
 
         let v: Vec<Option<bool>> = vec![None, None];
@@ -172,7 +177,7 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(!arr.is_valid(idx));
+            assert!(!arr.is_valid(idx).unwrap());
         }
         assert_eq!(arr.len(), 2);
     }

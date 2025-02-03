@@ -1,20 +1,19 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::{ArrayDType as _, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::BufferMut;
-use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 
-use crate::DateTimePartsArray;
+use crate::{timestamp, DateTimePartsArray};
 
 pub struct TemporalParts {
-    pub days: ArrayData,
-    pub seconds: ArrayData,
-    pub subseconds: ArrayData,
+    pub days: Array,
+    pub seconds: Array,
+    pub subseconds: Array,
 }
 
-/// Compress a `TemporalArray` into day, second, and subsecond components.
+/// Compress a `TemporalArray` into day, second, and subseconds components.
 ///
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
@@ -29,29 +28,22 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     )?
     .into_primitive()?;
 
-    let divisor = match array.temporal_metadata().time_unit() {
-        TimeUnit::Ns => 1_000_000_000,
-        TimeUnit::Us => 1_000_000,
-        TimeUnit::Ms => 1_000,
-        TimeUnit::S => 1,
-        TimeUnit::D => vortex_bail!(InvalidArgument: "Cannot compress day-level data"),
-    };
-
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
     let mut seconds = BufferMut::with_capacity(length);
-    let mut subsecond = BufferMut::with_capacity(length);
+    let mut subseconds = BufferMut::with_capacity(length);
 
-    for &t in timestamps.as_slice::<i64>().iter() {
-        days.push(t / (86_400 * divisor));
-        seconds.push((t % (86_400 * divisor)) / divisor);
-        subsecond.push((t % (86_400 * divisor)) % divisor);
+    for &ts in timestamps.as_slice::<i64>().iter() {
+        let ts_parts = timestamp::split(ts, array.temporal_metadata().time_unit())?;
+        days.push(ts_parts.days);
+        seconds.push(ts_parts.seconds);
+        subseconds.push(ts_parts.subseconds);
     }
 
     Ok(TemporalParts {
         days: PrimitiveArray::new(days, validity).into_array(),
         seconds: seconds.into_array(),
-        subseconds: subsecond.into_array(),
+        subseconds: subseconds.into_array(),
     })
 }
 
@@ -74,7 +66,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData as _, IntoArrayVariant as _};
+    use vortex_array::{IntoArray as _, IntoArrayVariant as _};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 

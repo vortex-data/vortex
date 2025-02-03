@@ -21,7 +21,7 @@ impl StatsEvaluator for ChunkedReader {
 
         // Otherwise, fetch the stats table
         let Some(stats_table) = self.stats_table().await? else {
-            return Ok(vec![StatsSet::empty(); field_paths.len()]);
+            return Ok(vec![StatsSet::default(); field_paths.len()]);
         };
 
         let mut stat_sets = Vec::with_capacity(field_paths.len());
@@ -30,7 +30,7 @@ impl StatsEvaluator for ChunkedReader {
                 // TODO(ngates): the stats table only stores a single array, so we can only answer
                 //  stats if the field path == root.
                 //  See <https://github.com/spiraldb/vortex/issues/1835> for more details.
-                stat_sets.push(StatsSet::empty());
+                stat_sets.push(StatsSet::default());
                 continue;
             }
             stat_sets.push(stats_table.to_stats_set(&stats)?);

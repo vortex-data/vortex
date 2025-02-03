@@ -8,15 +8,16 @@ use flatbuffers::root;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
+use moka::future::CacheBuilder;
 pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, footer2 as fb, FlatBuffer, ReadFlatBuffer};
+use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
+use vortex_layout::{Layout, LayoutContextRef, LayoutId};
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::io::file::FileIoDriver;
@@ -62,6 +63,12 @@ impl VortexOpenOptions {
             io_concurrency: 10,
             exec_concurrency: None,
         }
+    }
+
+    /// Configure a layout context.
+    pub fn with_layouts(mut self, layout_ctx: LayoutContextRef) -> Self {
+        self.layout_ctx = layout_ctx;
+        self
     }
 
     /// Configure a known file layout.
@@ -139,11 +146,12 @@ impl VortexOpenOptions {
         read: R,
     ) -> VortexResult<VortexFile<FileIoDriver<R>>> {
         // Set up our segment cache.
-        let segment_cache = self
-            .segment_cache
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(InMemorySegmentCache::default()));
+        let segment_cache = self.segment_cache.as_ref().cloned().unwrap_or_else(|| {
+            Arc::new(InMemorySegmentCache::new(
+                // For now, use a fixed 1GB overhead.
+                CacheBuilder::new(1 << 30),
+            ))
+        });
 
         // If we need to read the file layout, then do so.
         let file_layout = match self.file_layout.take() {
@@ -308,7 +316,7 @@ impl VortexOpenOptions {
 
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
-            LayoutData::new_viewed_unchecked(
+            Layout::new_viewed_unchecked(
                 root_encoding,
                 dtype,
                 bytes.clone(),

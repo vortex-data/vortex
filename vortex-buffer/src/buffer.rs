@@ -1,6 +1,8 @@
 use std::any::type_name;
+use std::cmp::Ordering;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
@@ -10,12 +12,38 @@ use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Clone)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> PartialEq for Buffer<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl<T> Eq for Buffer<T> {}
+
+impl<T> Ord for Buffer<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.bytes.cmp(&other.bytes)
+    }
+}
+
+impl<T> PartialOrd for Buffer<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.bytes.cmp(&other.bytes))
+    }
+}
+
+impl<T> Hash for Buffer<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.bytes.as_ref().hash(state)
+    }
 }
 
 impl<T> Buffer<T> {
@@ -99,8 +127,8 @@ impl<T> Buffer<T> {
         }
         if bytes.as_ptr().align_offset(*alignment) != 0 {
             vortex_panic!(
-                "Bytes alignment must align to the scalar type's alignment {}",
-                Alignment::of::<T>()
+                "Bytes alignment must align to the requested alignment {}",
+                alignment,
             );
         }
         if bytes.len() % size_of::<T>() != 0 {
@@ -234,8 +262,59 @@ impl<T> Buffer<T> {
         }
     }
 
+    /// Returns a slice of self that is equivalent to the given subset.
+    ///
+    /// When processing the buffer you will often end up with &\[T\] that is a subset
+    /// of the underlying buffer. This function turns the slice into a slice of the buffer
+    /// it has been taken from.
+    ///
+    /// # Panics:
+    /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    #[inline(always)]
+    pub fn slice_ref(&self, subset: &[T]) -> Self {
+        self.slice_ref_with_alignment(subset, Alignment::of::<T>())
+    }
+
+    /// Returns a slice of self that is equivalent to the given subset.
+    ///
+    /// When processing the buffer you will often end up with &\[T\] that is a subset
+    /// of the underlying buffer. This function turns the slice into a slice of the buffer
+    /// it has been taken from.
+    ///
+    /// # Panics:
+    /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    /// Also requires that the given alignment aligns to the type of slice and is smaller or equal to the buffers alignment
+    pub fn slice_ref_with_alignment(&self, subset: &[T], alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("slice_ref alignment must at least align to type T")
+        }
+
+        if !self.alignment.is_aligned_to(alignment) {
+            vortex_panic!("slice_ref subset alignment must at least align to the buffer alignment")
+        }
+
+        if subset.as_ptr().align_offset(*alignment) != 0 {
+            vortex_panic!("slice_ref subset must be aligned to {:?}", alignment);
+        }
+
+        let subset_u8 =
+            unsafe { std::slice::from_raw_parts(subset.as_ptr().cast(), size_of_val(subset)) };
+
+        Self {
+            bytes: self.bytes.slice_ref(subset_u8),
+            length: subset.len(),
+            alignment,
+            _marker: Default::default(),
+        }
+    }
+
     /// Returns the underlying aligned buffer.
     pub fn into_inner(self) -> Bytes {
+        debug_assert_eq!(
+            self.length * size_of::<T>(),
+            self.bytes.len(),
+            "Own length has to be the same as the underlying bytes length"
+        );
         self.bytes
     }
 
@@ -289,6 +368,16 @@ impl<T> Buffer<T> {
                 )
             }
             Self::copy_from_aligned(self, alignment)
+        }
+    }
+
+    /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
+    pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self.alignment = alignment;
+            self
+        } else {
+            vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
         }
     }
 }

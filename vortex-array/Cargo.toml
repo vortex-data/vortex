@@ -46,21 +46,27 @@ num_enum = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
+rkyv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }
 vortex-datetime-dtype = { workspace = true }
-vortex-dtype = { workspace = true, features = ["serde"] }
-vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }
-vortex-flatbuffers = { workspace = true, features = ["array"] }
-vortex-scalar = { workspace = true, features = [
+vortex-dtype = { workspace = true, features = ["rkyv", "serde"] }
+vortex-error = { workspace = true, features = [
     "flatbuffers",
-    "serde",
-    "arbitrary",
+    "flexbuffers",
+    "rancor",
 ] }
+vortex-flatbuffers = { workspace = true, features = ["array"] }
+vortex-mask = { workspace = true }
+vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
 
 [features]
-arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
+arbitrary = [
+    "dep:arbitrary",
+    "vortex-dtype/arbitrary",
+    "vortex-scalar/arbitrary",
+]
 test-harness = ["dep:goldenfile"]
 canonical_counter = []
 
@@ -71,7 +77,7 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 criterion = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { workspace = true, features = ["test-harness"] }
+vortex-array = { path = ".", features = ["test-harness"] }
 
 [[bench]]
 name = "search_sorted"

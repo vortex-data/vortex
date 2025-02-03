@@ -4,11 +4,11 @@ use arrow_schema::{DataType, Schema};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::array::StructArray;
-use crate::arrow::FromArrowArray;
+use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
-impl TryFrom<RecordBatch> for ArrayData {
+impl TryFrom<RecordBatch> for Array {
     type Error = VortexError;
 
     fn try_from(value: RecordBatch) -> VortexResult<Self> {
@@ -23,7 +23,7 @@ impl TryFrom<RecordBatch> for ArrayData {
                 .columns()
                 .iter()
                 .zip(value.schema().fields())
-                .map(|(array, field)| ArrayData::from_arrow(array.clone(), field.is_nullable()))
+                .map(|(array, field)| Array::from_arrow(array.clone(), field.is_nullable()))
                 .collect(),
             value.num_rows(),
             Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType
@@ -32,10 +32,10 @@ impl TryFrom<RecordBatch> for ArrayData {
     }
 }
 
-impl TryFrom<ArrayData> for RecordBatch {
+impl TryFrom<Array> for RecordBatch {
     type Error = VortexError;
 
-    fn try_from(value: ArrayData) -> VortexResult<Self> {
+    fn try_from(value: Array) -> VortexResult<Self> {
         let struct_arr = value.into_struct().map_err(|err| {
             vortex_err!("RecordBatch can only be constructed from a Vortex StructArray: {err}")
         })?;
@@ -46,13 +46,13 @@ impl TryFrom<ArrayData> for RecordBatch {
 
 impl StructArray {
     pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
-        let array_ref = self.into_array().into_arrow()?;
+        let array_ref = self.into_array().into_arrow_preferred()?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 
     pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.fields.clone());
-        let array_ref = self.into_array().into_arrow_with_data_type(&data_type)?;
+        let array_ref = self.into_array().into_arrow(&data_type)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

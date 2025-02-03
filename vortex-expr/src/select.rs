@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -125,7 +125,7 @@ impl VortexExpr for Select {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()
@@ -162,8 +162,10 @@ impl PartialEq for Select {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_array::array::StructArray;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Field, FieldName, Nullability};
 
@@ -201,11 +203,13 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], ident());
         let expected_dtype = DType::Struct(
-            dtype
-                .as_struct()
-                .unwrap()
-                .project(&[Field::from("a")])
-                .unwrap(),
+            Arc::new(
+                dtype
+                    .as_struct()
+                    .unwrap()
+                    .project(&[Field::from("a")])
+                    .unwrap(),
+            ),
             Nullability::NonNullable,
         );
         assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
@@ -231,11 +235,13 @@ mod tests {
         assert_eq!(
             select_expr_exclude.return_dtype(&dtype).unwrap(),
             DType::Struct(
-                dtype
-                    .as_struct()
-                    .unwrap()
-                    .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
-                    .unwrap(),
+                Arc::new(
+                    dtype
+                        .as_struct()
+                        .unwrap()
+                        .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
+                        .unwrap()
+                ),
                 Nullability::NonNullable
             )
         );

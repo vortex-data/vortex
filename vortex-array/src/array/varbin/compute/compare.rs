@@ -1,25 +1,26 @@
 use arrow_array::{BinaryArray, StringArray};
 use arrow_ord::cmp;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{Array, IntoArray};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {
     fn compare(
         &self,
         lhs: &VarBinArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
-            let lhs = unsafe { Datum::try_new(lhs.clone().into_array())? };
+
+            let lhs = Datum::try_new(lhs.clone().into_array())?;
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
@@ -40,13 +41,14 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             };
 
             let array = match operator {
-                Operator::Eq => cmp::eq(&lhs, arrow_rhs)?,
-                Operator::NotEq => cmp::neq(&lhs, arrow_rhs)?,
-                Operator::Gt => cmp::gt(&lhs, arrow_rhs)?,
-                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs)?,
-                Operator::Lt => cmp::lt(&lhs, arrow_rhs)?,
-                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs)?,
-            };
+                Operator::Eq => cmp::eq(&lhs, arrow_rhs),
+                Operator::NotEq => cmp::neq(&lhs, arrow_rhs),
+                Operator::Gt => cmp::gt(&lhs, arrow_rhs),
+                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
+                Operator::Lt => cmp::lt(&lhs, arrow_rhs),
+                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
+            }
+            .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
         } else {

@@ -1,3 +1,9 @@
+//! The `vortex-scan` crate provides utilities for performing efficient scan operations.
+//!
+//! The [`Scanner`] object is responsible for storing state related to a scan operation, including
+//! expression selectivity metrics, in order to continually optimize the execution plan for each
+//! row-range of the scan.
+#![deny(missing_docs)]
 mod range_scan;
 mod row_mask;
 
@@ -5,7 +11,6 @@ use std::sync::Arc;
 
 pub use range_scan::*;
 pub use row_mask::*;
-use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::forms::cnf::cnf;
@@ -42,10 +47,7 @@ impl Scanner {
 
         // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
         //  Where FieldMask ~= Vec<FieldPath>
-        let result_dtype = projection
-            .evaluate(&Canonical::empty(&dtype)?.into_array())?
-            .dtype()
-            .clone();
+        let result_dtype = projection.return_dtype(&dtype)?;
 
         let conjuncts: Box<[ExprRef]> = if let Some(filter) = filter {
             let conjuncts = cnf(filter)?;

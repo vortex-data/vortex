@@ -1,6 +1,6 @@
 [package]
 name = "vortex-mask"
-description = "Vortex Mask - sorted, unique, positive integers"
+description = "Vortex Mask - sorted, unique, non-negative integers"
 version.workspace = true
 homepage.workspace = true
 repository.workspace = true
@@ -15,6 +15,7 @@ categories.workspace = true
 
 [dependencies]
 arrow-buffer = { workspace = true }
+itertools = { workspace = true }
 vortex-error = { workspace = true }
 
 [lints]

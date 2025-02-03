@@ -1,23 +1,31 @@
+mod to_arrow;
+
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::compute::{scalar_at, slice, ComputeVTable, FilterMask, MaskFn, ScalarAtFn, SliceFn};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::compute::{scalar_at, slice, MaskFn, ScalarAtFn, SliceFn, ToArrowFn};
+use crate::vtable::ComputeVTable;
+use crate::{Array, IntoArray};
 
 impl ComputeVTable for ListEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
         Some(self)
     }
 }
@@ -36,7 +44,7 @@ impl ScalarAtFn<ListArray> for ListEncoding {
 }
 
 impl SliceFn<ListArray> for ListEncoding {
-    fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(ListArray::try_new(
             array.elements(),
             slice(array.offsets(), start, stop + 1)?,
@@ -47,13 +55,13 @@ impl SliceFn<ListArray> for ListEncoding {
 }
 
 impl MaskFn<ListArray> for ListEncoding {
-    fn mask(&self, array: &ListArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn mask(&self, array: &ListArray, mask: Mask) -> VortexResult<Array> {
         ListArray::try_new(
             array.elements(),
             array.offsets(),
             array.validity().mask(&mask)?,
         )
-        .map(IntoArrayData::into_array)
+        .map(IntoArray::into_array)
     }
 }
 
@@ -62,7 +70,7 @@ mod test {
     use crate::array::{ListArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
-    use crate::IntoArrayData as _;
+    use crate::IntoArray as _;
 
     #[test]
     fn test_mask_list() {

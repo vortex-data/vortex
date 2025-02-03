@@ -6,50 +6,60 @@ use std::ops::{BitAnd, Not};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
-};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::{AllOr, Mask, MaskValues};
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::{filter, scalar_at, slice, take, FilterMask};
-use crate::encoding::Encoding;
+use crate::compute::{filter, scalar_at, slice, take};
 use crate::patches::Patches;
-use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
-pub trait ValidityVTable<Array> {
-    // TODO(ngates): can we implement this based on logical validity? Or is that too expensive?
-    fn is_valid(&self, array: &Array, index: usize) -> bool;
-    fn logical_validity(&self, array: &Array) -> LogicalValidity;
-}
-
-impl<E: Encoding> ValidityVTable<ArrayData> for E
-where
-    E: ValidityVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    fn is_valid(&self, array: &ArrayData, index: usize) -> bool {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-
-        ValidityVTable::is_valid(encoding, array_ref, index)
+impl Array {
+    /// Return whether the element at the given index is valid (true) or null (false).
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(true);
+        }
+        self.vtable().is_valid(self, index)
     }
 
-    fn logical_validity(&self, array: &ArrayData) -> LogicalValidity {
-        let (array_ref, encoding) = array
-            .try_downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        ValidityVTable::logical_validity(encoding, array_ref)
+    /// Return whether all elements in the array are valid.
+    pub fn all_valid(&self) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(true);
+        }
+        self.vtable().all_valid(self)
+    }
+
+    /// Return the number of null elements in the array.
+    pub fn null_count(&self) -> VortexResult<usize> {
+        if !self.dtype().is_nullable() {
+            return Ok(0);
+        }
+        self.vtable().invalid_count(self)
+    }
+
+    /// Return the canonical validity of the array as a [`Mask`].
+    pub fn validity_mask(&self) -> VortexResult<Mask> {
+        self.vtable().validity_mask(self)
     }
 }
 
-pub trait ArrayValidity {
-    fn is_valid(&self, index: usize) -> bool;
-    fn logical_validity(&self) -> LogicalValidity;
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[rkyv(as = ValidityMetadata)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(u8)]
 pub enum ValidityMetadata {
     NonNullable,
     AllValid,
@@ -66,7 +76,7 @@ impl Display for ValidityMetadata {
 impl ValidityMetadata {
     pub fn to_validity<F>(&self, array_fn: F) -> Validity
     where
-        F: FnOnce() -> ArrayData,
+        F: FnOnce() -> Array,
     {
         match self {
             Self::NonNullable => Validity::NonNullable,
@@ -87,7 +97,7 @@ pub enum Validity {
     /// All items are null
     AllInvalid,
     /// Specified items are null
-    Array(ArrayData),
+    Array(Array),
 }
 
 impl Validity {
@@ -136,7 +146,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
-    pub fn into_array(self) -> Option<ArrayData> {
+    pub fn into_array(self) -> Option<Array> {
         match self {
             Self::Array(a) => Some(a),
             _ => None,
@@ -144,7 +154,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns a reference to the array array, otherwise returns `None`.
-    pub fn as_array(&self) -> Option<&ArrayData> {
+    pub fn as_array(&self) -> Option<&Array> {
         match self {
             Self::Array(a) => Some(a),
             _ => None,
@@ -158,27 +168,35 @@ impl Validity {
         }
     }
 
+    pub fn all_valid(&self) -> VortexResult<bool> {
+        Ok(match self {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(array) => {
+                array.clone().into_bool()?.boolean_buffer().count_set_bits() == array.len()
+            }
+        })
+    }
+
     /// Returns whether the `index` item is valid.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> bool {
-        match self {
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
-            Self::Array(a) => scalar_at(a, index)
-                .and_then(|s| bool::try_from(&s))
-                .unwrap_or_else(|err| {
-                    vortex_panic!(
-                        err,
-                        "Failed to get bool from Validity Array at index {}",
-                        index
-                    )
-                }),
-        }
+            Self::Array(a) => {
+                let scalar = scalar_at(a, index)?;
+                scalar
+                    .as_bool()
+                    .value()
+                    .vortex_expect("Validity must be non-nullable")
+            }
+        })
     }
 
     #[inline]
-    pub fn is_null(&self, index: usize) -> bool {
-        !self.is_valid(index)
+    pub fn is_null(&self, index: usize) -> VortexResult<bool> {
+        Ok(!self.is_valid(index)?)
     }
 
     pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Self> {
@@ -188,7 +206,7 @@ impl Validity {
         }
     }
 
-    pub fn take(&self, indices: &ArrayData) -> VortexResult<Self> {
+    pub fn take(&self, indices: &Array) -> VortexResult<Self> {
         match self {
             Self::NonNullable => Ok(Self::NonNullable),
             Self::AllValid => Ok(Self::AllValid),
@@ -205,13 +223,13 @@ impl Validity {
     /// buffer.
     ///
     /// Failure to do so may result in UB.
-    pub unsafe fn take_unchecked(&self, indices: &ArrayData) -> VortexResult<Self> {
+    pub unsafe fn take_unchecked(&self, indices: &Array) -> VortexResult<Self> {
         match self {
             Self::NonNullable => Ok(Self::NonNullable),
             Self::AllValid => Ok(Self::AllValid),
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(a) => {
-                let taken = if let Some(take_fn) = a.encoding().take_fn() {
+                let taken = if let Some(take_fn) = a.vtable().take_fn() {
                     unsafe { take_fn.take_unchecked(a, indices) }
                 } else {
                     take(a, indices)
@@ -225,7 +243,7 @@ impl Validity {
     /// Keep only the entries for which the mask is true.
     ///
     /// The result has length equal to the number of true values in mask.
-    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Self> {
+    pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
         //  if we happen to be NonNullable, AllValid, or AllInvalid.
         match self {
@@ -239,41 +257,30 @@ impl Validity {
     /// Set to false any entries for which the mask is true.
     ///
     /// The result is always nullable. The result has the same length as self.
-    pub fn mask(self, mask: &FilterMask) -> VortexResult<Self> {
-        Ok(match self {
-            Validity::NonNullable | Validity::AllValid => {
-                Validity::Array(BoolArray::from(mask.boolean_buffer().not()).into_array())
-            }
-            Validity::AllInvalid => Validity::AllInvalid,
-            Validity::Array(is_valid) => {
-                let bools = BoolArray::try_from(is_valid)?.boolean_buffer();
-                let is_valid_in_mask = mask.boolean_buffer().not();
-                Validity::from(bools.bitand(&is_valid_in_mask))
-            }
-        })
+    pub fn mask(&self, mask: &Mask) -> VortexResult<Self> {
+        match mask.boolean_buffer() {
+            AllOr::All => Ok(Validity::AllInvalid),
+            AllOr::None => Ok(self.clone()),
+            AllOr::Some(make_invalid) => Ok(match self {
+                Validity::NonNullable | Validity::AllValid => {
+                    Validity::Array(BoolArray::from(make_invalid.not()).into_array())
+                }
+                Validity::AllInvalid => Validity::AllInvalid,
+                Validity::Array(is_valid) => {
+                    let bools = BoolArray::try_from(is_valid.clone())?.boolean_buffer();
+                    let keep_valid = make_invalid.not();
+                    Validity::from(bools.bitand(&keep_valid))
+                }
+            }),
+        }
     }
 
-    pub fn to_logical(&self, length: usize) -> LogicalValidity {
-        match self {
-            Self::NonNullable => LogicalValidity::AllValid(length),
-            Self::AllValid => LogicalValidity::AllValid(length),
-            Self::AllInvalid => LogicalValidity::AllInvalid(length),
-            Self::Array(a) => {
-                // Logical validity should map into AllValid/AllInvalid where possible.
-                if a.statistics().compute_min::<bool>().unwrap_or(false) {
-                    LogicalValidity::AllValid(length)
-                } else if a
-                    .statistics()
-                    .compute_max::<bool>()
-                    .map(|m| !m)
-                    .unwrap_or(false)
-                {
-                    LogicalValidity::AllInvalid(length)
-                } else {
-                    LogicalValidity::Array(a.clone())
-                }
-            }
-        }
+    pub fn to_logical(&self, length: usize) -> VortexResult<Mask> {
+        Ok(match self {
+            Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
+            Self::AllInvalid => Mask::AllFalse(length),
+            Self::Array(a) => Mask::try_from(a.clone())?,
+        })
     }
 
     /// Logically & two Validity values of the same length
@@ -307,7 +314,7 @@ impl Validity {
         Ok(validity)
     }
 
-    pub fn patch(self, len: usize, indices: &ArrayData, patches: Validity) -> VortexResult<Self> {
+    pub fn patch(self, len: usize, indices: &Array, patches: Validity) -> VortexResult<Self> {
         match (&self, &patches) {
             (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
@@ -343,7 +350,10 @@ impl Validity {
 
         let patches = Patches::new(len, indices.clone(), patch_values.into_array());
 
-        Self::from_array(source.patch(patches)?.into_array(), own_nullability)
+        Ok(Self::from_array(
+            source.patch(patches)?.into_array(),
+            own_nullability,
+        ))
     }
 
     /// Convert into a nullable variant
@@ -387,8 +397,14 @@ impl Validity {
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
     ///     as that is always nonnullable
-    pub fn from_array(value: ArrayData, nullability: Nullability) -> VortexResult<Self> {
-        LogicalValidity::try_from(value).map(|a| a.into_validity(nullability))
+    pub fn from_array(value: Array, nullability: Nullability) -> Self {
+        if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
+            vortex_panic!("Expected a non-nullable boolean array")
+        }
+        match nullability {
+            Nullability::NonNullable => Self::NonNullable,
+            Nullability::Nullable => Self::Array(value),
+        }
     }
 }
 
@@ -434,16 +450,16 @@ impl From<NullBuffer> for Validity {
     }
 }
 
-impl FromIterator<LogicalValidity> for Validity {
-    fn from_iter<T: IntoIterator<Item = LogicalValidity>>(iter: T) -> Self {
-        let validities: Vec<LogicalValidity> = iter.into_iter().collect();
+impl FromIterator<Mask> for Validity {
+    fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
+        let validities: Vec<Mask> = iter.into_iter().collect();
 
         // If they're all valid, then return a single validity.
-        if validities.iter().all(|v| v.all_valid()) {
+        if validities.iter().all(|v| v.all_true()) {
             return Self::AllValid;
         }
         // If they're all invalid, then return a single invalidity.
-        if validities.iter().all(|v| v.all_invalid()) {
+        if validities.iter().all(|v| v.all_false()) {
             return Self::AllInvalid;
         }
 
@@ -451,14 +467,10 @@ impl FromIterator<LogicalValidity> for Validity {
         let mut buffer = BooleanBufferBuilder::new(validities.iter().map(|v| v.len()).sum());
         for validity in validities {
             match validity {
-                LogicalValidity::AllValid(count) => buffer.append_n(count, true),
-                LogicalValidity::AllInvalid(count) => buffer.append_n(count, false),
-                LogicalValidity::Array(array) => {
-                    let array_buffer = array
-                        .into_bool()
-                        .vortex_expect("Failed to get Validity Array as BoolArray")
-                        .boolean_buffer();
-                    buffer.append_buffer(&array_buffer);
+                Mask::AllTrue(count) => buffer.append_n(count, true),
+                Mask::AllFalse(count) => buffer.append_n(count, false),
+                Mask::Values(values) => {
+                    buffer.append_buffer(values.boolean_buffer());
                 }
             };
         }
@@ -482,112 +494,36 @@ impl From<Nullability> for Validity {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum LogicalValidity {
-    AllValid(usize),
-    AllInvalid(usize),
-    Array(ArrayData),
-}
-
-impl LogicalValidity {
-    pub fn try_new_from_array(array: ArrayData) -> VortexResult<Self> {
-        if !matches!(array.dtype(), &Validity::DTYPE) {
-            vortex_bail!("Expected a non-nullable boolean array");
-        }
-
-        let true_count = array.statistics().compute_true_count().ok_or_else(|| {
-            vortex_err!(
-                "Failed to compute true count from validity array {:#?}",
-                array
-            )
-        })?;
-        if true_count == array.len() {
-            return Ok(Self::AllValid(array.len()));
-        } else if true_count == 0 {
-            return Ok(Self::AllInvalid(array.len()));
-        }
-
-        Ok(Self::Array(array))
-    }
-
-    pub fn to_null_buffer(&self) -> VortexResult<Option<NullBuffer>> {
-        match self {
-            Self::AllValid(_) => Ok(None),
-            Self::AllInvalid(l) => Ok(Some(NullBuffer::new_null(*l))),
-            Self::Array(a) => Ok(Some(NullBuffer::new(
-                a.clone().into_bool()?.boolean_buffer(),
-            ))),
-        }
-    }
-
-    pub fn all_valid(&self) -> bool {
-        matches!(self, Self::AllValid(_))
-    }
-
-    pub fn all_invalid(&self) -> bool {
-        matches!(self, Self::AllInvalid(_))
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            Self::AllValid(n) => *n,
-            Self::AllInvalid(n) => *n,
-            Self::Array(a) => a.len(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Self::AllValid(n) => *n == 0,
-            Self::AllInvalid(n) => *n == 0,
-            Self::Array(a) => a.is_empty(),
-        }
-    }
-
-    pub fn into_validity(self, nullability: Nullability) -> Validity {
+impl Validity {
+    pub fn from_mask(mask: Mask, nullability: Nullability) -> Self {
         assert!(
-            nullability == Nullability::Nullable || matches!(self, Self::AllValid(_)),
+            nullability == Nullability::Nullable || matches!(mask, Mask::AllTrue(_)),
             "NonNullable validity must be AllValid",
         );
-        match self {
-            Self::AllValid(_) => match nullability {
+        match mask {
+            Mask::AllTrue(_) => match nullability {
                 Nullability::NonNullable => Validity::NonNullable,
                 Nullability::Nullable => Validity::AllValid,
             },
-            Self::AllInvalid(_) => Validity::AllInvalid,
-            Self::Array(a) => Validity::Array(a),
-        }
-    }
-
-    pub fn null_count(&self) -> VortexResult<usize> {
-        match self {
-            Self::AllValid(_) => Ok(0),
-            Self::AllInvalid(len) => Ok(*len),
-            Self::Array(a) => {
-                let true_count = a.statistics().compute_true_count().ok_or_else(|| {
-                    vortex_err!("Failed to compute true count from validity array")
-                })?;
-                Ok(a.len() - true_count)
-            }
+            Mask::AllFalse(_) => Validity::AllInvalid,
+            Mask::Values(values) => Validity::Array(values.into_array()),
         }
     }
 }
 
-impl TryFrom<ArrayData> for LogicalValidity {
-    type Error = VortexError;
-
-    fn try_from(array: ArrayData) -> VortexResult<Self> {
-        Self::try_new_from_array(array)
+impl IntoArray for Mask {
+    fn into_array(self) -> Array {
+        match self {
+            Self::AllTrue(len) => ConstantArray::new(true, len).into_array(),
+            Self::AllFalse(len) => ConstantArray::new(false, len).into_array(),
+            Self::Values(a) => a.into_array(),
+        }
     }
 }
 
-impl IntoArrayData for LogicalValidity {
-    fn into_array(self) -> ArrayData {
-        match self {
-            Self::AllValid(len) => ConstantArray::new(true, len).into_array(),
-            Self::AllInvalid(len) => ConstantArray::new(false, len).into_array(),
-            Self::Array(a) => a,
-        }
+impl IntoArray for &MaskValues {
+    fn into_array(self) -> Array {
+        BoolArray::new(self.boolean_buffer().clone(), Nullability::NonNullable).into_array()
     }
 }
 
@@ -596,10 +532,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::Nullability;
+    use vortex_mask::Mask;
 
     use crate::array::{BoolArray, PrimitiveArray};
-    use crate::validity::{LogicalValidity, Validity};
-    use crate::IntoArrayData;
+    use crate::validity::Validity;
+    use crate::IntoArray;
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
@@ -641,13 +578,12 @@ mod tests {
     #[test]
     #[should_panic]
     fn into_validity_nullable() {
-        LogicalValidity::AllInvalid(10).into_validity(Nullability::NonNullable);
+        Validity::from_mask(Mask::AllFalse(10), Nullability::NonNullable);
     }
 
     #[test]
     #[should_panic]
     fn into_validity_nullable_array() {
-        LogicalValidity::Array(BoolArray::from_iter(vec![true, false]).into_array())
-            .into_validity(Nullability::NonNullable);
+        Validity::from_mask(Mask::from_iter(vec![true, false]), Nullability::NonNullable);
     }
 }

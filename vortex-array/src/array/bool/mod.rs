@@ -1,30 +1,47 @@
 use std::fmt::{Debug, Display};
 
 use arrow_array::BooleanArray;
-use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use serde::{Deserialize, Serialize};
+use arrow_buffer::MutableBuffer;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{BoolArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+use crate::validity::{Validity, ValidityMetadata};
+use crate::variants::BoolArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{CanonicalVTable, ValidateVTable};
+use crate::{impl_encoding, Canonical, IntoArray, RkyvMetadata};
 
 pub mod compute;
 mod patch;
 mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
-pub use arrow_buffer::BooleanBuffer;
+pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use vortex_mask::Mask;
 
-impl_encoding!("vortex.bool", ids::BOOL, Bool);
+use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+impl_encoding!(
+    "vortex.bool",
+    encoding_ids::BOOL,
+    Bool,
+    RkyvMetadata<BoolMetadata>
+);
+
+#[derive(
+    Clone,
+    Debug,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::bytecheck::CheckBytes,
+)]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[repr(C)]
 pub struct BoolMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) first_byte_bit_offset: u8,
@@ -120,10 +137,10 @@ impl BoolArray {
         Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
-            BoolMetadata {
+            RkyvMetadata(BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
-            },
+            }),
             Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
             validity.into_array().map(|v| [v].into()),
             StatsSet::default(),
@@ -152,6 +169,7 @@ impl ValidateVTable<BoolArray> for BoolEncoding {
                 array.as_ref().nbuffers()
             );
         }
+
         Ok(())
     }
 }
@@ -187,18 +205,22 @@ impl FromIterator<Option<bool>> for BoolArray {
     }
 }
 
-impl IntoCanonical for BoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(self))
+impl CanonicalVTable<BoolArray> for BoolEncoding {
+    fn into_canonical(&self, array: BoolArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Bool(array))
     }
 }
 
 impl ValidityVTable<BoolArray> for BoolEncoding {
-    fn is_valid(&self, array: &BoolArray, index: usize) -> bool {
+    fn is_valid(&self, array: &BoolArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BoolArray) -> LogicalValidity {
+    fn all_valid(&self, array: &BoolArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &BoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -221,7 +243,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn bool_array() {

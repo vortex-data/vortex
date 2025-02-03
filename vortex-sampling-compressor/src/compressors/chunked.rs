@@ -4,8 +4,7 @@ use std::sync::Arc;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use super::EncoderMetadata;
@@ -38,13 +37,13 @@ impl EncodingCompressor for ChunkedCompressor {
         constants::CHUNKED_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(ChunkedEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
@@ -52,7 +51,7 @@ impl EncodingCompressor for ChunkedCompressor {
         self.compress_chunked(&chunked_array, like, ctx)
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
+    fn used_encodings(&self) -> HashSet<EncodingId> {
         HashSet::from([])
     }
 }

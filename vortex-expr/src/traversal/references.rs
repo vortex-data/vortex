@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use crate::traversal::{NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Select};
 
+#[derive(Default)]
 pub struct ReferenceCollector {
     fields: HashSet<FieldName>,
 }

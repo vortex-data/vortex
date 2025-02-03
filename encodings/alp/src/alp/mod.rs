@@ -35,7 +35,7 @@ mod private {
 }
 
 pub trait ALPFloat: private::Sealed + Float + Display + 'static {
-    type ALPInt: PrimInt + Display + ToPrimitive;
+    type ALPInt: PrimInt + Display + ToPrimitive + Copy;
 
     const FRACTIONAL_BITS: u8;
     const MAX_EXPONENT: u8;
@@ -146,13 +146,25 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     }
 
     #[inline]
-    fn encode_single(value: Self, exponents: Exponents) -> Result<Self::ALPInt, Self> {
+    fn encode_single(value: Self, exponents: Exponents) -> Option<Self::ALPInt> {
         let encoded = unsafe { Self::encode_single_unchecked(value, exponents) };
         let decoded = Self::decode_single(encoded, exponents);
         if decoded == value {
-            return Ok(encoded);
+            return Some(encoded);
         }
-        Err(value)
+        None
+    }
+
+    fn encode_above(value: Self, exponents: Exponents) -> Self::ALPInt {
+        (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
+            .ceil()
+            .as_int()
+    }
+
+    fn encode_below(value: Self, exponents: Exponents) -> Self::ALPInt {
+        (value * Self::F10[exponents.e as usize] * Self::IF10[exponents.f as usize])
+            .floor()
+            .as_int()
     }
 
     fn decode(encoded: &[Self::ALPInt], exponents: Exponents) -> Vec<Self> {

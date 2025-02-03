@@ -1,37 +1,38 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
-use vortex_array::encoding::ids;
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::stats::StatsSet;
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
+};
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, SerdeMetadata};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar};
 
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.for", ids::FL_FOR, FoR);
+impl_encoding!(
+    "fastlanes.for",
+    encoding_ids::FL_FOR,
+    FoR,
+    SerdeMetadata<FoRMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(C)]
 pub struct FoRMetadata {
     reference: PValue,
-    shift: u8,
-}
-
-impl Display for FoRMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl FoRArray {
-    pub fn try_new(child: ArrayData, reference: Scalar, shift: u8) -> VortexResult<Self> {
+    pub fn try_new(encoded: Array, reference: Scalar) -> VortexResult<Self> {
         if reference.is_null() {
             vortex_bail!("Reference value cannot be null");
         }
@@ -39,7 +40,7 @@ impl FoRArray {
         let reference = reference.cast(
             &reference
                 .dtype()
-                .with_nullability(child.dtype().nullability()),
+                .with_nullability(encoded.dtype().nullability()),
         )?;
 
         let dtype = reference.dtype().clone();
@@ -52,16 +53,16 @@ impl FoRArray {
 
         Self::try_from_parts(
             dtype,
-            child.len(),
-            FoRMetadata { reference, shift },
+            encoded.len(),
+            SerdeMetadata(FoRMetadata { reference }),
             None,
-            Some([child].into()),
+            Some([encoded].into()),
             StatsSet::default(),
         )
     }
 
     #[inline]
-    pub fn encoded(&self) -> ArrayData {
+    pub fn encoded(&self) -> Array {
         let dtype = if self.ptype().is_signed_int() {
             &DType::Primitive(self.ptype().to_unsigned(), self.dtype().nullability())
         } else {
@@ -80,26 +81,25 @@ impl FoRArray {
             self.dtype().nullability(),
         )
     }
-
-    #[inline]
-    pub fn shift(&self) -> u8 {
-        self.metadata().shift
-    }
 }
 
 impl ValidityVTable<FoRArray> for FoREncoding {
-    fn is_valid(&self, array: &FoRArray, index: usize) -> bool {
+    fn is_valid(&self, array: &FoRArray, index: usize) -> VortexResult<bool> {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FoRArray) -> LogicalValidity {
-        array.encoded().logical_validity()
+    fn all_valid(&self, array: &FoRArray) -> VortexResult<bool> {
+        array.encoded().all_valid()
+    }
+
+    fn validity_mask(&self, array: &FoRArray) -> VortexResult<Mask> {
+        array.encoded().validity_mask()
     }
 }
 
-impl IntoCanonical for FoRArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<FoRArray> for FoREncoding {
+    fn into_canonical(&self, array: FoRArray) -> VortexResult<Canonical> {
+        decompress(array).map(Canonical::Primitive)
     }
 }
 
@@ -124,6 +124,7 @@ impl PrimitiveArrayTrait for FoRArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
     use vortex_scalar::PValue;
 
     use crate::FoRMetadata;
@@ -133,10 +134,9 @@ mod test {
     fn test_for_metadata() {
         check_metadata(
             "for.metadata",
-            FoRMetadata {
+            SerdeMetadata(FoRMetadata {
                 reference: PValue::I64(i64::MAX),
-                shift: u8::MAX,
-            },
+            }),
         );
     }
 }

@@ -1,37 +1,45 @@
+mod to_arrow;
+
 use std::ops::Deref;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::BinaryView;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{CastFn, ComputeVTable, FilterMask, MaskFn, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{CastFn, MaskFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::vtable::ComputeVTable;
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+        Some(self)
+    }
+
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
 }
@@ -43,12 +51,12 @@ impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
 }
 
 impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
-    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<Array> {
         let views = array.views().slice(start..stop);
 
         Ok(VarBinViewArray::try_new(
             views,
-            (0..array.metadata().buffer_lens.len())
+            (0..array.nbuffers())
                 .map(|i| array.buffer(i))
                 .collect::<Vec<_>>(),
             array.dtype().clone(),
@@ -60,7 +68,7 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
-    fn take(&self, array: &VarBinViewArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<Array> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
         let indices = indices.clone().into_primitive()?;
@@ -81,8 +89,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     unsafe fn take_unchecked(
         &self,
         array: &VarBinViewArray,
-        indices: &ArrayData,
-    ) -> VortexResult<ArrayData> {
+        indices: &Array,
+    ) -> VortexResult<Array> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
         let indices = indices.clone().into_primitive()?;
@@ -124,7 +132,7 @@ fn take_views_unchecked<I: AsPrimitive<usize>>(
 }
 
 impl CastFn<VarBinViewArray> for VarBinViewEncoding {
-    fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayData> {
+    fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<Array> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         }
@@ -137,19 +145,19 @@ impl CastFn<VarBinViewArray> for VarBinViewEncoding {
             array.dtype().with_nullability(new_nullability),
             validity,
         )
-        .map(IntoArrayData::into_array)
+        .map(IntoArray::into_array)
     }
 }
 
 impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
-    fn mask(&self, array: &VarBinViewArray, mask: FilterMask) -> VortexResult<ArrayData> {
+    fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<Array> {
         VarBinViewArray::try_new(
             array.views(),
             array.buffers().collect(),
             array.dtype().as_nullable(),
             array.validity().mask(&mask)?,
         )
-        .map(IntoArrayData::into_array)
+        .map(IntoArray::into_array)
     }
 }
 
@@ -161,7 +169,7 @@ mod tests {
     use crate::array::VarBinViewArray;
     use crate::compute::take;
     use crate::compute::test_harness::test_mask;
-    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn take_nullable() {

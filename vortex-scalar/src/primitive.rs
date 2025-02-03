@@ -1,22 +1,34 @@
 use std::any::type_name;
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
+use std::ops::Sub;
 
-use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, NumCast};
+use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+    VortexUnwrap,
 };
 
 use crate::pvalue::PValue;
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
     ptype: PType,
     pvalue: Option<PValue>,
+}
+
+/// Ord is not implemented since it's undefined for different nullability
+impl PartialOrd for PrimitiveScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+        self.pvalue.partial_cmp(&other.pvalue)
+    }
 }
 
 impl<'a> PrimitiveScalar<'a> {
@@ -67,17 +79,19 @@ impl<'a> PrimitiveScalar<'a> {
         self.pvalue.map(|pv| pv.as_primitive::<T>().vortex_unwrap())
     }
 
-    pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let ptype = PType::try_from(dtype)?;
-        match_each_native_ptype!(ptype, |$Q| {
-            match_each_native_ptype!(self.ptype(), |$T| {
-                Ok(Scalar::primitive::<$Q>(
-                    <$Q as NumCast>::from(self.typed_value::<$T>().expect("Invalid value"))
-                        .ok_or_else(|| vortex_err!("Can't cast {} scalar {} to {}", self.ptype, self.typed_value::<$T>().expect("Invalid value"), dtype))?,
-                    dtype.nullability(),
-                ))
-            })
-        })
+        let pvalue = self
+            .pvalue
+            .vortex_expect("nullness handled in Scalar::cast");
+        Ok(match_each_native_ptype!(ptype, |$Q| {
+            Scalar::primitive(
+                pvalue
+                    .as_primitive::<$Q>()
+                    .map_err(|err| vortex_err!("Can't cast {} scalar {} to {} (cause: {})", self.ptype, pvalue, dtype, err))?,
+                dtype.nullability()
+            )
+        }))
     }
 
     /// Attempt to extract the primitive value as the given type.
@@ -166,7 +180,7 @@ impl<'a> TryFrom<&'a Scalar> for PrimitiveScalar<'a> {
     }
 }
 
-impl std::ops::Sub for PrimitiveScalar<'_> {
+impl Sub for PrimitiveScalar<'_> {
     type Output = VortexResult<Self>;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -213,13 +227,6 @@ impl Scalar {
                 .map(|x| ScalarValue(InnerScalarValue::Primitive(x)))
                 .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
         )
-    }
-
-    pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(T::zero().into())),
-        }
     }
 }
 
@@ -431,8 +438,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
-    use crate::value::InnerScalarValue;
-    use crate::{PValue, PrimitiveScalar, ScalarValue};
+    use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
 
     #[test]
     fn test_integer_subtract() {

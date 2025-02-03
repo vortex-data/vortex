@@ -14,7 +14,7 @@ use crate::ALIGNMENT;
 
 /// A message decoded from an IPC stream.
 ///
-/// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayData`] without
+/// Note that the `Array` variant cannot fully decode into an [`vortex_array::Array`] without
 /// a [`vortex_array::ContextRef`] and a [`DType`]. As such, we partially decode into an
 /// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
@@ -224,14 +224,14 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::array::ConstantArray;
-    use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::{EncoderMessage, MessageEncoder};
 
-    fn write_and_read(expected: ArrayData) {
+    fn write_and_read(expected: Array) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
         for buf in encoder.encode(EncoderMessage::Array(&expected)) {
@@ -263,12 +263,9 @@ mod test {
 
     #[test]
     fn array_no_buffers() {
-        // Constant arrays have no buffers
+        // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20).into_array();
-        assert!(
-            array.byte_buffer(0).is_none(),
-            "Array should have no buffers"
-        );
+        assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
         write_and_read(array);
     }
 }

@@ -1,27 +1,35 @@
 use std::fmt::{Debug, Display};
 
-use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
+};
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 mod compress;
 mod compute;
 
-impl_encoding!("fastlanes.bitpacked", ids::FL_BITPACKED, BitPacked);
+impl_encoding!(
+    "fastlanes.bitpacked",
+    encoding_ids::FL_BITPACKED,
+    BitPacked,
+    RkyvMetadata<BitPackedMetadata>
+);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
 pub struct BitPackedMetadata {
     validity: ValidityMetadata,
     bit_width: u8,
@@ -146,7 +154,7 @@ impl BitPackedArray {
         Self::try_from_parts(
             dtype,
             length,
-            metadata,
+            RkyvMetadata(metadata),
             Some([packed].into()),
             Some(children.into()),
             StatsSet::default(),
@@ -227,7 +235,7 @@ impl BitPackedArray {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    pub fn encode(array: &ArrayData, bit_width: u8) -> VortexResult<Self> {
+    pub fn encode(array: &Array, bit_width: u8) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
             bitpack_encode(parray, bit_width)
         } else {
@@ -244,18 +252,22 @@ impl BitPackedArray {
     }
 }
 
-impl IntoCanonical for BitPackedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        unpack(self).map(Canonical::Primitive)
+impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
+    fn into_canonical(&self, array: BitPackedArray) -> VortexResult<Canonical> {
+        unpack(array).map(Canonical::Primitive)
     }
 }
 
 impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
-    fn is_valid(&self, array: &BitPackedArray, index: usize) -> bool {
+    fn is_valid(&self, array: &BitPackedArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BitPackedArray) -> LogicalValidity {
+    fn all_valid(&self, array: &BitPackedArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &BitPackedArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -291,7 +303,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{IntoArray, IntoArrayVariant, RkyvMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 
@@ -302,12 +314,12 @@ mod test {
     fn test_bitpacked_metadata() {
         check_metadata(
             "bitpacked.metadata",
-            BitPackedMetadata {
+            RkyvMetadata(BitPackedMetadata {
                 patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
                 validity: ValidityMetadata::AllValid,
                 offset: u16::MAX,
                 bit_width: u8::MAX,
-            },
+            }),
         );
     }
 
@@ -345,8 +357,6 @@ mod test {
         assert!(packed_with_patches.patches().is_some());
         assert_eq!(
             packed_with_patches
-                .into_canonical()
-                .unwrap()
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i32>(),

@@ -1,11 +1,12 @@
-use vortex_array::compute::{mask, FilterMask, MaskFn};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::compute::{mask, MaskFn};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl MaskFn<ALPRDArray> for ALPRDEncoding {
-    fn mask(&self, array: &ALPRDArray, filter_mask: FilterMask) -> VortexResult<ArrayData> {
+    fn mask(&self, array: &ALPRDArray, filter_mask: Mask) -> VortexResult<Array> {
         Ok(ALPRDArray::try_new(
             array.dtype().as_nullable(),
             mask(&array.left_parts(), filter_mask)?,
@@ -23,7 +24,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::test_harness::test_mask;
-    use vortex_array::IntoArrayData as _;
+    use vortex_array::IntoArray as _;
 
     use crate::{ALPRDFloat, RDEncoder};
 

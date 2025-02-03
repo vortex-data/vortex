@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::SliceFn;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 impl SliceFn<BoolArray> for BoolEncoding {
-    fn slice(&self, array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &BoolArray, start: usize, stop: usize) -> VortexResult<Array> {
         Ok(BoolArray::try_new(
             array.boolean_buffer().slice(start, stop - start),
             array.validity().slice(start, stop)?,
@@ -18,8 +18,6 @@ impl SliceFn<BoolArray> for BoolEncoding {
 mod tests {
     use super::*;
     use crate::compute::{scalar_at, slice};
-    use crate::validity::ArrayValidity;
-    use crate::ArrayLen;
 
     #[test]
     fn test_slice() {
@@ -33,7 +31,7 @@ mod tests {
         assert_eq!(s.as_bool().value(), Some(true));
 
         let s = scalar_at(sliced_arr.as_ref(), 1).unwrap();
-        assert!(!sliced_arr.is_valid(1));
+        assert!(!sliced_arr.is_valid(1).unwrap());
         assert!(s.is_null());
 
         let s = scalar_at(sliced_arr.as_ref(), 2).unwrap();

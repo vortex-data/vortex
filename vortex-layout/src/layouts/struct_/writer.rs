@@ -1,12 +1,13 @@
 use itertools::Itertools;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
-use crate::data::LayoutData;
+use crate::data::Layout;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::LayoutVTableRef;
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
@@ -46,11 +47,7 @@ impl StructLayoutWriter {
 }
 
 impl LayoutWriter for StructLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         let struct_array = chunk
             .as_struct_array()
             .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
@@ -78,13 +75,13 @@ impl LayoutWriter for StructLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {
             column_layouts.push(writer.finish(segments)?);
         }
-        Ok(LayoutData::new_owned(
-            &StructLayout,
+        Ok(Layout::new_owned(
+            LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
             self.row_count,
             None,

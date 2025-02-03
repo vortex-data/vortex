@@ -1,6 +1,6 @@
 use flatbuffers::Follow;
 use vortex_error::{vortex_err, VortexError};
-use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer};
+use vortex_flatbuffers::{footer as fb, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer};
 
 use crate::footer::segment::Segment;
 

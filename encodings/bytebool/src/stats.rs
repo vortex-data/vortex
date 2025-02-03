@@ -1,5 +1,6 @@
-use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::{ArrayLen, IntoArrayVariant};
+use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::vtable::StatisticsVTable;
+use vortex_array::IntoArrayVariant;
 use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
@@ -15,16 +16,13 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
         Ok(bools
             .statistics()
             .compute(stat)
-            .map(|value| StatsSet::of(stat, value))
+            .map(|value| StatsSet::of(stat, Precision::exact(value)))
             .unwrap_or_default())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::stats::ArrayStatistics;
-    use vortex_dtype::{DType, Nullability};
-    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -90,14 +88,8 @@ mod tests {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert_eq!(
-            bool_arr.statistics().compute(Stat::Min).unwrap(),
-            Scalar::null(DType::Bool(Nullability::Nullable))
-        );
-        assert_eq!(
-            bool_arr.statistics().compute(Stat::Max).unwrap(),
-            Scalar::null(DType::Bool(Nullability::Nullable))
-        );
+        assert!(bool_arr.statistics().compute(Stat::Min).is_none());
+        assert!(bool_arr.statistics().compute(Stat::Max).is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
     }

@@ -1,0 +1,43 @@
+include "vortex-layout/layout.fbs";
+
+// [file layout]
+/// The `FileLayout` stores the root `Layout` as well as location information for each referenced segment.
+table FileLayout {
+    root_layout: Layout;
+    segments: [Segment];
+}
+
+/// A `Segment` acts as the locator for a buffer within the file.
+struct Segment {
+    offset: uint64;
+    length: uint32;
+    alignment_exponent: uint8;
+    // These two fields are reserved for future use and act as pointers
+    // into `FileLayout::compression_schemes` and `FileLayout::encryption_schemes`
+    // respectively. They are not used in the current version of the file format.
+    _compression: uint8;
+    _encryption: uint16;
+}
+// [file layout]
+
+// [postscript]
+/// The `Postscript` is guaranteed by the file format to never exceed
+/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
+/// followed by an 8-byte `EndOfFile` struct.
+table Postscript {
+    dtype: Segment;
+    file_layout: Segment;
+}
+// [postscript]
+
+/// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
+/// using flatbuffers, but the equivalent flatbuffer definition would be:
+///
+// struct EndOfFile {
+//     version: uint16;
+//     footer_length: uint16;
+//     magic: [uint8; 4]; // "VTXF"
+// }
+
+root_type Layout;
+root_type Postscript;

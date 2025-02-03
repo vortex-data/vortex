@@ -89,7 +89,7 @@ impl TemporalMetadata {
             TemporalMetadata::Timestamp(unit, Some(tz)) => Ok(TemporalJiff::Zoned(
                 Timestamp::UNIX_EPOCH
                     .checked_add(unit.to_jiff_span(v)?)?
-                    .intz(tz)?,
+                    .in_tz(tz)?,
             )),
         }
     }

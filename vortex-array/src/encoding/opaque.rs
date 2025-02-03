@@ -1,21 +1,16 @@
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
+use std::fmt::{Debug, Formatter};
 
-use arrow_array::ArrayRef;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_mask::Mask;
 
-use crate::compute::ComputeVTable;
-use crate::encoding::{EncodingId, EncodingVTable};
-use crate::stats::StatisticsVTable;
-use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, ValidityVTable};
-use crate::variants::VariantsVTable;
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    ArrayData, ArrayMetadata, Canonical, IntoCanonicalVTable, MetadataVTable,
-    TrySerializeArrayMetadata,
+use crate::encoding::EncodingId;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    CanonicalVTable, ComputeVTable, EncodingVTable, MetadataVTable, StatisticsVTable,
+    ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
+use crate::{Array, Canonical};
 
 /// An encoding of an array that we cannot interpret.
 ///
@@ -30,7 +25,17 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct OpaqueEncoding(pub u16);
 
-impl VariantsVTable<ArrayData> for OpaqueEncoding {}
+impl VariantsVTable<Array> for OpaqueEncoding {}
+
+impl MetadataVTable<Array> for OpaqueEncoding {
+    fn validate_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<()> {
+        Ok(())
+    }
+
+    fn display_metadata(&self, _array: &Array, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OpaqueMetadata")
+    }
+}
 
 impl EncodingVTable for OpaqueEncoding {
     fn id(&self) -> EncodingId {
@@ -42,17 +47,10 @@ impl EncodingVTable for OpaqueEncoding {
     }
 }
 
-impl IntoCanonicalVTable for OpaqueEncoding {
-    fn into_canonical(&self, _array: ArrayData) -> VortexResult<Canonical> {
+impl CanonicalVTable<Array> for OpaqueEncoding {
+    fn into_canonical(&self, _array: Array) -> VortexResult<Canonical> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
-            self.0
-        )
-    }
-
-    fn into_arrow(&self, _array: ArrayData) -> VortexResult<ArrayRef> {
-        vortex_bail!(
-            "OpaqueEncoding: into_arrow cannot be called for opaque array ({})",
             self.0
         )
     }
@@ -60,62 +58,38 @@ impl IntoCanonicalVTable for OpaqueEncoding {
 
 impl ComputeVTable for OpaqueEncoding {}
 
-impl MetadataVTable for OpaqueEncoding {
-    fn load_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<Arc<dyn ArrayMetadata>> {
-        Ok(Arc::new(OpaqueMetadata))
-    }
-}
+impl StatisticsVTable<Array> for OpaqueEncoding {}
 
-impl StatisticsVTable<ArrayData> for OpaqueEncoding {}
+impl ValidateVTable<Array> for OpaqueEncoding {}
 
-impl ValidateVTable<ArrayData> for OpaqueEncoding {}
-
-impl ValidityVTable<ArrayData> for OpaqueEncoding {
-    fn is_valid(&self, _array: &ArrayData, _index: usize) -> bool {
+impl ValidityVTable<Array> for OpaqueEncoding {
+    fn is_valid(&self, _array: &Array, _index: usize) -> VortexResult<bool> {
         vortex_panic!(
             "OpaqueEncoding: is_valid cannot be called for opaque array ({})",
             self.0
         )
     }
 
-    fn logical_validity(&self, _array: &ArrayData) -> LogicalValidity {
+    fn all_valid(&self, _array: &Array) -> VortexResult<bool> {
         vortex_panic!(
-            "OpaqueEncoding: logical_validity cannot be called for opaque array ({})",
+            "OpaqueEncoding: all_valid cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+
+    fn validity_mask(&self, _array: &Array) -> VortexResult<Mask> {
+        vortex_panic!(
+            "OpaqueEncoding: validity_mask cannot be called for opaque array ({})",
             self.0
         )
     }
 }
 
-impl VisitorVTable<ArrayData> for OpaqueEncoding {
-    fn accept(&self, _array: &ArrayData, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<Array> for OpaqueEncoding {
+    fn accept(&self, _array: &Array, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
             self.0
         )
-    }
-}
-
-#[derive(Debug)]
-pub struct OpaqueMetadata;
-
-impl TrySerializeArrayMetadata for OpaqueMetadata {
-    fn try_serialize_metadata(&self) -> VortexResult<Arc<[u8]>> {
-        vortex_bail!("OpaqueMetadata cannot be serialized")
-    }
-}
-
-impl Display for OpaqueMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OpaqueMetadata")
-    }
-}
-
-impl ArrayMetadata for OpaqueMetadata {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
     }
 }

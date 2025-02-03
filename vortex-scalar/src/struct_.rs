@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -7,12 +8,39 @@ use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
 
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,
+}
+
+impl PartialEq for StructScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.dtype != other.dtype {
+            return false;
+        }
+        self.fields() == other.fields()
+    }
+}
+
+impl Eq for StructScalar<'_> {}
+
+/// Ord is not implemented since it's undefined for different DTypes
+impl PartialOrd for StructScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.dtype() != other.dtype() {
+            return None;
+        }
+        self.fields().partial_cmp(&other.fields())
+    }
+}
+
+impl Hash for StructScalar<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.hash(state);
+        self.fields().hash(state);
+    }
 }
 
 impl<'a> StructScalar<'a> {
@@ -69,12 +97,17 @@ impl<'a> StructScalar<'a> {
         st.find_name(name).and_then(|idx| self.field_by_idx(idx))
     }
 
+    /// Returns the fields of the struct scalar, or None if the scalar is null.
     pub fn fields(&self) -> Option<Vec<Scalar>> {
         let fields = self.fields?;
-
-        (0..fields.len())
-            .map(|index| self.field_by_idx(index))
-            .collect::<Option<Vec<_>>>()
+        Some(
+            (0..fields.len())
+                .map(|index| {
+                    self.field_by_idx(index)
+                        .vortex_expect("never out of bounds")
+                })
+                .collect::<Vec<_>>(),
+        )
     }
 
     pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
@@ -147,7 +180,7 @@ impl<'a> StructScalar<'a> {
             ScalarValue(InnerScalarValue::Null)
         };
         Ok(Scalar::new(
-            DType::Struct(projected_dtype, self.dtype().nullability()),
+            DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
             new_fields,
         ))
     }
@@ -190,7 +223,10 @@ mod tests {
         let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
-            StructDType::new(vec!["a".into(), "b".into()].into(), vec![f0_dt, f1_dt]),
+            Arc::new(StructDType::new(
+                vec!["a".into(), "b".into()].into(),
+                vec![f0_dt, f1_dt],
+            )),
             Nullability::Nullable,
         );
 

@@ -10,10 +10,9 @@ use vortex_array::compress::{
     CompressionStrategy,
 };
 use vortex_array::compute::slice;
-use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoCanonical};
+use vortex_array::{Array, Encoding, EncodingId, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -43,11 +42,11 @@ impl Display for SamplingCompressor<'_> {
 
 impl CompressionStrategy for SamplingCompressor<'_> {
     #[allow(clippy::same_name_method)]
-    fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData> {
+    fn compress(&self, array: &Array) -> VortexResult<Array> {
         Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
+    fn used_encodings(&self) -> HashSet<EncodingId> {
         self.compressors
             .iter()
             .flat_map(|c| c.used_encodings())
@@ -131,7 +130,7 @@ impl<'a> SamplingCompressor<'a> {
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
-        arr: &ArrayData,
+        arr: &Array,
         like: Option<&CompressionTree<'a>>,
     ) -> VortexResult<CompressedArray<'a>> {
         if arr.is_empty() {
@@ -177,7 +176,7 @@ impl<'a> SamplingCompressor<'a> {
         ))
     }
 
-    pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
+    pub(crate) fn compress_array(&self, array: &Array) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
         if array.is_encoding(ConstantEncoding::ID) {
@@ -227,7 +226,7 @@ impl<'a> SamplingCompressor<'a> {
                 "{} no compressors for array with dtype: {} and encoding: {}",
                 self,
                 array.dtype(),
-                array.encoding().id(),
+                array.encoding(),
             );
             return Ok(CompressedArray::uncompressed(array.clone()));
         }
@@ -240,7 +239,7 @@ impl<'a> SamplingCompressor<'a> {
         // TODO(ngates): we actually probably want some way to prefer dict encoding over other varbin
         //  encodings, e.g. FSST.
         if candidates.len() > 1 {
-            candidates.retain(|&compression| compression.id() != array.encoding().id().as_ref());
+            candidates.retain(|&compression| compression.id() != array.encoding().as_ref());
         }
 
         if array.len() <= (self.options.sample_size as usize * self.options.sample_count as usize) {
@@ -258,7 +257,7 @@ impl<'a> SamplingCompressor<'a> {
             )
             .into_iter()
             .map(|(start, stop)| slice(array, start, stop))
-            .collect::<VortexResult<Vec<ArrayData>>>()?,
+            .collect::<VortexResult<Vec<Array>>>()?,
             array.dtype().clone(),
         )?
         .into_canonical()?
@@ -283,7 +282,7 @@ impl<'a> SamplingCompressor<'a> {
 
 pub(crate) fn find_best_compression<'a>(
     candidates: Vec<&'a dyn EncodingCompressor>,
-    sample: &ArrayData,
+    sample: &Array,
     ctx: &SamplingCompressor<'a>,
 ) -> VortexResult<CompressedArray<'a>> {
     let mut best = None;
@@ -373,8 +372,7 @@ pub(crate) fn find_best_compression<'a>(
 mod tests {
     use vortex_alp::ALPRDEncoding;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::encoding::Encoding;
-    use vortex_array::IntoArrayData;
+    use vortex_array::{Encoding, IntoArray};
 
     use crate::SamplingCompressor;
 
@@ -387,6 +385,6 @@ mod tests {
             .compress(&array, None)
             .unwrap()
             .into_array();
-        assert_eq!(compressed.encoding().id(), ALPRDEncoding::ID);
+        assert_eq!(compressed.encoding(), ALPRDEncoding::ID);
     }
 }

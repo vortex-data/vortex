@@ -1,14 +1,26 @@
+use std::sync::Arc;
+
 use vortex_buffer::BufferString;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
 
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<BufferString>,
+}
+
+/// Ord is not implemented since it's undefined for different nullability
+impl PartialOrd for Utf8Scalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.dtype != other.dtype {
+            return None;
+        }
+        self.value.partial_cmp(&other.value)
+    }
 }
 
 impl<'a> Utf8Scalar<'a> {
@@ -21,8 +33,19 @@ impl<'a> Utf8Scalar<'a> {
         self.value.as_ref().cloned()
     }
 
-    pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
-        todo!()
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        if !matches!(dtype, DType::Utf8(..)) {
+            vortex_bail!("Can't cast utf8 to {}", dtype)
+        }
+        Ok(Scalar::new(
+            dtype.clone(),
+            ScalarValue(InnerScalarValue::BufferString(Arc::new(
+                self.value
+                    .as_ref()
+                    .vortex_expect("nullness handled in Scalar::cast")
+                    .clone(),
+            ))),
+        ))
     }
 }
 
@@ -43,7 +66,7 @@ impl Scalar {
     {
         Ok(Self {
             dtype: DType::Utf8(nullability),
-            value: ScalarValue(InnerScalarValue::BufferString(str.try_into()?)),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
         })
     }
 }
@@ -74,7 +97,9 @@ impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value.to_string().into())),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(
+                value.to_string().into(),
+            ))),
         }
     }
 }
@@ -83,13 +108,22 @@ impl From<String> for Scalar {
     fn from(value: String) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value.into())),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
         }
     }
 }
 
 impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
+        Self {
+            dtype: DType::Utf8(NonNullable),
+            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
+        }
+    }
+}
+
+impl From<Arc<BufferString>> for Scalar {
+    fn from(value: Arc<BufferString>) -> Self {
         Self {
             dtype: DType::Utf8(NonNullable),
             value: ScalarValue(InnerScalarValue::BufferString(value)),

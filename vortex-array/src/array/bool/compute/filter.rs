@@ -1,17 +1,29 @@
 use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::{Mask, MaskIter};
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::compute::{FilterFn, FilterIter, FilterMask};
-use crate::{ArrayData, IntoArrayData};
+use crate::compute::FilterFn;
+use crate::{Array, IntoArray};
+
+/// If the filter density is above 80%, we use slices to filter the array instead of indices.
+const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<BoolArray> for BoolEncoding {
-    fn filter(&self, array: &BoolArray, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<Array> {
         let validity = array.validity().filter(mask)?;
 
-        let buffer = match mask.iter() {
-            FilterIter::Indices(indices) => filter_indices_slice(&array.boolean_buffer(), indices),
-            FilterIter::Slices(slices) => filter_slices(
+        let mask_values = mask
+            .values()
+            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+
+        let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
+            MaskIter::Indices(indices) => filter_indices(
+                &array.boolean_buffer(),
+                mask.true_count(),
+                indices.iter().copied(),
+            ),
+            MaskIter::Slices(slices) => filter_slices(
                 &array.boolean_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
@@ -25,14 +37,6 @@ impl FilterFn<BoolArray> for BoolEncoding {
 /// Select indices from a boolean buffer.
 /// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to
 ///  pass the indices as an iterator of usize. So we keep this alternate implementation.
-fn filter_indices_slice(buffer: &BooleanBuffer, indices: &[usize]) -> BooleanBuffer {
-    let src = buffer.values().as_ptr();
-    let offset = buffer.offset();
-    BooleanBuffer::collect_bool(indices.len(), |idx| unsafe {
-        bit_util::get_bit_raw(src, *indices.get_unchecked(idx) + offset)
-    })
-}
-
 pub fn filter_indices(
     buffer: &BooleanBuffer,
     indices_len: usize,
@@ -67,16 +71,17 @@ pub fn filter_slices(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_mask::Mask;
 
     use crate::array::bool::compute::filter::{filter_indices, filter_slices};
     use crate::array::BoolArray;
-    use crate::compute::{filter, FilterMask};
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::compute::filter;
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from_iter([true, true, false]);
-        let mask = FilterMask::from_iter([true, false, true]);
+        let mask = Mask::from_iter([true, false, true]);
 
         let filtered = filter(&arr.into_array(), &mask)
             .unwrap()

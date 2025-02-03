@@ -9,24 +9,18 @@ inherits some of its doc strings from Rust docstrings:
 cd ../pyvortex && uv run maturin develop
 ```
 
-Build just the Python docs:
+Build the Vortex docs:
 
 ```
 uv run make html
 ```
 
-Build the Python and Rust docs and place the rust docs at `_build/rust/html`:
+## Development
+
+Live-reloading (ish) build of the docs:
 
 ```
-uv run make python-and-rust-html
-```
-
-## Viewing
-
-After building:
-
-```
-open pyvortex/_build/html/index.html
+uv run make serve
 ```
 
 ## Python Doctests

@@ -1,6 +1,6 @@
 //! Traits and utilities to compute and access array statistics.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -10,17 +10,23 @@ use enum_iterator::{cardinality, Sequence};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-pub use statsset::*;
+pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
-use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::Array;
 
+mod bound;
 pub mod flatbuffers;
-mod statsset;
+mod precision;
+mod stat_bound;
+mod stats_set;
+
+pub use bound::{LowerBound, UpperBound};
+pub use precision::Precision;
+pub use stat_bound::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
@@ -64,6 +70,86 @@ pub enum Stat {
     NullCount,
     /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes,
+}
+
+/// These structs allow the extraction of the bound from the `Precision` value.
+/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
+pub struct Max;
+pub struct Min;
+pub struct BitWidthFreq;
+pub struct TrailingZeroFreq;
+pub struct IsConstant;
+pub struct IsSorted;
+pub struct IsStrictSorted;
+pub struct RunCount;
+pub struct TrueCount;
+pub struct NullCount;
+pub struct UncompressedSizeInBytes;
+
+impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::BitWidthFreq;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrailingZeroFreq;
+}
+
+impl StatType<bool> for IsConstant {
+    type Bound = Precision<bool>;
+
+    const STAT: Stat = Stat::IsConstant;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsStrictSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for RunCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::RunCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrueCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrueCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for NullCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::NullCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::UncompressedSizeInBytes;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Max {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::Max;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
+    type Bound = LowerBound<T>;
+
+    const STAT: Stat = Stat::Min;
 }
 
 impl Stat {
@@ -167,22 +253,22 @@ impl Display for Stat {
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<Scalar>;
+    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
 
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: Scalar);
+    fn set(&self, stat: Stat, value: Precision<ScalarValue>);
 
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present.
+    /// Computes the value of the stat if it's not present and inexact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute(&self, stat: Stat) -> Option<Scalar>;
+    fn compute(&self, stat: Stat) -> Option<ScalarValue>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
@@ -190,7 +276,7 @@ pub trait Statistics {
         let mut stats_set = StatsSet::default();
         for stat in stats {
             if let Some(s) = self.compute(*stat) {
-                stats_set.set(*stat, s)
+                stats_set.set(*stat, Precision::exact(s))
             }
         }
         Ok(stats_set)
@@ -199,38 +285,34 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 }
 
-pub trait ArrayStatistics {
-    fn statistics(&self) -> &dyn Statistics;
-
-    fn inherit_statistics(&self, parent: &dyn Statistics);
-}
-
-/// Encoding VTable for computing array statistics.
-pub trait StatisticsVTable<Array: ?Sized> {
-    /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
+impl Array {
+    pub fn statistics(&self) -> &(dyn Statistics + '_) {
+        self
     }
-}
 
-impl<E: Encoding + 'static> StatisticsVTable<ArrayData> for E
-where
-    E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        StatisticsVTable::compute_statistics(encoding, array_ref, stat)
+    // FIXME(ngates): this is really slow...
+    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
+        let stats = self.statistics();
+        // The to_set call performs a slow clone of the stats
+        for (stat, scalar) in parent.to_set() {
+            stats.set(stat, scalar);
+        }
     }
 }
 
 impl dyn Statistics + '_ {
-    pub fn get_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+    /// Get the provided stat if present in the underlying array, converting the `ScalarValue` into a typed value.
+    /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the conversion fails.
+    pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<U> {
+    ) -> Option<Precision<U>> {
         self.get(stat)
-            .map(|s| U::try_from(&s))
+            .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
             .unwrap_or_else(|err| {
                 vortex_panic!(
@@ -242,24 +324,21 @@ impl dyn Statistics + '_ {
             })
     }
 
-    pub fn get_as_cast<U: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<U> {
-        self.get(stat)
-            .filter(|s| s.is_valid())
-            .map(|s| s.cast(&DType::Primitive(U::PTYPE, NonNullable)))
-            .transpose()
-            .and_then(|maybe| maybe.as_ref().map(U::try_from).transpose())
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to cast stat {} to {}", stat, U::PTYPE)
-            })
+    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
+    where
+        S: StatType<U>,
+        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    {
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
     }
 
-    /// Get or calculate the provided stat, converting the `Scalar` into a typed value.
+    /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
+    /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
+    ///
+    /// # Panics
     ///
     /// This function will panic if the conversion fails.
-    pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+    pub fn compute_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<U> {
@@ -276,31 +355,21 @@ impl dyn Statistics + '_ {
             })
     }
 
-    pub fn compute_as_cast<U: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<U> {
-        self.compute(stat)
-            .filter(|s| s.is_valid())
-            .map(|s| s.cast(&DType::Primitive(U::PTYPE, NonNullable)))
-            .transpose()
-            .and_then(|maybe| maybe.as_ref().map(U::try_from).transpose())
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to compute stat {} as cast {}", stat, U::PTYPE)
-            })
-    }
-
     /// Get or calculate the minimum value in the array, returning as a typed value.
     ///
     /// This function will panic if the conversion fails.
-    pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
+    pub fn compute_min<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+        &self,
+    ) -> Option<U> {
         self.compute_as(Stat::Min)
     }
 
     /// Get or calculate the maximum value in the array, returning as a typed value.
     ///
     /// This function will panic if the conversion fails.
-    pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
+    pub fn compute_max<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+        &self,
+    ) -> Option<U> {
         self.compute_as(Stat::Max)
     }
 
@@ -341,7 +410,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &ArrayData) -> u8 {
+pub fn trailing_zeros(array: &Array) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()
@@ -361,13 +430,13 @@ mod test {
     use enum_iterator::all;
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     #[test]
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as_cast::<i64>(Stat::Min);
+            .compute_as::<i64>(Stat::Min);
 
         assert_eq!(min, None);
     }

@@ -19,9 +19,9 @@ use futures::{ready, Stream};
 use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
-use vortex_array::arrow::FromArrowArray;
+use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
-use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
+use vortex_array::{Array, IntoArrayVariant};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};
@@ -161,7 +161,7 @@ impl Stream for RowIndicesStream {
             .conjunction_expr
             .evaluate(vortex_struct.as_ref())
             .map_err(|e| DataFusionError::External(e.into()))?
-            .into_arrow()?;
+            .into_arrow_preferred()?;
 
         // Convert the `selection` BooleanArray into a UInt64Array of indices.
         let selection_indices = selection
@@ -344,7 +344,7 @@ where
         );
 
         let row_indices =
-            ArrayData::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
+            Array::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
 
         // If no columns in the output projection, we send back a RecordBatch with empty schema.
         // This is common for COUNT queries.
@@ -366,7 +366,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded = take(projected_for_output, &row_indices)?.into_arrow()?;
+        let decoded = take(projected_for_output, &row_indices)?.into_arrow_preferred()?;
 
         // Send back a single record batch of the decoded data.
         let output_batch = RecordBatch::from(decoded.as_struct());
@@ -397,7 +397,7 @@ mod test {
     use vortex_array::array::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;

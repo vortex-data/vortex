@@ -1,37 +1,26 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
+use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
+};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayVariant, IntoCanonical,
+    encoding_ids, impl_encoding, Array, Canonical, EmptyMetadata, IntoArrayVariant,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_mask::Mask;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
 
-impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZigZagMetadata;
-
-impl Display for ZigZagMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ZigZagMetadata")
-    }
-}
+impl_encoding!("vortex.zigzag", encoding_ids::ZIGZAG, ZigZag, EmptyMetadata);
 
 impl ZigZagArray {
-    pub fn try_new(encoded: ArrayData) -> VortexResult<Self> {
+    pub fn try_new(encoded: Array) -> VortexResult<Self> {
         let encoded_dtype = encoded.dtype().clone();
         if !encoded_dtype.is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
@@ -46,20 +35,20 @@ impl ZigZagArray {
         Self::try_from_parts(
             dtype,
             len,
-            ZigZagMetadata,
+            EmptyMetadata,
             None,
             Some(children.into()),
             StatsSet::default(),
         )
     }
 
-    pub fn encode(array: &ArrayData) -> VortexResult<ZigZagArray> {
+    pub fn encode(array: &Array) -> VortexResult<ZigZagArray> {
         PrimitiveArray::try_from(array.clone())
             .map_err(|_| vortex_err!("ZigZag can only encoding primitive arrays"))
             .and_then(zigzag_encode)
     }
 
-    pub fn encoded(&self) -> ArrayData {
+    pub fn encoded(&self) -> Array {
         let ptype = PType::try_from(self.dtype()).unwrap_or_else(|err| {
             vortex_panic!(err, "Failed to convert DType {} to PType", self.dtype())
         });
@@ -84,12 +73,16 @@ impl VariantsVTable<ZigZagArray> for ZigZagEncoding {
 impl PrimitiveArrayTrait for ZigZagArray {}
 
 impl ValidityVTable<ZigZagArray> for ZigZagEncoding {
-    fn is_valid(&self, array: &ZigZagArray, index: usize) -> bool {
+    fn is_valid(&self, array: &ZigZagArray, index: usize) -> VortexResult<bool> {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ZigZagArray) -> LogicalValidity {
-        array.encoded().logical_validity()
+    fn all_valid(&self, array: &ZigZagArray) -> VortexResult<bool> {
+        array.encoded().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ZigZagArray) -> VortexResult<Mask> {
+        array.encoded().validity_mask()
     }
 }
 
@@ -106,18 +99,15 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
         // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
             if let Some(val) = array.encoded().statistics().compute(stat) {
-                stats.set(stat, val);
+                stats.set(stat, Precision::exact(val));
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
-            let encoded_max = array
-                .encoded()
-                .statistics()
-                .compute_as_cast::<u64>(Stat::Max);
+            let encoded_max = array.encoded().statistics().compute_as::<u64>(Stat::Max);
             if let Some(val) = encoded_max {
                 // the max of the encoded array is the element with the highest absolute value (so either min if negative, or max if positive)
                 let decoded = <i64 as ExternalZigZag>::decode(val);
                 let decoded_stat = if decoded < 0 { Stat::Min } else { Stat::Max };
-                stats.set(decoded_stat, Scalar::from(decoded).cast(array.dtype())?);
+                stats.set(decoded_stat, Precision::exact(decoded));
             }
         }
 
@@ -125,44 +115,56 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
     }
 }
 
-impl IntoCanonical for ZigZagArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        zigzag_decode(self.encoded().into_primitive()?).map(Canonical::Primitive)
+impl CanonicalVTable<ZigZagArray> for ZigZagEncoding {
+    fn into_canonical(&self, array: ZigZagArray) -> VortexResult<Canonical> {
+        zigzag_decode(array.encoded().into_primitive()?).map(Canonical::Primitive)
     }
 }
 
 #[cfg(test)]
 mod test {
     use vortex_array::compute::{scalar_at, slice};
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
+    use vortex_scalar::Scalar;
 
     use super::*;
-
-    #[test]
-    fn test_zigzag_metadata() {
-        check_metadata("zigzag.metadata", ZigZagMetadata);
-    }
 
     #[test]
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let zigzag = ZigZagArray::encode(&array).unwrap();
 
-        for stat in [Stat::Max, Stat::NullCount, Stat::IsConstant] {
-            let value = zigzag.statistics().compute(stat);
-            assert_eq!(value, array.statistics().compute(stat));
-        }
+        assert_eq!(
+            zigzag.statistics().compute_max::<i32>(),
+            array.statistics().compute_max::<i32>()
+        );
+        assert_eq!(
+            zigzag.statistics().compute_null_count(),
+            array.statistics().compute_null_count()
+        );
+        assert_eq!(
+            zigzag.statistics().compute_is_constant(),
+            array.statistics().compute_is_constant()
+        );
 
         let sliced = ZigZagArray::try_from(slice(zigzag, 0, 2).unwrap()).unwrap();
         assert_eq!(
             scalar_at(&sliced, sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)
         );
-        for stat in [Stat::Min, Stat::NullCount, Stat::IsConstant] {
-            let value = sliced.statistics().compute(stat);
-            assert_eq!(value, array.statistics().compute(stat));
-        }
+
+        assert_eq!(
+            sliced.statistics().compute_min::<i32>(),
+            array.statistics().compute_min::<i32>()
+        );
+        assert_eq!(
+            sliced.statistics().compute_null_count(),
+            array.statistics().compute_null_count()
+        );
+        assert_eq!(
+            sliced.statistics().compute_is_constant(),
+            array.statistics().compute_is_constant()
+        );
     }
 }

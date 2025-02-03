@@ -4,16 +4,17 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::{mask, FilterMask};
-use vortex_array::IntoArrayData as _;
+use vortex_array::compute::mask;
+use vortex_array::IntoArray as _;
 use vortex_buffer::buffer;
 use vortex_dict::DictArray;
+use vortex_mask::Mask;
 
-fn filter_mask(len: usize, fraction_masked: f64, rng: &mut StdRng) -> FilterMask {
+fn filter_mask(len: usize, fraction_masked: f64, rng: &mut StdRng) -> Mask {
     let indices = (0..len)
         .filter(|_| rng.gen_bool(fraction_masked))
         .collect::<Vec<usize>>();
-    FilterMask::from_indices(len, indices)
+    Mask::from_indices(len, indices)
 }
 
 #[allow(clippy::cast_possible_truncation)]

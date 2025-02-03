@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexExpect as _};
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::IntoArrayData;
+use crate::IntoArray;
 
 pub struct VarBinBuilder<O: NativePType> {
     offsets: BufferMut<O>,
@@ -37,15 +37,15 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     #[inline]
-    pub fn push(&mut self, value: Option<&[u8]>) {
+    pub fn append(&mut self, value: Option<&[u8]>) {
         match value {
-            Some(v) => self.push_value(v),
-            None => self.push_null(),
+            Some(v) => self.append_value(v),
+            None => self.append_null(),
         }
     }
 
     #[inline]
-    pub fn push_value(&mut self, value: impl AsRef<[u8]>) {
+    pub fn append_value(&mut self, value: impl AsRef<[u8]>) {
         let slice = value.as_ref();
         self.offsets
             .push(O::from(self.data.len() + slice.len()).unwrap_or_else(|| {
@@ -61,13 +61,19 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     #[inline]
-    pub fn push_null(&mut self) {
+    pub fn append_null(&mut self) {
         self.offsets.push(self.offsets[self.offsets.len() - 1]);
         self.validity.append_null();
     }
 
     #[inline]
-    pub fn push_values(&mut self, values: &[u8], end_offsets: impl Iterator<Item = O>, num: usize)
+    pub fn append_n_nulls(&mut self, n: usize) {
+        self.offsets.push_n(self.offsets[self.offsets.len() - 1], n);
+        self.validity.append_n_nulls(n);
+    }
+
+    #[inline]
+    pub fn append_values(&mut self, values: &[u8], end_offsets: impl Iterator<Item = O>, num: usize)
     where
         O: 'static,
         usize: AsPrimitive<O>,
@@ -102,14 +108,14 @@ mod test {
 
     use crate::array::varbin::builder::VarBinBuilder;
     use crate::compute::scalar_at;
-    use crate::{ArrayDType, IntoArrayData};
+    use crate::IntoArray;
 
     #[test]
     fn test_builder() {
         let mut builder = VarBinBuilder::<i32>::with_capacity(0);
-        builder.push(Some(b"hello"));
-        builder.push(None);
-        builder.push(Some(b"world"));
+        builder.append(Some(b"hello"));
+        builder.append(None);
+        builder.append(Some(b"world"));
         let array = builder.finish(DType::Utf8(Nullable)).into_array();
 
         assert_eq!(array.len(), 3);

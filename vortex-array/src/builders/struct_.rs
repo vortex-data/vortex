@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructDType};
@@ -8,19 +9,19 @@ use vortex_scalar::StructScalar;
 use crate::array::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
     validity: BoolBuilder,
-    struct_dtype: StructDType,
+    struct_dtype: Arc<StructDType>,
     nullability: Nullability,
     dtype: DType,
 }
 
 impl StructBuilder {
     pub fn with_capacity(
-        struct_dtype: StructDType,
+        struct_dtype: Arc<StructDType>,
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
@@ -93,9 +94,9 @@ impl ArrayBuilder for StructBuilder {
         self.validity.append_value(false);
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayData> {
+    fn finish(&mut self) -> VortexResult<Array> {
         let len = self.len();
-        let fields: Vec<ArrayData> = self
+        let fields: Vec<Array> = self
             .builders
             .iter_mut()
             .map(|builder| builder.finish())
@@ -123,14 +124,13 @@ mod tests {
 
     use crate::builders::struct_::StructBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::ArrayDType;
 
     #[test]
     fn test_struct_builder() {
-        let sdt = StructDType::new(
+        let sdt = Arc::new(StructDType::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
             vec![I32.into(), I32.into()],
-        );
+        ));
         let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
 

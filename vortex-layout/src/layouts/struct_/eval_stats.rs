@@ -21,7 +21,7 @@ impl StatsEvaluator for StructReader {
         for path in field_paths.iter() {
             if path.is_root() {
                 // We don't have any stats for a struct layout
-                futures.push(ready(Ok(vec![StatsSet::empty()])).boxed());
+                futures.push(ready(Ok(vec![StatsSet::default()])).boxed());
             } else {
                 // Otherwise, strip off the first path element and delegate to the child layout
                 let Field::Name(field) = path.path()[0]

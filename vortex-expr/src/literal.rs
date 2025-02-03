@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::array::ConstantArray;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -37,7 +37,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
 
@@ -114,13 +114,13 @@ mod tests {
         );
 
         let sdtype = DType::Struct(
-            StructDType::new(
+            Arc::new(StructDType::new(
                 Arc::from([Arc::from("dog"), Arc::from("cat")]),
                 vec![
                     DType::Primitive(PType::U32, Nullability::NonNullable),
                     DType::Utf8(Nullability::NonNullable),
                 ],
-            ),
+            )),
             Nullability::NonNullable,
         );
         assert_eq!(

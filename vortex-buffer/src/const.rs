@@ -19,6 +19,11 @@ impl<T, const A: usize> ConstBuffer<T, A> {
         Self(buf.into().aligned(Self::alignment()))
     }
 
+    /// Create a new [`ConstBuffer`] with a copy from the provided slice.
+    pub fn copy_from<B: AsRef<[T]>>(buf: B) -> Self {
+        Self(Buffer::<T>::copy_from_aligned(buf, Self::alignment()))
+    }
+
     /// Unwrap the inner buffer.
     pub fn into_inner(self) -> Buffer<T> {
         self.0

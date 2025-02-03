@@ -3,7 +3,7 @@ use std::ops::Shr;
 use num_traits::WrappingSub;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
@@ -14,9 +14,9 @@ impl CompareFn<FoRArray> for FoREncoding {
     fn compare(
         &self,
         lhs: &FoRArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
                 match_each_integer_ptype!(constant.ptype(), |$T| {
@@ -33,9 +33,9 @@ fn compare_constant<T>(
     lhs: &FoRArray,
     rhs: Option<T>,
     operator: Operator,
-) -> VortexResult<Option<ArrayData>>
+) -> VortexResult<Option<Array>>
 where
-    T: NativePType + Shr<u32, Output = T> + WrappingSub,
+    T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
@@ -52,10 +52,6 @@ where
     let rhs = rhs.map(|mut rhs| {
         if let Some(reference) = reference {
             rhs = rhs.wrapping_sub(&reference);
-        }
-        if lhs.shift() > 0 {
-            // Since compare requires that both sides are of same dtype this will always succeed and not panic
-            rhs = rhs >> (lhs.shift() as u32)
         }
         rhs
     });
@@ -77,7 +73,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoCanonical;
+    use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
 
     use super::*;
@@ -87,9 +83,8 @@ mod tests {
         let reference = Scalar::from(10);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::AllValid).into_array(),
             reference,
-            1,
         )
         .unwrap();
 
@@ -113,7 +108,6 @@ mod tests {
         let lhs = FoRArray::try_new(
             PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
             reference,
-            1,
         )
         .unwrap();
 
@@ -134,7 +128,6 @@ mod tests {
             PrimitiveArray::new(buffer![0u64, 9654309310445864926], Validity::AllValid)
                 .into_array(),
             reference,
-            0,
         )
         .unwrap();
 
@@ -149,16 +142,10 @@ mod tests {
     }
 
     fn assert_result<T: IntoIterator<Item = bool>>(
-        result: VortexResult<Option<ArrayData>>,
+        result: VortexResult<Option<Array>>,
         expected: T,
     ) {
-        let result = result
-            .unwrap()
-            .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap();
+        let result = result.unwrap().unwrap().into_bool().unwrap();
         assert_eq!(result.boolean_buffer(), BooleanBuffer::from_iter(expected));
     }
 }

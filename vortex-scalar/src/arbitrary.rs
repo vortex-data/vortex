@@ -1,4 +1,5 @@
 use std::iter;
+use std::sync::Arc;
 
 use arbitrary::{Result, Unstructured};
 use vortex_buffer::{BufferString, ByteBuffer};
@@ -18,11 +19,11 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
         DType::Primitive(p, _) => Ok(ScalarValue(InnerScalarValue::Primitive(random_pvalue(
             u, p,
         )?))),
-        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(
+        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
             BufferString::from(u.arbitrary::<String>()?),
-        ))),
-        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
-            u.arbitrary::<Vec<u8>>()?,
+        )))),
+        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
+            ByteBuffer::from(u.arbitrary::<Vec<u8>>()?),
         )))),
         DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.dtypes()

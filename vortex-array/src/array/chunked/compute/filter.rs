@@ -1,28 +1,29 @@
 use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_mask::{Mask, MaskIter};
 
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
-use crate::compute::{filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide};
+use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
-const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
+pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<ChunkedArray> for ChunkedEncoding {
-    fn filter(&self, array: &ChunkedArray, mask: &FilterMask) -> VortexResult<ArrayData> {
-        let selected = mask.true_count();
+    fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<Array> {
+        let mask_values = mask
+            .values()
+            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
 
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
-        let selectivity = selected as f64 / array.len() as f64;
-        let chunks = if selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            filter_slices(array, mask)
-        } else {
-            filter_indices(array, mask)
-        };
+        let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+            MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
+            MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
+        }?;
 
-        Ok(ChunkedArray::try_new(chunks?, array.dtype().clone())?.into_array())
+        Ok(ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array())
     }
 }
 
@@ -38,10 +39,13 @@ pub(crate) enum ChunkFilter {
 }
 
 /// Filter the chunks using slice ranges.
-fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
+fn filter_slices(
+    array: &ChunkedArray,
+    slices: impl Iterator<Item = (usize, usize)>,
+) -> VortexResult<Vec<Array>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
-    let chunk_filters = chunk_filters(array, mask)?;
+    let chunk_filters = chunk_filters(array, slices)?;
 
     // Now, apply the chunk filter to every slice.
     for (chunk, chunk_filter) in array.chunks().zip(chunk_filters.into_iter()) {
@@ -52,10 +56,7 @@ fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<Ar
             ChunkFilter::None => {}
             // Slices => turn the slices into a boolean buffer.
             ChunkFilter::Slices(slices) => {
-                result.push(filter(
-                    &chunk,
-                    &FilterMask::from_slices(chunk.len(), slices),
-                )?);
+                result.push(filter(&chunk, &Mask::from_slices(chunk.len(), slices))?);
             }
         }
     }
@@ -65,17 +66,17 @@ fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<Ar
 
 pub(crate) fn chunk_filters(
     array: &ChunkedArray,
-    mask: &FilterMask,
+    slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ChunkFilter>> {
     // Pre-materialize the chunk ends for performance.
     // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
-    let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
+    let chunk_ends = array.chunk_offsets().into_primitive()?;
     let chunk_ends = chunk_ends.as_slice::<u64>();
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
-    for (slice_start, slice_end) in mask.slices() {
-        let (start_chunk, start_idx) = find_chunk_idx(*slice_start, chunk_ends);
+    for (slice_start, slice_end) in slices {
+        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
         // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
         // want to index into the unused chunk.
         let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_ends);
@@ -125,18 +126,22 @@ pub(crate) fn chunk_filters(
 }
 
 /// Filter the chunks using indices.
-fn filter_indices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
+#[allow(deprecated)]
+fn filter_indices(
+    array: &ChunkedArray,
+    indices: impl Iterator<Item = usize>,
+) -> VortexResult<Vec<Array>> {
     let mut result = Vec::with_capacity(array.nchunks());
     let mut current_chunk_id = 0;
     let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
 
     // Avoid find_chunk_idx and use our own to avoid the overhead.
     // The array should only be some thousands of values in the general case.
-    let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
+    let chunk_ends = array.chunk_offsets().into_primitive()?;
     let chunk_ends = chunk_ends.as_slice::<u64>();
 
-    for set_index in mask.indices() {
-        let (chunk_id, index) = find_chunk_idx(*set_index, chunk_ends);
+    for set_index in indices {
+        let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
@@ -190,10 +195,11 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
 mod test {
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
+    use vortex_mask::Mask;
 
     use crate::array::{ChunkedArray, PrimitiveArray};
-    use crate::compute::{filter, FilterMask};
-    use crate::IntoArrayData;
+    use crate::compute::filter;
+    use crate::IntoArray;
 
     #[test]
     fn filter_chunked_floats() {
@@ -221,7 +227,7 @@ mod test {
         )
         .unwrap()
         .into_array();
-        let mask = FilterMask::from_iter([
+        let mask = Mask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);
         let filtered = filter(&chunked, &mask).unwrap();

@@ -56,7 +56,7 @@ pub fn project_and_deserialize(
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(DType::Struct(
-        StructDType::from_iter(struct_dtype),
+        StructDType::from_iter(struct_dtype).into(),
         nullability,
     ))
 }
