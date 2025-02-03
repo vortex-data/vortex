@@ -10,8 +10,8 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
 use crate::array::{
-    BoolEncoding, ChunkedArray, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
-    VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, ChunkedArray, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
+    StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId};
@@ -176,6 +176,7 @@ impl Array {
             || self.is_encoding(BoolEncoding.id())
             || self.is_encoding(PrimitiveEncoding.id())
             || self.is_encoding(StructEncoding.id())
+            || self.is_encoding(ListEncoding.id())
             || self.is_encoding(VarBinViewEncoding.id())
             || self.is_encoding(ExtensionEncoding.id())
     }

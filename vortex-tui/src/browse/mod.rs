@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use app::{create_file_app, AppState, KeyMode, Tab};
-use crossterm::event;
-use crossterm::event::{Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::widgets::ListState;
 use ratatui::DefaultTerminal;
 use ui::render_app;
@@ -41,51 +40,53 @@ enum HandleResult {
 fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
     if let Event::Key(key) = event {
         if key.kind == KeyEventKind::Press {
-            match key.code {
-                KeyCode::Char('q') => {
+            match (key.code, key.modifiers) {
+                (KeyCode::Char('q'), _) => {
                     // Close the process down.
                     return HandleResult::Exit;
                 }
-                KeyCode::Tab => {
+                (KeyCode::Tab, _) => {
                     // toggle between tabs
                     app.current_tab = match app.current_tab {
                         Tab::Layout => Tab::Encodings,
                         Tab::Encodings => Tab::Layout,
                     };
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                (KeyCode::Up | KeyCode::Char('k'), _)
+                | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
                     // We send the key-up to the list state if we're looking at
                     // the Layouts tab.
                     if app.current_tab == Tab::Layout {
                         app.layouts_list_state.scroll_up_by(1);
                     }
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
+                (KeyCode::Down | KeyCode::Char('j'), _)
+                | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
                     if app.current_tab == Tab::Layout {
                         app.layouts_list_state.scroll_down_by(1);
                     }
                 }
-                KeyCode::PageUp => {
+                (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                     if app.current_tab == Tab::Layout {
                         app.layouts_list_state.scroll_up_by(10);
                     }
                 }
-                KeyCode::PageDown => {
+                (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                     if app.current_tab == Tab::Layout {
                         app.layouts_list_state.scroll_down_by(10);
                     }
                 }
-                KeyCode::Home => {
+                (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
                     if app.current_tab == Tab::Layout {
                         app.layouts_list_state.select_first();
                     }
                 }
-                KeyCode::End => {
+                (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => {
                     if app.current_tab == Tab::Layout {
                         app.layouts_list_state.select_last();
                     }
                 }
-                KeyCode::Enter => {
+                (KeyCode::Enter, _) => {
                     if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
                         // Descend into the layout subtree for the selected child.
                         let selected = app.layouts_list_state.selected().unwrap_or_default();
@@ -95,7 +96,8 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                         app.layouts_list_state = ListState::default().with_selected(Some(0));
                     }
                 }
-                KeyCode::Left | KeyCode::Char('h') => {
+                (KeyCode::Left | KeyCode::Char('h'), _)
+                | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
                     if app.current_tab == Tab::Layout {
                         // Ascend back up to the Parent node
                         app.cursor = app.cursor.parent();
@@ -104,7 +106,7 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     }
                 }
 
-                KeyCode::Char('/') => {
+                (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
                     app.key_mode = KeyMode::Search;
                 }
 
@@ -119,8 +121,8 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
 
 fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
     if let Event::Key(key) = event {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) | (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
                 // Exit search mode.
                 //
                 // Kill the search bar and search filtering and return to normal input processing.
@@ -129,40 +131,40 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
             }
 
             // Use same navigation as Normal mode
-            KeyCode::Up => {
+            (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
                 // We send the key-up to the list state if we're looking at
                 // the Layouts tab.
                 if app.current_tab == Tab::Layout {
                     app.layouts_list_state.scroll_up_by(1);
                 }
             }
-            KeyCode::Down => {
+            (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
                 if app.current_tab == Tab::Layout {
                     app.layouts_list_state.scroll_down_by(1);
                 }
             }
-            KeyCode::PageUp => {
+            (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                 if app.current_tab == Tab::Layout {
                     app.layouts_list_state.scroll_up_by(10);
                 }
             }
-            KeyCode::PageDown => {
+            (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                 if app.current_tab == Tab::Layout {
                     app.layouts_list_state.scroll_down_by(10);
                 }
             }
-            KeyCode::Home => {
+            (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => {
                 if app.current_tab == Tab::Layout {
                     app.layouts_list_state.select_first();
                 }
             }
-            KeyCode::End => {
+            (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => {
                 if app.current_tab == Tab::Layout {
                     app.layouts_list_state.select_last();
                 }
             }
 
-            KeyCode::Enter => {
+            (KeyCode::Enter, _) => {
                 // Change back to normal mode.
                 //
                 // We can eliminate the search filter when we do this
@@ -181,11 +183,11 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                 }
             }
 
-            KeyCode::Backspace => {
+            (KeyCode::Backspace, _) | (KeyCode::Char('h'), KeyModifiers::CONTROL) => {
                 app.search_filter.pop();
             }
 
-            KeyCode::Char(c) => {
+            (KeyCode::Char(c), _) => {
                 // reset selection state
                 app.layouts_list_state.select_first();
                 // append to our search string

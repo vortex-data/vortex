@@ -1,0 +1,11 @@
+# Allowlist of missing stubs for stubtest
+
+# Not much point defining the exports or the modules themselves
+.*\.__all__
+vortex\._lib\.arrays
+vortex\._lib\.compress
+vortex\._lib\.dataset
+vortex\._lib\.dtype
+vortex\._lib\.expr
+vortex\._lib\.io
+vortex\._lib\.scalar

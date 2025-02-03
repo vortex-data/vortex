@@ -97,12 +97,17 @@ impl<'a> StructScalar<'a> {
         st.find_name(name).and_then(|idx| self.field_by_idx(idx))
     }
 
+    /// Returns the fields of the struct scalar, or None if the scalar is null.
     pub fn fields(&self) -> Option<Vec<Scalar>> {
         let fields = self.fields?;
-
-        (0..fields.len())
-            .map(|index| self.field_by_idx(index))
-            .collect::<Option<Vec<_>>>()
+        Some(
+            (0..fields.len())
+                .map(|index| {
+                    self.field_by_idx(index)
+                        .vortex_expect("never out of bounds")
+                })
+                .collect::<Vec<_>>(),
+        )
     }
 
     pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
