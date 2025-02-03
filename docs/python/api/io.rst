@@ -17,4 +17,4 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 
 .. automodule:: vortex.io
     :members:
-   :imported-members:
+    :imported-members:
