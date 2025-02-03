@@ -506,6 +506,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-btrblocks",
  "vortex-datafusion",
  "xshell",
 ]
@@ -5252,6 +5253,32 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-btrblocks"
+version = "0.24.0"
+dependencies = [
+ "codspeed-criterion-compat",
+ "itertools 0.14.0",
+ "log",
+ "num-traits",
+ "rand",
+ "rustc-hash",
+ "vortex-alp",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dict",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-fsst",
+ "vortex-mask",
+ "vortex-runend",
+ "vortex-sampling-compressor",
+ "vortex-scalar",
+ "vortex-sparse",
+ "vortex-zigzag",
 ]
 
 [[package]]
