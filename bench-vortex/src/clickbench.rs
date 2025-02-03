@@ -179,9 +179,6 @@ pub async fn register_vortex_files(
                         }),
                     );
 
-                    // let compressor = SamplingCompressor::default();
-                    // let data = compressor.compress(&data, None)?.into_array();
-
                     let f = OpenOptions::new()
                         .write(true)
                         .truncate(true)

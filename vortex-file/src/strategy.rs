@@ -19,53 +19,37 @@ use vortex_sampling_compressor::{SamplingCompressor, DEFAULT_COMPRESSORS};
 static COMPRESSOR: LazyLock<Arc<SamplingCompressor<'static>>> =
     LazyLock::new(|| Arc::new(SamplingCompressor::new(DEFAULT_COMPRESSORS)));
 
-struct SamplingCompressorWriter {
-    compressor: Arc<SamplingCompressor<'static>>,
-    compress_like: Option<CompressionTree<'static>>,
-    child: Box<dyn LayoutWriter>,
-}
-
-impl LayoutWriter for SamplingCompressorWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
-        let (compressed, tree) = self
-            .compressor
-            .compress(&chunk, self.compress_like.as_ref())?
-            .into_parts();
-        self.compress_like = tree;
-        self.child.push_chunk(segments, compressed)
-    }
-
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        self.child.finish(segments)
-    }
-}
-
 /// The default Vortex file layout strategy.
 pub struct VortexLayoutStrategy;
 
 impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            StructLayoutWriter::try_new_with_factory(dtype, VortexLayoutStrategy).map(|w| w.boxed())
-        } else {
-            Ok(ColumnChunker::new(
-                dtype.clone(),
-                SamplingCompressorWriter {
-                    compressor: COMPRESSOR.clone(),
-                    compress_like: None,
-                    child: ChunkedLayoutWriter::new(
-                        dtype,
-                        ChunkedLayoutOptions {
-                            chunk_strategy: Arc::new(FlatLayoutOptions::default()),
-                            ..Default::default()
-                        },
-                    )
-                    .boxed(),
-                }
-                .boxed(),
-            )
-            .boxed())
+            return StructLayoutWriter::try_new_with_factory(dtype, VortexLayoutStrategy)
+                .map(|w| w.boxed());
         }
+
+        // Then we re-chunk each column per our strategy...
+        Ok(ColumnChunker::new(
+            dtype.clone(),
+            // ...compress each chunk using a sampling compressor...
+            SamplingCompressorWriter {
+                compressor: COMPRESSOR.clone(),
+                compress_like: None,
+                child: ChunkedLayoutWriter::new(
+                    dtype,
+                    ChunkedLayoutOptions {
+                        // ...and write each chunk as a flat layout.
+                        chunk_strategy: Arc::new(FlatLayoutOptions::default()),
+                        ..Default::default()
+                    },
+                )
+                .boxed(),
+            }
+            .boxed(),
+        )
+        .boxed())
     }
 }
 
@@ -175,5 +159,28 @@ impl LayoutWriter for ColumnChunker {
             .into_array();
         self.writer.push_chunk(segments, chunk)?;
         self.writer.finish(segments)
+    }
+}
+
+/// A layout writer that compresses chunks using a sampling compressor, and re-uses the previous
+/// compressed chunk as a hint for the next.
+struct SamplingCompressorWriter {
+    compressor: Arc<SamplingCompressor<'static>>,
+    compress_like: Option<CompressionTree<'static>>,
+    child: Box<dyn LayoutWriter>,
+}
+
+impl LayoutWriter for SamplingCompressorWriter {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+        let (compressed, tree) = self
+            .compressor
+            .compress(&chunk, self.compress_like.as_ref())?
+            .into_parts();
+        self.compress_like = tree;
+        self.child.push_chunk(segments, compressed)
+    }
+
+    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+        self.child.finish(segments)
     }
 }
