@@ -53,7 +53,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
         let stop = offsets[idx + 1].to_usize().ok_or_else(|| {
             vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
         })?;
-        builder.push(Some(&data[start..stop]));
+        builder.push_value(&data[start..stop]);
     }
     Ok(builder.finish(dtype))
 }
@@ -77,9 +77,9 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
             let stop = offsets[idx + 1].to_usize().unwrap_or_else(|| {
                 vortex_panic!("Failed to convert offset to usize: {}", offsets[idx + 1])
             });
-            builder.push(Some(&data[start..stop]));
+            builder.push_value(&data[start..stop]);
         } else {
-            builder.push(None);
+            builder.push_null();
         }
     }
     builder.finish(dtype)

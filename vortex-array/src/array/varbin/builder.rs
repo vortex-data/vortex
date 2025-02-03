@@ -67,6 +67,12 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     #[inline]
+    pub fn push_n_nulls(&mut self, n: usize) {
+        self.offsets.push_n(self.offsets[self.offsets.len() - 1], n);
+        self.validity.append_n_nulls(n);
+    }
+
+    #[inline]
     pub fn push_values(&mut self, values: &[u8], end_offsets: impl Iterator<Item = O>, num: usize)
     where
         O: 'static,
