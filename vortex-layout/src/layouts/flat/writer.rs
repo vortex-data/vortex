@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use vortex_array::parts::ArrayPartsFlatBuffer;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
 use vortex_array::Array;
@@ -10,24 +8,25 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::LayoutWriter;
-use crate::{Layout, LayoutVTableRef};
+use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriterExt};
 
-pub trait FlatCompressor {
-    fn compress(&self, array: &Array) -> VortexResult<Array>;
-}
-
+#[derive(Clone)]
 pub struct FlatLayoutOptions {
     /// Stats to preserve when writing arrays
     pub array_stats: Vec<Stat>,
-    pub compressor: Option<Arc<dyn FlatCompressor>>,
 }
 
 impl Default for FlatLayoutOptions {
     fn default() -> Self {
         Self {
             array_stats: STATS_TO_WRITE.to_vec(),
-            compressor: None,
         }
+    }
+}
+
+impl LayoutStrategy for FlatLayoutOptions {
+    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(dtype.clone(), self.clone()).boxed())
     }
 }
 

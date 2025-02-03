@@ -12,7 +12,6 @@ pub use strategy::*;
 pub use vtable::*;
 pub use writer::*;
 
-mod compressor;
 mod reader;
 pub mod segments;
 mod strategy;

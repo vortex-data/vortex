@@ -1,3 +1,4 @@
+// FIXME(ngates): move this file into the compressor
 use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;

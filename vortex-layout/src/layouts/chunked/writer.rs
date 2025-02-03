@@ -16,11 +16,27 @@ use crate::strategy::LayoutStrategy;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 use crate::LayoutVTableRef;
 
+/// How to repartition the chunks provided to this writer.
+#[derive(Default)]
+pub enum ChunkBy {
+    /// Buffer all chunks into a single chunk.
+    All,
+    /// Keep the chunking as the chunks are provided to us.
+    #[default]
+    Provided,
+    /// Chunk by the number of rows.
+    RowCount(u64),
+    /// Chunk by the number of bytes.
+    UncompressedSize(u64),
+}
+
 pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
     pub chunk_stats: Vec<Stat>,
     /// The layout strategy for each chunk.
     pub chunk_strategy: Arc<dyn LayoutStrategy>,
+    /// How to repartition the chunks.
+    pub chunk_by: ChunkBy,
 }
 
 impl Default for ChunkedLayoutOptions {
@@ -28,6 +44,7 @@ impl Default for ChunkedLayoutOptions {
         Self {
             chunk_stats: PRUNING_STATS.to_vec(),
             chunk_strategy: Arc::new(FlatLayout),
+            chunk_by: ChunkBy::default(),
         }
     }
 }

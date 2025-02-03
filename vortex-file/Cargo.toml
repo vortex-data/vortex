@@ -41,6 +41,7 @@ vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-sampling-compressor = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-scan = { workspace = true }
 
