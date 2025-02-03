@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
@@ -18,14 +20,14 @@ pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
     pub chunk_stats: Vec<Stat>,
     /// The layout strategy for each chunk.
-    pub chunk_strategy: Box<dyn LayoutStrategy>,
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
 }
 
 impl Default for ChunkedLayoutOptions {
     fn default() -> Self {
         Self {
             chunk_stats: PRUNING_STATS.to_vec(),
-            chunk_strategy: Box::new(FlatLayout),
+            chunk_strategy: Arc::new(FlatLayout),
         }
     }
 }

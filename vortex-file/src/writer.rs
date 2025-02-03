@@ -24,8 +24,8 @@ impl Default for VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy(mut self, strategy: Box<dyn LayoutStrategy>) -> Self {
-        self.strategy = strategy;
+    pub fn with_strategy<S: LayoutStrategy>(mut self, strategy: S) -> Self {
+        self.strategy = Box::new(strategy);
         self
     }
 }

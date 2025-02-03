@@ -3,6 +3,8 @@
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
+use std::sync::Arc;
+
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -13,7 +15,7 @@ use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 
 /// A trait for creating new layout writers given a DType.
-pub trait LayoutStrategy: Send + Sync {
+pub trait LayoutStrategy: 'static + Send + Sync {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
 }
 
@@ -39,13 +41,13 @@ impl LayoutStrategy for StructStrategy {
 
 /// A layout strategy that preserves each chunk as-given.
 pub struct ChunkedStrategy {
-    pub chunk_strategy: Box<dyn LayoutStrategy>,
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
 }
 
 impl Default for ChunkedStrategy {
     fn default() -> Self {
         Self {
-            chunk_strategy: Box::new(StructStrategy),
+            chunk_strategy: Arc::new(StructStrategy),
         }
     }
 }
