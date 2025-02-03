@@ -1,4 +1,6 @@
 mod builtins;
+mod compressed;
+mod fastlanes;
 
 use std::ops::Deref;
 
@@ -20,6 +22,13 @@ use crate::arrays::builtins::{
     PyBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray, PyNullArray,
     PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
 };
+use crate::arrays::compressed::{
+    PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
+    PySparseArray, PyZigZagArray,
+};
+use crate::arrays::fastlanes::{
+    PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesForArray,
+};
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
@@ -32,7 +41,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyArray>()?;
 
-    // Builtin encodings
+    // Canonical encodings
     m.add_class::<PyConstantArray>()?;
     m.add_class::<PyChunkedArray>()?;
     m.add_class::<PyNullArray>()?;
@@ -43,6 +52,21 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyStructArray>()?;
     m.add_class::<PyListArray>()?;
     m.add_class::<PyExtensionArray>()?;
+
+    // Compressed encodings
+    m.add_class::<PyAlpArray>()?;
+    m.add_class::<PyAlpRdArray>()?;
+    m.add_class::<PyDateTimePartsArray>()?;
+    m.add_class::<PyDictArray>()?;
+    m.add_class::<PyFsstArray>()?;
+    m.add_class::<PyRunEndArray>()?;
+    m.add_class::<PySparseArray>()?;
+    m.add_class::<PyZigZagArray>()?;
+
+    // Fastlanes encodings
+    m.add_class::<PyFastLanesBitPackedArray>()?;
+    m.add_class::<PyFastLanesDeltaArray>()?;
+    m.add_class::<PyFastLanesForArray>()?;
 
     Ok(())
 }

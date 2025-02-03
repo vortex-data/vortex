@@ -28,16 +28,8 @@ Base Class
    :special-members: __len__
 
 
-Builtin Encodings
------------------
-
-.. autoclass:: vortex.ChunkedArray
-   :members:
-
-
-.. autoclass:: vortex.ConstantArray
-   :members:
-
+Canonical Encodings
+-------------------
 
 .. autoclass:: vortex.NullArray
    :members:
@@ -68,4 +60,66 @@ Builtin Encodings
 
 
 .. autoclass:: vortex.ExtensionArray
+   :members:
+
+
+Utility Encodings
+-----------------
+
+.. autoclass:: vortex.ChunkedArray
+   :members:
+
+
+.. autoclass:: vortex.ConstantArray
+   :members:
+
+
+.. autoclass:: vortex.SparseArray
+   :members:
+
+
+Compressed Encodings
+--------------------
+
+.. autoclass:: vortex.AlpArray
+   :members:
+
+
+.. autoclass:: vortex.AlpRdArray
+   :members:
+
+
+.. autoclass:: vortex.DateTimePartsArray
+   :members:
+
+
+.. autoclass:: vortex.DictArray
+   :members:
+
+
+.. autoclass:: vortex.FsstArray
+   :members:
+
+
+.. autoclass:: vortex.RunEndArray
+   :members:
+
+
+.. autoclass:: vortex.SparseArray
+   :members:
+
+
+.. autoclass:: vortex.ZigZagArray
+   :members:
+
+
+.. autoclass:: vortex.FastLanesBitPackedArray
+   :members:
+
+
+.. autoclass:: vortex.FastLanesDeltaArray
+   :members:
+
+
+.. autoclass:: vortex.FastLanesForArray
    :members:
