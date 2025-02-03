@@ -23,6 +23,12 @@ where
     }
 }
 
+/// Computes the min & max of an array, returning the (min, max) values
+/// The return values are (min, max) scalars, where None indicates that the value is non-existent
+/// (e.g. for an empty array)
+/// The return value dtype is the non-nullable version of the array dtype
+///
+/// This will update the stats set of this array (as a side effect).
 pub fn min_max(array: impl AsRef<Array>) -> VortexResult<MinMaxResult> {
     let array = array.as_ref();
 

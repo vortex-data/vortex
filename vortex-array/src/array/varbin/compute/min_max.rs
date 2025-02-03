@@ -14,6 +14,7 @@ impl MinMaxFn<VarBinArray> for VarBinEncoding {
     }
 }
 
+/// Compute the min and max of VarBin like array.
 pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,

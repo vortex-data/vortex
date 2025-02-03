@@ -24,6 +24,10 @@ where
     }
 }
 
+/// Computes ths statistics for the given array and stat. This will update the stats of the array
+/// and return this set.
+///
+/// Other stats might be computed or inferred at the same time.
 pub fn compute_statistics(array: &Array, stat: Stat) -> VortexResult<StatsSet> {
     if array.is_empty() {
         return Ok(StatsSet::empty_array());

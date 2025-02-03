@@ -62,6 +62,7 @@ impl StatsSet {
         stats
     }
 
+    // A convenience method for creating a stats set which will represent an empty array.
     pub fn empty_array() -> StatsSet {
         StatsSet::new_unchecked(vec![
             (Stat::TrueCount, Precision::exact(0)),
