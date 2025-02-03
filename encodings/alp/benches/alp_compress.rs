@@ -15,44 +15,72 @@ fn main() {
 }
 
 #[divan::bench(types = [f32, f64], args = [
-    (100_000, 0.25),
-    (10_000_000, 0.25),
-    (100_000, 0.95),
-    (10_000_000, 0.95),
-    (100_000, 1.0),
-    (10_000_000, 1.0),
+    (100_000, 0.01, 0.25),
+    (100_000, 0.1, 0.25),
+    (10_000_000, 0.01, 0.25),
+    (10_000_000, 0.1, 0.25),
+    (100_000, 0.01, 0.95),
+    (100_000, 0.1, 0.95),
+    (10_000_000, 0.01, 0.95),
+    (10_000_000, 0.1, 0.95),
+    (100_000, 0.01, 1.0),
+    (100_000, 0.1, 1.0),
+    (10_000_000, 0.01, 1.0),
+    (10_000_000, 0.1, 1.0),
 ])]
-fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
-    let (n, fraction_valid) = args;
+fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
+    let (n, fraction_patch, fraction_valid) = args;
     let mut rng = StdRng::seed_from_u64(0);
-    let values = buffer![T::from(1.234).unwrap(); n];
+    let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
+    if fraction_patch < 1.0 {
+        for index in 0..values.len() {
+            if rng.gen_bool(fraction_valid) {
+                values[index] = T::from(1000.0).unwrap()
+            }
+        }
+    }
     let validity = if fraction_valid < 1.0 {
         Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
     } else {
         Validity::NonNullable
     };
+    let values = values.freeze();
     bencher.bench_local(move || {
         alp_encode(&PrimitiveArray::new(values.clone(), validity.clone())).unwrap()
     })
 }
 
 #[divan::bench(types = [f32, f64], args = [
-    (100_000, 0.25),
-    (10_000_000, 0.25),
-    (100_000, 0.95),
-    (10_000_000, 0.95),
-    (100_000, 1.0),
-    (10_000_000, 1.0),
+    (100_000, 0.01, 0.25),
+    (100_000, 0.1, 0.25),
+    (10_000_000, 0.01, 0.25),
+    (10_000_000, 0.1, 0.25),
+    (100_000, 0.01, 0.95),
+    (100_000, 0.1, 0.95),
+    (10_000_000, 0.01, 0.95),
+    (10_000_000, 0.1, 0.95),
+    (100_000, 0.01, 1.0),
+    (100_000, 0.1, 1.0),
+    (10_000_000, 0.01, 1.0),
+    (10_000_000, 0.1, 1.0),
 ])]
-fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
-    let (n, fraction_valid) = args;
+fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
+    let (n, fraction_patch, fraction_valid) = args;
     let mut rng = StdRng::seed_from_u64(0);
-    let values = buffer![T::from(1.234).unwrap(); n];
+    let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
+    if fraction_patch < 1.0 {
+        for index in 0..values.len() {
+            if rng.gen_bool(fraction_valid) {
+                values[index] = T::from(1000.0).unwrap()
+            }
+        }
+    }
     let validity = if fraction_valid < 1.0 {
         Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
     } else {
         Validity::NonNullable
     };
+    let values = values.freeze();
     let array = alp_encode(&PrimitiveArray::new(values, validity)).unwrap();
     bencher.bench_local(move || array.clone().into_canonical().unwrap());
 }
