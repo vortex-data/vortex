@@ -103,6 +103,15 @@ pub struct PrimitiveDictBuilder<T> {
     null_code: Option<u64>,
 }
 
+impl<T: NativePType> Default for PrimitiveDictBuilder<T>
+where
+    private::Value<T>: Hash + Eq,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: NativePType> PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
