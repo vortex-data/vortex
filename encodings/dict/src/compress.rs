@@ -11,7 +11,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
@@ -76,7 +76,7 @@ mod private {
 pub fn dict_encode(array: &Array) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = PrimitiveArray::maybe_from(array) {
         match_each_native_ptype!(pa.ptype(), |$P| {
-            &mut PrimitiveDictBuilder::<$P>::new()
+            &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())
         })
     } else if let Some(vbv) = VarBinViewArray::maybe_from(array) {
         &mut BytesDictBuilder::new(vbv.dtype().clone())
@@ -100,26 +100,19 @@ pub trait DictEncoder {
 pub struct PrimitiveDictBuilder<T> {
     lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
+    nullability: Nullability,
     null_code: Option<u64>,
-}
-
-impl<T: NativePType> Default for PrimitiveDictBuilder<T>
-where
-    private::Value<T>: Hash + Eq,
-{
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<T: NativePType> PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    pub fn new() -> Self {
+    pub fn new(nullability: Nullability) -> Self {
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
+            nullability,
             null_code: None,
         }
     }
@@ -181,8 +174,11 @@ where
     }
 
     fn values(&mut self) -> Array {
-        let values_validity = dict_values_validity(self.null_code, self.values.len());
-
+        let values_validity = dict_values_validity(
+            self.null_code,
+            self.nullability == Nullability::Nullable,
+            self.values.len(),
+        );
         PrimitiveArray::new(self.values.clone().freeze(), values_validity).into_array()
     }
 }
@@ -303,7 +299,8 @@ impl DictEncoder for BytesDictBuilder {
     }
 
     fn values(&mut self) -> Array {
-        let values_validity = dict_values_validity(self.null_code, self.views.len());
+        let values_validity =
+            dict_values_validity(self.null_code, self.dtype.is_nullable(), self.views.len());
         VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],
@@ -315,7 +312,7 @@ impl DictEncoder for BytesDictBuilder {
     }
 }
 
-fn dict_values_validity(null_code: Option<u64>, len: usize) -> Validity {
+fn dict_values_validity(null_code: Option<u64>, is_nullable: bool, len: usize) -> Validity {
     if let Some(null_code) = null_code {
         Validity::Array(
             SparseArray::try_new(
@@ -327,6 +324,8 @@ fn dict_values_validity(null_code: Option<u64>, len: usize) -> Validity {
             .vortex_unwrap()
             .into_array(),
         )
+    } else if is_nullable {
+        Validity::AllValid
     } else {
         Validity::NonNullable
     }
