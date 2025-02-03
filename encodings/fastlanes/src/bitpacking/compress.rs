@@ -14,6 +14,11 @@ use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
 
+pub fn bitpack_to_best_bit_width(array: PrimitiveArray) -> VortexResult<BitPackedArray> {
+    let best_bit_width = find_best_bit_width(&array)?;
+    bitpack_encode(array, best_bit_width)
+}
+
 pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitPackedArray> {
     let bit_width_freq = array
         .statistics()

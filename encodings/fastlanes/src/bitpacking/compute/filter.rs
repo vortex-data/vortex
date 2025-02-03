@@ -30,7 +30,36 @@ impl FilterFn<BitPackedArray> for BitPackedEncoding {
 ///
 /// All bit-packing operations will use the unsigned kernels, but the logical type of `array`
 /// dictates the final `PType` of the result.
+///
+/// This function fully decompresses the array for all but the most selective masks because the
+/// FastLanes decompression is so fast and the bookkeepping necessary to decompress individual
+/// elements is relatively slow. If you prefer to never fully decompress, use
+/// [filter_primitive_no_decompression].
 fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
+    array: &BitPackedArray,
+    mask: &Mask,
+) -> VortexResult<PrimitiveArray> {
+    // Short-circuit if the selectivity is high enough.
+    let full_decompression_threshold = match T::get_byte_width() {
+        1 => 0.03,
+        2 => 0.03,
+        4 => 0.075,
+        _ => 0.09,
+        // >8 bytes may have a higher threshold. These numbers are derived from a GCP c2-standard-4
+        // with a "Cascade Lake" CPU.
+    };
+    if mask.density() >= full_decompression_threshold {
+        let decompressed_array = array.clone().into_primitive()?;
+        filter(decompressed_array.as_ref(), mask)?.into_primitive()
+    } else {
+        filter_primitive_no_decompression::<T>(array, mask)
+    }
+}
+
+/// Filter a bit-packed array, without using full decompression.
+///
+/// You should probably use [filter_primitive].
+fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
@@ -41,12 +70,6 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         .map(|patches| patches.filter(mask))
         .transpose()?
         .flatten();
-
-    // Short-circuit if the selectivity is high enough.
-    if mask.density() > 0.8 {
-        return filter(array.clone().into_primitive()?.as_ref(), mask)
-            .and_then(|a| a.into_primitive());
-    }
 
     let values: Buffer<T> = filter_indices(
         array,
