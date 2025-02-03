@@ -205,7 +205,6 @@ jobs:
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: "RUSTSEC-2023-0384"
 
   miri:
     name: "miri"
