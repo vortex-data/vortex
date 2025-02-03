@@ -37,6 +37,19 @@ where
 pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
     let array = array.as_ref();
 
+    let min = array
+        .statistics()
+        .get_scalar(Stat::Min, array.dtype())
+        .and_then(Precision::some_exact);
+    let max = array
+        .statistics()
+        .get_scalar(Stat::Max, array.dtype())
+        .and_then(Precision::some_exact);
+
+    if let (Some(min), Some(max)) = (min, max) {
+        return Ok(Some(MinMaxResult { min, max }));
+    }
+
     let min_max = if let Some(fn_) = array.vtable().min_max_fn() {
         fn_.min_max(array)?
     } else {
@@ -48,7 +61,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
         }
     };
 
-    if let Some(MinMaxResult { min, .. }) = &min_max {
+    if let Some(MinMaxResult { min, max }) = &min_max {
         debug_assert_eq!(
             min.dtype(),
             &array.dtype().with_nullability(NonNullable),
@@ -57,9 +70,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
         );
 
         array.set(Stat::Min, Precision::exact(min.clone().into_value()));
-    }
 
-    if let Some(MinMaxResult { max, .. }) = &min_max {
         debug_assert_eq!(
             max.dtype(),
             &array.dtype().with_nullability(NonNullable),
@@ -67,6 +78,13 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
             array.encoding()
         );
         array.set(Stat::Max, Precision::exact(max.clone().into_value()));
+
+        debug_assert!(
+            min <= max,
+            "min > max: min={} max={} encoding={}",
+            min, max,
+            array.encoding()
+        );
     }
 
     Ok(min_max)

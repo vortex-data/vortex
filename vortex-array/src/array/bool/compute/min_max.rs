@@ -8,23 +8,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
-use crate::stats::{Precision, Stat};
 
 impl MinMaxFn<BoolArray> for BoolEncoding {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
-        let min = array
-            .statistics()
-            .get_scalar(Stat::Min, array.dtype())
-            .and_then(Precision::some_exact);
-        let max = array
-            .statistics()
-            .get_scalar(Stat::Max, array.dtype())
-            .and_then(Precision::some_exact);
-
-        if let (Some(min), Some(max)) = (min, max) {
-            return Ok(Some(MinMaxResult { min, max }));
-        }
-
         let x = match array.validity_mask()? {
             Mask::AllTrue(_) => array.boolean_buffer(),
             Mask::AllFalse(_) => return Ok(None),
