@@ -6,6 +6,7 @@ vortex\._lib\.arrays
 vortex\._lib\.compress
 vortex\._lib\.dataset
 vortex\._lib\.dtype
+vortex\._lib\.encoding
 vortex\._lib\.expr
 vortex\._lib\.io
 vortex\._lib\.scalar

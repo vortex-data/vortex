@@ -5,15 +5,15 @@ use crate::arrays::{ArraySubclass, AsArrayRef, PyArray};
 use crate::scalar::PyScalar;
 
 /// Concrete class for arrays with `vortex.constant` encoding.
-#[pyclass(name = "ConstantArray", module = "vortex", extends=PyArray, frozen)]
-pub(crate) struct PyConstantArray;
+#[pyclass(name = "ConstantEncoding", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyConstantEncoding;
 
-impl ArraySubclass for PyConstantArray {
+impl ArraySubclass for PyConstantEncoding {
     type Encoding = ConstantEncoding;
 }
 
 #[pymethods]
-impl PyConstantArray {
+impl PyConstantEncoding {
     /// Return the scalar value of the constant array.
     pub fn scalar(self_: PyRef<'_, Self>) -> PyResult<Bound<PyScalar>> {
         PyScalar::init(self_.py(), self_.as_array_ref().scalar())

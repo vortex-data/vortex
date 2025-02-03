@@ -7,11 +7,11 @@ functions, serialized, and otherwise manipulated as a generic array.
 
 There are two ways of "downcasting" an array for more specific access patterns:
 
-1. Into an encoding-specific array, like `vortex.BitPackedArray`.vortex.
-2. Into a type-specific array, like `vortex.BoolTypeArray`.
+1. Into an encoding-specific array, like :class:`vortex.BitPackedEncoding`.vortex.
+2. Into a type-specific array, like :class:`vortex.BoolTypeArray`.
 
-Be careful to note that :class:`vortex.BoolArray` represents an array that stores physical data
- as a bit-buffer of booleans, vs `vortex.BoolTypeArray` which represents any array that has a logical
+Be careful to note that :class:`vortex.BoolEncoding` represents an array that stores physical data
+ as a bit-buffer of booleans, vs :class:`vortex.BoolTypeArray` which represents any array that has a logical
  type of boolean.
 
 Factory Functions
@@ -88,95 +88,3 @@ functionality.
 
 .. autoclass:: vortex.ExtensionTypeArray
      :members:
-
-Canonical Encodings
--------------------
-
-.. autoclass:: vortex.NullArray
-     :members:
-
-
-.. autoclass:: vortex.BoolArray
-     :members:
-
-
-.. autoclass:: vortex.PrimitiveArray
-     :members:
-
-
-.. autoclass:: vortex.VarBinArray
-    :members:
-
-
-.. autoclass:: vortex.VarBinViewArray
-    :members:
-
-
-.. autoclass:: vortex.StructArray
-    :members:
-
-
-.. autoclass:: vortex.ListArray
-    :members:
-
-
-.. autoclass:: vortex.ExtensionArray
-    :members:
-
-
-Utility Encodings
------------------
-
-.. autoclass:: vortex.ChunkedArray
-    :members:
-
-
-.. autoclass:: vortex.ConstantArray
-    :members:
-
-
-.. autoclass:: vortex.SparseArray
-    :members:
-
-
-Compressed Encodings
---------------------
-
-.. autoclass:: vortex.AlpArray
-    :members:
-
-
-.. autoclass:: vortex.AlpRdArray
-    :members:
-
-
-.. autoclass:: vortex.DateTimePartsArray
-    :members:
-
-
-.. autoclass:: vortex.DictArray
-    :members:
-
-
-.. autoclass:: vortex.FsstArray
-    :members:
-
-
-.. autoclass:: vortex.RunEndArray
-    :members:
-
-
-.. autoclass:: vortex.ZigZagArray
-    :members:
-
-
-.. autoclass:: vortex.FastLanesBitPackedArray
-    :members:
-
-
-.. autoclass:: vortex.FastLanesDeltaArray
-    :members:
-
-
-.. autoclass:: vortex.FastLanesForArray
-    :members:

@@ -1,6 +1,3 @@
-mod builtins;
-mod compressed;
-mod fastlanes;
 mod from_arrow;
 mod typed;
 
@@ -20,17 +17,6 @@ use vortex::error::{VortexError, VortexExpect};
 use vortex::mask::Mask;
 use vortex::{Array, Encoding};
 
-use crate::arrays::builtins::{
-    PyBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray, PyNullArray,
-    PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
-};
-use crate::arrays::compressed::{
-    PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
-    PySparseArray, PyZigZagArray,
-};
-use crate::arrays::fastlanes::{
-    PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesForArray,
-};
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
     PyFloat32TypeArray, PyFloat64TypeArray, PyInt16TypeArray, PyInt32TypeArray, PyInt64TypeArray,
@@ -68,33 +54,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyStructTypeArray>()?;
     m.add_class::<PyListTypeArray>()?;
     m.add_class::<PyExtensionTypeArray>()?;
-
-    // Canonical encodings
-    m.add_class::<PyConstantArray>()?;
-    m.add_class::<PyChunkedArray>()?;
-    m.add_class::<PyNullArray>()?;
-    m.add_class::<PyBoolArray>()?;
-    m.add_class::<PyPrimitiveArray>()?;
-    m.add_class::<PyVarBinArray>()?;
-    m.add_class::<PyVarBinViewArray>()?;
-    m.add_class::<PyStructArray>()?;
-    m.add_class::<PyListArray>()?;
-    m.add_class::<PyExtensionArray>()?;
-
-    // Compressed encodings
-    m.add_class::<PyAlpArray>()?;
-    m.add_class::<PyAlpRdArray>()?;
-    m.add_class::<PyDateTimePartsArray>()?;
-    m.add_class::<PyDictArray>()?;
-    m.add_class::<PyFsstArray>()?;
-    m.add_class::<PyRunEndArray>()?;
-    m.add_class::<PySparseArray>()?;
-    m.add_class::<PyZigZagArray>()?;
-
-    // Fastlanes encodings
-    m.add_class::<PyFastLanesBitPackedArray>()?;
-    m.add_class::<PyFastLanesDeltaArray>()?;
-    m.add_class::<PyFastLanesForArray>()?;
 
     Ok(())
 }
