@@ -1,9 +1,10 @@
+use itertools::Itertools as _;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ScalarType;
@@ -52,26 +53,28 @@ where
 {
     let values_slice = values.as_slice::<T>();
 
-    let exponents = T::find_best_exponents(values_slice);
-    let (encoded, exceptional_positions) = T::encode_chunkwise(values_slice, exponents);
+    let (exponents, encoded, exceptional_positions, exceptional_values) =
+        T::encode(values_slice, None);
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
 
-    let validity = values.logical_validity()?;
+    let validity = values.validity_mask()?;
     let n_valid = validity.true_count();
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove invalid exceptional positions in order to keep the Patches small.
-    let valid_exceptional_positions = if n_valid == 0 {
-        Buffer::empty()
-    } else if n_valid == values.len() {
-        exceptional_positions
-    } else {
-        exceptional_positions
-            .into_iter()
-            .filter(|index| validity.value(*index as usize))
-            .collect()
-    };
-
+    let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
+        if n_valid == 0 {
+            (Buffer::empty(), Buffer::empty())
+        } else if n_valid == values.len() {
+            (exceptional_positions, exceptional_values)
+        } else {
+            let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
+                .into_iter()
+                .zip_eq(exceptional_values)
+                .filter(|(index, _)| validity.value(*index as usize))
+                .unzip();
+            (pos.freeze(), vals.freeze())
+        };
     let patches = if valid_exceptional_positions.is_empty() {
         None
     } else {
@@ -80,16 +83,13 @@ where
         } else {
             Validity::NonNullable
         };
-        let exceptional_values: Buffer<T> = valid_exceptional_positions
-            .iter()
-            .map(|index| values_slice[*index as usize])
-            .collect();
-        let exceptional_values =
-            PrimitiveArray::new(exceptional_values, patches_validity).into_array();
+        let valid_exceptional_values =
+            PrimitiveArray::new(valid_exceptional_values, patches_validity).into_array();
+
         Some(Patches::new(
             values_slice.len(),
             valid_exceptional_positions.into_array(),
-            exceptional_values,
+            valid_exceptional_values,
         ))
     };
     Ok((exponents, encoded_array, patches))
