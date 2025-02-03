@@ -31,7 +31,7 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
         }
         itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
             min: Scalar::new(dtype.clone(), (*min).into()),
-            max: Scalar::new(dtype.clone(), (*max).into()),
+            max: Scalar::new(dtype, (*max).into()),
         }),
     })?;
 

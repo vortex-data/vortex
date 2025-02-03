@@ -30,7 +30,7 @@ where
         Mask::Values(v) => compute_min_max(
             array
                 .as_slice::<T>()
-                .into_iter()
+                .iter()
                 .zip(v.boolean_buffer().iter())
                 .filter_map(|(v, m)| if m { Some(v) } else { None }),
             array.dtype(),
@@ -51,7 +51,7 @@ where
     match iter.minmax_by(|a, b| a.total_compare(**b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(x) => {
-            let scalar = Scalar::new(dtype.clone(), (*x).into());
+            let scalar = Scalar::new(dtype, (*x).into());
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
@@ -59,7 +59,7 @@ where
         }
         itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
             min: Scalar::new(dtype.clone(), (*min).into()),
-            max: Scalar::new(dtype.clone(), (*max).into()),
+            max: Scalar::new(dtype, (*max).into()),
         }),
     }
 }
