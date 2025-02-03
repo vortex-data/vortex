@@ -142,11 +142,6 @@ pub struct CompressConfig {
     max_cost: u8,
     // Are we minimizing size or maximizing performance?
     objective: Objective,
-
-    // Target chunk size in bytes
-    target_block_bytesize: usize,
-    // Target chunk size in row count
-    target_block_size: usize,
 }
 
 impl CompressConfig {
@@ -163,16 +158,12 @@ impl CompressConfig {
 
 impl Default for CompressConfig {
     fn default() -> Self {
-        let kib = 1 << 10;
-        let mib = 1 << 20;
         Self {
             // Sample length should always be multiple of 1024
             sample_size: 64,
             sample_count: 16,
             max_cost: constants::DEFAULT_MAX_COST,
             objective: Objective::MinSize,
-            target_block_bytesize: 16 * mib,
-            target_block_size: 64 * kib,
             rng_seed: 0,
         }
     }

@@ -1,12 +1,10 @@
-use std::path::Path;
+use std::ops::Deref;
 
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::Array;
 
 use crate::arrays::PyArray;
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
@@ -196,9 +194,6 @@ pub fn read_url<'py>(
 /// f : :class:`str`
 ///     The file path.
 ///
-/// compress : :class:`bool`
-///     Compress the array before writing, defaults to ``True``.
-///
 /// Examples
 /// --------
 ///
@@ -215,28 +210,15 @@ pub fn read_url<'py>(
 ///     >>> vx.io.write_path(a, "a.vortex")
 ///
 #[pyfunction]
-#[pyo3(signature = (array, path, *, compress=true))]
-pub fn write_path(
-    array: &Bound<'_, PyArray>,
-    path: &Bound<'_, PyString>,
-    compress: bool,
-) -> PyResult<()> {
-    async fn run(array: &Array, path: &str) -> PyResult<()> {
-        let file = File::create(Path::new(path)).await?;
-        let _file = VortexWriteOptions::default()
-            .write(file, array.clone().into_array_stream())
-            .await?;
+#[pyo3(signature = (array, path))]
+pub fn write_path(array: PyArray, path: &str) -> PyResult<()> {
+    let array = array.deref().clone();
 
-        Ok(())
-    }
+    TOKIO_RUNTIME.block_on(async move {
+        VortexWriteOptions::default()
+            .write(File::create(path).await?, array.into_array_stream())
+            .await
+    })?;
 
-    let fname = path.to_str()?; // TODO(dk): support file objects
-    let mut array = array.extract::<PyArray>()?.into_inner();
-
-    if compress {
-        let compressor = SamplingCompressor::default();
-        array = compressor.compress(&array, None)?.into_array();
-    }
-
-    TOKIO_RUNTIME.block_on(run(&array, fname))
+    Ok(())
 }

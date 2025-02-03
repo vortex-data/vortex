@@ -7,6 +7,7 @@ use vortex::array::PrimitiveArray;
 use vortex::compute::filter;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::encodings::alp::{ALPArray, ALPEncoding};
+use vortex::mask::Mask;
 use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::bitpacked::{
     BitPackedCompressor, BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES,
@@ -16,7 +17,6 @@ use vortex::sampling_compressor::compressors::EncodingCompressor;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::PrimitiveArrayTrait;
 use vortex::{Array, Encoding, IntoArray, IntoCanonical};
-use vortex_mask::Mask;
 
 // criterion benchmark setup:
 fn bench_sel_vec(c: &mut Criterion) {

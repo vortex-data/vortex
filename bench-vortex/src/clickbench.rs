@@ -174,8 +174,8 @@ pub async fn register_vortex_files(
                         DType::from_arrow(record_batches.schema()),
                         record_batches.map(|batch| {
                             batch
-                                .map_err(|e| VortexError::from(e))
-                                .and_then(|b| Array::try_from(b))
+                                .map_err(VortexError::from)
+                                .and_then(Array::try_from)
                         }),
                     );
 

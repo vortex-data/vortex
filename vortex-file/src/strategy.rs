@@ -118,7 +118,7 @@ impl ColumnChunker {
             }
 
             // Combine the chunks to and flush them to the layout.
-            assert!(chunks.len() > 0);
+            assert!(!chunks.is_empty());
             let chunk = ChunkedArray::try_new(chunks, self.dtype.clone())
                 .vortex_expect("failed to create chunked array")
                 .into_canonical()?
