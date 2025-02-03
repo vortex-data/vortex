@@ -5,7 +5,6 @@ use vortex_scalar::ScalarValue;
 
 use crate::data::InnerArray;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
-use crate::vtable::compute_statistics;
 use crate::Array;
 
 impl Statistics for Array {
@@ -113,7 +112,8 @@ impl Statistics for Array {
             return Some(s);
         }
 
-        let s = compute_statistics(self, stat)
+        let s = self
+            .compute_statistics(stat)
             .vortex_expect("compute_statistics must not fail")
             .get(stat)?;
 

@@ -10,7 +10,7 @@ use crate::compute::{MinMaxFn, MinMaxResult};
 use crate::variants::PrimitiveArrayTrait;
 
 impl MinMaxFn<PrimitiveArray> for PrimitiveEncoding {
-    fn min_max(&self, array: &PrimitiveArray) -> VortexResult<MinMaxResult> {
+    fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |$T| {
             compute_min_max_with_validity::<$T>(array)
         })
@@ -20,13 +20,13 @@ impl MinMaxFn<PrimitiveArray> for PrimitiveEncoding {
 #[inline]
 fn compute_min_max_with_validity<T: NativePType>(
     array: &PrimitiveArray,
-) -> VortexResult<MinMaxResult>
+) -> VortexResult<Option<MinMaxResult>>
 where
     vortex_scalar::ScalarValue: From<T>,
 {
     Ok(match array.validity_mask()? {
         Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter(), array.dtype()),
-        Mask::AllFalse(_) => (None, None),
+        Mask::AllFalse(_) => None,
         Mask::Values(v) => compute_min_max(
             array
                 .as_slice::<T>()
@@ -41,7 +41,7 @@ where
 fn compute_min_max<'a, T: NativePType + Copy>(
     iter: impl Iterator<Item = &'a T>,
     dtype: &DType,
-) -> MinMaxResult
+) -> Option<MinMaxResult>
 where
     vortex_scalar::ScalarValue: From<T>,
 {
@@ -49,14 +49,17 @@ where
 
     // this `compare` function provides a total ordering (even for NaN values)
     match iter.minmax_by(|a, b| a.total_compare(**b)) {
-        itertools::MinMaxResult::NoElements => (None, None),
+        itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(x) => {
             let scalar = Scalar::new(dtype.clone(), (*x).into());
-            (Some(scalar.clone()), Some(scalar))
+            Some(MinMaxResult {
+                min: scalar.clone(),
+                max: scalar,
+            })
         }
-        itertools::MinMaxResult::MinMax(min, max) => (
-            Some(Scalar::new(dtype.clone(), (*min).into())),
-            Some(Scalar::new(dtype.clone(), (*max).into())),
-        ),
+        itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
+            min: Scalar::new(dtype.clone(), (*min).into()),
+            max: Scalar::new(dtype.clone(), (*max).into()),
+        }),
     }
 }

@@ -1,6 +1,6 @@
 use vortex_error::{VortexError, VortexResult};
 
-use crate::compute::min_max;
+use crate::compute::{min_max, MinMaxResult};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::Array;
@@ -24,38 +24,50 @@ where
     }
 }
 
-/// Computes ths statistics for the given array and stat. This will update the stats of the array
-/// and return this set.
-///
-/// Other stats might be computed or inferred at the same time.
-pub fn compute_statistics(array: &Array, stat: Stat) -> VortexResult<StatsSet> {
-    if array.is_empty() {
-        return Ok(StatsSet::empty_array());
-    }
+impl Array {
+    /// Computes ths statistics for the given array and stat. This will update the stats of the array
+    /// and return this set.
+    ///
+    /// Other stats might be computed or inferred at the same time.
+    pub fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        if self.is_empty() {
+            return Ok(StatsSet::empty_array());
+        }
 
-    let mut set = if stat == Stat::Min || stat == Stat::Max {
-        // min max sets the array stats
-        let _min_max = min_max(array)?;
-        array.to_set()
-    } else {
-        array.vtable().compute_statistics(array, stat)?
-    };
+        let mut set = if stat == Stat::Min || stat == Stat::Max {
+            // min max sets the array stats
+            let _min_max = min_max(self)?;
+            let set = self.to_set();
+            if let Some(MinMaxResult { min, max }) = _min_max {
+                self.to_set().combine_sets(
+                    &StatsSet::from_iter([
+                        (Stat::Min, Precision::exact(min.into_value())),
+                        (Stat::Max, Precision::exact(max.into_value())),
+                    ]),
+                    self.dtype(),
+                )?
+            };
+            set
+        } else {
+            self.vtable().compute_statistics(self, stat)?
+        };
 
-    if stat == Stat::Min || stat == Stat::Max {
-        if let (Some(min), Some(max)) = (
-            set.get_scalar(Stat::Min, array.dtype().clone()),
-            set.get_scalar(Stat::Max, array.dtype().clone()),
-        ) {
-            if min.is_exact()
-                && min == max
-                && set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
-            {
-                set.set(Stat::IsConstant, Precision::exact(true));
+        if stat == Stat::Min || stat == Stat::Max {
+            if let (Some(min), Some(max)) = (
+                set.get_scalar(Stat::Min, self.dtype().clone()),
+                set.get_scalar(Stat::Max, self.dtype().clone()),
+            ) {
+                if min.is_exact()
+                    && min == max
+                    && set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
+                {
+                    set.set(Stat::IsConstant, Precision::exact(true));
+                }
             }
         }
+
+        // TODO(joe): infer more stats from other stat combinations.
+
+        Ok(set)
     }
-
-    // TODO(joe): infer more stats from other stat combinations.
-
-    Ok(set)
 }

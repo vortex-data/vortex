@@ -1,4 +1,4 @@
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
@@ -6,27 +6,40 @@ use crate::compute::{min_max, MinMaxFn, MinMaxResult};
 use crate::{partial_max, partial_min};
 
 impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
-    fn min_max(&self, array: &ChunkedArray) -> VortexResult<MinMaxResult> {
+    fn min_max(&self, array: &ChunkedArray) -> VortexResult<Option<MinMaxResult>> {
         let res = array
             .array_iterator()
             .map(|chunk| {
                 let chunk = chunk?;
-                min_max(chunk)
+                if let Some(min_max) = min_max(chunk)? {
+                    Ok((Some(min_max.min), Some(min_max.max)))
+                } else {
+                    Ok((None, None))
+                }
             })
             .collect::<VortexResult<Vec<_>>>()?;
+
+        if res.is_empty() {
+            // No chunks, so no min or max.
+            return Ok(None);
+        }
 
         let (min_values, max_values): (Vec<Option<Scalar>>, Vec<Option<Scalar>>) =
             res.into_iter().unzip();
 
-        Ok((
-            min_values
+        Ok(Some(MinMaxResult {
+            min: min_values
                 .into_iter()
                 .flatten()
-                .fold(None, |acc, x| acc.and_then(|acc| partial_min(x, acc))),
-            max_values
+                .fold(None, |acc, x| acc.and_then(|acc| partial_min(x, acc)))
+                .ok_or_else(|| {
+                    vortex_err!("Incomparable scalars (from partial_min), this is likely a bug")
+                })?,
+            max: max_values
                 .into_iter()
                 .flatten()
-                .fold(None, |acc, x| acc.and_then(|acc| partial_max(x, acc))),
-        ))
+                .fold(None, |acc, x| acc.and_then(|acc| partial_max(x, acc)))
+                .ok_or_else(|| vortex_err!("Incomparable scalars, this is likely a bug"))?,
+        }))
     }
 }

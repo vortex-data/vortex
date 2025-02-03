@@ -9,7 +9,7 @@ use crate::array::{VarBinArray, VarBinEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 
 impl MinMaxFn<VarBinArray> for VarBinEncoding {
-    fn min_max(&self, array: &VarBinArray) -> VortexResult<MinMaxResult> {
+    fn min_max(&self, array: &VarBinArray) -> VortexResult<Option<MinMaxResult>> {
         compute_min_max(array, array.0.dtype())
     }
 }
@@ -18,18 +18,21 @@ impl MinMaxFn<VarBinArray> for VarBinEncoding {
 pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,
-) -> VortexResult<MinMaxResult> {
+) -> VortexResult<Option<MinMaxResult>> {
     let dtype = dtype.with_nullability(NonNullable);
     let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
-        itertools::MinMaxResult::NoElements => (None, None),
+        itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(value) => {
             let scalar = Scalar::new(dtype, value.into());
-            (Some(scalar.clone()), Some(scalar))
+            Some(MinMaxResult {
+                min: scalar.clone(),
+                max: scalar,
+            })
         }
-        itertools::MinMaxResult::MinMax(min, max) => (
-            Some(Scalar::new(dtype.clone(), min.into())),
-            Some(Scalar::new(dtype, max.into())),
-        ),
+        itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
+            min: Scalar::new(dtype.clone(), (*min).into()),
+            max: Scalar::new(dtype.clone(), (*max).into()),
+        }),
     })?;
 
     Ok(minmax)
@@ -43,7 +46,7 @@ mod tests {
 
     use crate::array::varbin::Nullability;
     use crate::array::VarBinArray;
-    use crate::compute::min_max;
+    use crate::compute::{min_max, MinMaxResult};
     use crate::stats::Stat;
 
     #[test]
@@ -57,15 +60,12 @@ mod tests {
             ],
             DType::Utf8(Nullability::Nullable),
         );
-        let (min, max) = min_max(array).unwrap();
+        let MinMaxResult { min, max } = min_max(array).unwrap().unwrap();
 
-        assert_eq!(
-            min,
-            Some(BufferString::from("hello world".to_string()).into())
-        );
+        assert_eq!(min, BufferString::from("hello world".to_string()).into());
         assert_eq!(
             max,
-            Some(BufferString::from("hello world this is a long string".to_string()).into()),
+            BufferString::from("hello world this is a long string".to_string()).into(),
         );
     }
 

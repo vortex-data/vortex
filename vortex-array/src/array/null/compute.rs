@@ -76,8 +76,8 @@ impl ToArrowFn<NullArray> for NullEncoding {
 }
 
 impl MinMaxFn<NullArray> for NullEncoding {
-    fn min_max(&self, _array: &NullArray) -> VortexResult<MinMaxResult> {
-        Ok((None, None))
+    fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
+        Ok(None)
     }
 }
 

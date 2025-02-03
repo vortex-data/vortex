@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::compute::{scalar_at, slice, MinMaxFn, ScalarAtFn, SliceFn, ToArrowFn};
+use crate::compute::{scalar_at, slice, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray};
 
@@ -54,8 +54,8 @@ impl SliceFn<ListArray> for ListEncoding {
 }
 
 impl MinMaxFn<ListArray> for ListEncoding {
-    fn min_max(&self, _array: &ListArray) -> VortexResult<(Option<Scalar>, Option<Scalar>)> {
+    fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement list min max
-        Ok((None, None))
+        Ok(None)
     }
 }

@@ -8,7 +8,8 @@ use vortex_scalar::Scalar;
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
 use crate::compute::{
-    filter, scalar_at, slice, take, FilterFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    filter, scalar_at, slice, take, FilterFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn,
+    ToArrowFn,
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -102,9 +103,9 @@ impl FilterFn<StructArray> for StructEncoding {
 }
 
 impl MinMaxFn<StructArray> for StructEncoding {
-    fn min_max(&self, _array: &StructArray) -> VortexResult<(Option<Scalar>, Option<Scalar>)> {
+    fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
-        Ok((None, None))
+        Ok(None)
     }
 }
 

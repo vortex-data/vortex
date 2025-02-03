@@ -11,7 +11,7 @@ use crate::compute::{MinMaxFn, MinMaxResult};
 use crate::stats::{Precision, Stat};
 
 impl MinMaxFn<BoolArray> for BoolEncoding {
-    fn min_max(&self, array: &BoolArray) -> VortexResult<MinMaxResult> {
+    fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
         let min = array
             .statistics()
             .get_scalar(Stat::Min, array.dtype())
@@ -22,12 +22,12 @@ impl MinMaxFn<BoolArray> for BoolEncoding {
             .and_then(Precision::some_exact);
 
         if let (Some(min), Some(max)) = (min, max) {
-            return Ok((Some(min), Some(max)));
+            return Ok(Some(MinMaxResult { min, max }));
         }
 
         let x = match array.validity_mask()? {
             Mask::AllTrue(_) => array.boolean_buffer(),
-            Mask::AllFalse(_) => return Ok((None, None)),
+            Mask::AllFalse(_) => return Ok(None),
             Mask::Values(v) => array.boolean_buffer().bitand(v.boolean_buffer()),
         };
         let mut slices = x.set_slices();
@@ -37,22 +37,22 @@ impl MinMaxFn<BoolArray> for BoolEncoding {
 
         let Some(slice) = slices.next() else {
             // all false
-            return Ok((
-                Some(Scalar::new(DType::Bool(NonNullable), false.into())),
-                Some(Scalar::new(DType::Bool(NonNullable), false.into())),
-            ));
+            return Ok(Some(MinMaxResult {
+                min: Scalar::new(DType::Bool(NonNullable), false.into()),
+                max: Scalar::new(DType::Bool(NonNullable), false.into()),
+            }));
         };
         if slice.0 == 0 && slice.1 == x.len() {
             // all true
-            return Ok((
-                Some(Scalar::new(DType::Bool(NonNullable), true.into())),
-                Some(Scalar::new(DType::Bool(NonNullable), true.into())),
-            ));
+            return Ok(Some(MinMaxResult {
+                min: Scalar::new(DType::Bool(NonNullable), true.into()),
+                max: Scalar::new(DType::Bool(NonNullable), true.into()),
+            }));
         };
 
-        Ok((
-            Some(Scalar::new(DType::Bool(NonNullable), false.into())),
-            Some(Scalar::new(DType::Bool(NonNullable), true.into())),
-        ))
+        Ok(Some(MinMaxResult {
+            min: Scalar::new(DType::Bool(NonNullable), false.into()),
+            max: Scalar::new(DType::Bool(NonNullable), true.into()),
+        }))
     }
 }

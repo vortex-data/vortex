@@ -7,8 +7,8 @@ use vortex_scalar::Scalar;
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
 use crate::compute::{
-    min_max, scalar_at, slice, take, CastFn, CompareFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
-    ToArrowFn,
+    min_max, scalar_at, slice, take, CastFn, CompareFn, MinMaxFn, MinMaxResult, ScalarAtFn,
+    SliceFn, TakeFn, ToArrowFn,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -76,11 +76,12 @@ impl TakeFn<ExtensionArray> for ExtensionEncoding {
 }
 
 impl MinMaxFn<ExtensionArray> for ExtensionEncoding {
-    fn min_max(&self, array: &ExtensionArray) -> VortexResult<(Option<Scalar>, Option<Scalar>)> {
-        let (min, max) = min_max(array.storage())?;
-        Ok((
-            min.map(|min| Scalar::extension(array.ext_dtype().clone(), min)),
-            max.map(|max| Scalar::extension(array.ext_dtype().clone(), max)),
-        ))
+    fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
+        Ok(
+            min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
+                min: Scalar::extension(array.ext_dtype().clone(), min),
+                max: Scalar::extension(array.ext_dtype().clone(), max),
+            }),
+        )
     }
 }
