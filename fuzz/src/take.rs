@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Array> {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array
-            .logical_validity()?
+            .validity_mask()?
             .to_boolean_buffer()
             .iter()
             .collect::<Vec<_>>();

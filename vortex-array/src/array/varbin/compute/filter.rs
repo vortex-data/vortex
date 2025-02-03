@@ -62,8 +62,8 @@ where
     O: NativePType + PrimInt + Zero,
     usize: AsPrimitive<O>,
 {
-    let logical_validity = validity.to_logical(offsets.len() - 1)?;
-    if let AllOr::Some(validity) = logical_validity.boolean_buffer() {
+    let validity_mask = validity.to_logical(offsets.len() - 1)?;
+    if let AllOr::Some(validity) = validity_mask.boolean_buffer() {
         let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
 
         for (start, end) in mask_slices.iter().copied() {

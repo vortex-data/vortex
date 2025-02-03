@@ -127,8 +127,12 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPArray) -> VortexResult<Mask> {
-        array.encoded().logical_validity()
+    fn all_valid(&self, array: &ALPArray) -> VortexResult<bool> {
+        array.encoded().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ALPArray) -> VortexResult<Mask> {
+        array.encoded().validity_mask()
     }
 }
 

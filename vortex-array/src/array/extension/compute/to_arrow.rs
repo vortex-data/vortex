@@ -42,7 +42,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
             .into_primitive()?;
-            let nulls = temporal_values.logical_validity()?.to_null_buffer();
+            let nulls = temporal_values.validity_mask()?.to_null_buffer();
             let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
             (scalars, nulls)

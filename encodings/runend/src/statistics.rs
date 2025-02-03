@@ -23,7 +23,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
                     .statistics()
                     .compute_is_sorted()
                     .unwrap_or(false)
-                    && array.logical_validity()?.all_true(),
+                    && array.validity_mask()?.all_true(),
             )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
@@ -54,7 +54,7 @@ impl RunEndArray {
         decompressed_ends: &[P],
         decompressed_values: BooleanBuffer,
     ) -> VortexResult<u64> {
-        Ok(match self.values().logical_validity()? {
+        Ok(match self.values().validity_mask()? {
             Mask::AllTrue(_) => {
                 let mut begin = self.offset() as u64;
                 decompressed_ends
@@ -103,7 +103,7 @@ impl RunEndArray {
 
     fn null_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
-        let null_count = match self.values().logical_validity()? {
+        let null_count = match self.values().validity_mask()? {
             Mask::AllTrue(_) => 0u64,
             Mask::AllFalse(_) => self.len() as u64,
             Mask::Values(mask) => {

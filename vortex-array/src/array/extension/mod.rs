@@ -83,8 +83,12 @@ impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
         array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ExtensionArray) -> VortexResult<Mask> {
-        array.storage().logical_validity()
+    fn all_valid(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        array.storage().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ExtensionArray) -> VortexResult<Mask> {
+        array.storage().validity_mask()
     }
 }
 

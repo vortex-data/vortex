@@ -11,7 +11,7 @@ use crate::{Array, IntoArray};
 
 impl FillForwardFn<BoolArray> for BoolEncoding {
     fn fill_forward(&self, array: &BoolArray) -> VortexResult<Array> {
-        let validity = array.logical_validity()?;
+        let validity = array.validity_mask()?;
 
         // nothing to see or do in this case
         if array.dtype().nullability() == Nullability::NonNullable {

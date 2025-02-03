@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 
 pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> VortexResult<Array> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.logical_validity()?.to_boolean_buffer();
+        let bool_buff = array.validity_mask()?.to_boolean_buffer();
 
         Validity::from(bool_buff.slice(start, stop - start))
     } else {

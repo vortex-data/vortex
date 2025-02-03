@@ -26,7 +26,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
             assert_eq!(usize::try_from(&min).vortex_unwrap(), 0);
-            encoded_zero::<$T>(array.logical_validity()?, nullability)
+            encoded_zero::<$T>(array.validity_mask()?, nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
             let unsigned_ptype = array.ptype().to_unsigned();
@@ -39,13 +39,13 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
 }
 
 fn encoded_zero<T: NativePType>(
-    logical_validity: Mask,
+    validity_mask: Mask,
     nullability: Nullability,
 ) -> VortexResult<Array> {
     let encoded_ptype = T::PTYPE.to_unsigned();
     let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
 
-    Ok(match logical_validity {
+    Ok(match validity_mask {
         Mask::AllTrue(len) => ConstantArray::new(zero, len).into_array(),
         Mask::AllFalse(len) => ConstantArray::new(
             Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),

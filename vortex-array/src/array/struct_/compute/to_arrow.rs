@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{StructArray, StructEncoding};
-use crate::compute::{to_arrow, try_cast, ToArrowFn};
+use crate::compute::{to_arrow, ToArrowFn};
 use crate::variants::StructArrayTrait;
 
 impl ToArrowFn<StructArray> for StructEncoding {
@@ -27,10 +27,9 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 // We check that the Vortex array nullability is compatible with the field
                 // nullability. In other words, make sure we don't return any nulls for a
                 // non-nullable field.
-                let _ = try_cast(
-                    &arr,
-                    &arr.dtype().with_nullability(field.is_nullable().into()),
-                )?;
+                if arr.dtype().is_nullable() && !field.is_nullable() && !arr.all_valid()? {
+                    vortex_bail!("Field {} is non-nullable but has nulls", field);
+                }
 
                 to_arrow(arr, field.data_type()).map_err(|err| {
                     err.with_context(format!("Failed to canonicalize field {}", field))
@@ -38,7 +37,7 @@ impl ToArrowFn<StructArray> for StructEncoding {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let nulls = array.logical_validity()?.to_null_buffer();
+        let nulls = array.validity_mask()?.to_null_buffer();
 
         if field_arrays.is_empty() {
             Ok(Some(Arc::new(ArrowStructArray::new_empty_fields(

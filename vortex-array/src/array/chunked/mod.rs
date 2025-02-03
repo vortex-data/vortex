@@ -229,9 +229,18 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
         array.chunk(chunk)?.is_valid(offset_in_chunk)
     }
 
-    fn logical_validity(&self, array: &ChunkedArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &ChunkedArray) -> VortexResult<bool> {
+        for chunk in array.chunks() {
+            if !chunk.all_valid()? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn validity_mask(&self, array: &ChunkedArray) -> VortexResult<Mask> {
         // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
-        let validity: Validity = array.chunks().map(|a| a.logical_validity()).try_collect()?;
+        let validity: Validity = array.chunks().map(|a| a.validity_mask()).try_collect()?;
         validity.to_logical(array.len())
     }
 }

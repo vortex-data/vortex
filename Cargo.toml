@@ -123,7 +123,7 @@ rand_distr = "0.4"
 ratatui = "0.29"
 rayon = "1.10.0"
 regex = "1.11.0"
-reqwest = { version = "0.12.0", features = ["blocking"] }
+reqwest = { version = "0.12.0", features = ["charset", "http2", "macos-system-configuration", "blocking", "rustls-tls"], default-features = false }
 # TODO(ngates): remove the unaligned rkyv feature when we move to 8-byte metadata.
 rkyv = { version = "0.8", features = [
     "little_endian",

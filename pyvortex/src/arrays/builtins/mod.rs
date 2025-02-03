@@ -17,6 +17,10 @@ pub(crate) struct PyNullArray;
 #[pyclass(name = "BoolArray", module = "vortex", extends=PyArray, frozen)]
 pub(crate) struct PyBoolArray;
 
+/// Concrete class for arrays with `vortex.bytebool` encoding.
+#[pyclass(name = "ByteBoolArray", module = "vortex", extends=PyArray, frozen)]
+pub(crate) struct PyByteBoolArray;
+
 /// Concrete class for arrays with `vortex.primitive` encoding.
 #[pyclass(name = "PrimitiveArray", module = "vortex", extends=PyArray, frozen)]
 pub(crate) struct PyPrimitiveArray;

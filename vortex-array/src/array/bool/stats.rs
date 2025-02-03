@@ -24,7 +24,7 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
             ]));
         }
 
-        match array.logical_validity()? {
+        match array.validity_mask()? {
             Mask::AllTrue(_) => self.compute_statistics(&array.boolean_buffer(), stat),
             Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
             Mask::Values(values) => self.compute_statistics(

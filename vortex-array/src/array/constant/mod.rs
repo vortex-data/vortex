@@ -61,7 +61,11 @@ impl ValidityVTable<ConstantArray> for ConstantEncoding {
         Ok(!array.scalar().is_null())
     }
 
-    fn logical_validity(&self, array: &ConstantArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &ConstantArray) -> VortexResult<bool> {
+        Ok(!array.scalar().is_null())
+    }
+
+    fn validity_mask(&self, array: &ConstantArray) -> VortexResult<Mask> {
         Ok(match array.scalar().is_null() {
             true => Mask::AllFalse(array.len()),
             false => Mask::AllTrue(array.len()),

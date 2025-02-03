@@ -12,7 +12,7 @@ use crate::take::take_canonical_array;
 pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> VortexResult<Array> {
     let validity = if array.dtype().is_nullable() {
         let validity_buff = array
-            .logical_validity()?
+            .validity_mask()?
             .into_array()
             .into_bool()?
             .boolean_buffer();

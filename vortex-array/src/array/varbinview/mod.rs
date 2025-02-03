@@ -434,7 +434,7 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     let views = var_bin_view.views();
 
     let nulls = var_bin_view
-        .logical_validity()
+        .validity_mask()
         .vortex_expect("VarBinViewArray: failed to get logical validity")
         .to_null_buffer();
 
@@ -472,7 +472,11 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &VarBinViewArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &VarBinViewArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
