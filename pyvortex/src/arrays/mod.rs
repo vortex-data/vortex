@@ -7,7 +7,7 @@ use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyList, PyType};
+use pyo3::types::{IntoPyDict, PyList};
 use pyo3::PyClass;
 use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
