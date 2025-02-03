@@ -1,6 +1,8 @@
 mod builtins;
 mod compressed;
 mod fastlanes;
+mod from_arrow;
+mod typed;
 
 use std::ops::Deref;
 
@@ -29,6 +31,10 @@ use crate::arrays::compressed::{
 use crate::arrays::fastlanes::{
     PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesForArray,
 };
+use crate::arrays::typed::{
+    PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyListTypeArray, PyNullTypeArray,
+    PyPrimitiveTypeArray, PyStructTypeArray, PyUtf8TypeArray,
+};
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
@@ -40,6 +46,16 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.arrays", &m)?;
 
     m.add_class::<PyArray>()?;
+
+    // Typed arrays
+    m.add_class::<PyNullTypeArray>()?;
+    m.add_class::<PyBoolTypeArray>()?;
+    m.add_class::<PyPrimitiveTypeArray>()?;
+    m.add_class::<PyUtf8TypeArray>()?;
+    m.add_class::<PyBinaryTypeArray>()?;
+    m.add_class::<PyStructTypeArray>()?;
+    m.add_class::<PyListTypeArray>()?;
+    m.add_class::<PyExtensionTypeArray>()?;
 
     // Canonical encodings
     m.add_class::<PyConstantArray>()?;
@@ -211,6 +227,18 @@ impl PyArray {
 
 #[pymethods]
 impl PyArray {
+    /// Convert a PyArrow object into a Vortex array.
+    ///
+    /// One of :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, or :class:`pyarrow.Table`.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    #[staticmethod]
+    fn from_arrow<'py>(obj: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
+        from_arrow::from_arrow(&obj)
+    }
+
     /// Convert this array to a PyArrow array.
     ///
     /// Convert this array to an Arrow array.

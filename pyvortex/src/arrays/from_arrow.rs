@@ -12,21 +12,9 @@ use vortex::error::{VortexError, VortexResult};
 use vortex::{Array, IntoArray};
 
 use crate::arrays::PyArray;
-use crate::install_module;
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "encoding")?;
-    parent.add_submodule(&m)?;
-    install_module("vortex._lib.encoding", &m)?;
-
-    m.add_function(wrap_pyfunction!(_encode, &m)?)?;
-
-    Ok(())
-}
-
-// Private, ergo not documented.
-#[pyfunction]
-pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
+/// Convert an Arrow object to a Vortex array.
+pub(super) fn from_arrow<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
     let pa = obj.py().import_bound("pyarrow")?;
     let pa_array = pa.getattr("Array")?;
     let chunked_array = pa.getattr("ChunkedArray")?;
