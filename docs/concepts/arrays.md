@@ -70,7 +70,7 @@ their canonical form.
 Note that Vortex also supports decompressing into intermediate encodings, such as dictionary encoding, which may be
 better suited to a particular operation or compute engine.
 
-The canonical encodings are support **zero-copy** conversion to and from _Apache Arrow_ arrays.
+The canonical encodings support **zero-copy** conversion to and from _Apache Arrow_ arrays.
 
 | Data Type          | Canonical Encoding   |
 |--------------------|----------------------|

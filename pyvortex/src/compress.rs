@@ -1,14 +1,24 @@
 use pyo3::prelude::*;
 use vortex::sampling_compressor::SamplingCompressor;
 
-use crate::array::PyArray;
+use crate::arrays::PyArray;
+use crate::install_module;
 
-#[pyfunction]
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "compress")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.compress", &m)?;
+
+    m.add_function(wrap_pyfunction!(compress, &m)?)?;
+
+    Ok(())
+}
+
 /// Attempt to compress a vortex array.
 ///
 /// Parameters
 /// ----------
-/// array : :class:`~vortex.encoding.Array`
+/// array : :class:`~vortex.Array`
 ///     The array.
 ///
 /// Examples
@@ -16,28 +26,28 @@ use crate::array::PyArray;
 ///
 /// Compress a very sparse array of integers:
 ///
-/// >>> a = vortex.array([42 for _ in range(1000)])
-/// >>> str(vortex.compress(a))
-/// 'vortex.constant(0x09)(i64, len=1000)'
+///    >>> import vortex as vx
+///    >>> a = vx.array([42 for _ in range(1000)])
+///    >>> str(vx.compress(a))
+///    'vortex.constant(0x09)(i64, len=1000)'
 ///
 /// Compress an array of increasing integers:
 ///
-/// >>> a = vortex.array(list(range(1000)))
-/// >>> str(vortex.compress(a))
-/// 'fastlanes.bitpacked(0x16)(i64, len=1000)'
+///    >>> a = vx.array(list(range(1000)))
+///    >>> str(vx.compress(a))
+///    'fastlanes.bitpacked(0x16)(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
 ///
-/// >>> a = vortex.array([
-/// ...     float(x) if x % 20 != 0 else None
-/// ...     for x in range(1000)
-/// ... ])
-/// >>> str(vortex.compress(a))
-/// 'vortex.alp(0x11)(f64?, len=1000)'
-pub fn compress(array: &Bound<PyArray>) -> PyResult<PyArray> {
+///    >>> a = vx.array([
+///    ...     float(x) if x % 20 != 0 else None
+///    ...     for x in range(1000)
+///    ... ])
+///    >>> str(vx.compress(a))
+///    'vortex.alp(0x11)(f64?, len=1000)'
+#[pyfunction]
+pub fn compress<'py>(array: &'py Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
     let compressor = SamplingCompressor::default();
-    let inner = compressor
-        .compress(array.borrow().unwrap(), None)?
-        .into_array();
-    Ok(PyArray::new(inner))
+    let inner = compressor.compress(&array.borrow(), None)?.into_array();
+    PyArray::init(array.py(), inner)
 }

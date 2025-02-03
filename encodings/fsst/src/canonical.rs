@@ -3,7 +3,7 @@ use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Canonical, IntoArrayVariant};
-use vortex_buffer::{BufferMut, ByteBuffer};
+use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -24,10 +24,24 @@ impl CanonicalVTable<FSSTArray> for FSSTEncoding {
 
             let bytes = VarBinArray::try_from(array.codes())?.sliced_bytes();
 
-            // Bulk-decompress the entire array.
-            let uncompressed_bytes = decompressor.decompress(bytes.as_slice());
-
             let uncompressed_lens_array = array.uncompressed_lengths().into_primitive()?;
+
+            // Decompres the full dataset.
+            #[allow(clippy::cast_possible_truncation)]
+            let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
+               uncompressed_lens_array.as_slice::<$P>().iter().map(|x| *x as usize).sum()
+            });
+
+            // Bulk-decompress the entire array.
+            let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
+            // SAFETY: uncompressed bytes is large enough to contain all data + the 7 additional bytes
+            //  of padding required for vectorized decompression. See the docstring for `decompress_into`
+            //  for more details.
+            unsafe {
+                let len = decompressor
+                    .decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+                uncompressed_bytes.set_len(len);
+            };
 
             // Directly create the binary views.
             let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());

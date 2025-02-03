@@ -7,7 +7,7 @@ the following expression represents the set of rows for which the `age` column l
 
 .. doctest::
 
-   >>> import vortex
+   >>> import vortex.expr
    >>> age = vortex.expr.column("age")
    >>> (23 > age) & (age < 55)  # doctest: +SKIP
 

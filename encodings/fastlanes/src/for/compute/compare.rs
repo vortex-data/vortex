@@ -35,7 +35,7 @@ fn compare_constant<T>(
     operator: Operator,
 ) -> VortexResult<Option<Array>>
 where
-    T: NativePType + Shr<u32, Output = T> + WrappingSub,
+    T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
@@ -53,11 +53,11 @@ where
         if let Some(reference) = reference {
             rhs = rhs.wrapping_sub(&reference);
         }
-        if lhs.shift() > 0 {
-            // Since compare requires that both sides are of same dtype this will always succeed and not panic
-            rhs = rhs >> (lhs.shift() as u32)
-        }
-        rhs
+
+        // Since compare requires that both sides are of same dtype, shifting by bit_width should never have an effect.
+        let bit_width = <T as NativePType>::PTYPE.bit_width();
+        assert!(bit_width >= lhs.shift() as usize);
+        rhs >> (lhs.shift() as usize % bit_width)
     });
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent

@@ -7,7 +7,7 @@ and remotely stored.
 This allows layouts to perform pruning of unused chunks and columns, without tying the logic to a specific file-based
 storage format, and without prescribing the column and row partitioning that a Vortex file can use.
 
-In fact, Layouts provide a mechanism to perform efficient scanning of columnar data over any storage medium.
+In fact, layouts provide a mechanism to perform efficient scanning of columnar data over any storage medium.
 The buffers might live in-memory, in a single file on-disk, split across many files, in a remote Redis, in Postgres
 block storage, or anywhere else that you can implement key/value blob storage.
 
@@ -76,7 +76,7 @@ There are some additional layouts that we plan to add in the future:
   (likely chunked) in another child layout.
 * `ListLayout`: a layout that separates the offsets and values of a list array into two child layouts, allowing
   for efficient pruning of the values array based on the relevant offsets.
-* `MergeLayout` a struct layout that can split fields of a struct across separate layouts, combining the result back
+* `MergeLayout`: a struct layout that can split fields of a struct across separate layouts, combining the result back
   into a single struct. This can be useful to isolate outsized columns and use a different chunking strategy, without
   impacting the compression or read performance of the other columns.
 

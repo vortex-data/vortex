@@ -6,23 +6,18 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, Vort
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct BinaryScalar<'a> {
     dtype: &'a DType,
     value: Option<ByteBuffer>,
 }
 
-impl PartialEq for BinaryScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype == other.dtype && self.value == other.value
-    }
-}
-
-impl Eq for BinaryScalar<'_> {}
-
 /// Ord is not implemented since it's undefined for different nullability
 impl PartialOrd for BinaryScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.dtype != other.dtype {
+            return None;
+        }
         self.value.partial_cmp(&other.value)
     }
 }

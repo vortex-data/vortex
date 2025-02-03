@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex::dtype::{DType, Field, Nullability, StructDType};
+use vortex::dtype::{DType, Field};
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{
     ExecutionMode, FileLayout, Segment, SplitBy, VortexOpenOptions, CHUNKED_LAYOUT_ID,
@@ -14,6 +14,7 @@ use vortex::file::{
 use vortex::io::TokioFile;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
+use vortex_layout::layouts::chunked::stats_table::StatsTable;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{Layout, LayoutVTableRef};
 // Add a shared Tokio Runtime for use in the app.
@@ -82,24 +83,11 @@ impl LayoutCursor {
                 CHUNKED_LAYOUT_ID => {
                     // If metadata is present, last child is stats table
                     if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
-                        let stats = stats_from_bitset_bytes(
+                        let present_stats = stats_from_bitset_bytes(
                             layout.metadata().expect("extracting stats").as_ref(),
                         );
 
-                        // When Chunked layout has a metadata field set, it will have a DType with
-                        // STRUCT type and one field for each of the statistics.
-                        let struct_dtype = StructDType::new(
-                            stats
-                                .iter()
-                                .map(|stat| Arc::from(stat.to_string().as_str()))
-                                .collect::<Vec<Arc<str>>>()
-                                .into(),
-                            stats
-                                .iter()
-                                .map(|stat| stat.dtype(&dtype))
-                                .collect::<Vec<DType>>(),
-                        );
-                        DType::Struct(Arc::new(struct_dtype), Nullability::NonNullable)
+                        StatsTable::dtype_for_stats_table(&dtype, &present_stats)
                     } else {
                         // If there is no metadata, all children
                         dtype.clone()
@@ -145,10 +133,35 @@ impl LayoutCursor {
         Self::new_with_path(self.file_layout.clone(), path)
     }
 
+    /// Get the size of the backing flatbuffer for this layout.
+    ///
+    /// NOTE: this is only safe to run against a FLAT layout.
+    pub fn flatbuffer_size(&self) -> usize {
+        assert_eq!(
+            self.layout.id(),
+            FLAT_LAYOUT_ID,
+            "flatbuffer size can only be checked for FLAT layout"
+        );
+
+        self.layout
+            .segments()
+            .last()
+            .map(|id| self.segment(id).length as usize)
+            .unwrap_or_default()
+    }
+
+    pub fn segment_size(&self) -> usize {
+        self.layout()
+            .segments()
+            .map(|id| self.segment(id).length as usize)
+            .sum()
+    }
+
     /// Predicate true when the cursor is currently activated over a stats table
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
         parent.encoding().id() == CHUNKED_LAYOUT_ID
+            && parent.layout().metadata().is_some()
             && self.path.last().copied().unwrap_or_default() == (parent.layout().nchildren() - 1)
     }
 
@@ -169,10 +182,27 @@ impl LayoutCursor {
     }
 }
 
+#[derive(Default, PartialEq, Eq)]
+pub enum KeyMode {
+    /// Normal mode.
+    ///
+    /// The default mode of the TUI when you start it up. Allows for browsing through layout hierarchies.
+    #[default]
+    Normal,
+    /// Searching mode.
+    ///
+    /// Triggered by a user when entering `/`, subsequent key presses will be used to craft a live-updating filter
+    /// of the current input element.
+    Search,
+}
+
 /// State saved across all Tabs.
 ///
 /// Holding them all allows us to switch between tabs without resetting view state.
 pub struct AppState {
+    pub key_mode: KeyMode,
+    pub search_filter: String,
+
     pub reader: TokioFile,
     pub cursor: LayoutCursor,
     pub current_tab: Tab,
@@ -216,6 +246,8 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
     Ok(AppState {
         reader,
         cursor,
+        key_mode: KeyMode::default(),
+        search_filter: String::new(),
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
     })

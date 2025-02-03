@@ -11,7 +11,18 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::{Array, IntoArray};
 
-use crate::array::PyArray;
+use crate::arrays::PyArray;
+use crate::install_module;
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "encoding")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.encoding", &m)?;
+
+    m.add_function(wrap_pyfunction!(_encode, &m)?)?;
+
+    Ok(())
+}
 
 // Private, ergo not documented.
 #[pyfunction]
@@ -25,7 +36,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
         let arrow_array = ArrowArrayData::from_pyarrow_bound(obj).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
         let enc_array = Array::from_arrow(arrow_array, is_nullable);
-        Bound::new(obj.py(), PyArray::new(enc_array))
+        PyArray::init(obj.py(), enc_array)
     } else if obj.is_instance(&chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr("chunks")?.extract()?;
         let encoded_chunks = chunks
@@ -40,9 +51,9 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .getattr("type")
             .and_then(|v| DataType::from_pyarrow_bound(&v))
             .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
-        Bound::new(
+        PyArray::init(
             obj.py(),
-            PyArray::new(ChunkedArray::try_new(encoded_chunks, dtype)?.into_array()),
+            ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),
         )
     } else if obj.is_instance(&table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow_bound(obj)?;
@@ -52,10 +63,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .map(|b| b.map_err(VortexError::ArrowError))
             .map(|b| b.and_then(Array::try_from))
             .collect::<VortexResult<Vec<_>>>()?;
-        Bound::new(
-            obj.py(),
-            PyArray::new(ChunkedArray::try_new(chunks, dtype)?.into_array()),
-        )
+        PyArray::init(obj.py(), ChunkedArray::try_new(chunks, dtype)?.into_array())
     } else {
         Err(PyValueError::new_err(
             "Cannot convert object to Vortex array",

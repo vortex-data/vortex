@@ -2,7 +2,8 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow
 
-from ._lib import encoding as _encoding
+from vortex._lib import arrays as _arrays
+from vortex._lib import encoding as _encoding
 
 try:
     import pandas
@@ -27,10 +28,7 @@ else:
 if TYPE_CHECKING:
     import numpy
 
-__doc__ = _encoding.__doc__
-
-Array = _encoding.Array
-compress = _encoding.compress
+Array = _arrays.Array
 
 
 def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
@@ -43,7 +41,7 @@ def arrow_table_from_struct_array(array: pyarrow.StructArray | pyarrow.ChunkedAr
     return pyarrow.Table.from_struct_array(array)
 
 
-def _Array_to_arrow_table(self: _encoding.Array) -> pyarrow.Table:
+def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     """Construct an Arrow table from this Vortex array.
 
     .. seealso::
@@ -83,7 +81,7 @@ def _Array_to_arrow_table(self: _encoding.Array) -> pyarrow.Table:
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas_df(self: _encoding.Array) -> "pandas.DataFrame":
+def _Array_to_pandas_df(self: _arrays.Array) -> "pandas.DataFrame":
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -121,7 +119,7 @@ Array.to_pandas_df = _Array_to_pandas_df
 
 
 def _Array_to_polars_dataframe(
-    self: _encoding.Array,
+    self: _arrays.Array,
 ):  # -> 'polars.DataFrame':  # breaks docs due to Polars issue #7027
     """Construct a Polars dataframe from this Vortex array.
 
@@ -172,7 +170,7 @@ def _Array_to_polars_dataframe(
 Array.to_polars_dataframe = _Array_to_polars_dataframe
 
 
-def _Array_to_polars_series(self: _encoding.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
+def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
     """Construct a Polars series from this Vortex array.
 
     .. seealso::
@@ -240,7 +238,7 @@ def _Array_to_polars_series(self: _encoding.Array):  # -> 'polars.Series':  # br
 Array.to_polars_series = _Array_to_polars_series
 
 
-def _Array_to_numpy(self: _encoding.Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
+def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -271,7 +269,7 @@ def _Array_to_numpy(self: _encoding.Array, *, zero_copy_only: bool = True) -> "n
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _encoding.Array) -> list[Any]:
+def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -308,7 +306,7 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
 
     Returns
     -------
-    :class:`vortex.encoding.Array`
+    :class:`vortex.Array`
 
     Examples
     --------

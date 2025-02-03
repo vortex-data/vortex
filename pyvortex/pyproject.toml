@@ -13,10 +13,10 @@ pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 
 [project.urls]
-Documentation = "https://spiraldb.github.io/vortex/docs/"
+Documentation = "https://docs.vortex.dev"
 Changelog = "https://github.com/spiraldb/vortex/blob/develop/CHANGELOG.md"
 Issues = "https://github.com/spiraldb/vortex/issues"
-Benchmarks = "https://spiraldb.github.io/vortex/dev/bench/"
+Benchmarks = "https://bench.vortex.dev"
 
 [build-system]
 requires = ["maturin>=1.7.2,<2.0"]
@@ -33,4 +33,12 @@ include = [
     { path = "rust-toolchain.toml", format = "sdist" },
     { path = "README.md", format = "sdist" },
     { path = "python/vortex/py.typed", format = "sdist" },
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.14.1",
+    "numpy>=2.2.2",
+    "pandas-stubs>=2.2.3.241126",
+    "pyarrow-stubs>=17.16",
 ]

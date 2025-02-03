@@ -1,10 +1,96 @@
-from . import dataset, encoding
-from ._lib import __doc__ as module_docs
-from ._lib import dtype, expr, io, scalar
+from . import _lib
+from ._lib.arrays import (
+    BoolArray,
+    ChunkedArray,
+    ConstantArray,
+    ExtensionArray,
+    ListArray,
+    NullArray,
+    PrimitiveArray,
+    StructArray,
+    VarBinArray,
+    VarBinViewArray,
+)
+from ._lib.compress import compress
+from ._lib.dtype import (
+    BinaryDType,
+    BoolDType,
+    DType,
+    ExtensionDType,
+    ListDType,
+    NullDType,
+    PrimitiveDType,
+    StructDType,
+    Utf8DType,
+    binary,
+    bool_,
+    float_,
+    int_,
+    list_,
+    null,
+    struct,
+    uint,
+    utf8,
+)
+from ._lib.scalar import (
+    BinaryScalar,
+    BoolScalar,
+    ExtensionScalar,
+    ListScalar,
+    NullScalar,
+    PrimitiveScalar,
+    Scalar,
+    StructScalar,
+    Utf8Scalar,
+    scalar,
+)
+from .arrays import Array, array
 
-__doc__ = module_docs
-del module_docs
-array = encoding.array
-compress = encoding.compress
+assert _lib, "Ensure we eagerly import the Vortex native library"
 
-__all__ = ["array", dtype, expr, io, encoding, scalar, dataset]
+__all__ = [
+    "array",
+    "compress",
+    # Arrays and builtin encodings
+    "Array",
+    "ConstantArray",
+    "ChunkedArray",
+    "NullArray",
+    "BoolArray",
+    "PrimitiveArray",
+    "VarBinArray",
+    "VarBinViewArray",
+    "StructArray",
+    "ListArray",
+    "ExtensionArray",
+    # DTypes
+    "DType",
+    "NullDType",
+    "BoolDType",
+    "PrimitiveDType",
+    "Utf8DType",
+    "BinaryDType",
+    "StructDType",
+    "ListDType",
+    "ExtensionDType",
+    "null",
+    "bool_",
+    "int_",
+    "uint",
+    "float_",
+    "utf8",
+    "binary",
+    "struct",
+    "list_",
+    # Scalars
+    "scalar",
+    "Scalar",
+    "NullScalar",
+    "BoolScalar",
+    "PrimitiveScalar",
+    "Utf8Scalar",
+    "BinaryScalar",
+    "StructScalar",
+    "ListScalar",
+    "ExtensionScalar",
+]
