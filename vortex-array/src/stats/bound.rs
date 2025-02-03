@@ -24,7 +24,8 @@ impl<T> LowerBound<T> {
     }
 }
 
-/// The result of the fallible intersection of two bound, defined to avoid Option JoinResult mixup.
+/// The result of the fallible intersection of two bound, defined to avoid `Option`
+/// `IntersectionResult` mixup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IntersectionResult<T> {
     /// An intersection result was found
