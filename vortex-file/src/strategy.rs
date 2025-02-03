@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock};
 
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::slice;
-use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
 use vortex_array::{Array, IntoArray, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
@@ -173,8 +173,8 @@ struct SamplingCompressorWriter {
 
 impl LayoutWriter for SamplingCompressorWriter {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
-        // Compute the pruning stats for the chunk.
-        chunk.statistics().compute_all(PRUNING_STATS)?;
+        // Compute the stats for the chunk prior to compression
+        chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
         let (compressed, tree) = self
             .compressor
