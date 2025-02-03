@@ -6,8 +6,10 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 
 /// A trait for creating new layout writers given a DType.
@@ -19,5 +21,44 @@ pub trait LayoutStrategy: Send + Sync {
 impl LayoutStrategy for FlatLayout {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
+    }
+}
+
+/// A layout strategy that preserves struct and flat arrays as they are given.
+pub struct FlatStrategy;
+
+impl LayoutStrategy for FlatStrategy {
+    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        if let DType::Struct(..) = dtype {
+            StructLayoutWriter::try_new_with_factory(dtype, FlatStrategy).map(|w| w.boxed())
+        } else {
+            Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
+        }
+    }
+}
+
+/// A layout strategy that preserves each chunk as-given.
+pub struct ChunkedStrategy {
+    pub chunk_strategy: Box<dyn LayoutStrategy>,
+}
+
+impl Default for ChunkedStrategy {
+    fn default() -> Self {
+        Self {
+            chunk_strategy: Box::new(FlatStrategy),
+        }
+    }
+}
+
+impl LayoutStrategy for ChunkedStrategy {
+    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(ChunkedLayoutWriter::new(
+            dtype,
+            ChunkedLayoutOptions {
+                chunk_strategy: self.chunk_strategy.clone(),
+                ..Default::default()
+            },
+        )
+        .boxed())
     }
 }
