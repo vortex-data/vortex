@@ -374,7 +374,7 @@ impl Validity {
                 is_valid
                     .statistics()
                     .compute_min::<bool>()
-                    .unwrap_or(false)
+                    .vortex_expect("validity array must support min")
                     .then(|| {
                         // min true => all true
                         Self::NonNullable
