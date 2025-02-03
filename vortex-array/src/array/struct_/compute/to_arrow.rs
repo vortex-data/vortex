@@ -27,10 +27,8 @@ impl ToArrowFn<StructArray> for StructEncoding {
                 // We check that the Vortex array nullability is compatible with the field
                 // nullability. In other words, make sure we don't return any nulls for a
                 // non-nullable field.
-                if arr.dtype().is_nullable() && !field.is_nullable() {
-                    if !arr.all_valid()? {
-                        vortex_bail!("Field {} is non-nullable but has nulls", field);
-                    }
+                if arr.dtype().is_nullable() && !field.is_nullable() && !arr.all_valid()? {
+                    vortex_bail!("Field {} is non-nullable but has nulls", field);
                 }
 
                 to_arrow(arr, field.data_type()).map_err(|err| {
