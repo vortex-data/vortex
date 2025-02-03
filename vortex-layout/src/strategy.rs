@@ -24,13 +24,13 @@ impl LayoutStrategy for FlatLayout {
     }
 }
 
-/// A layout strategy that preserves struct and flat arrays as they are given.
-pub struct FlatStrategy;
+/// A layout strategy that preserves struct arrays and writes everything else as flat.
+pub struct StructStrategy;
 
-impl LayoutStrategy for FlatStrategy {
+impl LayoutStrategy for StructStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         if let DType::Struct(..) = dtype {
-            StructLayoutWriter::try_new_with_factory(dtype, FlatStrategy).map(|w| w.boxed())
+            StructLayoutWriter::try_new_with_factory(dtype, StructStrategy).map(|w| w.boxed())
         } else {
             Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
         }
@@ -45,7 +45,7 @@ pub struct ChunkedStrategy {
 impl Default for ChunkedStrategy {
     fn default() -> Self {
         Self {
-            chunk_strategy: Box::new(FlatStrategy),
+            chunk_strategy: Box::new(StructStrategy),
         }
     }
 }
