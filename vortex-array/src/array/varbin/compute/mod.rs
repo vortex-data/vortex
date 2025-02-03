@@ -47,38 +47,6 @@ impl ComputeVTable for VarBinEncoding {
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
         Some(self)
     }
-
-    fn binary_boolean_fn(&self) -> Option<&dyn crate::compute::BinaryBooleanFn<Array>> {
-        None
-    }
-
-    fn binary_numeric_fn(&self) -> Option<&dyn crate::compute::BinaryNumericFn<Array>> {
-        None
-    }
-
-    fn fill_forward_fn(&self) -> Option<&dyn crate::compute::FillForwardFn<Array>> {
-        None
-    }
-
-    fn fill_null_fn(&self) -> Option<&dyn crate::compute::FillNullFn<Array>> {
-        None
-    }
-
-    fn invert_fn(&self) -> Option<&dyn crate::compute::InvertFn<Array>> {
-        None
-    }
-
-    fn like_fn(&self) -> Option<&dyn crate::compute::LikeFn<Array>> {
-        None
-    }
-
-    fn search_sorted_fn(&self) -> Option<&dyn crate::compute::SearchSortedFn<Array>> {
-        None
-    }
-
-    fn search_sorted_usize_fn(&self) -> Option<&dyn crate::compute::SearchSortedUsizeFn<Array>> {
-        None
-    }
 }
 
 impl ScalarAtFn<VarBinArray> for VarBinEncoding {
