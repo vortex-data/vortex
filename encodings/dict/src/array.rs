@@ -12,7 +12,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 impl_encoding!(
@@ -26,13 +26,21 @@ impl_encoding!(
 pub struct DictMetadata {
     codes_ptype: PType,
     values_len: usize, // TODO(ngates): make this a u32
+    null_code: Option<u32>,
 }
 
 impl DictArray {
-    pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
+    pub fn try_new(codes: Array, values: Array, null_code: Option<u32>) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
         }
+        if values.dtype().is_nullable() && null_code.is_none() {
+            vortex_bail!("Must provide a null code when values are nullable")
+        }
+        if !values.dtype().is_nullable() && null_code.is_some() {
+            vortex_bail!("Can only provide null code when values are nullable")
+        }
+
         Self::try_from_parts(
             values.dtype().clone(),
             codes.len(),
@@ -40,6 +48,7 @@ impl DictArray {
                 codes_ptype: PType::try_from(codes.dtype())
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
+                null_code,
             }),
             None,
             Some([codes, values].into()),
@@ -59,6 +68,11 @@ impl DictArray {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().values_len)
             .vortex_expect("DictArray is missing its values child array")
+    }
+
+    #[inline]
+    pub fn null_code(&self) -> Option<u32> {
+        self.metadata().null_code
     }
 }
 
@@ -114,13 +128,12 @@ impl ValidityVTable<DictArray> for DictEncoding {
     }
 
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
-        if array.dtype().is_nullable() {
+        if let Some(null_code) = array.null_code() {
             let primitive_codes = array.codes().into_primitive()?;
-            let values = array.values();
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                 let is_valid = primitive_codes.as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
-                    values.is_valid(idx).vortex_unwrap()
+                    is_valid[idx] != null_code as $P
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
             })
@@ -153,6 +166,7 @@ mod test {
             SerdeMetadata(DictMetadata {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
+                null_code: Some(u32::MAX),
             }),
         );
     }

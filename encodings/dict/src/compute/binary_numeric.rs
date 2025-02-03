@@ -22,6 +22,7 @@ impl BinaryNumericFn<DictArray> for DictEncoding {
         DictArray::try_new(
             array.codes(),
             binary_numeric(&array.values(), &rhs_const_array, op)?,
+            array.null_code(),
         )
         .map(IntoArray::into_array)
         .map(Some)

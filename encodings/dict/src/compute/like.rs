@@ -16,7 +16,7 @@ impl LikeFn<DictArray> for DictEncoding {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
             let values = like(array.values(), &pattern, options)?;
             Ok(Some(
-                DictArray::try_new(array.codes(), values)?.into_array(),
+                DictArray::try_new(array.codes(), values, array.null_code())?.into_array(),
             ))
         } else {
             Ok(None)
