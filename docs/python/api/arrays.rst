@@ -105,10 +105,6 @@ Compressed Encodings
    :members:
 
 
-.. autoclass:: vortex.SparseArray
-   :members:
-
-
 .. autoclass:: vortex.ZigZagArray
    :members:
 
