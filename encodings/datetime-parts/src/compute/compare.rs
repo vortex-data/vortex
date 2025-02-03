@@ -75,7 +75,7 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
             comparison,
         )?;
 
-        return Ok(Some(comparison));
+        Ok(Some(comparison))
     }
 }
 
