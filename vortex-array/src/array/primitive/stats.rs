@@ -12,8 +12,8 @@ use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::MinMaxFn;
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::compute::min_max;
+use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
 
@@ -37,20 +37,8 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
         }
 
         if stat == Stat::Max || stat == Stat::Min {
-            let result = self.min_max(array);
-            if let Ok(res) = result {
-                let mut stats = StatsSet::default();
-
-                if let Some((min, max)) = res {
-                    if min.is_exact() && min == max {
-                        stats.set(Stat::IsConstant, Precision::exact(true));
-                    }
-
-                    stats.set(Stat::Min, min.map(|s| s.into_value()));
-                    stats.set(Stat::Max, max.map(|s| s.into_value()));
-                }
-                return Ok(stats);
-            }
+            min_max(array)?;
+            return Ok(array.to_set());
         }
 
         match_each_native_ptype!(array.ptype(), |$P| {

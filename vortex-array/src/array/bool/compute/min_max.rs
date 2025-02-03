@@ -12,18 +12,22 @@ use crate::stats::{Precision, Stat};
 
 impl MinMaxFn<BoolArray> for BoolEncoding {
     fn min_max(&self, array: &BoolArray) -> VortexResult<MinMaxResult> {
-        let min = array.statistics().get_scalar(Stat::Min, array.dtype());
-        let max = array.statistics().get_scalar(Stat::Max, array.dtype());
+        let min = array
+            .statistics()
+            .get_scalar(Stat::Min, array.dtype())
+            .and_then(Precision::some_exact);
+        let max = array
+            .statistics()
+            .get_scalar(Stat::Max, array.dtype())
+            .and_then(Precision::some_exact);
 
         if let (Some(min), Some(max)) = (min, max) {
-            if min.is_exact() && max.is_exact() {
-                return Ok(Some((min, max)));
-            }
+            return Ok((Some(min), Some(max)));
         }
 
         let x = match array.validity_mask()? {
             Mask::AllTrue(_) => array.boolean_buffer(),
-            Mask::AllFalse(_) => return Ok(None),
+            Mask::AllFalse(_) => return Ok((None, None)),
             Mask::Values(v) => array.boolean_buffer().bitand(v.boolean_buffer()),
         };
         let mut slices = x.set_slices();
@@ -33,22 +37,22 @@ impl MinMaxFn<BoolArray> for BoolEncoding {
 
         let Some(slice) = slices.next() else {
             // all false
-            return Ok(Some((
-                Precision::exact(Scalar::new(DType::Bool(NonNullable), false.into())),
-                Precision::exact(Scalar::new(DType::Bool(NonNullable), false.into())),
-            )));
+            return Ok((
+                Some(Scalar::new(DType::Bool(NonNullable), false.into())),
+                Some(Scalar::new(DType::Bool(NonNullable), false.into())),
+            ));
         };
         if slice.0 == 0 && slice.1 == x.len() {
             // all true
-            return Ok(Some((
-                Precision::exact(Scalar::new(DType::Bool(NonNullable), true.into())),
-                Precision::exact(Scalar::new(DType::Bool(NonNullable), true.into())),
-            )));
+            return Ok((
+                Some(Scalar::new(DType::Bool(NonNullable), true.into())),
+                Some(Scalar::new(DType::Bool(NonNullable), true.into())),
+            ));
         };
 
-        Ok(Some((
-            Precision::exact(Scalar::new(DType::Bool(NonNullable), false.into())),
-            Precision::exact(Scalar::new(DType::Bool(NonNullable), true.into())),
-        )))
+        Ok((
+            Some(Scalar::new(DType::Bool(NonNullable), false.into())),
+            Some(Scalar::new(DType::Bool(NonNullable), true.into())),
+        ))
     }
 }

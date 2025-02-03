@@ -1,10 +1,10 @@
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::stats::Precision;
+use crate::stats::{Precision, Stat, Statistics};
 use crate::{Array, Encoding, IntoCanonical};
 
-pub type MinMaxResult = Option<(Precision<Scalar>, Precision<Scalar>)>;
+pub type MinMaxResult = (Option<Scalar>, Option<Scalar>);
 
 /// Computes the min and max of an array, returning the (min, max) values
 pub trait MinMaxFn<A> {
@@ -36,19 +36,25 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<MinMaxResult> {
         }
     };
 
-    if let Some((min, max)) = &min_max {
+    if let (Some(min), _) = &min_max {
         debug_assert_eq!(
-            min.value().dtype(),
+            min.dtype(),
             array.dtype(),
             "MinMax min dtype mismatch {}",
             array.encoding()
         );
+
+        array.set(Stat::Min, Precision::exact(min.clone().into_value()));
+    }
+
+    if let (_, Some(max)) = &min_max {
         debug_assert_eq!(
-            max.value().dtype(),
+            max.dtype(),
             array.dtype(),
-            "MinMax max dtype mismatch {}",
+            "MinMax min dtype mismatch {}",
             array.encoding()
         );
+        array.set(Stat::Max, Precision::exact(max.clone().into_value()));
     }
 
     Ok(min_max)
@@ -62,16 +68,12 @@ mod tests {
 
     use crate::array::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::min_max;
-    use crate::stats::Precision;
     use crate::validity::Validity::NonNullable;
 
     #[test]
     fn test_prim_max() {
         let p = PrimitiveArray::new(buffer![1, 2, 3], NonNullable);
-        assert_eq!(
-            min_max(p).unwrap(),
-            Some((Precision::exact(1), Precision::exact(3)))
-        );
+        assert_eq!(min_max(p).unwrap(), (Some(1.into()), Some(3.into())));
     }
 
     #[test]
@@ -80,10 +82,7 @@ mod tests {
             BooleanBuffer::from([true, true, true].as_slice()),
             Nullability::NonNullable,
         );
-        assert_eq!(
-            min_max(p).unwrap(),
-            Some((Precision::exact(true), Precision::exact(true)))
-        );
+        assert_eq!(min_max(p).unwrap(), (Some(true.into()), Some(true.into())));
 
         let p = BoolArray::new(
             BooleanBuffer::from([false, false, false].as_slice()),
@@ -91,22 +90,19 @@ mod tests {
         );
         assert_eq!(
             min_max(p).unwrap(),
-            Some((Precision::exact(false), Precision::exact(false)))
+            (Some(false.into()), Some(false.into()))
         );
 
         let p = BoolArray::new(
             BooleanBuffer::from([false, true, false].as_slice()),
             Nullability::NonNullable,
         );
-        assert_eq!(
-            min_max(p).unwrap(),
-            Some((Precision::exact(false), Precision::exact(true)))
-        );
+        assert_eq!(min_max(p).unwrap(), (Some(false.into()), Some(true.into())));
     }
 
     #[test]
     fn test_null() {
         let p = NullArray::new(1);
-        assert_eq!(min_max(p).unwrap(), (None));
+        assert_eq!(min_max(p).unwrap(), (None, None));
     }
 }
