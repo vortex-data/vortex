@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
+use num_traits::{AsPrimitive, NumCast};
 use serde::{Deserialize, Serialize};
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::StatsSet;
@@ -11,8 +12,8 @@ use vortex_array::{
     encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
     SerdeMetadata,
 };
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 impl_encoding!(
@@ -26,11 +27,16 @@ impl_encoding!(
 pub struct DictMetadata {
     codes_ptype: PType,
     values_len: usize, // TODO(ngates): make this a u32
-    // TODO(robert): Should this be a u32?
-    null_code: Option<u64>,
+    // TODO(robert): This goes away once we move validity around
+    single_null_code: Option<u64>,
 }
 
 impl DictArray {
+    /// Construct new Dictionary encoded array.
+    ///
+    /// # Note:
+    ///
+    /// Assumes that only null_code argument is invalid in values array
     pub fn try_new(codes: Array, values: Array, null_code: Option<u64>) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
@@ -51,7 +57,7 @@ impl DictArray {
                 codes_ptype: PType::try_from(codes.dtype())
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
-                null_code,
+                single_null_code: null_code,
             }),
             None,
             Some([codes, values].into()),
@@ -75,7 +81,7 @@ impl DictArray {
 
     #[inline]
     pub fn null_code(&self) -> Option<u64> {
-        self.metadata().null_code
+        self.metadata().single_null_code
     }
 }
 
@@ -119,33 +125,41 @@ impl ValidityVTable<DictArray> for DictEncoding {
         if let Some(null_code) = array.null_code() {
             let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-                let null_code_p = null_code as $P;
-                for code in primitive_codes.as_slice::<$P>() {
-                    if *code == null_code_p  {
-                        return Ok(false);
-                    }
-                }
-            });
+                all_valid(primitive_codes.as_slice::<$P>(), null_code)
+            })
+        } else {
+            Ok(true)
         }
-
-        Ok(true)
     }
 
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
         if let Some(null_code) = array.null_code() {
             let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-                let null_code_p = null_code as $P;
-                let is_valid = primitive_codes.as_slice::<$P>();
-                let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
-                    is_valid[idx] != null_code_p
-                });
-                Ok(Mask::from_buffer(is_valid_buffer))
+                validity_mask(primitive_codes.as_slice::<$P>(), null_code)
             })
         } else {
             Ok(Mask::AllTrue(array.len()))
         }
     }
+}
+
+fn validity_mask<T: NativePType + NumCast>(codes: &[T], null_code: u64) -> VortexResult<Mask> {
+    let null_code = T::from_u64(null_code)
+        .ok_or_else(|| vortex_err!("Can't cast u64 null code to code type"))?;
+    let is_valid_buffer = BooleanBuffer::collect_bool(codes.len(), |idx| codes[idx] != null_code);
+    Ok(Mask::from_buffer(is_valid_buffer))
+}
+
+fn all_valid<T: NativePType + NumCast>(codes: &[T], null_code: u64) -> VortexResult<bool> {
+    let null_code = T::from_u64(null_code)
+        .ok_or_else(|| vortex_err!("Can't cast u64 null code to code type"))?;
+    for code in codes.iter().copied() {
+        if code == null_code {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 impl VisitorVTable<DictArray> for DictEncoding {
@@ -171,7 +185,7 @@ mod test {
             SerdeMetadata(DictMetadata {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
-                null_code: Some(u64::MAX),
+                single_null_code: Some(u64::MAX),
             }),
         );
     }
