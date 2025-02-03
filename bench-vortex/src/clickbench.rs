@@ -173,9 +173,7 @@ pub async fn register_vortex_files(
                         // TODO(ngates): or should we use the provided schema?
                         DType::from_arrow(record_batches.schema()),
                         record_batches.map(|batch| {
-                            batch
-                                .map_err(VortexError::from)
-                                .and_then(Array::try_from)
+                            batch.map_err(VortexError::from).and_then(Array::try_from)
                         }),
                     );
 

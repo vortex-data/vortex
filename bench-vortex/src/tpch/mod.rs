@@ -201,11 +201,7 @@ async fn register_vortex_file(
         let array_stream = ArrayStreamAdapter::new(
             // TODO(ngates): or should we use the provided schema?
             DType::from_arrow(record_batches.schema()),
-            record_batches.map(|batch| {
-                batch
-                    .map_err(VortexError::from)
-                    .and_then(Array::try_from)
-            }),
+            record_batches.map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
         );
 
         let f = OpenOptions::new()
