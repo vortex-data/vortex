@@ -76,7 +76,7 @@ impl Debug for CompressionTree<'_> {
 ///
 /// This enables codecs to cache trained parameters from the sampling runs to reuse for
 /// the large run.
-pub trait EncoderMetadata {
+pub trait EncoderMetadata: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
 }
 
