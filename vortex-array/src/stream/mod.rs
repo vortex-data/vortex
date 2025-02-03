@@ -20,5 +20,5 @@ pub trait ArrayStream: Stream<Item = VortexResult<Array>> {
     fn dtype(&self) -> &DType;
 }
 
-/// Trait for a [`Stream`] of [`RecordBatch`]es that can be passed between threads
+/// Trait for a [`Stream`] of [`Array`]s that can be passed between threads.
 pub type SendableArrayStream = Pin<Box<dyn ArrayStream + Send>>;
