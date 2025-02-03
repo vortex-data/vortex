@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock};
 
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::slice;
-use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
+use vortex_array::stats::STATS_TO_WRITE;
 use vortex_array::{Array, IntoArray, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
