@@ -106,7 +106,7 @@ pub struct PrimitiveDictBuilder<T> {
 impl<T: NativePType> Default for PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
- {
+{
     fn default() -> Self {
         Self::new()
     }
