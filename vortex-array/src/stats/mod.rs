@@ -14,7 +14,7 @@ pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::Array;
 
@@ -330,6 +330,10 @@ impl dyn Statistics + '_ {
         U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
     {
         self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
+    }
+
+    pub fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
+        self.get(stat).map(|s| s.into_scalar(dtype.clone()))
     }
 
     /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.

@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use std::mem::size_of;
 
 use arrow_buffer::buffer::BooleanBuffer;
-use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
@@ -13,6 +12,7 @@ use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
+use crate::compute::MinMaxFn;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
@@ -34,6 +34,23 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
+        }
+
+        if stat == Stat::Max || stat == Stat::Min {
+            let result = self.min_max(array);
+            if let Ok(res) = result {
+                let mut stats = StatsSet::default();
+
+                if let Some((min, max)) = res {
+                    if min.is_exact() && min == max {
+                        stats.set(Stat::IsConstant, Precision::exact(true));
+                    }
+
+                    stats.set(Stat::Min, min.map(|s| s.into_value()));
+                    stats.set(Stat::Max, max.map(|s| s.into_value()));
+                }
+                return Ok(stats);
+            }
         }
 
         match_each_native_ptype!(array.ptype(), |$P| {
@@ -67,20 +84,6 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
         }
 
         Ok(match stat {
-            Stat::Min | Stat::Max => {
-                let mut stats = compute_min_max(array.iter().copied(), true);
-
-                stats.set(
-                    Stat::IsConstant,
-                    // If the min is exactly equal to the max, then the array is constant.
-                    stats
-                        .get_as::<T>(Stat::Min)
-                        .zip(stats.get_as::<T>(Stat::Max))
-                        .map(|(min, max)| Precision::exact(min.some_exact() == max.some_exact()))
-                        .unwrap_or_else(|| Precision::inexact(false)),
-                );
-                stats
-            }
             Stat::IsConstant => {
                 let first = array[0];
                 let is_constant = array.iter().all(|x| first.is_eq(*x));
@@ -96,6 +99,7 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
                 stats.finish()
             }
             Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
+            _ => unreachable!("already handled above"),
         })
     }
 }
@@ -135,9 +139,7 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
         }
 
         let mut set_indices = nulls.1.set_indices();
-        if matches!(stat, Stat::Min | Stat::Max) {
-            stats.extend(compute_min_max(set_indices.map(|next| values[next]), false));
-        } else if stat == Stat::IsSorted {
+        if stat == Stat::IsSorted {
             stats.extend(compute_is_sorted(set_indices.map(|next| values[next])));
         } else if stat == Stat::IsStrictSorted {
             stats.extend(compute_is_strict_sorted(
@@ -168,32 +170,6 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
         }
 
         Ok(stats)
-    }
-}
-
-fn compute_min_max<T: PStatsType>(
-    iter: impl Iterator<Item = T>,
-    could_be_constant: bool,
-) -> StatsSet {
-    // this `compare` function provides a total ordering (even for NaN values)
-    match iter.minmax_by(|a, b| a.total_compare(*b)) {
-        MinMaxResult::NoElements => StatsSet::default(),
-        MinMaxResult::OneElement(x) => {
-            let scalar = x.into();
-            StatsSet::new_unchecked(vec![
-                (Stat::Min, Precision::exact(scalar.clone())),
-                (Stat::Max, Precision::exact(scalar)),
-                (Stat::IsConstant, Precision::exact(could_be_constant)),
-            ])
-        }
-        MinMaxResult::MinMax(min, max) => StatsSet::new_unchecked(vec![
-            (Stat::Min, Precision::exact(min)),
-            (Stat::Max, Precision::exact(max)),
-            (
-                Stat::IsConstant,
-                Precision::exact(could_be_constant && min.total_compare(max) == Ordering::Equal),
-            ),
-        ]),
     }
 }
 

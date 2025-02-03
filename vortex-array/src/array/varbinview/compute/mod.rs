@@ -1,3 +1,4 @@
+mod min_max;
 mod to_arrow;
 
 use std::ops::Deref;
@@ -12,7 +13,7 @@ use super::BinaryView;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -31,6 +32,10 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }

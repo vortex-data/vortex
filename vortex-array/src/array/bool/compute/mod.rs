@@ -1,7 +1,7 @@
 use crate::array::BoolEncoding;
 use crate::compute::{
-    BinaryBooleanFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
-    ToArrowFn,
+    BinaryBooleanFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, MinMaxFn, ScalarAtFn, SliceFn,
+    TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::Array;
@@ -11,6 +11,7 @@ mod fill_null;
 pub mod filter;
 mod flatten;
 mod invert;
+mod min_max;
 mod scalar_at;
 mod slice;
 mod take;
@@ -54,6 +55,10 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }

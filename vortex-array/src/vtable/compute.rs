@@ -1,6 +1,7 @@
 use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn, FilterFn,
-    InvertFn, LikeFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,
+    InvertFn, LikeFn, MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn,
+    ToArrowFn,
 };
 use crate::Array;
 
@@ -109,6 +110,11 @@ pub trait ComputeVTable {
     ///
     /// See: [ToArrowFn].
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        None
+    }
+
+    /// Compute the min, max of an array.
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         None
     }
 }
