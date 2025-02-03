@@ -14,7 +14,7 @@ Encoded arrays are implemented as subclasses of :class:`~vortex.Array`.
 
 .. autoclass:: vortex.Array
     :members:
-    :special-members: __len__
+    :no-index:
 
 Canonical Encodings
 -------------------
