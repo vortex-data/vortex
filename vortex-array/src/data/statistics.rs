@@ -108,7 +108,7 @@ impl Statistics for Array {
     }
 
     fn compute(&self, stat: Stat) -> Option<ScalarValue> {
-        if let Some(s) = self.get(stat).and_then(|v| v.ok_exact()) {
+        if let Some(s) = self.get(stat).and_then(|v| v.some_exact()) {
             return Some(s);
         }
         let s = self
@@ -119,7 +119,7 @@ impl Statistics for Array {
 
         self.set(stat, s.clone());
 
-        s.ok_exact()
+        s.some_exact()
     }
 
     fn retain_only(&self, stats: &[Stat]) {

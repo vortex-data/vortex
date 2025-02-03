@@ -7,7 +7,7 @@ use crate::stats::Precision::Exact;
 use crate::stats::{Precision, StatBound};
 
 /// Interpret the value as a lower bound.
-/// These format a partial order over successively more precise bounds
+/// These form a partial order over successively more precise bounds
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LowerBound<T>(pub(crate) Precision<T>);
 
@@ -100,6 +100,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
                 }
             }
         })
+    }
+
+    fn as_exact(&self) -> Option<&T> {
+        self.0.as_exact()
     }
 }
 
@@ -205,6 +209,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
                 }
             }
         })
+    }
+
+    fn as_exact(&self) -> Option<&T> {
+        self.0.as_exact()
     }
 }
 

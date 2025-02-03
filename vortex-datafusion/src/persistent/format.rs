@@ -195,7 +195,9 @@ impl FileFormat for VortexFormat {
                     min_value: directional_bound_to_df_precision(min),
                     distinct_count: s
                         .get_as::<bool>(Stat::IsConstant)
-                        .and_then(|is_constant| is_constant.ok_exact().map(|_| Precision::Exact(1)))
+                        .and_then(|is_constant| {
+                            is_constant.some_exact().map(|_| Precision::Exact(1))
+                        })
                         .unwrap_or(Precision::Absent),
                 }
             })

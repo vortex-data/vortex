@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::stats::bound::{max, min, JoinResult};
-use crate::stats::{LowerBound, Precision, Stat, UpperBound};
+use crate::stats::{LowerBound, Precision, Stat};
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
 /// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
@@ -24,8 +24,11 @@ pub trait StatBound<T>: Sized {
     /// Refines the bounds to the most precise estimate we can make for that bound.
     /// If the bounds are disjoint, then the result is `JoinResult::None`.
     /// e.g. `Precision::Inexact(5)` and `Precision::Exact(6)` would result in `Precision::Inexact(5)`.
-    /// A.k.a. the `meet` of the bound.
+    /// A.k.a. the `join` of the bound.
     fn intersection(&self, other: &Self) -> Option<JoinResult<Self>>;
+
+    // Returns the exact value from the bound, if that value is exact, otherwise `None`.
+    fn as_exact(&self) -> Option<&T>;
 }
 
 /// This allows a stat with a `Precision` to be interpreted as a bound.
@@ -33,86 +36,6 @@ impl<T> Precision<T> {
     pub fn bound<S: StatType<T>>(self) -> S::Bound {
         S::Bound::lift(self)
     }
-}
-
-/// These structs allow the extraction of the bound from the `Precision` value.
-/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
-pub struct Max;
-pub struct Min;
-pub struct BitWidthFreq;
-pub struct TrailingZeroFreq;
-pub struct IsConstant;
-pub struct IsSorted;
-pub struct IsStrictSorted;
-pub struct RunCount;
-pub struct TrueCount;
-pub struct NullCount;
-pub struct UncompressedSizeInBytes;
-
-impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::BitWidthFreq;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::TrailingZeroFreq;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for IsConstant {
-    type Bound = Precision<T>;
-
-    const STAT: Stat = Stat::IsConstant;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
-    type Bound = Precision<T>;
-
-    const STAT: Stat = Stat::IsSorted;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
-    type Bound = Precision<T>;
-
-    const STAT: Stat = Stat::IsStrictSorted;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for RunCount {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::RunCount;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for TrueCount {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::TrueCount;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for NullCount {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::NullCount;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::UncompressedSizeInBytes;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for Max {
-    type Bound = UpperBound<T>;
-
-    const STAT: Stat = Stat::Max;
-}
-
-impl<T: PartialOrd + Clone> StatType<T> for Min {
-    type Bound = LowerBound<T>;
-
-    const STAT: Stat = Stat::Min;
 }
 
 impl<T: PartialOrd + Clone> LowerBound<T> {
@@ -150,5 +73,12 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
                 JoinResult::Join(Precision::Inexact(max(lhs, rhs)?.clone()))
             }
         })
+    }
+
+    fn as_exact(&self) -> Option<&T> {
+        match self {
+            Precision::Exact(val) => Some(val),
+            _ => None,
+        }
     }
 }

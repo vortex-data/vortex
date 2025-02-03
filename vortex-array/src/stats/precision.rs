@@ -20,6 +20,7 @@ pub enum Precision<T> {
 }
 
 impl<T> Precision<Option<T>> {
+    /// Transpose the `Option<Precision<T>>` into `Option<Precision<T>>`.
     pub fn transpose(self) -> Option<Precision<T>> {
         match self {
             Exact(Some(x)) => Some(Exact(x)),
@@ -30,6 +31,7 @@ impl<T> Precision<Option<T>> {
 }
 
 impl<T: Clone> Precision<T> {
+    // Coverts an exact to an inexact bound.
     pub fn into_inexact(self) -> Self {
         match self {
             Exact(val) => Inexact(val),
@@ -54,14 +56,14 @@ impl<T> Precision<T> {
         }
     }
 
-    pub fn ok_exact(self) -> Option<T> {
+    pub fn some_exact(self) -> Option<T> {
         match self {
             Exact(val) => Some(val),
             _ => None,
         }
     }
 
-    pub fn ok_inexact(self) -> Option<T> {
+    pub fn some_inexact(self) -> Option<T> {
         match self {
             Inexact(val) => Some(val),
             _ => None,
@@ -108,10 +110,10 @@ impl<T: Display> Display for Precision<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Exact(v) => {
-                write!(f, "exact({})", v)
+                write!(f, "{}", v)
             }
             Inexact(v) => {
-                write!(f, "inexact({})", v)
+                write!(f, "~{}", v)
             }
         }
     }

@@ -72,6 +72,86 @@ pub enum Stat {
     UncompressedSizeInBytes,
 }
 
+/// These structs allow the extraction of the bound from the `Precision` value.
+/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
+pub struct Max;
+pub struct Min;
+pub struct BitWidthFreq;
+pub struct TrailingZeroFreq;
+pub struct IsConstant;
+pub struct IsSorted;
+pub struct IsStrictSorted;
+pub struct RunCount;
+pub struct TrueCount;
+pub struct NullCount;
+pub struct UncompressedSizeInBytes;
+
+impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::BitWidthFreq;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrailingZeroFreq;
+}
+
+impl StatType<bool> for IsConstant {
+    type Bound = Precision<bool>;
+
+    const STAT: Stat = Stat::IsConstant;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsStrictSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for RunCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::RunCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrueCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrueCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for NullCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::NullCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::UncompressedSizeInBytes;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for Max {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::Max;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for Min {
+    type Bound = LowerBound<T>;
+
+    const STAT: Stat = Stat::Min;
+}
+
 impl Stat {
     /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
     /// e.g., min/max are commutative, but is_sorted is not

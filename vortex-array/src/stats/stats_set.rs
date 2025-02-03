@@ -4,8 +4,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::stat_bound::{Max, Min};
-use crate::stats::{Precision, Stat, StatBound, StatType};
+use crate::stats::{Max, Min, Precision, Stat, StatBound, StatType};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -400,10 +399,10 @@ impl StatsSet {
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
         if self
             .get_as(Stat::IsConstant)
-            .is_some_and(|v| v.ok_exact() == Some(true))
+            .is_some_and(|v| v.some_exact() == Some(true))
             && other
                 .get_as(Stat::IsConstant)
-                .is_some_and(|v| v.ok_exact() == Some(true))
+                .is_some_and(|v| v.some_exact() == Some(true))
             && self
                 .get_scalar(Stat::Min, dtype.clone())
                 .is_some_and(|min| {
