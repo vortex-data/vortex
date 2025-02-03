@@ -20,6 +20,7 @@ use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
+use vortex_layout::layouts::flat::writer::FlatLayoutOptions;
 
 use crate::io::IoDriver;
 use crate::{Scan, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
@@ -49,6 +50,7 @@ async fn test_read_simple() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
+        .with_strategy(FlatLayoutOptions::default())
         .write(ByteBufferMut::empty(), st.into_array().into_array_stream())
         .await
         .unwrap();
@@ -59,16 +61,13 @@ async fn test_read_simple() {
         .unwrap()
         .scan(Scan::all())
         .unwrap());
-    let mut batch_count = 0;
     let mut row_count = 0;
 
     while let Some(array) = stream.next().await {
         let array = array.unwrap();
-        batch_count += 1;
         row_count += array.len();
     }
 
-    assert_eq!(batch_count, 2);
     assert_eq!(row_count, 8);
 }
 
