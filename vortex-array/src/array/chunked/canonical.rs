@@ -16,7 +16,7 @@ use crate::{Array, Canonical, IntoArray, IntoArrayVariant};
 
 impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
     fn into_canonical(&self, array: ChunkedArray) -> VortexResult<Canonical> {
-        let validity = Validity::from_mask(array.logical_validity()?, array.dtype().nullability());
+        let validity = Validity::from_mask(array.validity_mask()?, array.dtype().nullability());
         try_canonicalize_chunks(array.chunks().collect(), validity, array.dtype())
     }
 }

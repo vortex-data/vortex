@@ -615,7 +615,7 @@ impl PyArray {
     ///
     ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(3, 3).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
+    ///     <pyarrow.lib.StringViewArray object at ...>
     ///     []
     ///
     /// Unlike Python, it is an error to slice outside the bounds of the array:

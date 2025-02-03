@@ -57,7 +57,7 @@ pub fn search_sorted_canonical_array(
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool()?;
-            let validity = bool_array.logical_validity()?.to_boolean_buffer();
+            let validity = bool_array.validity_mask()?.to_boolean_buffer();
             let opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -69,7 +69,7 @@ pub fn search_sorted_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.clone().into_primitive()?;
-            let validity = primitive_array.logical_validity()?.to_boolean_buffer();
+            let validity = primitive_array.validity_mask()?.to_boolean_buffer();
             match_each_native_ptype!(p, |$P| {
                 let opt_values = primitive_array
                     .as_slice::<$P>()

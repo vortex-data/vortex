@@ -19,11 +19,11 @@ pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
         use vortex_error::VortexExpect;
 
         let old_validity = arr
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity")
             .len();
         let new_validity = compressed
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity ")
             .len();
 
@@ -59,8 +59,6 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use vortex_scalar::Scalar;
-
         use crate::stats::Stat;
 
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
@@ -73,15 +71,12 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
             let compressed_scalar = compressed
                 .statistics()
                 .get(stat)
-                .map(|sv| Scalar::new(stat.dtype(compressed.dtype()), sv));
+                .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(
-                compressed_scalar,
-                Some(Scalar::new(stat.dtype(arr.dtype()), value.clone())),
-                "Compression changed {stat} from {value} to {}",
-                compressed_scalar
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "null".to_string()),
+                compressed_scalar.clone(),
+                Some(value.clone().into_scalar(stat.dtype(arr.dtype()))),
+                "Compression changed {stat} from {value} to {:?}",
+                compressed_scalar.as_ref(),
             );
         }
     }

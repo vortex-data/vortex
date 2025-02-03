@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
@@ -198,7 +198,11 @@ impl ValidityVTable<StructArray> for StructEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &StructArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &StructArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &StructArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -223,9 +227,12 @@ impl StatisticsVTable<StructArray> for StructEncoding {
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
-                .map(|size| StatsSet::of(stat, size))
+                .map(|size| StatsSet::of(stat, Precision::exact(size)))
                 .unwrap_or_default(),
-            Stat::NullCount => StatsSet::of(stat, array.validity().null_count(array.len())?),
+            Stat::NullCount => StatsSet::of(
+                stat,
+                Precision::exact(array.validity().null_count(array.len())?),
+            ),
             _ => StatsSet::default(),
         })
     }

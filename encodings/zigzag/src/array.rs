@@ -1,5 +1,5 @@
 use vortex_array::array::PrimitiveArray;
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
@@ -12,7 +12,6 @@ use vortex_array::{
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::ScalarValue;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compress::zigzag_encode;
@@ -78,8 +77,12 @@ impl ValidityVTable<ZigZagArray> for ZigZagEncoding {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ZigZagArray) -> VortexResult<Mask> {
-        array.encoded().logical_validity()
+    fn all_valid(&self, array: &ZigZagArray) -> VortexResult<bool> {
+        array.encoded().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ZigZagArray) -> VortexResult<Mask> {
+        array.encoded().validity_mask()
     }
 }
 
@@ -96,7 +99,7 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
         // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
             if let Some(val) = array.encoded().statistics().compute(stat) {
-                stats.set(stat, val);
+                stats.set(stat, Precision::exact(val));
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
             let encoded_max = array.encoded().statistics().compute_as::<u64>(Stat::Max);
@@ -104,7 +107,7 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
                 // the max of the encoded array is the element with the highest absolute value (so either min if negative, or max if positive)
                 let decoded = <i64 as ExternalZigZag>::decode(val);
                 let decoded_stat = if decoded < 0 { Stat::Min } else { Stat::Max };
-                stats.set(decoded_stat, ScalarValue::from(decoded));
+                stats.set(decoded_stat, Precision::exact(decoded));
             }
         }
 

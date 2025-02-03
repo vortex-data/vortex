@@ -60,7 +60,6 @@ impl ExprEvaluator for FlatReader {
             .vortex_expect("RowMask begin must fit within FlatLayout size");
         let array = slice(array, begin, begin + row_mask.len())?;
         let array = filter(&array, row_mask.filter_mask())?;
-
         // Then apply the expression
         expr.evaluate(&array)
     }

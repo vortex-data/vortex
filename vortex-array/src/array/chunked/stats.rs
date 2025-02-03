@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
@@ -17,7 +17,9 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
                     Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {
                         s.compute_all(&[stat, Stat::Min, Stat::Max]).ok()
                     }
-                    _ => s.compute(stat).map(|s| StatsSet::of(stat, s)),
+                    _ => s
+                        .compute(stat)
+                        .map(|s| StatsSet::of(stat, Precision::exact(s))),
                 }
                 .unwrap_or_default()
             })

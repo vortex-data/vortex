@@ -212,7 +212,7 @@ impl CanonicalVTable<ALPRDArray> for ALPRDEncoding {
                     right_parts.into_buffer_mut::<u32>(),
                     array.left_parts_patches(),
                 )?,
-                Validity::from_mask(array.logical_validity()?, array.dtype().nullability()),
+                Validity::from_mask(array.validity_mask()?, array.dtype().nullability()),
             )
         } else {
             PrimitiveArray::new(
@@ -223,7 +223,7 @@ impl CanonicalVTable<ALPRDArray> for ALPRDEncoding {
                     right_parts.into_buffer_mut::<u64>(),
                     array.left_parts_patches(),
                 )?,
-                Validity::from_mask(array.logical_validity()?, array.dtype().nullability()),
+                Validity::from_mask(array.validity_mask()?, array.dtype().nullability()),
             )
         };
 
@@ -237,9 +237,14 @@ impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
         array.left_parts().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPRDArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &ALPRDArray) -> VortexResult<bool> {
         // Use validity from left_parts
-        array.left_parts().logical_validity()
+        array.left_parts().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ALPRDArray) -> VortexResult<Mask> {
+        // Use validity from left_parts
+        array.left_parts().validity_mask()
     }
 }
 

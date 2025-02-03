@@ -50,7 +50,7 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &Array) -> VortexResult<Array> {
-        let validity = array.logical_validity()?;
+        let validity = array.validity_mask()?;
         let indices = indices.clone().into_primitive()?;
         let bools = array.as_slice();
 
@@ -96,7 +96,7 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
 
 impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
     fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<Array> {
-        let validity = array.logical_validity()?;
+        let validity = array.validity_mask()?;
         if array.dtype().nullability() == Nullability::NonNullable {
             return Ok(array.clone().into_array());
         }

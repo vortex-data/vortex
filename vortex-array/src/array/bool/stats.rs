@@ -7,24 +7,24 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
         if array.is_empty() {
             return Ok(StatsSet::new_unchecked(vec![
-                (Stat::TrueCount, 0.into()),
-                (Stat::NullCount, 0.into()),
-                (Stat::RunCount, 0.into()),
+                (Stat::TrueCount, Precision::exact(0)),
+                (Stat::NullCount, Precision::exact(0)),
+                (Stat::RunCount, Precision::exact(0)),
             ]));
         }
 
-        match array.logical_validity()? {
+        match array.validity_mask()? {
             Mask::AllTrue(_) => self.compute_statistics(&array.boolean_buffer(), stat),
             Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
             Mask::Values(values) => self.compute_statistics(
@@ -153,14 +153,15 @@ impl BoolStatsAccumulator {
 
     pub fn finish(self) -> StatsSet {
         StatsSet::new_unchecked(vec![
-            (Stat::NullCount, self.null_count.into()),
-            (Stat::IsSorted, self.is_sorted.into()),
+            (Stat::NullCount, Precision::exact(self.null_count)),
+            (Stat::IsSorted, Precision::exact(self.is_sorted)),
             (
                 Stat::IsStrictSorted,
-                (self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)))
-                    .into(),
+                Precision::exact(
+                    self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)),
+                ),
             ),
-            (Stat::RunCount, self.run_count.into()),
+            (Stat::RunCount, Precision::exact(self.run_count)),
         ])
     }
 }

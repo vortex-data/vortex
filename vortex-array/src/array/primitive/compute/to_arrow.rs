@@ -34,7 +34,7 @@ impl ToArrowFn<PrimitiveArray> for PrimitiveEncoding {
                     0,
                     array.len(),
                 ),
-                array.logical_validity()?.to_null_buffer(),
+                array.validity_mask()?.to_null_buffer(),
             ))))
         }
 

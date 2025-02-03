@@ -83,8 +83,12 @@ impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
         array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ExtensionArray) -> VortexResult<Mask> {
-        array.storage().logical_validity()
+    fn all_valid(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        array.storage().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ExtensionArray) -> VortexResult<Mask> {
+        array.storage().validity_mask()
     }
 }
 
@@ -106,6 +110,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
+    use crate::stats::Precision;
     use crate::IntoArray;
 
     #[test]
@@ -128,8 +133,14 @@ mod tests {
             num_stats
         );
 
-        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(1i64));
-        assert_eq!(stats.get_as::<i64>(Stat::Max), Some(5_i64));
-        assert_eq!(stats.get_as::<usize>(Stat::NullCount), Some(0));
+        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(Precision::exact(1i64)));
+        assert_eq!(
+            stats.get_as::<i64>(Stat::Max),
+            Some(Precision::exact(5_i64))
+        );
+        assert_eq!(
+            stats.get_as::<usize>(Stat::NullCount),
+            Some(Precision::exact(0usize))
+        );
     }
 }

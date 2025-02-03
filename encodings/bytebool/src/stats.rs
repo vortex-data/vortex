@@ -1,4 +1,4 @@
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::vtable::StatisticsVTable;
 use vortex_array::IntoArrayVariant;
 use vortex_error::VortexResult;
@@ -16,7 +16,7 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
         Ok(bools
             .statistics()
             .compute(stat)
-            .map(|value| StatsSet::of(stat, value))
+            .map(|value| StatsSet::of(stat, Precision::exact(value)))
             .unwrap_or_default())
     }
 }

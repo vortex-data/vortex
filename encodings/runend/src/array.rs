@@ -180,8 +180,12 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
         array.values().is_valid(physical_idx)
     }
 
-    fn logical_validity(&self, array: &RunEndArray) -> VortexResult<Mask> {
-        Ok(match array.values().logical_validity()? {
+    fn all_valid(&self, array: &RunEndArray) -> VortexResult<bool> {
+        array.values().all_valid()
+    }
+
+    fn validity_mask(&self, array: &RunEndArray) -> VortexResult<Mask> {
+        Ok(match array.values().validity_mask()? {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),
             Mask::AllFalse(_) => Mask::AllFalse(array.len()),
             Mask::Values(values) => {

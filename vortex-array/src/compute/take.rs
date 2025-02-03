@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::Stat;
+use crate::stats::{Max, Stat, Statistics, StatsSet};
 use crate::{Array, IntoArray, IntoCanonical};
 
 pub trait TakeFn<A> {
@@ -56,10 +56,20 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     // If the indices are all within bounds, we can skip bounds checking.
     let checked_indices = indices
         .statistics()
-        .get_as::<usize>(Stat::Max)
+        .get_as_bound::<Max, usize>()
         .is_some_and(|max| max < array.len());
 
+    let derived_stats = derive_take_stats(array);
+
     let taken = take_impl(array, indices, checked_indices)?;
+
+    let mut stats = taken.to_set();
+    stats.combine_sets(&derived_stats, array.dtype())?;
+    // TODO(joe): add
+    // taken.inherit_statistics(&stats)?;
+    for (stat, val) in stats.iter() {
+        taken.statistics().set(*stat, val.clone())
+    }
 
     debug_assert_eq!(
         taken.len(),
@@ -75,6 +85,20 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     );
 
     Ok(taken)
+}
+
+fn derive_take_stats(arr: &Array) -> StatsSet {
+    let stats = arr.to_set();
+
+    stats.keep_exact_inexact_stats(
+        // Any combination of elements from a constant array is still const
+        &[Stat::IsConstant],
+        &[
+            // Cannot create values smaller than min or larger than max
+            Stat::Min,
+            Stat::Max,
+        ],
+    )
 }
 
 fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {

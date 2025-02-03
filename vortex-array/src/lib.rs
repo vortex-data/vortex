@@ -18,6 +18,7 @@ pub use context::*;
 pub use data::*;
 pub use encoding::*;
 pub use metadata::*;
+pub use partial_ord::*;
 pub use paste;
 
 pub mod accessor;
@@ -36,6 +37,7 @@ pub mod iter;
 mod macros;
 mod metadata;
 pub mod nbytes;
+pub mod partial_ord;
 pub mod parts;
 pub mod patches;
 pub mod stats;

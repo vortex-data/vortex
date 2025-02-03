@@ -1,6 +1,6 @@
 //! Traits and utilities to compute and access array statistics.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use enum_iterator::{cardinality, Sequence};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-pub use statsset::*;
+pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
@@ -18,8 +18,15 @@ use vortex_scalar::ScalarValue;
 
 use crate::Array;
 
+mod bound;
 pub mod flatbuffers;
-mod statsset;
+mod precision;
+mod stat_bound;
+mod stats_set;
+
+pub use bound::{LowerBound, UpperBound};
+pub use precision::Precision;
+pub use stat_bound::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
@@ -63,6 +70,86 @@ pub enum Stat {
     NullCount,
     /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes,
+}
+
+/// These structs allow the extraction of the bound from the `Precision` value.
+/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
+pub struct Max;
+pub struct Min;
+pub struct BitWidthFreq;
+pub struct TrailingZeroFreq;
+pub struct IsConstant;
+pub struct IsSorted;
+pub struct IsStrictSorted;
+pub struct RunCount;
+pub struct TrueCount;
+pub struct NullCount;
+pub struct UncompressedSizeInBytes;
+
+impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::BitWidthFreq;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrailingZeroFreq;
+}
+
+impl StatType<bool> for IsConstant {
+    type Bound = Precision<bool>;
+
+    const STAT: Stat = Stat::IsConstant;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsStrictSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for RunCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::RunCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrueCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrueCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for NullCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::NullCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::UncompressedSizeInBytes;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Max {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::Max;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
+    type Bound = LowerBound<T>;
+
+    const STAT: Stat = Stat::Min;
 }
 
 impl Stat {
@@ -166,18 +253,18 @@ impl Display for Stat {
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<ScalarValue>;
+    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
 
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: ScalarValue);
+    fn set(&self, stat: Stat, value: Precision<ScalarValue>);
 
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present.
+    /// Computes the value of the stat if it's not present and inexact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
@@ -189,7 +276,7 @@ pub trait Statistics {
         let mut stats_set = StatsSet::default();
         for stat in stats {
             if let Some(s) = self.compute(*stat) {
-                stats_set.set(*stat, s)
+                stats_set.set(*stat, Precision::exact(s))
             }
         }
         Ok(stats_set)
@@ -223,9 +310,9 @@ impl dyn Statistics + '_ {
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<U> {
+    ) -> Option<Precision<U>> {
         self.get(stat)
-            .map(|s| U::try_from(&s))
+            .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
             .unwrap_or_else(|err| {
                 vortex_panic!(
@@ -235,6 +322,14 @@ impl dyn Statistics + '_ {
                     std::any::type_name::<U>()
                 )
             })
+    }
+
+    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
+    where
+        S: StatType<U>,
+        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    {
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
     }
 
     /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.

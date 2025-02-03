@@ -93,7 +93,11 @@ impl ValidityVTable<DictArray> for DictEncoding {
         array.values().is_valid(values_index)
     }
 
-    fn logical_validity(&self, array: &DictArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &DictArray) -> VortexResult<bool> {
+        array.values().all_valid()
+    }
+
+    fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
         if array.dtype().is_nullable() {
             let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {

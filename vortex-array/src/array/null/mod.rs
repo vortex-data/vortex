@@ -3,7 +3,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
@@ -42,7 +42,11 @@ impl ValidityVTable<NullArray> for NullEncoding {
         Ok(false)
     }
 
-    fn logical_validity(&self, array: &NullArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &NullArray) -> VortexResult<bool> {
+        Ok(array.len() == 0)
+    }
+
+    fn validity_mask(&self, array: &NullArray) -> VortexResult<Mask> {
         Ok(Mask::AllFalse(array.len()))
     }
 }
@@ -50,7 +54,7 @@ impl ValidityVTable<NullArray> for NullEncoding {
 impl StatisticsVTable<NullArray> for NullEncoding {
     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
         Ok(StatsSet::nulls(array.len(), &DType::Null))

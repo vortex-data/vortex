@@ -88,10 +88,7 @@ mod test {
         let sliced = NullArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
-        assert!(matches!(
-            sliced.logical_validity().unwrap(),
-            Mask::AllFalse(4)
-        ));
+        assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
     }
 
     #[test]
@@ -102,10 +99,7 @@ mod test {
                 .unwrap();
 
         assert_eq!(taken.len(), 5);
-        assert!(matches!(
-            taken.logical_validity().unwrap(),
-            Mask::AllFalse(5)
-        ));
+        assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));
     }
 
     #[test]

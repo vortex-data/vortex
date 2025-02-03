@@ -23,17 +23,17 @@ use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
 use vortex_array::stats::Stat;
-use vortex_array::ContextRef;
+use vortex_array::{stats, ContextRef};
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
-use vortex_scalar::Scalar;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
 use crate::can_be_pushed_down;
+use crate::converter::directional_bound_to_df_precision;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]
@@ -219,15 +219,17 @@ impl FileFormat for VortexFormat {
             .await?;
 
         // Sum up the total byte size across all the columns.
-        let total_byte_size = Precision::Inexact(
+        let total_byte_size = directional_bound_to_df_precision(Some(
             stats
                 .iter()
                 .map(|s| {
                     s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
                 })
-                .sum(),
-        );
+                .fold(stats::Precision::exact(0_usize), |acc, s| {
+                    acc.zip(s).map(|(acc, s)| acc + s)
+                }),
+        ));
 
         let column_statistics = stats
             .into_iter()
@@ -235,24 +237,21 @@ impl FileFormat for VortexFormat {
             .map(|(s, f)| {
                 let null_count = s.get_as::<usize>(Stat::NullCount);
                 let min = s
-                    .get(Stat::Min)
-                    .cloned()
-                    .map(|n| Scalar::new(DType::from_arrow(f.as_ref()), n))
-                    .and_then(|s| ScalarValue::try_from(s).ok());
+                    .get_scalar(Stat::Min, DType::from_arrow(f.as_ref()))
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
                 let max = s
-                    .get(Stat::Max)
-                    .cloned()
-                    .map(|n| Scalar::new(DType::from_arrow(f.as_ref()), n))
-                    .and_then(|s| ScalarValue::try_from(s).ok());
+                    .get_scalar(Stat::Max, DType::from_arrow(f.as_ref()))
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
                 ColumnStatistics {
-                    null_count: null_count
-                        .map(Precision::Exact)
-                        .unwrap_or(Precision::Absent),
-                    max_value: max.map(Precision::Exact).unwrap_or(Precision::Absent),
-                    min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
+                    null_count: directional_bound_to_df_precision(null_count),
+                    max_value: directional_bound_to_df_precision(max),
+                    min_value: directional_bound_to_df_precision(min),
                     distinct_count: s
                         .get_as::<bool>(Stat::IsConstant)
-                        .and_then(|is_constant| is_constant.then_some(Precision::Exact(1)))
+                        .and_then(|is_constant| {
+                            is_constant.some_exact().map(|_| Precision::Exact(1))
+                        })
                         .unwrap_or(Precision::Absent),
                 }
             })

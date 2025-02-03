@@ -46,7 +46,9 @@ is an overview:
     * `display`: returns a human-readable representation of the array metadata.
 * `validity`
     * `is_valid`: returns whether the element at a given row is valid.
-    * `logical_validity`: returns the validity bit-mask for an array, indicating which values are non-null.
+    * `all_valid`: returns whether all elements are valid.
+    * `invalid_count` returns the number of invalid elements.
+    * `validity_mask`: returns the validity bit-mask for an array, indicating which values are non-null.
 * `compute`: a collection of compute functions vtables.
     * `filter`: a function for filtering the array using a given selection mask.
     * ...

@@ -37,7 +37,7 @@ impl ToArrowFn<ListArray> for ListEncoding {
             array.elements().dtype().nullability().into(),
         ));
 
-        let nulls = array.logical_validity()?.to_null_buffer();
+        let nulls = array.validity_mask()?.to_null_buffer();
 
         Ok(Some(match arrow_offsets.ptype() {
             PType::I32 => Arc::new(arrow_array::ListArray::try_new(

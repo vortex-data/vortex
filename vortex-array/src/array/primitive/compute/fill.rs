@@ -17,7 +17,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
             return Ok(array.clone().into_array());
         }
 
-        match array.logical_validity()?.boolean_buffer() {
+        match array.validity_mask()?.boolean_buffer() {
             AllOr::All => Ok(PrimitiveArray::from_byte_buffer(
                 array.byte_buffer().clone(),
                 array.ptype(),
@@ -69,7 +69,7 @@ mod test {
             PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]).into_array();
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0, 8, 8, 10, 10]);
-        assert!(p.logical_validity().unwrap().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -79,7 +79,7 @@ mod test {
 
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0, 0, 0, 0, 0]);
-        assert!(p.logical_validity().unwrap().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -91,6 +91,6 @@ mod test {
         .into_array();
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8u8, 10, 12, 14, 16]);
-        assert!(p.logical_validity().unwrap().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 }

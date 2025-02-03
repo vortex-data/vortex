@@ -1,7 +1,8 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::Array;
+use crate::stats::{Stat, Statistics, StatsSet};
+use crate::{Array, Canonical, IntoArray};
 
 /// Limit array to start...stop range
 pub trait SliceFn<A> {
@@ -37,7 +38,14 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     if start == 0 && stop == array.len() {
         return Ok(array.clone());
     }
+
+    if start == stop {
+        return Ok(Canonical::empty(array.dtype()).into_array());
+    }
+
     check_slice_bounds(array, start, stop)?;
+
+    let derived_stats = derive_sliced_stats(array);
 
     let sliced = array
         .vtable()
@@ -49,6 +57,12 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
                 array.encoding()
             ))
         })?;
+
+    let mut stats = sliced.to_set();
+    stats.combine_sets(&derived_stats, array.dtype())?;
+    for (stat, val) in stats.iter() {
+        sliced.statistics().set(*stat, val.clone())
+    }
 
     debug_assert_eq!(
         sliced.len(),
@@ -66,6 +80,22 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     Ok(sliced)
 }
 
+fn derive_sliced_stats(arr: &Array) -> StatsSet {
+    let stats = arr.to_set();
+
+    stats.keep_exact_inexact_stats(
+        &[Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted],
+        &[
+            Stat::Max,
+            Stat::Min,
+            Stat::RunCount,
+            Stat::TrueCount,
+            Stat::NullCount,
+            Stat::UncompressedSizeInBytes,
+        ],
+    )
+}
+
 fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<()> {
     if start > array.len() {
         vortex_bail!(OutOfBounds: start, 0, array.len());
@@ -77,4 +107,50 @@ fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<
         vortex_bail!("start ({start}) must be <= stop ({stop})");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_scalar::Scalar;
+
+    use crate::array::{ConstantArray, PrimitiveArray};
+    use crate::compute::slice;
+    use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
+
+    #[test]
+    fn test_slice_primitive() {
+        let c = PrimitiveArray::from_iter(0i32..100);
+        c.compute_all(STATS_TO_WRITE).unwrap();
+
+        let c2 = slice(c, 10, 20).unwrap();
+
+        let result_stats = c2.to_set();
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Max),
+            Some(Precision::inexact(99))
+        );
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Min),
+            Some(Precision::inexact(0))
+        );
+    }
+
+    #[test]
+    fn test_slice_const() {
+        let c = ConstantArray::new(Scalar::from(10), 100);
+        c.compute_all(STATS_TO_WRITE).unwrap();
+
+        let c2 = slice(c, 10, 20).unwrap();
+        let result_stats = c2.to_set();
+
+        // Constant always knows its exact stats
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Max),
+            Some(Precision::exact(10))
+        );
+        assert_eq!(
+            result_stats.get_as::<i32>(Stat::Min),
+            Some(Precision::exact(10))
+        );
+    }
 }
