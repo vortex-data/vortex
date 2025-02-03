@@ -17,4 +17,4 @@ encodings, this property holds true even when the filter condition specifies a s
    <hr>
 
 .. automodule:: vortex.dataset
-   :members:
+    :members:

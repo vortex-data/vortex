@@ -1,4 +1,8 @@
 mod builtins;
+mod compressed;
+mod fastlanes;
+mod from_arrow;
+mod typed;
 
 use std::ops::Deref;
 
@@ -8,10 +12,10 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyList};
 use pyo3::PyClass;
-use vortex::array::{ChunkedArray, ChunkedEncoding, ConstantEncoding, VarBinEncoding};
+use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
-use vortex::dtype::DType;
+use vortex::dtype::{DType, PType};
 use vortex::error::{VortexError, VortexExpect};
 use vortex::mask::Mask;
 use vortex::{Array, Encoding};
@@ -19,6 +23,19 @@ use vortex::{Array, Encoding};
 use crate::arrays::builtins::{
     PyBoolArray, PyChunkedArray, PyConstantArray, PyExtensionArray, PyListArray, PyNullArray,
     PyPrimitiveArray, PyStructArray, PyVarBinArray, PyVarBinViewArray,
+};
+use crate::arrays::compressed::{
+    PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
+    PySparseArray, PyZigZagArray,
+};
+use crate::arrays::fastlanes::{
+    PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesForArray,
+};
+use crate::arrays::typed::{
+    PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
+    PyFloat32TypeArray, PyFloat64TypeArray, PyInt16TypeArray, PyInt32TypeArray, PyInt64TypeArray,
+    PyInt8TypeArray, PyListTypeArray, PyNullTypeArray, PyStructTypeArray, PyUInt16TypeArray,
+    PyUInt32TypeArray, PyUInt64TypeArray, PyUInt8TypeArray, PyUtf8TypeArray,
 };
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -32,7 +49,27 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyArray>()?;
 
-    // Builtin encodings
+    // Typed arrays
+    m.add_class::<PyNullTypeArray>()?;
+    m.add_class::<PyBoolTypeArray>()?;
+    m.add_class::<PyUInt8TypeArray>()?;
+    m.add_class::<PyUInt16TypeArray>()?;
+    m.add_class::<PyUInt32TypeArray>()?;
+    m.add_class::<PyUInt64TypeArray>()?;
+    m.add_class::<PyInt8TypeArray>()?;
+    m.add_class::<PyInt16TypeArray>()?;
+    m.add_class::<PyInt32TypeArray>()?;
+    m.add_class::<PyInt64TypeArray>()?;
+    m.add_class::<PyFloat16TypeArray>()?;
+    m.add_class::<PyFloat32TypeArray>()?;
+    m.add_class::<PyFloat64TypeArray>()?;
+    m.add_class::<PyUtf8TypeArray>()?;
+    m.add_class::<PyBinaryTypeArray>()?;
+    m.add_class::<PyStructTypeArray>()?;
+    m.add_class::<PyListTypeArray>()?;
+    m.add_class::<PyExtensionTypeArray>()?;
+
+    // Canonical encodings
     m.add_class::<PyConstantArray>()?;
     m.add_class::<PyChunkedArray>()?;
     m.add_class::<PyNullArray>()?;
@@ -43,6 +80,21 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyStructArray>()?;
     m.add_class::<PyListArray>()?;
     m.add_class::<PyExtensionArray>()?;
+
+    // Compressed encodings
+    m.add_class::<PyAlpArray>()?;
+    m.add_class::<PyAlpRdArray>()?;
+    m.add_class::<PyDateTimePartsArray>()?;
+    m.add_class::<PyDictArray>()?;
+    m.add_class::<PyFsstArray>()?;
+    m.add_class::<PyRunEndArray>()?;
+    m.add_class::<PySparseArray>()?;
+    m.add_class::<PyZigZagArray>()?;
+
+    // Fastlanes encodings
+    m.add_class::<PyFastLanesBitPackedArray>()?;
+    m.add_class::<PyFastLanesDeltaArray>()?;
+    m.add_class::<PyFastLanesForArray>()?;
 
     Ok(())
 }
@@ -124,43 +176,31 @@ impl Deref for PyArray {
 }
 
 impl PyArray {
-    /// Initialize a [`PyArray`] from a Vortex [`Array`], ensuring the correct subclass is
-    /// returned if possible.
-    // TODO(ngates): in future, we should use a Python registry to allow users to register
-    //  additional subclasses for their own encodings.
+    /// Initialize a [`PyArray`] from a Vortex [`Array`], ensuring we return the correct typed
+    /// subclass array.
     pub fn init(py: Python, array: Array) -> PyResult<Bound<PyArray>> {
-        // Make sure we always downcast canonical arrays to their subclass.
-        // We use an exhaustive match here to ensure a compilation error if we ever add a new
-        // canonical encoding.
-        if array.is_canonical() {
-            return match array.dtype() {
-                DType::Null => Self::with_subclass(py, array, PyNullArray),
-                DType::Bool(_) => Self::with_subclass(py, array, PyBoolArray),
-                DType::Primitive(..) => Self::with_subclass(py, array, PyPrimitiveArray),
-                DType::Utf8(_) | DType::Binary(_) => {
-                    Self::with_subclass(py, array, PyVarBinViewArray)
-                }
-                DType::Struct(..) => Self::with_subclass(py, array, PyStructArray),
-                DType::List(..) => Self::with_subclass(py, array, PyListArray),
-                DType::Extension(_) => Self::with_subclass(py, array, PyExtensionArray),
-            };
+        match array.dtype() {
+            DType::Null => Self::with_subclass(py, array, PyNullTypeArray),
+            DType::Bool(_) => Self::with_subclass(py, array, PyBoolTypeArray),
+            DType::Primitive(ptype, _) => match ptype {
+                PType::U8 => Self::with_subclass(py, array, PyUInt8TypeArray),
+                PType::U16 => Self::with_subclass(py, array, PyUInt16TypeArray),
+                PType::U32 => Self::with_subclass(py, array, PyUInt32TypeArray),
+                PType::U64 => Self::with_subclass(py, array, PyUInt64TypeArray),
+                PType::I8 => Self::with_subclass(py, array, PyInt8TypeArray),
+                PType::I16 => Self::with_subclass(py, array, PyInt16TypeArray),
+                PType::I32 => Self::with_subclass(py, array, PyInt32TypeArray),
+                PType::I64 => Self::with_subclass(py, array, PyInt64TypeArray),
+                PType::F16 => Self::with_subclass(py, array, PyFloat16TypeArray),
+                PType::F32 => Self::with_subclass(py, array, PyFloat32TypeArray),
+                PType::F64 => Self::with_subclass(py, array, PyFloat64TypeArray),
+            },
+            DType::Utf8(_) => Self::with_subclass(py, array, PyUtf8TypeArray),
+            DType::Binary(_) => Self::with_subclass(py, array, PyBinaryTypeArray),
+            DType::Struct(..) => Self::with_subclass(py, array, PyStructTypeArray),
+            DType::List(..) => Self::with_subclass(py, array, PyListTypeArray),
+            DType::Extension(_) => Self::with_subclass(py, array, PyExtensionTypeArray),
         }
-
-        if array.is_encoding(ConstantEncoding::ID) {
-            return Self::with_subclass(py, array, PyConstantArray);
-        }
-        if array.is_encoding(ChunkedEncoding::ID) {
-            return Self::with_subclass(py, array, PyChunkedArray);
-        }
-        if array.is_encoding(VarBinEncoding::ID) {
-            return Self::with_subclass(py, array, PyVarBinArray);
-        }
-
-        // For other arrays, we should check in a registry of encoding subclasses, these are
-        // discovered at runtime using entry points or manual registration.
-
-        // Otherwise, we return the base type.
-        Bound::new(py, PyArray(array))
     }
 
     fn with_subclass<S: PyClass<BaseType = PyArray>>(
@@ -187,6 +227,18 @@ impl PyArray {
 
 #[pymethods]
 impl PyArray {
+    /// Convert a PyArrow object into a Vortex array.
+    ///
+    /// One of :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, or :class:`pyarrow.Table`.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    #[staticmethod]
+    fn from_arrow(obj: Bound<'_, PyAny>) -> PyResult<Bound<'_, PyArray>> {
+        from_arrow::from_arrow(&obj)
+    }
+
     /// Convert this array to a PyArrow array.
     ///
     /// Convert this array to an Arrow array.

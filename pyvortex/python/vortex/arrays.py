@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Any
 import pyarrow
 
 from vortex._lib import arrays as _arrays
-from vortex._lib import encoding as _encoding
 
 try:
     import pandas
@@ -372,12 +371,12 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
     """
 
     if isinstance(obj, list):
-        return _encoding._encode(pyarrow.array(obj))
+        return Array.from_arrow(pyarrow.array(obj))
     try:
         import pandas
 
         if isinstance(obj, pandas.DataFrame):
-            return _encoding._encode(pyarrow.Table.from_pandas(obj))
+            return Array.from_arrow(pyarrow.Table.from_pandas(obj))
     except ImportError:
         pass
-    return _encoding._encode(obj)
+    return Array.from_arrow(obj)
