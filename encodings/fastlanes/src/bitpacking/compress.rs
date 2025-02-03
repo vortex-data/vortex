@@ -408,7 +408,7 @@ mod test {
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
-                .logical_validity()
+                .validity_mask()
                 .unwrap()
                 .to_null_buffer()
                 .unwrap()

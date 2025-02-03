@@ -193,7 +193,17 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
         })
     }
 
-    fn logical_validity(&self, array: &SparseArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &SparseArray) -> VortexResult<bool> {
+        if array.fill_scalar().is_null() {
+            // We need _all_ values to be patched, and all patches to be valid
+            return Ok(array.patches().values().len() == array.len()
+                && array.patches().values().all_valid()?);
+        }
+
+        array.patches().values().all_valid()
+    }
+
+    fn validity_mask(&self, array: &SparseArray) -> VortexResult<Mask> {
         let indices = array.patches().indices().clone().into_primitive()?;
 
         if array.fill_scalar().is_null() {
@@ -216,7 +226,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
         let mut buffer = BooleanBufferBuilder::new(array.len());
         buffer.append_n(array.len(), true);
 
-        let values_validity = array.patches().values().logical_validity()?;
+        let values_validity = array.patches().values().validity_mask()?;
         match_each_integer_ptype!(indices.ptype(), |$I| {
             indices.as_slice::<$I>()
                 .into_iter()
@@ -344,11 +354,11 @@ mod test {
     }
 
     #[test]
-    pub fn sparse_logical_validity() {
+    pub fn sparse_validity_mask() {
         let array = sparse_array(nullable_fill());
         assert_eq!(
             array
-                .logical_validity()
+                .validity_mask()
                 .unwrap()
                 .to_boolean_buffer()
                 .iter()
@@ -358,9 +368,9 @@ mod test {
     }
 
     #[test]
-    fn sparse_logical_validity_non_null_fill() {
+    fn sparse_validity_mask_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(array.logical_validity().unwrap().all_true());
+        assert!(array.validity_mask().unwrap().all_true());
     }
 
     #[test]

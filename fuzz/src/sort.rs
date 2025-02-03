@@ -18,7 +18,7 @@ pub fn sort_canonical_array(array: &Array) -> VortexResult<Array> {
                 .iter()
                 .zip(
                     bool_array
-                        .logical_validity()
+                        .validity_mask()
                         .vortex_expect("Failed to get logical validity")
                         .to_boolean_buffer()
                         .iter(),
@@ -37,7 +37,7 @@ pub fn sort_canonical_array(array: &Array) -> VortexResult<Array> {
                     .copied()
                     .zip(
                         primitive_array
-                            .logical_validity()?
+                            .validity_mask()?
                             .to_boolean_buffer()
                             .iter(),
                     )

@@ -37,8 +37,8 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
     indices: &[I],
     validity: Validity,
 ) -> VortexResult<VarBinArray> {
-    let logical_validity = validity.to_logical(offsets.len() - 1)?;
-    if let Some(v) = logical_validity.to_null_buffer() {
+    let validity_mask = validity.to_logical(offsets.len() - 1)?;
+    if let Some(v) = validity_mask.to_null_buffer() {
         return Ok(take_nullable(dtype, offsets, data, indices, v));
     }
 

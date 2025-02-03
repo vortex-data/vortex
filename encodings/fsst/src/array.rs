@@ -201,8 +201,12 @@ impl ValidityVTable<FSSTArray> for FSSTEncoding {
         array.codes().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FSSTArray) -> VortexResult<Mask> {
-        array.codes().logical_validity()
+    fn all_valid(&self, array: &FSSTArray) -> VortexResult<bool> {
+        array.codes().all_valid()
+    }
+
+    fn validity_mask(&self, array: &FSSTArray) -> VortexResult<Mask> {
+        array.codes().validity_mask()
     }
 }
 

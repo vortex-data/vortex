@@ -326,7 +326,11 @@ impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &PrimitiveArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &PrimitiveArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &PrimitiveArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

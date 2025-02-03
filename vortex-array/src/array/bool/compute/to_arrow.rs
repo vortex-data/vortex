@@ -14,7 +14,7 @@ impl ToArrowFn<BoolArray> for BoolEncoding {
         }
         Ok(Some(Arc::new(ArrowBoolArray::new(
             array.boolean_buffer(),
-            array.logical_validity()?.to_null_buffer(),
+            array.validity_mask()?.to_null_buffer(),
         ))))
     }
 }

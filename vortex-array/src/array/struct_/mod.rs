@@ -198,7 +198,11 @@ impl ValidityVTable<StructArray> for StructEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &StructArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &StructArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &StructArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

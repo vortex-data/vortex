@@ -263,7 +263,11 @@ impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BitPackedArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &BitPackedArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &BitPackedArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

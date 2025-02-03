@@ -95,8 +95,12 @@ impl ValidityVTable<FoRArray> for FoREncoding {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FoRArray) -> VortexResult<Mask> {
-        array.encoded().logical_validity()
+    fn all_valid(&self, array: &FoRArray) -> VortexResult<bool> {
+        array.encoded().all_valid()
+    }
+
+    fn validity_mask(&self, array: &FoRArray) -> VortexResult<Mask> {
+        array.encoded().validity_mask()
     }
 }
 

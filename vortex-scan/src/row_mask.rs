@@ -78,7 +78,7 @@ impl RowMask {
     ///
     /// True-valued positions are kept by the returned mask.
     fn from_mask_array(array: &Array, begin: u64) -> VortexResult<Self> {
-        Ok(Self::new(array.logical_validity()?, begin))
+        Ok(Self::new(array.validity_mask()?, begin))
     }
 
     /// Construct a RowMask from an integral array.

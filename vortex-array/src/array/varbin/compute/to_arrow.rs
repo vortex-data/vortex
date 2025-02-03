@@ -68,7 +68,7 @@ pub(crate) fn varbin_to_arrow<O: NativePType + OffsetSizeTrait>(
     .into_primitive()
     .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
-    let nulls = varbin_array.logical_validity()?.to_null_buffer();
+    let nulls = varbin_array.validity_mask()?.to_null_buffer();
     let data = varbin_array.bytes();
 
     // Switch on DType.

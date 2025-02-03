@@ -118,7 +118,11 @@ impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ByteBoolArray) -> VortexResult<Mask> {
+    fn all_valid(&self, array: &ByteBoolArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ByteBoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

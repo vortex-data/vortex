@@ -37,7 +37,7 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
         }
 
         let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
-            match array.logical_validity()? {
+            match array.validity_mask()? {
                 Mask::AllTrue(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
                 Mask::AllFalse(len) => Ok(StatsSet::nulls(len, array.dtype())),
                 Mask::Values(v) => self.compute_statistics(

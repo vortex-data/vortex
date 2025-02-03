@@ -19,11 +19,11 @@ pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
         use vortex_error::VortexExpect;
 
         let old_validity = arr
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity")
             .len();
         let new_validity = compressed
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity ")
             .len();
 

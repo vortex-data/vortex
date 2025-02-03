@@ -101,7 +101,7 @@ impl DateTimePartsArray {
     pub fn validity(&self) -> VortexResult<Validity> {
         // FIXME(ngates): this function is weird... can we just use logical validity?
         Ok(Validity::from_mask(
-            self.days().logical_validity()?,
+            self.days().validity_mask()?,
             self.dtype().nullability(),
         ))
     }
@@ -140,8 +140,12 @@ impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
         array.days().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DateTimePartsArray) -> VortexResult<Mask> {
-        array.days().logical_validity()
+    fn all_valid(&self, array: &DateTimePartsArray) -> VortexResult<bool> {
+        array.days().all_valid()
+    }
+
+    fn validity_mask(&self, array: &DateTimePartsArray) -> VortexResult<Mask> {
+        array.days().validity_mask()
     }
 }
 

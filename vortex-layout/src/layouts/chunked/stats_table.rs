@@ -84,7 +84,7 @@ impl StatsTable {
                     let parray =
                         try_cast(array, &DType::Primitive(PType::U64, Nullability::Nullable))?
                             .into_primitive()?;
-                    let validity = parray.logical_validity()?;
+                    let validity = parray.validity_mask()?;
 
                     let sum: u64 = parray
                         .as_slice::<u64>()

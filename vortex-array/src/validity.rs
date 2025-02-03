@@ -17,17 +17,31 @@ use crate::{Array, IntoArray, IntoArrayVariant};
 impl Array {
     /// Return whether the element at the given index is valid (true) or null (false).
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(true);
+        }
         self.vtable().is_valid(self, index)
+    }
+
+    /// Return whether all elements in the array are valid.
+    pub fn all_valid(&self) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(true);
+        }
+        self.vtable().all_valid(self)
     }
 
     /// Return the number of null elements in the array.
     pub fn null_count(&self) -> VortexResult<usize> {
-        self.vtable().null_count(self)
+        if !self.dtype().is_nullable() {
+            return Ok(0);
+        }
+        self.vtable().invalid_count(self)
     }
 
-    /// Return the logical validity of the array if nullable, and None if non-nullable.
-    pub fn logical_validity(&self) -> VortexResult<Mask> {
-        self.vtable().logical_validity(self)
+    /// Return the canonical validity of the array as a [`Mask`].
+    pub fn validity_mask(&self) -> VortexResult<Mask> {
+        self.vtable().validity_mask(self)
     }
 }
 
@@ -152,6 +166,16 @@ impl Validity {
             Self::NonNullable => Nullability::NonNullable,
             _ => Nullability::Nullable,
         }
+    }
+
+    pub fn all_valid(&self) -> VortexResult<bool> {
+        Ok(match self {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(array) => {
+                array.clone().into_bool()?.boolean_buffer().count_set_bits() == array.len()
+            }
+        })
     }
 
     /// Returns whether the `index` item is valid.
