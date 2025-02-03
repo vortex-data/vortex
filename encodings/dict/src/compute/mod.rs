@@ -57,22 +57,26 @@ impl TakeFn<DictArray> for DictEncoding {
         //   codes: 0 0 1
         //   dict: a b c d e f g h
         let codes = take(array.codes(), indices)?;
-        DictArray::try_new(codes, array.values()).map(|a| a.into_array())
+        DictArray::try_new(codes, array.values(), array.null_code()).map(|a| a.into_array())
     }
 }
 
 impl FilterFn<DictArray> for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<Array> {
         let codes = filter(&array.codes(), mask)?;
-        DictArray::try_new(codes, array.values()).map(|a| a.into_array())
+        DictArray::try_new(codes, array.values(), array.null_code()).map(|a| a.into_array())
     }
 }
 
 impl SliceFn<DictArray> for DictEncoding {
     // TODO(robert): Add function to trim the dictionary
     fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<Array> {
-        DictArray::try_new(slice(array.codes(), start, stop)?, array.values())
-            .map(|a| a.into_array())
+        DictArray::try_new(
+            slice(array.codes(), start, stop)?,
+            array.values(),
+            array.null_code(),
+        )
+        .map(|a| a.into_array())
     }
 }
 

@@ -86,13 +86,15 @@ pub fn dict_encode(array: &Array) -> VortexResult<DictArray> {
         vortex_bail!("Can only encode primitive or varbin/view arrays")
     };
     let codes = dict_builder.encode_array(array)?;
-    DictArray::try_new(codes, dict_builder.values())
+    DictArray::try_new(codes, dict_builder.values(), dict_builder.null_code())
 }
 
 pub trait DictEncoder {
     fn encode_array(&mut self, array: &Array) -> VortexResult<Array>;
 
     fn values(&mut self) -> Array;
+
+    fn null_code(&self) -> Option<u64>;
 }
 
 /// Dictionary encode primitive array with given PType.
@@ -180,6 +182,10 @@ where
             self.values.len(),
         );
         PrimitiveArray::new(self.values.clone().freeze(), values_validity).into_array()
+    }
+
+    fn null_code(&self) -> Option<u64> {
+        self.null_code
     }
 }
 
@@ -309,6 +315,10 @@ impl DictEncoder for BytesDictBuilder {
         )
         .vortex_unwrap()
         .into_array()
+    }
+
+    fn null_code(&self) -> Option<u64> {
+        self.null_code
     }
 }
 
