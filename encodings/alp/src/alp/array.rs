@@ -50,7 +50,7 @@ impl ALPArray {
                 vortex_bail!(MismatchedTypes: dtype, patches.dtype());
             }
 
-            if patches.values().validity_mask()?.false_count() != 0 {
+            if !patches.values().all_valid()? {
                 vortex_bail!("ALPArray: patches must not contain invalid entries");
             }
 

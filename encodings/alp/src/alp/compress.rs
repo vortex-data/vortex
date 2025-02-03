@@ -7,6 +7,7 @@ use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::ScalarType;
 
 use crate::alp::{ALPArray, ALPFloat};
@@ -59,21 +60,23 @@ where
     let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
 
     let validity = values.validity_mask()?;
-    let n_valid = validity.true_count();
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove invalid exceptional positions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
-        if n_valid == 0 {
-            (Buffer::empty(), Buffer::empty())
-        } else if n_valid == values.len() {
-            (exceptional_positions, exceptional_values)
-        } else {
-            let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
-                .into_iter()
-                .zip_eq(exceptional_values)
-                .filter(|(index, _)| validity.value(*index as usize))
-                .unzip();
-            (pos.freeze(), vals.freeze())
+        match validity {
+            Mask::AllTrue(_) => (exceptional_positions, exceptional_values),
+            Mask::AllFalse(_) => {
+                // no valid positions, ergo nothing worth patching
+                (Buffer::empty(), Buffer::empty())
+            }
+            Mask::Values(is_valid) => {
+                let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
+                    .into_iter()
+                    .zip_eq(exceptional_values)
+                    .filter(|(index, _)| is_valid.value(*index as usize))
+                    .unzip();
+                (pos.freeze(), vals.freeze())
+            }
         };
     let patches = if valid_exceptional_positions.is_empty() {
         None
