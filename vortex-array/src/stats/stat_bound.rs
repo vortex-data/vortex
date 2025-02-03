@@ -33,6 +33,7 @@ pub trait StatBound<T>: Sized {
 
 /// This allows a stat with a `Precision` to be interpreted as a bound.
 impl<T> Precision<T> {
+    /// Applied the stat associated bound to the precision value
     pub fn bound<S: StatType<T>>(self) -> S::Bound {
         S::Bound::lift(self)
     }

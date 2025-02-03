@@ -41,14 +41,17 @@ impl<T: Clone> Precision<T> {
 }
 
 impl<T> Precision<T> {
+    /// Creates an exact value
     pub fn exact<S: Into<T>>(s: S) -> Precision<T> {
         Exact(s.into())
     }
 
+    /// Creates an inexact value
     pub fn inexact<S: Into<T>>(s: S) -> Precision<T> {
         Inexact(s.into())
     }
 
+    /// Pushed the ref into the Precision enum
     pub fn as_ref(&self) -> Precision<&T> {
         match self {
             Exact(val) => Exact(val),
@@ -56,6 +59,7 @@ impl<T> Precision<T> {
         }
     }
 
+    /// Returns the exact value from the bound, if that value is inexact, otherwise `None`.
     pub fn some_exact(self) -> Option<T> {
         match self {
             Exact(val) => Some(val),
@@ -63,6 +67,7 @@ impl<T> Precision<T> {
         }
     }
 
+    /// Returns the exact value from the bound, if that value is inexact, otherwise `None`.
     pub fn some_inexact(self) -> Option<T> {
         match self {
             Inexact(val) => Some(val),
@@ -70,10 +75,12 @@ impl<T> Precision<T> {
         }
     }
 
+    /// True iff self == Exact(_)
     pub fn is_exact(&self) -> bool {
         matches!(self, Exact(_))
     }
 
+    /// Map the value of either precision value
     pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Precision<U> {
         match self {
             Exact(value) => Exact(f(value)),
@@ -91,6 +98,7 @@ impl<T> Precision<T> {
         }
     }
 
+    /// Similar to `map` but handles fucntions that can fail.
     pub fn try_map<U, F: FnOnce(T) -> VortexResult<U>>(self, f: F) -> VortexResult<Precision<U>> {
         let precision = match self {
             Exact(value) => Exact(f(value)?),

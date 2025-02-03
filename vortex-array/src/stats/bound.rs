@@ -241,6 +241,7 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
     }
 }
 
+/// Returns the minimum of two values, if they are comparable.
 #[inline]
 pub fn min<T: PartialOrd>(a: T, b: T) -> Option<T> {
     if a.partial_cmp(&b)? == Ordering::Less {
@@ -250,6 +251,7 @@ pub fn min<T: PartialOrd>(a: T, b: T) -> Option<T> {
     }
 }
 
+/// Returns the maximum of two values, if they are comparable.
 #[inline]
 pub fn max<T: PartialOrd>(a: T, b: T) -> Option<T> {
     if a.partial_cmp(&b)? == Ordering::Greater {
