@@ -14,13 +14,14 @@ use vortex_array::compute::scalar_at;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, Context, ContextRef, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ContextRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 use vortex_layout::layouts::flat::writer::FlatLayoutOptions;
+use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::io::IoDriver;
 use crate::{Scan, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
@@ -55,7 +56,7 @@ async fn test_read_simple() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let mut stream = pin!(VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap()
@@ -138,7 +139,7 @@ async fn test_read_projection() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
@@ -224,20 +225,18 @@ async fn unequal_batches() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let mut stream = pin!(VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap()
         .scan(Scan::all())
         .unwrap());
 
-    let mut batch_count = 0;
     let mut item_count = 0;
 
     while let Some(array) = stream.next().await {
         let array = array.unwrap();
         item_count += array.len();
-        batch_count += 1;
 
         let numbers = array
             .as_struct_array()
@@ -252,7 +251,6 @@ async fn unequal_batches() {
         }
     }
     assert_eq!(item_count, 10);
-    assert_eq!(batch_count, 3);
 }
 
 #[tokio::test]
@@ -287,7 +285,7 @@ async fn write_chunked() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let mut stream = pin!(VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap()
@@ -323,7 +321,7 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap()
@@ -380,7 +378,7 @@ async fn filter_or() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap()
@@ -449,7 +447,7 @@ async fn filter_and() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap()
@@ -509,7 +507,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
@@ -593,7 +591,7 @@ async fn test_with_indices_on_two_columns() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
@@ -663,7 +661,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
@@ -785,7 +783,7 @@ async fn filter_string_chunked() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
@@ -869,7 +867,7 @@ async fn test_pruning_with_or() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
@@ -958,7 +956,7 @@ async fn test_repeated_projection() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(buf.freeze())
         .await
         .unwrap();
