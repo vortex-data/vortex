@@ -94,7 +94,23 @@ impl ValidityVTable<DictArray> for DictEncoding {
     }
 
     fn all_valid(&self, array: &DictArray) -> VortexResult<bool> {
-        array.values().all_valid()
+        // If the values are all valid, then the dictionary must be all valid
+        if array.values().all_valid()? {
+            return Ok(true);
+        }
+
+        let values = array.values();
+        // Otherwise, check each code
+        let primitive_codes = array.codes().into_primitive()?;
+        match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+            for code in primitive_codes.as_slice::<$P>() {
+                if !values.is_valid(*code as usize)? {
+                    return Ok(false);
+                }
+            }
+        });
+
+        Ok(true)
     }
 
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
