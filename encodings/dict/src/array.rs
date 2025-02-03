@@ -39,7 +39,7 @@ impl DictArray {
             vortex_bail!("Can only provide null code when values are nullable")
         }
         if let Some(null_code) = null_code {
-            if values.is_valid(null_code as usize)? {
+            if values.is_valid(usize::try_from(null_code)?)? {
                 vortex_bail!("Null code {null_code} points to a valid value")
             }
         }
