@@ -181,7 +181,6 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
     }
 
     fn all_valid(&self, array: &RunEndArray) -> VortexResult<bool> {
-        // TODO(ngates): we should slice values based on the ends array
         array.values().all_valid()
     }
 
