@@ -29,12 +29,10 @@ impl_encoding!(
 #[repr(C)]
 pub struct FoRMetadata {
     reference: PValue,
-    // TODO(ngates): move shift into BitPackedArray and then ForMetadata is 64 bits of PValue.
-    shift: u8,
 }
 
 impl FoRArray {
-    pub fn try_new(child: Array, reference: Scalar, shift: u8) -> VortexResult<Self> {
+    pub fn try_new(encoded: Array, reference: Scalar) -> VortexResult<Self> {
         if reference.is_null() {
             vortex_bail!("Reference value cannot be null");
         }
@@ -42,7 +40,7 @@ impl FoRArray {
         let reference = reference.cast(
             &reference
                 .dtype()
-                .with_nullability(child.dtype().nullability()),
+                .with_nullability(encoded.dtype().nullability()),
         )?;
 
         let dtype = reference.dtype().clone();
@@ -55,10 +53,10 @@ impl FoRArray {
 
         Self::try_from_parts(
             dtype,
-            child.len(),
-            SerdeMetadata(FoRMetadata { reference, shift }),
+            encoded.len(),
+            SerdeMetadata(FoRMetadata { reference }),
             None,
-            Some([child].into()),
+            Some([encoded].into()),
             StatsSet::default(),
         )
     }
@@ -82,11 +80,6 @@ impl FoRArray {
             self.ptype(),
             self.dtype().nullability(),
         )
-    }
-
-    #[inline]
-    pub fn shift(&self) -> u8 {
-        self.metadata().shift
     }
 }
 
@@ -143,7 +136,6 @@ mod test {
             "for.metadata",
             SerdeMetadata(FoRMetadata {
                 reference: PValue::I64(i64::MAX),
-                shift: u8::MAX,
             }),
         );
     }

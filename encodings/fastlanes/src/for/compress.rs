@@ -1,94 +1,40 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
-use vortex_array::array::{ConstantArray, PrimitiveArray};
-use vortex_array::stats::{trailing_zeros, Stat};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
-};
-use vortex_error::{vortex_err, VortexExpect, VortexResult, VortexUnwrap};
-use vortex_mask::Mask;
+use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
-use vortex_sparse::SparseArray;
 
 use crate::FoRArray;
 
 pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
-    let shift = trailing_zeros(array.as_ref());
     let min = array
         .statistics()
         .compute(Stat::Min)
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
     let dtype = array.dtype().clone();
-    let nullability = dtype.nullability();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
-        if shift == <$T>::PTYPE.bit_width() as u8 {
-            assert_eq!(usize::try_from(&min).vortex_unwrap(), 0);
-            encoded_zero::<$T>(array.validity_mask()?, nullability)
-                .vortex_expect("Failed to encode all zeroes")
-        } else {
-            let unsigned_ptype = array.ptype().to_unsigned();
-            compress_primitive::<$T>(array, shift, $T::try_from(&min)?)
-                .reinterpret_cast(unsigned_ptype)
-                .into_array()
-        }
-    });
-    FoRArray::try_new(encoded, Scalar::new(dtype, min), shift)
-}
-
-fn encoded_zero<T: NativePType>(
-    validity_mask: Mask,
-    nullability: Nullability,
-) -> VortexResult<Array> {
-    let encoded_ptype = T::PTYPE.to_unsigned();
-    let zero = match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::primitive($T::default(), nullability));
-
-    Ok(match validity_mask {
-        Mask::AllTrue(len) => ConstantArray::new(zero, len).into_array(),
-        Mask::AllFalse(len) => ConstantArray::new(
-            Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
-            len,
-        )
-        .into_array(),
-        Mask::Values(mask) => {
-            let len = mask.len();
-
-            let valid_indices = mask
-                .indices()
-                .iter()
-                .map(|&i| i as u64)
-                .collect::<Buffer<u64>>()
-                .into_array();
-            let valid_len = valid_indices.len();
-            SparseArray::try_new(
-                valid_indices,
-                ConstantArray::new(zero, valid_len).into_array(),
-                len,
-                Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
-            )?
+        let unsigned_ptype = array.ptype().to_unsigned();
+        compress_primitive::<$T>(array, $T::try_from(&min)?)
+            .reinterpret_cast(unsigned_ptype)
             .into_array()
-        }
-    })
+    });
+    FoRArray::try_new(encoded, Scalar::new(dtype, min))
 }
 
 #[allow(clippy::cast_possible_truncation)]
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
-    shift: u8,
     min: T,
 ) -> PrimitiveArray {
-    assert!(shift < T::PTYPE.bit_width() as u8);
-    if shift > 0 {
-        parray.map_each::<T, _, _>(|v| v.wrapping_sub(&min) >> (shift as usize))
-    } else {
-        parray.map_each::<T, _, _>(|v| v.wrapping_sub(&min))
-    }
+    parray.map_each::<T, _, _>(|v| v.wrapping_sub(&min))
 }
 
 pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
-    let shift = array.shift() as usize;
     let ptype = array.ptype();
 
     // TODO(ngates): do we need this to be into_encoded() somehow?
@@ -96,21 +42,17 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
     let validity = encoded.validity();
 
     Ok(match_each_integer_ptype!(ptype, |$T| {
-        if shift == <$T>::PTYPE.bit_width() {
+        let min = array.reference_scalar()
+            .as_primitive()
+            .typed_value::<$T>()
+            .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
+        if min == 0 {
             encoded
         } else {
-            let min = array.reference_scalar()
-                .as_primitive()
-                .typed_value::<$T>()
-                .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
-            if min == 0 && shift == 0 {
-                encoded
-            } else {
-                PrimitiveArray::new(
-                    decompress_primitive(encoded.into_buffer_mut::<$T>(), min, shift),
-                    validity,
-                )
-            }
+            PrimitiveArray::new(
+                decompress_primitive(encoded.into_buffer_mut::<$T>(), min),
+                validity,
+            )
         }
     }))
 }
@@ -118,19 +60,8 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
     values: BufferMut<T>,
     min: T,
-    shift: usize,
 ) -> Buffer<T> {
-    if shift > 0 {
-        if min == T::zero() {
-            values.map_each(move |v| v << shift).freeze()
-        } else {
-            values
-                .map_each(move |v| (v << shift).wrapping_add(&min))
-                .freeze()
-        }
-    } else {
-        values.map_each(move |v| v.wrapping_add(&min)).freeze()
-    }
+    values.map_each(move |v| v.wrapping_add(&min)).freeze()
 }
 
 #[cfg(test)]
@@ -140,7 +71,6 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
     use super::*;
 
@@ -173,43 +103,10 @@ mod test {
     }
 
     #[test]
-    fn test_nullable_zeros() {
-        let array =
-            PrimitiveArray::from_option_iter([Some(0i32), None].into_iter().cycle().take(100));
-        assert!(array.statistics().to_set().into_iter().next().is_none());
-
-        let compressed = for_compress(array.clone()).unwrap();
-        assert_eq!(compressed.dtype(), array.dtype());
-        assert!(compressed.dtype().is_signed_int());
-        assert_eq!(
-            scalar_at(&compressed, 0).unwrap(),
-            Scalar::primitive(0i32, Nullability::Nullable)
-        );
-        assert_eq!(
-            scalar_at(&compressed, 1).unwrap(),
-            Scalar::null(array.dtype().clone())
-        );
-
-        let sparse = SparseArray::try_from(compressed.encoded()).unwrap();
-        assert!(sparse.dtype().is_unsigned_int());
-        assert!(sparse.statistics().to_set().into_iter().next().is_none());
-        assert_eq!(sparse.fill_scalar(), Scalar::null(sparse.dtype().clone()));
-        assert_eq!(
-            scalar_at(&sparse, 0).unwrap(),
-            Scalar::primitive(0u32, Nullability::Nullable)
-        );
-        assert_eq!(
-            scalar_at(&sparse, 1).unwrap(),
-            Scalar::null(sparse.dtype().clone())
-        );
-    }
-
-    #[test]
     fn test_decompress() {
         // Create a range offset by a million
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = for_compress(array.clone()).unwrap();
-        assert!(compressed.shift() > 0);
         let decompressed = compressed.into_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }

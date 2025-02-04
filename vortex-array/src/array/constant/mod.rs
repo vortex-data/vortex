@@ -80,7 +80,7 @@ impl StatisticsVTable<ConstantArray> for ConstantEncoding {
 }
 
 impl VisitorVTable<ConstantArray> for ConstantEncoding {
-    fn accept(&self, _array: &ConstantArray, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        Ok(())
+    fn accept(&self, array: &ConstantArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(array.byte_buffer(0).vortex_expect("missing scalar buffer"))
     }
 }

@@ -158,6 +158,11 @@ impl ValidateVTable<SparseArray> for SparseEncoding {}
 
 impl VisitorVTable<SparseArray> for SparseEncoding {
     fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(
+            array
+                .byte_buffer(0)
+                .vortex_expect("missing fill value buffer"),
+        )?;
         visitor.visit_patches(&array.patches())
     }
 }

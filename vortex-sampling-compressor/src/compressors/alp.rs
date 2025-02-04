@@ -1,6 +1,4 @@
-use vortex_alp::{
-    alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPRDEncoding,
-};
+use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -43,12 +41,8 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = array.clone().into_primitive()?;
-
-        let (exponents, encoded, patches) = match_each_alp_float_ptype!(
-            parray.ptype(), |$T| {
-            alp_encode_components::<$T>(&parray, None)
-        });
+        let (exponents, encoded, patches) =
+            alp_encode_components(&array.clone().into_primitive()?)?;
 
         let compressed_encoded = ctx
             .named("packed")

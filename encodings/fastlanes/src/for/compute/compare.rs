@@ -53,11 +53,7 @@ where
         if let Some(reference) = reference {
             rhs = rhs.wrapping_sub(&reference);
         }
-
-        // Since compare requires that both sides are of same dtype, shifting by bit_width should never have an effect.
-        let bit_width = <T as NativePType>::PTYPE.bit_width();
-        assert!(bit_width >= lhs.shift() as usize);
-        rhs >> (lhs.shift() as usize % bit_width)
+        rhs
     });
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
@@ -87,9 +83,8 @@ mod tests {
         let reference = Scalar::from(10);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::AllValid).into_array(),
             reference,
-            1,
         )
         .unwrap();
 
@@ -113,7 +108,6 @@ mod tests {
         let lhs = FoRArray::try_new(
             PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
             reference,
-            1,
         )
         .unwrap();
 
@@ -134,7 +128,6 @@ mod tests {
             PrimitiveArray::new(buffer![0u64, 9654309310445864926], Validity::AllValid)
                 .into_array(),
             reference,
-            0,
         )
         .unwrap();
 
