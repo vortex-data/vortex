@@ -163,11 +163,12 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             Validity::NonNullable | Validity::AllValid => 0,
             Validity::AllInvalid => array.len(),
             Validity::Array(varray) => {
-                // In sorted order, nulls come before all the non-null values.
-                varray
-                    .statistics()
-                    .compute_true_count()
-                    .vortex_expect("Failed to compute true count")
+                // In sorted order, nulls come before all the non-null values, i.e. we have true count worth of non null values at the end
+                array.len()
+                    - varray
+                        .statistics()
+                        .compute_true_count()
+                        .vortex_expect("Failed to compute true count")
             }
         };
 
@@ -211,10 +212,12 @@ impl<T> Len for BitPackedSearch<'_, T> {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::{
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
     };
+    use vortex_array::validity::Validity;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
@@ -341,6 +344,29 @@ mod test {
         assert_eq!(
             search_sorted(&bitpacked, -4, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(0)
+        );
+    }
+
+    #[test]
+    fn test_non_null_patches() {
+        let bitpacked = BitPackedArray::encode(
+            &PrimitiveArray::new(
+                buffer![0u64, 0, 0, 0, 0, 2815694643789679, 8029759183936649593],
+                Validity::Array(
+                    BoolArray::from(BooleanBuffer::from(vec![
+                        false, false, false, false, false, true, true,
+                    ]))
+                    .into_array(),
+                ),
+            )
+            .into_array(),
+            0,
+        )
+        .unwrap()
+        .into_array();
+        assert_eq!(
+            search_sorted(&bitpacked, 0, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(5)
         );
     }
 }
