@@ -244,8 +244,6 @@ debug = true
 [profile.benchtest]
 inherits = "bench"
 debug-assertions = true
-codegen-units = 32
-lto = "off"
 
 [profile.samply]
 inherits = "release"
