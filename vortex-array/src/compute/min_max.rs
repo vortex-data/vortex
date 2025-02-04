@@ -1,5 +1,5 @@
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat, Statistics};
@@ -57,7 +57,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
         if let Some(fn_) = canonical.vtable().min_max_fn() {
             fn_.min_max(canonical.as_ref())?
         } else {
-            return Err(vortex_err!(NotImplemented: "min_max", array.encoding()));
+            vortex_bail!(NotImplemented: "min_max", array.encoding());
         }
     };
 

@@ -7,11 +7,13 @@ use crate::{partial_max, partial_min};
 
 impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
     fn min_max(&self, array: &ChunkedArray) -> VortexResult<Option<MinMaxResult>> {
+        let mut min_max_all_null = true;
         let res = array
             .array_iterator()
             .map(|chunk| {
                 let chunk = chunk?;
                 if let Some(min_max) = min_max(chunk)? {
+                    min_max_all_null = false;
                     Ok((Some(min_max.min), Some(min_max.max)))
                 } else {
                     Ok((None, None))
@@ -19,8 +21,8 @@ impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        if res.is_empty() {
-            // No chunks, so no min or max.
+        // There are no chunks that have min/max stats, so return early
+        if min_max_all_null {
             return Ok(None);
         }
 
@@ -51,7 +53,7 @@ impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
                         Some(x)
                     }
                 })
-                .ok_or_else(|| vortex_err!("Incomparable scalars, this is likely a bug",))?,
+                .ok_or_else(|| vortex_err!("Incomparable scalars, this is likely a bug"))?,
         }))
     }
 }
