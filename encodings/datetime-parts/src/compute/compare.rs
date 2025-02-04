@@ -8,17 +8,49 @@ use vortex_error::VortexResult;
 use crate::array::{DateTimePartsArray, DateTimePartsEncoding};
 use crate::timestamp;
 
-fn compare_dtp(lhs: &Array, rhs: i64, operator: Operator) -> VortexResult<Array> {
-    match try_cast(ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
-        Ok(casted) => compare(lhs, casted, operator),
-        // The narrowing cast failed. Derive the result from the operator.
-        _ => {
-            let constant_value = match operator {
-                Operator::Eq | Operator::Lte => false,
-                Operator::NotEq | Operator::Gte => true,
-                _ => unreachable!("operator {} not supported", operator),
-            };
-            Ok(ConstantArray::new(constant_value, lhs.len()).into_array())
+impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
+    /// Compares two arrays and returns a new boolean array with the result of the comparison.
+    /// Or, returns None if comparison is not supported.
+    ///
+    /// # NOTE: `Operator::Lt` and `Operator::Gt` are currently not supported.
+    fn compare(
+        &self,
+        lhs: &DateTimePartsArray,
+        rhs: &Array,
+        operator: Operator,
+    ) -> VortexResult<Option<Array>> {
+        if !matches!(
+            operator,
+            Operator::Eq | Operator::NotEq | Operator::Lte | Operator::Gte
+        ) {
+            return Ok(None);
+        }
+
+        let Some(rhs_const) = rhs.as_constant() else {
+            return Ok(None);
+        };
+        let Ok(Some(timestamp)) = rhs_const
+            .as_extension()
+            .storage()
+            .as_primitive()
+            .as_::<i64>()
+        else {
+            return Ok(None);
+        };
+
+        let DType::Extension(ext_dtype) = rhs_const.dtype() else {
+            return Ok(None);
+        };
+
+        let temporal_metadata = TemporalMetadata::try_from(ext_dtype.as_ref())?;
+        let ts_parts = timestamp::split(timestamp, temporal_metadata.time_unit())?;
+
+        match operator {
+            Operator::Eq => compare_eq(lhs, &ts_parts),
+            Operator::NotEq => compare_ne(lhs, &ts_parts),
+            Operator::Lte => compare_lte(lhs, &ts_parts),
+            Operator::Gte => compare_gte(lhs, &ts_parts),
+            _ => unreachable!("operator {} not supported", operator),
         }
     }
 }
@@ -105,49 +137,17 @@ fn compare_gte(
     Ok(None)
 }
 
-impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
-    /// Compares two arrays and returns a new boolean array with the result of the comparison.
-    /// Or, returns None if comparison is not supported.
-    ///
-    /// # NOTE: `Operator::Lt` and `Operator::Gt` are currently not supported.
-    fn compare(
-        &self,
-        lhs: &DateTimePartsArray,
-        rhs: &Array,
-        operator: Operator,
-    ) -> VortexResult<Option<Array>> {
-        if !matches!(
-            operator,
-            Operator::Eq | Operator::NotEq | Operator::Lte | Operator::Gte
-        ) {
-            return Ok(None);
-        }
-
-        let Some(rhs_const) = rhs.as_constant() else {
-            return Ok(None);
-        };
-        let Ok(Some(timestamp)) = rhs_const
-            .as_extension()
-            .storage()
-            .as_primitive()
-            .as_::<i64>()
-        else {
-            return Ok(None);
-        };
-
-        let DType::Extension(ext_dtype) = rhs_const.dtype() else {
-            return Ok(None);
-        };
-
-        let temporal_metadata = TemporalMetadata::try_from(ext_dtype.as_ref())?;
-        let ts_parts = timestamp::split(timestamp, temporal_metadata.time_unit())?;
-
-        match operator {
-            Operator::Eq => compare_eq(lhs, &ts_parts),
-            Operator::NotEq => compare_ne(lhs, &ts_parts),
-            Operator::Lte => compare_lte(lhs, &ts_parts),
-            Operator::Gte => compare_gte(lhs, &ts_parts),
-            _ => unreachable!("operator {} not supported", operator),
+fn compare_dtp(lhs: &Array, rhs: i64, operator: Operator) -> VortexResult<Array> {
+    match try_cast(ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
+        Ok(casted) => compare(lhs, casted, operator),
+        // The narrowing cast failed. Derive the result from the operator.
+        _ => {
+            let constant_value = match operator {
+                Operator::Eq | Operator::Lte => false,
+                Operator::NotEq | Operator::Gte => true,
+                _ => unreachable!("operator {} not supported", operator),
+            };
+            Ok(ConstantArray::new(constant_value, lhs.len()).into_array())
         }
     }
 }
