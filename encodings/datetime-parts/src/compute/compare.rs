@@ -269,7 +269,7 @@ mod test {
             .unwrap();
         assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
 
-        // `compare_gt` and `compare_gte` only cover the case of all lhs values
+        // `Operator::Gt` and `Operator::Gte` only cover the case of all lhs values
         // being larger. Therefore, these cases are not covered by unit tests.
     }
 }
