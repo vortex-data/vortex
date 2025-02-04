@@ -1,6 +1,6 @@
 use fsst::Symbol;
 use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray};
-use vortex_array::compute::{compare, compare_to_empty, CompareFn, Operator};
+use vortex_array::compute::{compare, compare_lengths_to_empty, CompareFn, Operator};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::ByteBuffer;
@@ -40,22 +40,7 @@ fn compare_fsst_constant(
     right: &ConstantArray,
     operator: Operator,
 ) -> VortexResult<Option<Array>> {
-    let rhs_is_empty = match right.dtype() {
-        DType::Utf8(_) => {
-            let v = right.scalar().as_utf8().value();
-            v.is_some_and(|v| v.is_empty())
-        }
-        DType::Binary(_) => {
-            let v = right.scalar().as_binary().value();
-            v.is_some_and(|v| v.is_empty())
-        }
-        _ => vortex_bail!(
-            "FSST array RHS can only be Utf8 or Binary, given {}",
-            right.dtype()
-        ),
-    };
-
-    if rhs_is_empty {
+    if right.scalar().is_empty().unwrap_or_default() {
         let buffer = match operator {
             // Every possible value is gte ""
             Operator::Gte => BooleanBuffer::new_set(left.len()),
@@ -67,7 +52,7 @@ fn compare_fsst_constant(
                     .into_canonical()?
                     .into_primitive()?;
                 match_each_native_ptype!(uncompressed_lengths.ptype(), |$P| {
-                    compare_to_empty(uncompressed_lengths.as_slice::<$P>().iter().copied(), operator)
+                    compare_lengths_to_empty(uncompressed_lengths.as_slice::<$P>().iter().copied(), operator)
                 })
             }
         };

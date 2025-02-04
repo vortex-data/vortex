@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::array::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::{compare_to_empty, CompareFn, Operator};
+use crate::compute::{compare_lengths_to_empty, CompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, IntoArray, IntoCanonical};
 
@@ -23,22 +23,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
 
-            let rhs_is_empty = match rhs_const.dtype() {
-                DType::Utf8(_) => {
-                    let v = rhs_const.as_utf8().value();
-                    v.is_some_and(|v| v.is_empty())
-                }
-                DType::Binary(_) => {
-                    let v = rhs_const.as_binary().value();
-                    v.is_some_and(|v| v.is_empty())
-                }
-                _ => vortex_bail!(
-                    "VarBin array RHS can only be Utf8 or Binary, given {}",
-                    rhs_const.dtype()
-                ),
-            };
-
-            if rhs_is_empty {
+            if rhs_const.is_empty().unwrap_or_default() {
                 let buffer = match operator {
                     // Every possible value is gte ""
                     Operator::Gte => BooleanBuffer::new_set(len),
@@ -103,5 +88,5 @@ fn compare_offsets_to_empty<P: NativePType>(
         .iter()
         .tuple_windows()
         .map(|(&s, &e)| e - s);
-    compare_to_empty(lengths_iter, operator)
+    compare_lengths_to_empty(lengths_iter, operator)
 }

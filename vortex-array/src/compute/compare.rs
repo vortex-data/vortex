@@ -162,7 +162,7 @@ pub fn compare(
 
 /// Helper function to compare empty values with arrays that have external value length information
 /// like `VarBin`.
-pub fn compare_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
+pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
 where
     P: NativePType,
     I: Iterator<Item = P>,
