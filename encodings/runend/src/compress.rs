@@ -184,17 +184,14 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         Mask::AllTrue(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length + 8);
             let mut pos = 0;
-            let mut value_idx = 0;
-            for end in run_ends {
-                while pos < end {
+            for (idx, end) in run_ends.enumerate() {
+                for _ in 0..(end - pos).div_ceil(8) {
                     unsafe {
-                        decoded.push_n_unchecked(values[value_idx], 8);
+                        decoded.push_n_unchecked(values[idx], 8);
                     }
-                    pos += 8
                 }
                 pos = end;
                 unsafe { decoded.set_len(pos) }
-                value_idx += 1;
             }
             unsafe { decoded.set_len(length) }
             PrimitiveArray::new(decoded, values_nullability.into())
