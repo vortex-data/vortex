@@ -24,38 +24,36 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
 
-            if matches!(operator, Operator::Eq | Operator::NotEq) {
-                let rhs_is_empty = match rhs_const.dtype() {
-                    DType::Utf8(_) => {
-                        let v = rhs_const.as_utf8().value();
-                        v.is_some_and(|v| v.is_empty())
-                    }
-                    DType::Binary(_) => {
-                        let v = rhs_const.as_binary().value();
-                        v.is_some_and(|v| v.is_empty())
-                    }
-                    _ => vortex_bail!(
-                        "VarBin array RHS can only be Utf8 or Binary, given {}",
-                        rhs_const.dtype()
-                    ),
-                };
-
-                if rhs_is_empty {
-                    let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
-
-                    let buffer = match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
-                        let cmp_fn = operator.to_fn::<$P>();
-                        let slice = lhs_offsets.as_slice::<$P>();
-                        slice.iter()
-                            .tuple_windows()
-                            .map(|(s, e)| cmp_fn(e - s, <$P as Zero>::zero()))
-                            .collect::<BooleanBuffer>()
-                    });
-
-                    return Ok(Some(
-                        BoolArray::try_new(buffer, lhs.validity())?.into_array(),
-                    ));
+            let rhs_is_empty = match rhs_const.dtype() {
+                DType::Utf8(_) => {
+                    let v = rhs_const.as_utf8().value();
+                    v.is_some_and(|v| v.is_empty())
                 }
+                DType::Binary(_) => {
+                    let v = rhs_const.as_binary().value();
+                    v.is_some_and(|v| v.is_empty())
+                }
+                _ => vortex_bail!(
+                    "VarBin array RHS can only be Utf8 or Binary, given {}",
+                    rhs_const.dtype()
+                ),
+            };
+
+            if rhs_is_empty {
+                let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
+
+                let buffer = match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
+                    let cmp_fn = empty_cmp_fn::<$P>(operator);
+                    let slice = lhs_offsets.as_slice::<$P>();
+                    slice.iter()
+                        .tuple_windows()
+                        .map(|(s, e)| cmp_fn(e - s))
+                        .collect::<BooleanBuffer>()
+                });
+
+                return Ok(Some(
+                    BoolArray::try_new(buffer, lhs.validity())?.into_array(),
+                ));
             }
 
             let lhs = Datum::try_new(lhs.clone().into_array())?;
@@ -92,5 +90,17 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
         } else {
             Ok(None)
         }
+    }
+}
+
+/// All comparison can be expressed in terms of equality. "" is the absolute min of possible value.
+const fn cmp_to_empty<T: PartialEq + PartialOrd + Zero>(op: Operator) -> fn(T) -> bool {
+    match op {
+        Operator::Eq => |v| v == T::zero(),
+        Operator::NotEq => |v| v != T::zero(),
+        Operator::Gt => |v| v != T::zero(),
+        Operator::Gte => |_| true,
+        Operator::Lt => |_| false,
+        Operator::Lte => |v| v == T::zero(),
     }
 }
