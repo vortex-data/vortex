@@ -17,18 +17,6 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
         rhs: &Array,
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
-        if !matches!(
-            operator,
-            Operator::Eq
-                | Operator::NotEq
-                | Operator::Lt
-                | Operator::Lte
-                | Operator::Gt
-                | Operator::Gte
-        ) {
-            return Ok(None);
-        }
-
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -52,9 +40,11 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
             Operator::Eq => compare_eq(lhs, &ts_parts),
             Operator::NotEq => compare_ne(lhs, &ts_parts),
             Operator::Lt => compare_lt(lhs, &ts_parts),
-            Operator::Lte => compare_lte(lhs, &ts_parts),
+            // Identical behavior for lt and lte.
+            Operator::Lte => compare_lt(lhs, &ts_parts),
             Operator::Gt => compare_gt(lhs, &ts_parts),
-            Operator::Gte => compare_gte(lhs, &ts_parts),
+            // Identical behavior for gt and gte.
+            Operator::Gte => compare_gt(lhs, &ts_parts),
         }
     }
 }
@@ -128,33 +118,7 @@ fn compare_lt(
     Ok(None)
 }
 
-fn compare_lte(
-    lhs: &DateTimePartsArray,
-    ts_parts: &timestamp::TimestampParts,
-) -> VortexResult<Option<Array>> {
-    let days_lt = compare_dtp(&lhs.days(), ts_parts.days, Operator::Lt)?;
-    if days_lt.statistics().compute_min::<bool>() == Some(true) {
-        // All values on the lhs are smaller.
-        return Ok(Some(days_lt));
-    }
-
-    Ok(None)
-}
-
 fn compare_gt(
-    lhs: &DateTimePartsArray,
-    ts_parts: &timestamp::TimestampParts,
-) -> VortexResult<Option<Array>> {
-    let days_gt = compare_dtp(&lhs.days(), ts_parts.days, Operator::Gt)?;
-    if days_gt.statistics().compute_min::<bool>() == Some(true) {
-        // All values on the lhs are larger.
-        return Ok(Some(days_gt));
-    }
-
-    Ok(None)
-}
-
-fn compare_gte(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
 ) -> VortexResult<Option<Array>> {
@@ -251,36 +215,12 @@ mod test {
     }
 
     #[test]
-    fn compare_date_time_parts_lte() {
-        let lhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
-        let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
-
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Lte)
-            .unwrap()
-            .unwrap();
-        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
-    }
-
-    #[test]
     fn compare_date_time_parts_gt() {
         let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 02:00:00 UTC
         let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
 
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::Gt)
-            .unwrap()
-            .unwrap();
-        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
-    }
-
-    #[test]
-    fn compare_date_time_parts_gte() {
-        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 02:00:00 UTC
-        let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
-
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Gte)
             .unwrap()
             .unwrap();
         assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
