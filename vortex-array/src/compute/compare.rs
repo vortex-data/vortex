@@ -6,6 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, Canonical, IntoArray};
@@ -115,6 +116,12 @@ pub fn compare(
 
     if left.is_empty() {
         return Ok(Canonical::empty(&result_dtype).into_array());
+    }
+
+    let left_constant_null = left.as_constant().map(|l| l.is_null()).unwrap_or(false);
+    let right_constant_null = right.as_constant().map(|r| r.is_null()).unwrap_or(false);
+    if left_constant_null || right_constant_null {
+        return Ok(ConstantArray::new(Scalar::null(result_dtype), left.len()).into_array());
     }
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.

@@ -1,11 +1,10 @@
 use fsst::Symbol;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, IntoArrayVariant};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -17,13 +16,6 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         match (rhs.as_constant(), operator) {
-            (Some(constant), _) if constant.is_null() => {
-                // All comparisons to null must return null
-                Ok(Some(
-                    ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
-                        .into_array(),
-                ))
-            }
             (Some(constant), Operator::Eq | Operator::NotEq) => compare_fsst_constant(
                 lhs,
                 &ConstantArray::new(constant, lhs.len()),

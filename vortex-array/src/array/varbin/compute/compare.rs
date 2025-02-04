@@ -4,7 +4,7 @@ use arrow_ord::cmp;
 use itertools::Itertools;
 use num_traits::Zero;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::array::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
@@ -26,12 +26,18 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
 
             let rhs_is_empty = match rhs_const.dtype() {
                 DType::Utf8(_) => {
-                    let v = rhs_const.as_utf8().value();
-                    v.is_some_and(|v| v.is_empty())
+                    let v = rhs_const
+                        .as_utf8()
+                        .value()
+                        .vortex_expect("null scalar handled in top-level");
+                    v.is_empty()
                 }
                 DType::Binary(_) => {
-                    let v = rhs_const.as_binary().value();
-                    v.is_some_and(|v| v.is_empty())
+                    let v = rhs_const
+                        .as_binary()
+                        .value()
+                        .vortex_expect("null scalar handled in top-level");
+                    v.is_empty()
                 }
                 _ => vortex_bail!(
                     "VarBin array RHS can only be Utf8 or Binary, given {}",
