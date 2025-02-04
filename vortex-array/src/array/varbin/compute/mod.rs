@@ -1,9 +1,12 @@
+pub use min_max::compute_min_max;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
-use crate::compute::{CastFn, CompareFn, FilterFn, MaskFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{
+    CastFn, CompareFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+};
 use crate::vtable::ComputeVTable;
 use crate::Array;
 
@@ -11,6 +14,7 @@ mod cast;
 mod compare;
 mod filter;
 mod mask;
+mod min_max;
 mod slice;
 mod take;
 pub(crate) mod to_arrow;
@@ -45,6 +49,10 @@ impl ComputeVTable for VarBinEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }

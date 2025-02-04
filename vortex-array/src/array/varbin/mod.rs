@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+pub use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;

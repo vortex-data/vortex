@@ -58,7 +58,7 @@ impl Operator {
         }
     }
 
-    pub fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
+    pub const fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
         match self {
             Operator::Eq => |l, r| l == r,
             Operator::NotEq => |l, r| l != r,

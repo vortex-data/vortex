@@ -62,6 +62,15 @@ impl StatsSet {
         stats
     }
 
+    // A convenience method for creating a stats set which will represent an empty array.
+    pub fn empty_array() -> StatsSet {
+        StatsSet::new_unchecked(vec![
+            (Stat::TrueCount, Precision::exact(0)),
+            (Stat::RunCount, Precision::exact(0)),
+            (Stat::NullCount, Precision::exact(0)),
+        ])
+    }
+
     pub fn constant(scalar: Scalar, length: usize) -> Self {
         let (dtype, sv) = scalar.into_parts();
         let mut stats = Self::default();

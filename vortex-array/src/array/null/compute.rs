@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{MaskFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -30,6 +30,10 @@ impl ComputeVTable for NullEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }
@@ -79,6 +83,12 @@ impl ToArrowFn<NullArray> for NullEncoding {
             vortex_bail!("Unsupported data type: {data_type}");
         }
         Ok(Some(new_null_array(data_type, array.len())))
+    }
+}
+
+impl MinMaxFn<NullArray> for NullEncoding {
+    fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
+        Ok(None)
     }
 }
 

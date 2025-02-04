@@ -44,7 +44,6 @@ impl StatisticsVTable<NullableBools<'_>> for BoolEncoding {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
         ) {
-            let _null_count = array.1.count_set_bits();
             return Ok(StatsSet::bools_with_true_and_null_count(
                 array.0.bitand(array.1).count_set_bits(),
                 array.1.len() - array.1.count_set_bits(),

@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::widgets::ListState;
 use ratatui::DefaultTerminal;
 use ui::render_app;
-use vortex::error::VortexResult;
+use vortex::error::{VortexExpect, VortexResult};
 
 use crate::TOKIO_RUNTIME;
 
@@ -127,7 +127,7 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                 //
                 // Kill the search bar and search filtering and return to normal input processing.
                 app.key_mode = KeyMode::Normal;
-                app.search_filter.clear();
+                app.clear_search();
             }
 
             // Use same navigation as Normal mode
@@ -169,17 +169,29 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                 //
                 // We can eliminate the search filter when we do this
                 if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
-                    // Descend into the layout subtree for the selected child.
-                    let selected = app.layouts_list_state.selected().unwrap_or_default();
-                    app.cursor = app.cursor.child(selected);
+                    // Descend into the layout subtree for the selected child, do nothing if there's nothing to select.
+                    if let Some(selected) = app.layouts_list_state.selected() {
+                        app.cursor = match app.filter.as_ref() {
+                            None => app.cursor.child(selected),
+                            Some(filter) => {
+                                let child_idx = filter
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(idx, show)| show.then_some(idx))
+                                    .nth(selected)
+                                    .vortex_expect("There must be a selected item in the filter");
 
-                    // Reset the list scroll state.
-                    app.layouts_list_state = ListState::default().with_selected(Some(0));
+                                app.cursor.child(child_idx)
+                            }
+                        };
 
-                    // Clear the search filter.
-                    app.search_filter.clear();
-                    // Return to normal mode.
-                    app.key_mode = KeyMode::Normal;
+                        // Reset the list scroll state.
+                        app.layouts_list_state = ListState::default().with_selected(Some(0));
+
+                        app.clear_search();
+                        // Return to normal mode.
+                        app.key_mode = KeyMode::Normal;
+                    }
                 }
             }
 

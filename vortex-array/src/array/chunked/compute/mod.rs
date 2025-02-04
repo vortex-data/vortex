@@ -5,7 +5,7 @@ use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
     try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillNullFn, FilterFn, InvertFn,
-    MaskFn, ScalarAtFn, SliceFn, TakeFn,
+    MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray};
@@ -17,6 +17,7 @@ mod fill_null;
 mod filter;
 mod invert;
 mod mask;
+mod min_max;
 mod scalar_at;
 mod slice;
 mod take;
@@ -63,6 +64,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }

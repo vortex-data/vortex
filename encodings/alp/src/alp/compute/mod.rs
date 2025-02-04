@@ -36,9 +36,13 @@ impl ComputeVTable for ALPEncoding {
 
 impl ScalarAtFn<ALPArray> for ALPEncoding {
     fn scalar_at(&self, array: &ALPArray, index: usize) -> VortexResult<Scalar> {
+        if !array.encoded().is_valid(index)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
         if let Some(patches) = array.patches() {
             if let Some(patch) = patches.get_patched(index)? {
-                return Ok(patch);
+                return patch.cast(array.dtype());
             }
         }
 

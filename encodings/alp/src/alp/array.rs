@@ -46,6 +46,14 @@ impl ALPArray {
         let mut children = Vec::with_capacity(2);
         children.push(encoded);
         if let Some(patches) = &patches {
+            if patches.dtype() != &dtype {
+                vortex_bail!(MismatchedTypes: dtype, patches.dtype());
+            }
+
+            if !patches.values().all_valid()? {
+                vortex_bail!("ALPArray: patches must not contain invalid entries");
+            }
+
             children.push(patches.indices().clone());
             children.push(patches.values().clone());
         }
