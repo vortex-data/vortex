@@ -4,9 +4,8 @@ use vortex_array::compute::{compare, compare_lengths_to_empty, CompareFn, Operat
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_native_ptype, DType, Nullability};
+use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -18,13 +17,6 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         match rhs.as_constant() {
-            Some(constant) if constant.is_null() => {
-                // All comparisons to null must return null
-                Ok(Some(
-                    ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
-                        .into_array(),
-                ))
-            }
             Some(constant) => {
                 compare_fsst_constant(lhs, &ConstantArray::new(constant, lhs.len()), operator)
             }
