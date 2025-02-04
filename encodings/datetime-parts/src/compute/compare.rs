@@ -89,22 +89,7 @@ fn compare_lte(
         return Ok(Some(days_lt));
     }
 
-    let days_eq = compare_dtp(&lhs.days(), ts_parts.days, Operator::Eq)?;
-    if days_lt.statistics().compute_max::<bool>() == Some(false)
-        && days_eq.statistics().compute_max::<bool>() == Some(false)
-    {
-        // All values on the lhs are larger.
-        return Ok(Some(days_lt));
-    }
-
-    let sec_lt = compare_dtp(&lhs.seconds(), ts_parts.seconds, Operator::Lt)?;
-    let sec_eq = compare_dtp(&lhs.seconds(), ts_parts.seconds, Operator::Eq)?;
-    let sub_lte = compare_dtp(&lhs.subseconds(), ts_parts.subseconds, Operator::Lte)?;
-
-    // (days_lhs, seconds_lhs, sub_lhs) <= (days_rhs, seconds_rhs, sub_rhs)
-    let result = or(days_lt, and(days_eq, or(sec_lt, and(sec_eq, sub_lte)?)?)?)?;
-
-    Ok(Some(result))
+    Ok(None)
 }
 
 fn compare_gte(
@@ -117,22 +102,7 @@ fn compare_gte(
         return Ok(Some(days_gt));
     }
 
-    let days_eq = compare_dtp(&lhs.days(), ts_parts.days, Operator::Eq)?;
-    if days_gt.statistics().compute_max::<bool>() == Some(false)
-        && days_eq.statistics().compute_max::<bool>() == Some(false)
-    {
-        // All values on the lhs are smaller.
-        return Ok(Some(days_gt));
-    }
-
-    let sec_gt = compare_dtp(&lhs.seconds(), ts_parts.seconds, Operator::Gt)?;
-    let sec_eq = compare_dtp(&lhs.seconds(), ts_parts.seconds, Operator::Eq)?;
-    let sub_gte = compare_dtp(&lhs.subseconds(), ts_parts.subseconds, Operator::Gte)?;
-
-    // (days_lhs, seconds_lhs, sub_lhs) >= (days_rhs, seconds_rhs, sub_rhs)
-    let result = or(days_gt, and(days_eq, or(sec_gt, and(sec_eq, sub_gte)?)?)?)?;
-
-    Ok(Some(result))
+    Ok(None)
 }
 
 impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
