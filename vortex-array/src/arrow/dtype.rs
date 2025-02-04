@@ -70,7 +70,8 @@ impl FromArrowType<&Field> for DType {
 
         if field.data_type().is_integer() || field.data_type().is_floating() {
             return Primitive(
-                PType::try_from_arrow(field.data_type()).vortex_expect("arrow float/integer to ptype"),
+                PType::try_from_arrow(field.data_type())
+                    .vortex_expect("arrow float/integer to ptype"),
                 nullability,
             );
         }
