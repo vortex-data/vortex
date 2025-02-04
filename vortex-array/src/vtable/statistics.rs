@@ -40,9 +40,15 @@ impl Array {
             }
         }
 
-        let mut stats_set = if matches!(stat, Stat::Min | Stat::Max) {
+        let stats_set = if matches!(stat, Stat::Min | Stat::Max) {
             let mut stats_set = self.stats_set();
             if let Some(MinMaxResult { min, max }) = min_max(self)? {
+                if min == max
+                    && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
+                {
+                    stats_set.set(Stat::IsConstant, Precision::exact(true));
+                }
+
                 stats_set.combine_sets(
                     &StatsSet::from_iter([
                         (Stat::Min, Precision::exact(min.into_value())),
@@ -56,20 +62,6 @@ impl Array {
         } else {
             self.vtable().compute_statistics(self, stat)?
         };
-
-        if matches!(stat, Stat::Min | Stat::Max) {
-            if let (Some(min), Some(max)) = (
-                stats_set.get_scalar(Stat::Min, self.dtype().clone()),
-                stats_set.get_scalar(Stat::Max, self.dtype().clone()),
-            ) {
-                if min.is_exact()
-                    && min == max
-                    && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
-                {
-                    stats_set.set(Stat::IsConstant, Precision::exact(true));
-                }
-            }
-        }
 
         // TODO(joe): infer more stats from other stat combinations.
         if let Some(stat_val) = stats_set.get(stat) {
