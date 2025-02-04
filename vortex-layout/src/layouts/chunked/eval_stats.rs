@@ -36,10 +36,6 @@ impl StatsEvaluator for ChunkedReader {
             stat_sets.push(stats_table.to_stats_set(&stats)?);
         }
 
-        // debug_assert!(stat_sets
-        //     .iter()
-        //     .all(|s| stats.iter().all(|requested| s.get(*requested).is_some())));
-
         Ok(stat_sets)
     }
 }

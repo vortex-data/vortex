@@ -47,10 +47,6 @@ impl StatsEvaluator for StructReader {
             .flat_map(|r| r.into_iter())
             .collect::<Vec<_>>();
 
-        // debug_assert!(results
-        //     .iter()
-        //     .all(|s| stats.iter().all(|requested| s.get(*requested).is_some())));
-
         assert_eq!(results.len(), field_paths.len());
         Ok(results)
     }
