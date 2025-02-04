@@ -268,5 +268,8 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
+
+        // `compare_gte` only covers the case of all lhs values being larger.
+        // Therefore it is not unit tested here.
     }
 }
