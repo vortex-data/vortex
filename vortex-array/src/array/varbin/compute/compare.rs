@@ -1,12 +1,16 @@
 use arrow_array::{BinaryArray, StringArray};
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use vortex_dtype::DType;
+use itertools::Itertools;
+use num_traits::Zero;
+use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::array::{VarBinArray, VarBinEncoding};
+use crate::array::{BoolArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
-use crate::{Array, IntoArray};
+use crate::variants::PrimitiveArrayTrait as _;
+use crate::{Array, IntoArray, IntoCanonical};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {
@@ -19,6 +23,40 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
+
+            if matches!(operator, Operator::Eq | Operator::NotEq) {
+                let rhs_is_empty = match rhs_const.dtype() {
+                    DType::Utf8(_) => {
+                        let v = rhs_const.as_utf8().value();
+                        v.is_some_and(|v| v.is_empty())
+                    }
+                    DType::Binary(_) => {
+                        let v = rhs_const.as_binary().value();
+                        v.is_some_and(|v| v.is_empty())
+                    }
+                    _ => vortex_bail!(
+                        "VarBin array RHS can only be Utf8 or Binary, given {}",
+                        rhs_const.dtype()
+                    ),
+                };
+
+                if rhs_is_empty {
+                    let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
+
+                    let buffer = match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
+                        let cmp_fn = operator.to_fn::<$P>();
+                        let slice = lhs_offsets.as_slice::<$P>();
+                        slice.iter()
+                            .tuple_windows()
+                            .map(|(s, e)| cmp_fn(e - s, <$P as Zero>::zero()))
+                            .collect::<BooleanBuffer>()
+                    });
+
+                    return Ok(Some(
+                        BoolArray::try_new(buffer, lhs.validity())?.into_array(),
+                    ));
+                }
+            }
 
             let lhs = Datum::try_new(lhs.clone().into_array())?;
 
