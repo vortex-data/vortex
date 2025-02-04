@@ -43,7 +43,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                 let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
 
                 let buffer = match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
-                    let cmp_fn = empty_cmp_fn::<$P>(operator);
+                    let cmp_fn = cmp_to_empty::<$P>(operator);
                     let slice = lhs_offsets.as_slice::<$P>();
                     slice.iter()
                         .tuple_windows()
