@@ -47,7 +47,7 @@ mod tests {
     use crate::array::varbin::Nullability;
     use crate::array::VarBinArray;
     use crate::compute::{min_max, MinMaxResult};
-    use crate::stats::Stat;
+    use crate::stats::{Stat, Statistics};
 
     #[test]
     fn some_nulls() {
@@ -75,7 +75,7 @@ mod tests {
             vec![Option::<&str>::None, None, None],
             DType::Utf8(Nullability::Nullable),
         );
-        assert!(array.statistics().get(Stat::Min).is_none());
-        assert!(array.statistics().get(Stat::Max).is_none());
+        assert!(array.get_stat(Stat::Min).is_none());
+        assert!(array.get_stat(Stat::Max).is_none());
     }
 }

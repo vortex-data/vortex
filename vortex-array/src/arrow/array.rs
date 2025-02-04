@@ -71,10 +71,10 @@ where
         );
         primitive
             .statistics()
-            .set(Stat::IsSorted, Precision::exact(true));
+            .set_stat(Stat::IsSorted, Precision::exact(true));
         primitive
             .statistics()
-            .set(Stat::IsStrictSorted, Precision::exact(true));
+            .set_stat(Stat::IsStrictSorted, Precision::exact(true));
         primitive.into_array()
     }
 }

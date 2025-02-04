@@ -1,6 +1,9 @@
 mod compare;
 mod to_arrow;
 
+use std::sync::Arc;
+
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -77,10 +80,11 @@ impl TakeFn<ExtensionArray> for ExtensionEncoding {
 
 impl MinMaxFn<ExtensionArray> for ExtensionEncoding {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
+        let dtype = Arc::new(array.ext_dtype().with_nullability(Nullability::NonNullable));
         Ok(
             min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
-                min: Scalar::extension(array.ext_dtype().clone(), min),
-                max: Scalar::extension(array.ext_dtype().clone(), max),
+                min: Scalar::extension(dtype.clone(), min),
+                max: Scalar::extension(dtype, max),
             }),
         )
     }

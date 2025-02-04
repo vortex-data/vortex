@@ -169,8 +169,8 @@ impl FileFormat for VortexFormat {
                 let cache = self.file_layout_cache.clone();
                 async move {
                     let file_layout = cache.try_get(&o, store).await?;
-                    let s = infer_schema(file_layout.dtype())?;
-                    VortexResult::Ok(s)
+                    let stats_set = infer_schema(file_layout.dtype())?;
+                    VortexResult::Ok(stats_set)
                 }
             })
             .buffered(self.opts.concurrent_infer_schema_ops)
@@ -203,7 +203,7 @@ impl FileFormat for VortexFormat {
         let field_paths = table_schema
             .fields()
             .iter()
-            .map(|f| FieldPath::from_name(f.name().to_owned()))
+            .map(|field| FieldPath::from_name(field.name().to_owned()))
             .collect();
         let stats = vxf
             .statistics(
@@ -222,32 +222,37 @@ impl FileFormat for VortexFormat {
         let total_byte_size = directional_bound_to_df_precision(Some(
             stats
                 .iter()
-                .map(|s| {
-                    s.get_as::<usize>(Stat::UncompressedSizeInBytes)
+                .map(|stats_set| {
+                    stats_set
+                        .get_as::<usize>(Stat::UncompressedSizeInBytes)
                         .unwrap_or_else(|| stats::Precision::inexact(0_usize))
                 })
-                .fold(stats::Precision::exact(0_usize), |acc, s| {
-                    acc.zip(s).map(|(acc, s)| acc + s)
+                .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
+                    acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
                 }),
         ));
 
         let column_statistics = stats
             .into_iter()
             .zip(table_schema.fields().iter())
-            .map(|(s, f)| {
-                let null_count = s.get_as::<usize>(Stat::NullCount);
-                let min = s
-                    .get_scalar(Stat::Min, DType::from_arrow(f.as_ref()))
+            .map(|(stats_set, field)| {
+                let null_count = stats_set.get_as::<usize>(Stat::NullCount);
+                let min = stats_set
+                    .get_scalar(Stat::Min, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
-                let max = s
-                    .get_scalar(Stat::Max, DType::from_arrow(f.as_ref()))
+                let max = stats_set
+                    .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
+                if field.name() == "EventDate" {
+                    dbg!(&stats_set);
+                }
                 ColumnStatistics {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),
                     min_value: directional_bound_to_df_precision(min),
-                    distinct_count: s
+                    distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
                         .and_then(|is_constant| {
                             is_constant.some_exact().map(|_| Precision::Exact(1))

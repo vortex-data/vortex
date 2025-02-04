@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
@@ -74,7 +74,7 @@ impl StatsTable {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max => {
-                    if let Some(s) = array.statistics().compute(*stat) {
+                    if let Some(s) = array.compute_stat(*stat) {
                         stats_set.set(*stat, Precision::exact(s))
                     }
                 }
@@ -147,7 +147,7 @@ impl StatsAccumulator {
 
     pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.statistics().compute(*s) {
+            if let Some(v) = array.compute_stat(*s) {
                 builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;
             } else {
                 builder.append_null();

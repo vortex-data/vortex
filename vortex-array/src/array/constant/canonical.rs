@@ -161,10 +161,10 @@ mod tests {
     fn test_canonicalize_propagates_stats() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
-        let stats = const_array.statistics().to_set();
+        let stats = const_array.statistics().stats_set();
 
         let canonical = const_array.into_canonical().unwrap();
-        let canonical_stats = canonical.as_ref().statistics().to_set();
+        let canonical_stats = canonical.as_ref().statistics().stats_set();
 
         let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {

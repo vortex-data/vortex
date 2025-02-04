@@ -63,12 +63,12 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 
     let taken = take_impl(array, indices, checked_indices)?;
 
-    let mut stats = taken.to_set();
+    let mut stats = taken.stats_set();
     stats.combine_sets(&derived_stats, array.dtype())?;
     // TODO(joe): add
     // taken.inherit_statistics(&stats)?;
     for (stat, val) in stats.iter() {
-        taken.statistics().set(*stat, val.clone())
+        taken.statistics().set_stat(*stat, val.clone())
     }
 
     debug_assert_eq!(
@@ -88,7 +88,7 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 }
 
 fn derive_take_stats(arr: &Array) -> StatsSet {
-    let stats = arr.to_set();
+    let stats = arr.stats_set();
 
     stats.keep_exact_inexact_stats(
         // Any combination of elements from a constant array is still const

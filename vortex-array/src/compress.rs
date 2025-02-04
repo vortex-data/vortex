@@ -64,13 +64,13 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
         for (stat, value) in arr
             .statistics()
-            .to_set()
+            .stats_set()
             .into_iter()
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
             let compressed_scalar = compressed
                 .statistics()
-                .get(stat)
+                .get_stat(stat)
                 .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(
                 compressed_scalar.clone(),

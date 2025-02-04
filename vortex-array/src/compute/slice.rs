@@ -58,10 +58,10 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
             ))
         })?;
 
-    let mut stats = sliced.to_set();
+    let mut stats = sliced.stats_set();
     stats.combine_sets(&derived_stats, array.dtype())?;
     for (stat, val) in stats.iter() {
-        sliced.statistics().set(*stat, val.clone())
+        sliced.statistics().set_stat(*stat, val.clone())
     }
 
     debug_assert_eq!(
@@ -81,7 +81,7 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 }
 
 fn derive_sliced_stats(arr: &Array) -> StatsSet {
-    let stats = arr.to_set();
+    let stats = arr.stats_set();
 
     stats.keep_exact_inexact_stats(
         &[Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted],
@@ -124,7 +124,7 @@ mod tests {
 
         let c2 = slice(c, 10, 20).unwrap();
 
-        let result_stats = c2.to_set();
+        let result_stats = c2.stats_set();
         assert_eq!(
             result_stats.get_as::<i32>(Stat::Max),
             Some(Precision::inexact(99))
@@ -141,7 +141,7 @@ mod tests {
         c.compute_all(STATS_TO_WRITE).unwrap();
 
         let c2 = slice(c, 10, 20).unwrap();
-        let result_stats = c2.to_set();
+        let result_stats = c2.stats_set();
 
         // Constant always knows its exact stats
         assert_eq!(

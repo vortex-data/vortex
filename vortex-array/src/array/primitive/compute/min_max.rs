@@ -3,7 +3,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
@@ -18,11 +18,9 @@ impl MinMaxFn<PrimitiveArray> for PrimitiveEncoding {
 }
 
 #[inline]
-fn compute_min_max_with_validity<T: NativePType>(
-    array: &PrimitiveArray,
-) -> VortexResult<Option<MinMaxResult>>
+fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
 where
-    vortex_scalar::ScalarValue: From<T>,
+    T: Into<ScalarValue> + NativePType,
 {
     Ok(match array.validity_mask()? {
         Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter(), array.dtype()),
@@ -38,28 +36,25 @@ where
     })
 }
 
-fn compute_min_max<'a, T: NativePType + Copy>(
-    iter: impl Iterator<Item = &'a T>,
-    dtype: &DType,
-) -> Option<MinMaxResult>
+fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> Option<MinMaxResult>
 where
-    vortex_scalar::ScalarValue: From<T>,
+    T: Into<ScalarValue> + NativePType + Copy,
 {
-    let dtype = dtype.clone().with_nullability(NonNullable);
+    let dtype = dtype.with_nullability(NonNullable);
 
     // this `compare` function provides a total ordering (even for NaN values)
     match iter.minmax_by(|a, b| a.total_compare(**b)) {
         itertools::MinMaxResult::NoElements => None,
-        itertools::MinMaxResult::OneElement(x) => {
-            let scalar = Scalar::new(dtype, (*x).into());
+        itertools::MinMaxResult::OneElement(&x) => {
+            let scalar = Scalar::new(dtype, x.into());
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
-        itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), (*min).into()),
-            max: Scalar::new(dtype, (*max).into()),
+        itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
+            min: Scalar::new(dtype.clone(), min.into()),
+            max: Scalar::new(dtype, max.into()),
         }),
     }
 }

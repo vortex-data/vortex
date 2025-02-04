@@ -1,6 +1,6 @@
 use vortex_array::array::{PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::Stat;
+use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
@@ -15,12 +15,10 @@ pub fn downscale_integer_array(array: Array) -> VortexResult<Array> {
     let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
 
     let min = array
-        .statistics()
-        .compute(Stat::Min)
+        .compute_stat(Stat::Min)
         .ok_or_else(|| vortex_err!("Failed to compute min on primitive array"))?;
     let max = array
-        .statistics()
-        .compute(Stat::Max)
+        .compute_stat(Stat::Max)
         .ok_or_else(|| vortex_err!("Failed to compute max on primitive array"))?;
 
     // If we can't cast to i64, then leave the array as its original type.

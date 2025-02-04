@@ -2,7 +2,7 @@ use std::cmp;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
 use vortex_array::IntoArrayVariant as _;
@@ -16,7 +16,7 @@ use crate::{RunEndArray, RunEndEncoding};
 impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::Min | Stat::Max => array.values().statistics().compute(stat),
+            Stat::Min | Stat::Max => array.values().compute_stat(stat),
             Stat::IsSorted => Some(ScalarValue::from(
                 array
                     .values()
