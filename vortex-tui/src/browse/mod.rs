@@ -174,19 +174,13 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                         app.cursor = match app.filter.as_ref() {
                             None => app.cursor.child(selected),
                             Some(filter) => {
-                                let mut true_visited = 0;
                                 let child_idx = filter
                                     .iter()
                                     .enumerate()
-                                    .find_map(|(child_idx, show)| {
-                                        if *show && selected == true_visited {
-                                            Some(child_idx)
-                                        } else {
-                                            true_visited += *show as usize;
-                                            None
-                                        }
-                                    })
+                                    .filter_map(|(idx, show)| show.then_some(idx))
+                                    .nth(selected)
                                     .vortex_expect("There must be a selected item in the filter");
+
                                 app.cursor.child(child_idx)
                             }
                         };
