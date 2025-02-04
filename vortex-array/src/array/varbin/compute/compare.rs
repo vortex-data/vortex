@@ -2,13 +2,12 @@ use arrow_array::{BinaryArray, StringArray};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
-use num_traits::Zero;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::array::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::{CompareFn, Operator};
+use crate::compute::{compare_to_empty, CompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, IntoArray, IntoCanonical};
 
@@ -48,7 +47,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                     _ => {
                         let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
-                            compare_to_empty::<$P>(lhs_offsets, operator)
+                            compare_offsets_to_empty::<$P>(lhs_offsets, operator)
                         })
                     }
                 };
@@ -95,25 +94,14 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
     }
 }
 
-/// All comparison can be expressed in terms of equality. "" is the absolute min of possible value.
-const fn cmp_to_empty<T: PartialEq + PartialOrd + Zero>(op: Operator) -> fn(T) -> bool {
-    match op {
-        Operator::Eq | Operator::Lte => |v| v == T::zero(),
-        Operator::NotEq | Operator::Gt => |v| v != T::zero(),
-        Operator::Gte => |_| true,
-        Operator::Lt => |_| false,
-    }
-}
-
-fn compare_to_empty<T>(array: PrimitiveArray, op: Operator) -> BooleanBuffer
-where
-    T: NativePType,
-{
-    let cmp_fn = cmp_to_empty::<T>(op);
-    let slice = array.as_slice::<T>();
-    slice
+fn compare_offsets_to_empty<P: NativePType>(
+    offsets: PrimitiveArray,
+    operator: Operator,
+) -> BooleanBuffer {
+    let lengths_iter = offsets
+        .as_slice::<P>()
         .iter()
         .tuple_windows()
-        .map(|(&s, &e)| cmp_fn(e - s))
-        .collect::<BooleanBuffer>()
+        .map(|(&s, &e)| e - s);
+    compare_to_empty(lengths_iter, operator)
 }

@@ -1,10 +1,11 @@
 use fsst::Symbol;
-use vortex_array::array::ConstantArray;
-use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray};
+use vortex_array::compute::{compare, compare_to_empty, CompareFn, Operator};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{match_each_native_ptype, DType, Nullability};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
@@ -16,33 +17,71 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
         rhs: &Array,
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
-        match (rhs.as_constant(), operator) {
-            (Some(constant), _) if constant.is_null() => {
+        match rhs.as_constant() {
+            Some(constant) if constant.is_null() => {
                 // All comparisons to null must return null
                 Ok(Some(
                     ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
                         .into_array(),
                 ))
             }
-            (Some(constant), Operator::Eq | Operator::NotEq) => compare_fsst_constant(
-                lhs,
-                &ConstantArray::new(constant, lhs.len()),
-                operator == Operator::Eq,
-            )
-            .map(Some),
+            Some(constant) => {
+                compare_fsst_constant(lhs, &ConstantArray::new(constant, lhs.len()), operator)
+            }
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
     }
 }
 
-/// Specialized compare function implementation used when performing equals or not equals against
-/// a constant.
+/// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
     left: &FSSTArray,
     right: &ConstantArray,
-    equal: bool,
-) -> VortexResult<Array> {
+    operator: Operator,
+) -> VortexResult<Option<Array>> {
+    let rhs_is_empty = match right.dtype() {
+        DType::Utf8(_) => {
+            let v = right.scalar().as_utf8().value();
+            v.is_some_and(|v| v.is_empty())
+        }
+        DType::Binary(_) => {
+            let v = right.scalar().as_binary().value();
+            v.is_some_and(|v| v.is_empty())
+        }
+        _ => vortex_bail!(
+            "FSST array RHS can only be Utf8 or Binary, given {}",
+            right.dtype()
+        ),
+    };
+
+    if rhs_is_empty {
+        let buffer = match operator {
+            // Every possible value is gte ""
+            Operator::Gte => BooleanBuffer::new_set(left.len()),
+            // No value is lt ""
+            Operator::Lt => BooleanBuffer::new_unset(left.len()),
+            _ => {
+                let uncompressed_lengths = left
+                    .uncompressed_lengths()
+                    .into_canonical()?
+                    .into_primitive()?;
+                match_each_native_ptype!(uncompressed_lengths.ptype(), |$P| {
+                    compare_to_empty(uncompressed_lengths.as_slice::<$P>().iter().copied(), operator)
+                })
+            }
+        };
+
+        return Ok(Some(
+            BoolArray::try_new(buffer, left.validity())?.into_array(),
+        ));
+    }
+
+    // The following section only supports Eq/NotEq
+    if !matches!(operator, Operator::Eq | Operator::NotEq) {
+        return Ok(None);
+    }
+
     let symbols = left.symbols().into_primitive()?;
     let symbols_u64 = symbols.as_slice::<u64>();
 
@@ -76,11 +115,7 @@ fn compare_fsst_constant(
     };
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
-    compare(
-        left.codes(),
-        rhs,
-        if equal { Operator::Eq } else { Operator::NotEq },
-    )
+    compare(left.codes(), rhs, operator).map(Some)
 }
 
 #[cfg(test)]

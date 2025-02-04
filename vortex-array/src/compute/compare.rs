@@ -1,8 +1,9 @@
 use core::fmt;
 use std::fmt::{Display, Formatter};
 
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -157,6 +158,24 @@ pub fn compare(
     let result = arrow_compare(left, right, operator)?;
     check_compare_result(&result, left, right);
     Ok(result)
+}
+
+/// Helper function to compare empty values with arrays that have external value length information
+/// like `VarBin`.
+pub fn compare_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
+where
+    P: NativePType,
+    I: Iterator<Item = P>,
+{
+    // All comparison can be expressed in terms of equality. "" is the absolute min of possible value.
+    let cmp_fn = match op {
+        Operator::Eq | Operator::Lte => |v| v == P::zero(),
+        Operator::NotEq | Operator::Gt => |v| v != P::zero(),
+        Operator::Gte => |_| true,
+        Operator::Lt => |_| false,
+    };
+
+    lengths.map(cmp_fn).collect::<BooleanBuffer>()
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
