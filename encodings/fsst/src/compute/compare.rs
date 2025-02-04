@@ -5,7 +5,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
