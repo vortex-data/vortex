@@ -5,7 +5,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -32,7 +32,19 @@ fn compare_fsst_constant(
     right: &ConstantArray,
     operator: Operator,
 ) -> VortexResult<Option<Array>> {
-    if right.scalar().is_empty().unwrap_or_default() {
+    let rhs_scalar = right.scalar();
+    let is_rhs_empty = match rhs_scalar.dtype() {
+        DType::Binary(_) => rhs_scalar
+            .as_binary()
+            .is_empty()
+            .vortex_expect("RHS should not be null"),
+        DType::Utf8(_) => rhs_scalar
+            .as_utf8()
+            .is_empty()
+            .vortex_expect("RHS should not be null"),
+        _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+    };
+    if is_rhs_empty {
         let buffer = match operator {
             // Every possible value is gte ""
             Operator::Gte => BooleanBuffer::new_set(left.len()),

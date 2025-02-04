@@ -141,21 +141,6 @@ impl Scalar {
             value: self.value,
         }
     }
-
-    /// If the [`Scalar`] is binary/utf8, returns whether its value is empty, otherwise `None`.
-    pub fn is_empty(&self) -> Option<bool> {
-        match self.dtype() {
-            DType::Utf8(_) => {
-                let v = self.as_utf8().value();
-                v.map(|v| v.is_empty())
-            }
-            DType::Binary(_) => {
-                let v = self.as_binary().value();
-                v.map(|v| v.is_empty())
-            }
-            _ => None,
-        }
-    }
 }
 
 impl Scalar {
