@@ -68,10 +68,7 @@ fn main() {
         idempotent(&output_path, |output_path| {
             eprintln!("Downloading file {idx}");
             let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-
-
             let make_req = || reqwest::blocking::get(&url);
-
             let mut output = None;
 
             for attempt in 1..4 {
@@ -81,7 +78,7 @@ fn main() {
                           break;
                     },
                     Err(e) => {
-                        eprintln!("Request timed out, retying for the {attempt} time");
+                        eprintln!("Request for file {idx} timed out, retying for the {attempt} time");
                         output = Some(Err(e));
                     }
                 }
