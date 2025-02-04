@@ -140,7 +140,7 @@ fn compare_gte(
 fn compare_dtp(lhs: &Array, rhs: i64, operator: Operator) -> VortexResult<Array> {
     match try_cast(ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
         Ok(casted) => compare(lhs, casted, operator),
-        // The narrowing cast failed. Therefore, we know rhs > lhs.
+        // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
             let constant_value = match operator {
                 Operator::Eq | Operator::Gte => false,
