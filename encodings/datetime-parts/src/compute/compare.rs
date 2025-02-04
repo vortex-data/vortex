@@ -39,11 +39,15 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
         match operator {
             Operator::Eq => compare_eq(lhs, &ts_parts),
             Operator::NotEq => compare_ne(lhs, &ts_parts),
+            // lt and lte have identical behavior, as we optimize
+            // for the case that all days on the lhs are smaller.
+            //
+            // If that special case is not hit, we return `Ok(None)` to
+            // signal that the comparison wasn't handled within dtp.
             Operator::Lt => compare_lt(lhs, &ts_parts),
-            // Identical behavior for lt and lte.
             Operator::Lte => compare_lt(lhs, &ts_parts),
+            // (Like for lt, lte)
             Operator::Gt => compare_gt(lhs, &ts_parts),
-            // Identical behavior for gt and gte.
             Operator::Gte => compare_gt(lhs, &ts_parts),
         }
     }
