@@ -127,7 +127,7 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                 //
                 // Kill the search bar and search filtering and return to normal input processing.
                 app.key_mode = KeyMode::Normal;
-                app.search_filter.clear();
+                app.clear_search();
             }
 
             // Use same navigation as Normal mode
@@ -188,9 +188,7 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                         // Reset the list scroll state.
                         app.layouts_list_state = ListState::default().with_selected(Some(0));
 
-                        // Clear the search filter.
-                        app.search_filter.clear();
-                        app.filter = None;
+                        app.clear_search();
                         // Return to normal mode.
                         app.key_mode = KeyMode::Normal;
                     }

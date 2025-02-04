@@ -231,6 +231,11 @@ impl AppState {
 
         buf.freeze()
     }
+
+    pub fn clear_search(&mut self) {
+        self.search_filter.clear();
+        self.filter.take();
+    }
 }
 
 /// Create an app backed from a file path.
