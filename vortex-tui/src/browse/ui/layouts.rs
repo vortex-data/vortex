@@ -185,9 +185,9 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let state = &mut app.layouts_list_state;
 
     if layout.nchildren() > 0 {
-        let list_items: Vec<String> = (0..layout.nchildren())
+        let filter: Vec<bool> = (0..layout.nchildren())
             .map(|idx| child_name(cursor, idx))
-            .filter(|name| {
+            .map(|name| {
                 if app.search_filter.is_empty() {
                     true
                 } else {
@@ -195,6 +195,16 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
                 }
             })
             .collect();
+
+        let list_items: Vec<String> = (0..layout.nchildren())
+            .zip(filter.iter())
+            .filter(|&(_, keep)| *keep)
+            .map(|(idx, _)| child_name(cursor, idx))
+            .collect();
+
+        if !app.search_filter.is_empty() {
+            app.filter = Some(filter);
+        }
 
         let container = Block::new()
             .title("Child Layouts")
