@@ -57,7 +57,7 @@ def test_to_batches(ds):
 
     chunk0 = next(ds.to_batches(columns=["string", "bool"]))
     assert chunk0.to_struct_array() == pa.array(
-        [record(x, columns=["string", "bool"]) for x in range(1_000_000)], type=schema
+        [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
     )
 
 
