@@ -33,6 +33,7 @@ impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
             min: min_values
                 .into_iter()
                 .flatten()
+                // This is None iff all the values `None` (refuted above) or partial_min returns None
                 .fold(None, |acc, x| {
                     if let Some(acc) = acc {
                         partial_min(x, acc)
