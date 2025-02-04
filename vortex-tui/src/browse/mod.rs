@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::widgets::ListState;
 use ratatui::DefaultTerminal;
 use ui::render_app;
-use vortex::error::VortexResult;
+use vortex::error::{VortexExpect, VortexResult};
 
 use crate::TOKIO_RUNTIME;
 
@@ -169,17 +169,37 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                 //
                 // We can eliminate the search filter when we do this
                 if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
-                    // Descend into the layout subtree for the selected child.
-                    let selected = app.layouts_list_state.selected().unwrap_or_default();
-                    app.cursor = app.cursor.child(selected);
+                    // Descend into the layout subtree for the selected child, do nothing if there's nothing to select.
+                    if let Some(selected) = app.layouts_list_state.selected() {
+                        app.cursor = match app.filter.as_ref() {
+                            None => app.cursor.child(selected),
+                            Some(filter) => {
+                                let mut true_visited = 0;
+                                let child_idx = filter
+                                    .iter()
+                                    .enumerate()
+                                    .find_map(|(child_idx, show)| {
+                                        if *show && selected == true_visited {
+                                            Some(child_idx)
+                                        } else {
+                                            true_visited += *show as usize;
+                                            None
+                                        }
+                                    })
+                                    .vortex_expect("There must be a selected item in the filter");
+                                app.cursor.child(child_idx)
+                            }
+                        };
 
-                    // Reset the list scroll state.
-                    app.layouts_list_state = ListState::default().with_selected(Some(0));
+                        // Reset the list scroll state.
+                        app.layouts_list_state = ListState::default().with_selected(Some(0));
 
-                    // Clear the search filter.
-                    app.search_filter.clear();
-                    // Return to normal mode.
-                    app.key_mode = KeyMode::Normal;
+                        // Clear the search filter.
+                        app.search_filter.clear();
+                        app.filter = None;
+                        // Return to normal mode.
+                        app.key_mode = KeyMode::Normal;
+                    }
                 }
             }
 

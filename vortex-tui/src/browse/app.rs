@@ -202,6 +202,7 @@ pub enum KeyMode {
 pub struct AppState {
     pub key_mode: KeyMode,
     pub search_filter: String,
+    pub filter: Option<Vec<bool>>,
 
     pub reader: TokioFile,
     pub cursor: LayoutCursor,
@@ -248,6 +249,7 @@ pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
         cursor,
         key_mode: KeyMode::default(),
         search_filter: String::new(),
+        filter: None,
         current_tab: Tab::default(),
         layouts_list_state: ListState::default().with_selected(Some(0)),
     })
