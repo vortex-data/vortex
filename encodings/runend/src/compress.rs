@@ -182,13 +182,21 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     Ok(match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values) {
-                assert!(end <= length, "Runend end must be less than overall length");
-                // SAFETY:
-                // We preallocate enough capacity because we know the total length
-                unsafe { decoded.push_n_unchecked(*value, end - decoded.len()) };
+            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length + 8);
+            let mut pos = 0;
+            let mut value_idx = 0;
+            for end in run_ends {
+                while pos < end {
+                    unsafe {
+                        decoded.push_n_unchecked(values[value_idx], 8);
+                    }
+                    pos += 8
+                }
+                pos = end;
+                unsafe { decoded.set_len(pos) }
+                value_idx += 1;
             }
+            unsafe { decoded.set_len(length) }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
         Mask::AllFalse(_) => PrimitiveArray::new(Buffer::<T>::zeroed(length), Validity::AllInvalid),
