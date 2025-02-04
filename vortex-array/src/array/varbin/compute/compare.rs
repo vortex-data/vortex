@@ -3,10 +3,10 @@ use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
 use num_traits::Zero;
-use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::array::{BoolArray, VarBinArray, VarBinEncoding};
+use crate::array::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait as _;
@@ -40,16 +40,18 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             };
 
             if rhs_is_empty {
-                let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
-
-                let buffer = match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
-                    let cmp_fn = cmp_to_empty::<$P>(operator);
-                    let slice = lhs_offsets.as_slice::<$P>();
-                    slice.iter()
-                        .tuple_windows()
-                        .map(|(s, e)| cmp_fn(e - s))
-                        .collect::<BooleanBuffer>()
-                });
+                let buffer = match operator {
+                    // Every possible value is gte ""
+                    Operator::Gte => BooleanBuffer::new_set(len),
+                    // No value is lt ""
+                    Operator::Lt => BooleanBuffer::new_unset(len),
+                    _ => {
+                        let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
+                        match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
+                            compare_to_empty::<$P>(lhs_offsets, operator)
+                        })
+                    }
+                };
 
                 return Ok(Some(
                     BoolArray::try_new(buffer, lhs.validity())?.into_array(),
@@ -96,11 +98,22 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
 /// All comparison can be expressed in terms of equality. "" is the absolute min of possible value.
 const fn cmp_to_empty<T: PartialEq + PartialOrd + Zero>(op: Operator) -> fn(T) -> bool {
     match op {
-        Operator::Eq => |v| v == T::zero(),
-        Operator::NotEq => |v| v != T::zero(),
-        Operator::Gt => |v| v != T::zero(),
+        Operator::Eq | Operator::Lte => |v| v == T::zero(),
+        Operator::NotEq | Operator::Gt => |v| v != T::zero(),
         Operator::Gte => |_| true,
         Operator::Lt => |_| false,
-        Operator::Lte => |v| v == T::zero(),
     }
+}
+
+fn compare_to_empty<T>(array: PrimitiveArray, op: Operator) -> BooleanBuffer
+where
+    T: NativePType,
+{
+    let cmp_fn = cmp_to_empty::<T>(op);
+    let slice = array.as_slice::<T>();
+    slice
+        .iter()
+        .tuple_windows()
+        .map(|(&s, &e)| cmp_fn(e - s))
+        .collect::<BooleanBuffer>()
 }
