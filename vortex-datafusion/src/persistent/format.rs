@@ -245,9 +245,6 @@ impl FileFormat for VortexFormat {
                     .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
-                if field.name() == "EventDate" {
-                    dbg!(&stats_set);
-                }
                 ColumnStatistics {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),
