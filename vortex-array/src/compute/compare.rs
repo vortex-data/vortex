@@ -343,4 +343,18 @@ mod tests {
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
     }
+
+    #[rstest::rstest]
+    #[case(Operator::Eq, vec![false, false, false, true])]
+    #[case(Operator::NotEq, vec![true, true, true, false])]
+    #[case(Operator::Gt, vec![true, true, true, false])]
+    #[case(Operator::Gte, vec![true, true, true, true])]
+    #[case(Operator::Lt, vec![false, false, false, false])]
+    #[case(Operator::Lte, vec![false, false, false, true])]
+    fn test_cmp_to_empty(#[case] op: Operator, #[case] expected: Vec<bool>) {
+        let lengths: Vec<i32> = vec![1, 5, 7, 0];
+
+        let output = compare_lengths_to_empty(lengths.iter().copied(), op);
+        assert_eq!(Vec::from_iter(output.iter()), expected);
+    }
 }
