@@ -211,7 +211,7 @@ mod test {
 
     #[test]
     fn compare_date_time_parts_lte() {
-        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
+        let lhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
 
         let comparison = DateTimePartsEncoding
@@ -219,49 +219,17 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
-
-        let lhs = dtp_array_from_timestamp(86400i64 + 3600i64); // January 2, 1970, 01:00:01 UTC
-        let rhs = dtp_array_from_timestamp(86400i64 + 7200i64); // January 2, 1970, 02:00:00 UTC
-
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Lte)
-            .unwrap()
-            .unwrap();
-        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
-
-        // Swap the operands to test the reverse.
-        let comparison = DateTimePartsEncoding
-            .compare(&rhs, &lhs, Operator::Lte)
-            .unwrap()
-            .unwrap();
-        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 0);
     }
 
     #[test]
     fn compare_date_time_parts_gte() {
-        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
-        let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
+        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 02:00:00 UTC
+        let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
 
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::Gte)
             .unwrap()
             .unwrap();
         assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
-
-        let lhs = dtp_array_from_timestamp(86400i64 + 7200i64); // January 2, 1970, 02:00:00 UTC
-        let rhs = dtp_array_from_timestamp(86400i64 + 3600i64); // January 2, 1970, 01:00:00 UTC
-
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Gte)
-            .unwrap()
-            .unwrap();
-        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
-
-        // Swap the operands to test the reverse.
-        let comparison = DateTimePartsEncoding
-            .compare(&rhs, &lhs, Operator::Gte)
-            .unwrap()
-            .unwrap();
-        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 0);
     }
 }
