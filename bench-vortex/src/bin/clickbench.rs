@@ -60,6 +60,7 @@ fn main() {
     }
     .expect("Failed building the Runtime");
     let basepath = "clickbench".to_data_path();
+    let client = reqwest::blocking::Client::default();
 
     // The clickbench-provided file is missing some higher-level type info, so we reprocess it
     // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
@@ -68,7 +69,7 @@ fn main() {
         idempotent(&output_path, |output_path| {
             eprintln!("Downloading file {idx}");
             let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-            let client = reqwest::blocking::Client::default();
+
 
             let make_req = || client.get(&url).send();
             let mut output = None;
