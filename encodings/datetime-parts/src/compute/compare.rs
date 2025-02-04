@@ -143,9 +143,8 @@ fn compare_dtp(lhs: &Array, rhs: i64, operator: Operator) -> VortexResult<Array>
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
             let constant_value = match operator {
-                Operator::Eq | Operator::Gte => false,
-                Operator::NotEq | Operator::Lte => true,
-                _ => unreachable!("operator {} not supported", operator),
+                Operator::Eq | Operator::Gte | Operator::Gt => false,
+                Operator::NotEq | Operator::Lte | Operator::Lt => true,
             };
             Ok(ConstantArray::new(constant_value, lhs.len()).into_array())
         }
@@ -228,6 +227,44 @@ mod test {
 
         let comparison = DateTimePartsEncoding
             .compare(&lhs, &rhs, Operator::Gte)
+            .unwrap()
+            .unwrap();
+        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn compare_date_time_parts_narrowing() {
+        let temporal_array = TemporalArray::new_timestamp(
+            PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),
+            TimeUnit::S,
+            Some("UTC".to_string()),
+        );
+
+        let lhs = DateTimePartsArray::try_new(
+            DType::Extension(temporal_array.ext_dtype()),
+            PrimitiveArray::new(buffer![0i32], Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),
+        )
+        .unwrap();
+
+        // Timestamp with a value larger than i32::MAX.
+        let rhs = dtp_array_from_timestamp(i64::MAX);
+
+        let comparison = DateTimePartsEncoding
+            .compare(&lhs, &rhs, Operator::Eq)
+            .unwrap()
+            .unwrap();
+        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 0);
+
+        let comparison = DateTimePartsEncoding
+            .compare(&lhs, &rhs, Operator::NotEq)
+            .unwrap()
+            .unwrap();
+        assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
+
+        let comparison = DateTimePartsEncoding
+            .compare(&lhs, &rhs, Operator::Lte)
             .unwrap()
             .unwrap();
         assert_eq!(comparison.statistics().compute_true_count().unwrap(), 1);
