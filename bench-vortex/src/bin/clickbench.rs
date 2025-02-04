@@ -1,8 +1,8 @@
 #![feature(exit_status_error)]
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
@@ -67,29 +67,14 @@ fn main() {
     (0_u32..100).into_par_iter().for_each(|idx| {
         let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
         idempotent(&output_path, |output_path| {
-            eprintln!("Fixing parquet file {idx}");
+            eprintln!("Downloading file {idx}");
+            let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
+            let r = reqwest::blocking::get(url)?.error_for_status()?;
+            let body = r.bytes()?;
 
-            // We need to set the home directory because GitHub Actions doesn't set it in a way
-            // that DuckDB respects.
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/ci-runner".to_string());
-
-            let command = format!(
-                "
-                SET home_directory='{home}';
-                INSTALL HTTPFS;
-                COPY (SELECT * REPLACE
-                    (epoch_ms(EventTime * 1000) AS EventTime, \
-                    epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
-                    epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
-                        DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) \
-                FROM read_parquet('https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{idx}.parquet', binary_as_string=True)) TO '{}' (FORMAT 'parquet');",
-                output_path.to_str().unwrap()
-            );
-            Command::new("duckdb")
-                .arg("-c")
-                .arg(command)
-                .status()?
-                .exit_ok()?;
+            let mut file = OpenOptions::new().create_new(true).write(true).open(output_path)?;
+            file.write_all(body.as_ref())?;
+            file.flush()?;
 
             anyhow::Ok(PathBuf::from(output_path))
         })

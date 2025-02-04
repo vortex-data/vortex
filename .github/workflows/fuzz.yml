@@ -18,12 +18,13 @@ jobs:
       - name: Restore corpus
         shell: bash
         run: |
-          aws s3 cp s3://vortex-fuzz-corpus/io_corpus.tar.zst . --endpoint-url https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com
+          aws s3 cp s3://vortex-fuzz-corpus/io_corpus.tar.zst .
           tar -xf io_corpus.tar.zst
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: 'us-east-1'
+          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
       - name: Run fuzzing target
         run: RUST_BACKTRACE=1 cargo fuzz run file_io -- -max_total_time=300
         continue-on-error: true
@@ -36,11 +37,12 @@ jobs:
         shell: bash
         run: |
           tar -acf io_corpus.tar.zst fuzz/corpus/file_io
-          aws s3 cp io_corpus.tar.zst s3://vortex-fuzz-corpus --endpoint-url https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com
+          aws s3 cp io_corpus.tar.zst s3://vortex-fuzz-corpus
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: 'us-east-1'
+          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
 
   ops_fuzz:
     name: 'Array Operations Fuzz'
@@ -54,12 +56,13 @@ jobs:
       - name: Restore corpus
         shell: bash
         run: |
-          aws s3 cp s3://vortex-fuzz-corpus/array_ops_corpus.tar.zst . --endpoint-url https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com
+          aws s3 cp s3://vortex-fuzz-corpus/array_ops_corpus.tar.zst .
           tar -xf array_ops_corpus.tar.zst
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: 'us-east-1'
+          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
       - name: Run fuzzing target
         run: RUST_BACKTRACE=1 cargo fuzz run array_ops -- -max_total_time=3600
         continue-on-error: true
@@ -72,8 +75,9 @@ jobs:
         shell: bash
         run: |
           tar -acf array_ops_corpus.tar.zst fuzz/corpus/array_ops
-          aws s3 cp array_ops_corpus.tar.zst s3://vortex-fuzz-corpus --endpoint-url https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com
+          aws s3 cp array_ops_corpus.tar.zst s3://vortex-fuzz-corpus
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: 'us-east-1'
+          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
