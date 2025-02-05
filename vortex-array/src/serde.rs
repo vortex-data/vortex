@@ -43,9 +43,6 @@ impl Array {
 
         // Allocate result buffers, including a possible padding buffer for each.
         let mut buffers = vec![];
-
-        // Set up the flatbuffer builder
-        let mut fbb = FlatBufferBuilder::new();
         let mut fb_buffers = Vec::with_capacity(buffers.capacity());
 
         // If we're including padding, we need to find the maximum required buffer alignment.
@@ -89,7 +86,10 @@ impl Array {
             buffers.push(buffer.aligned(Alignment::none()));
         }
 
-        let fb_root = ArrayNodeFlatBuffer::new(self).write_flatbuffer(&mut fbb);
+        // Set up the flatbuffer builder
+        let mut fbb = FlatBufferBuilder::new();
+        let root = ArrayNodeFlatBuffer::new(self);
+        let fb_root = root.write_flatbuffer(&mut fbb);
         let fb_buffers = fbb.create_vector(&fb_buffers);
         let fb_array = fba::Array::create(
             &mut fbb,
@@ -99,22 +99,22 @@ impl Array {
             },
         );
         fbb.finish_minimal(fb_array);
-        let (fb_vec, fb_offset) = fbb.collapse();
-        let fb_buffer =
-            ByteBuffer::copy_from_aligned(&fb_vec[fb_offset..], FlatBuffer::alignment());
+        let (fb_vec, fb_start) = fbb.collapse();
+        let fb_end = fb_vec.len();
+        let fb_buffer = ByteBuffer::from(fb_vec).slice(fb_start..fb_end);
+        let fb_length = fb_buffer.len();
 
         if options.include_padding {
             let padding = pos.next_multiple_of(*fb_buffer.alignment()) - pos;
             if padding > 0 {
-                pos += padding;
                 buffers.push(zeros.slice(0..padding));
             }
         }
-        buffers.push(fb_buffer.aligned(Alignment::none()));
+        buffers.push(fb_buffer);
 
         // Finally, we write down the u32 length for the flatbuffer.
         buffers.push(ByteBuffer::from(
-            u32::try_from(pos)
+            u32::try_from(fb_length)
                 .vortex_expect("u32 fits into usize")
                 .to_le_bytes()
                 .to_vec(),
@@ -251,11 +251,15 @@ impl TryFrom<ByteBuffer> for ArrayParts {
             vortex_bail!("ArrayParts buffer is too short");
         }
 
+        // We align each buffer individually, so we remove alignment requirements on the buffer.
+        let value = value.aligned(Alignment::none());
+
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
-        let fb_buffer =
-            FlatBuffer::try_from(value.slice((value.len() - fb_length)..value.len() - 4))?;
+        let fb_offset = value.len() - 4 - fb_length;
+        let fb_buffer = FlatBuffer::align_from(value.slice(fb_offset..fb_offset + fb_length));
 
         let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+        let fb_root = fb_array.root().vortex_expect("Array must have a root node");
 
         let mut offset = 0;
         let buffers = fb_array
@@ -280,7 +284,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer.clone(),
-            flatbuffer_loc: fb_array._tab.loc(),
+            flatbuffer_loc: fb_root._tab.loc(),
             buffers,
         })
     }
