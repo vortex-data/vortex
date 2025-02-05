@@ -26,14 +26,12 @@ impl Array {
     /// This function returns a vec to avoid copying data buffers.
     ///
     /// Optionally, padding can be included to guarantee buffer alignment and ensure zero-copy
-    /// reads within the context of an external file or stream.
+    /// reads within the context of an external file or stream. In this case, the alignment of
+    /// the first byte buffer should be respected when writing the buffers to the stream or file.
     ///
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    ///
-    /// TODO(ngates): by this point we should return `bytes::Bytes` since we no longer care for
-    ///  alignment
     pub fn serialize(&self, options: &SerializeOptions) -> Vec<ByteBuffer> {
         // Collect all array buffers
         let mut array_buffers = vec![];
