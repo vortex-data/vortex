@@ -93,8 +93,8 @@ fn bench_compare(c: &mut Criterion) {
     let value = primitive_arr.as_slice::<i32>()[0];
     group.throughput(Throughput::Bytes(primitive_arr.nbytes() as u64));
     group.bench_function("dict_compare_primitives", |b| {
-        b.iter(move || {
-            black_box(compare(&dict, ConstantArray::new(value, LEN), Operator::Eq).unwrap())
+        b.iter(|| {
+            black_box(compare(dict.clone(), ConstantArray::new(value, LEN), Operator::Eq).unwrap())
         });
     });
 }
