@@ -110,7 +110,8 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         buffer,
         ALL_ENCODINGS_CONTEXT.clone(),
         app.cursor.layout().dtype().clone(),
-        app.cursor.layout().row_count() as usize,
+        usize::try_from(app.cursor.layout().row_count())
+            .vortex_expect("FlatLayout row count too big for usize"),
     )
     .vortex_expect("Failed to deserialize Array");
 

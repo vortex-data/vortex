@@ -91,7 +91,7 @@ impl Array {
             buffers.push(buffer.aligned(Alignment::none()));
         }
 
-        let fb_root = ArrayNodeFlatBuffer::new(&self).write_flatbuffer(&mut fbb);
+        let fb_root = ArrayNodeFlatBuffer::new(self).write_flatbuffer(&mut fbb);
         let fb_buffers = fbb.create_vector(&fb_buffers);
         let fb_array = fba::Array::create(
             &mut fbb,

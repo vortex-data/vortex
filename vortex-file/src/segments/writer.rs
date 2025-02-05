@@ -32,7 +32,7 @@ impl BufferedSegmentWriter {
             let alignment = buffers
                 .first()
                 .map(|buffer| buffer.alignment())
-                .unwrap_or_else(|| Alignment::none());
+                .unwrap_or_else(Alignment::none);
 
             let offset = write.position();
 
