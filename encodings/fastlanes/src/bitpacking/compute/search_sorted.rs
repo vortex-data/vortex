@@ -11,7 +11,6 @@ use vortex_array::compute::{
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::{VortexError, VortexResult};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
@@ -158,14 +157,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             .map(|p| p.min_index())
             .transpose()?
             .unwrap_or_else(|| array.len());
-        let first_non_null_idx = match array.validity_mask()? {
-            Mask::AllTrue(_) => 0,
-            Mask::AllFalse(n) => n,
-            Mask::Values(v) => {
-                // In sorted order, nulls come before all the non-null values, i.e. we have true count worth of non null values at the end
-                array.len() - v.true_count()
-            }
-        };
+        let first_non_null_idx = array.validity().null_count(array.len())?;
 
         Ok(Self {
             packed_as_slice: array.packed_slice::<T>(),
