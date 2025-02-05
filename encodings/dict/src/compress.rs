@@ -1,6 +1,6 @@
 use std::hash::{BuildHasher, Hash};
 
-use arrow_buffer::BooleanBufferBuilder;
+use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
@@ -156,17 +156,23 @@ where
         let primitive = array.clone().into_primitive()?;
 
         let (codes, validity) = if array.dtype().is_nullable() {
-            let mut bool_buf = BooleanBufferBuilder::new(array.len());
+            let mut null_buf = NullBufferBuilder::new(array.len());
             primitive.with_iterator(|it| {
                 for value in it {
                     let (code, validity) = value
                         .map(|v| (self.encode_value(*v), true))
                         .unwrap_or((NULL_CODE, false));
-                    bool_buf.append(validity);
+                    null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
                 }
             })?;
-            (codes, Validity::Array(bool_buf.finish().into()))
+            (
+                codes,
+                null_buf
+                    .finish()
+                    .map(Validity::from)
+                    .unwrap_or(Validity::AllValid),
+            )
         } else {
             primitive.with_iterator(|it| {
                 for value in it {
@@ -259,18 +265,24 @@ impl BytesDictBuilder {
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
         let (codes, validity) = if self.dtype.is_nullable() {
-            let mut bool_buf = BooleanBufferBuilder::new(len);
+            let mut null_buf = NullBufferBuilder::new(len);
 
             accessor.with_iterator(|it| {
                 for value in it {
                     let (code, validity) = value
                         .map(|v| (self.encode_value(&mut local_lookup, v), true))
                         .unwrap_or((NULL_CODE, false));
-                    bool_buf.append(validity);
+                    null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
                 }
             })?;
-            (codes, Validity::Array(bool_buf.finish().into()))
+            (
+                codes,
+                null_buf
+                    .finish()
+                    .map(Validity::from)
+                    .unwrap_or(Validity::AllValid),
+            )
         } else {
             accessor.with_iterator(|it| {
                 for value in it {

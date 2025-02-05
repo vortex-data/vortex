@@ -1,4 +1,3 @@
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -64,7 +63,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
     if let Some(MinMaxResult { min, max }) = min_max.as_ref() {
         debug_assert_eq!(
             min.dtype(),
-            &array.dtype().with_nullability(NonNullable),
+            array.dtype(),
             "MinMax min dtype mismatch {}",
             array.encoding()
         );
@@ -73,7 +72,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
 
         debug_assert_eq!(
             max.dtype(),
-            &array.dtype().with_nullability(NonNullable),
+            array.dtype(),
             "MinMax max dtype mismatch {}",
             array.encoding()
         );

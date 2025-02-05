@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -19,11 +18,10 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,
 ) -> VortexResult<Option<MinMaxResult>> {
-    let dtype = dtype.with_nullability(NonNullable);
     let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(value) => {
-            let scalar = Scalar::new(dtype, value.into());
+            let scalar = Scalar::new(dtype.clone(), value.into());
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
@@ -31,7 +29,7 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
         }
         itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
             min: Scalar::new(dtype.clone(), (*min).into()),
-            max: Scalar::new(dtype, (*max).into()),
+            max: Scalar::new(dtype.clone(), (*max).into()),
         }),
     })?;
 
