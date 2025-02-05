@@ -2,6 +2,7 @@ use core::mem::MaybeUninit;
 use std::any::type_name;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
+use std::ptr;
 
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
@@ -319,6 +320,30 @@ impl<T> BufferMut<T> {
         let raw_slice: &[u8] =
             unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), size_of_val(slice)) };
         self.bytes.extend_from_slice(raw_slice);
+        self.length += slice.len();
+    }
+
+    /// Appends a slice of type `T`, growing the internal buffer as needed.
+    ///
+    /// # Example:
+    ///
+    /// ```
+    /// # use vortex_buffer::BufferMut;
+    ///
+    /// let mut builder = BufferMut::<u16>::with_capacity(10);
+    /// builder.extend_from_slice(&[42, 44, 46]);
+    ///
+    /// assert_eq!(builder.len(), 3);
+    /// ```
+    #[inline]
+    pub unsafe fn extend_from_slice_unchecked(&mut self, slice: &[T]) {
+        let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+
+        unsafe {
+            ptr::copy_nonoverlapping(slice.as_ptr(), dst, slice.len());
+            self.bytes.advance_mut(slice.len());
+        }
+
         self.length += slice.len();
     }
 
