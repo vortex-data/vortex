@@ -345,7 +345,7 @@ impl<T> BufferMut<T> {
 
         unsafe {
             ptr::copy_nonoverlapping(slice.as_ptr(), dst, slice.len());
-            self.bytes.advance_mut(slice.len());
+            self.bytes.advance_mut(size_of_val(slice));
         }
 
         self.length += slice.len();
