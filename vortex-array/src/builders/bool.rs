@@ -2,12 +2,14 @@ use std::any::Any;
 
 use arrow_array::builder::{ArrayBuilder as _, BooleanBuilder as ArrowBooleanBuilder};
 use arrow_array::Array as ArrowArray;
+use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::AllOr;
 
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::Array;
+use crate::{Array, Canonical};
 
 pub struct BoolBuilder {
     inner: ArrowBooleanBuilder,
@@ -67,6 +69,33 @@ impl ArrayBuilder for BoolBuilder {
 
     fn append_nulls(&mut self, n: usize) {
         self.inner.append_nulls(n);
+    }
+
+    fn extend_from_canonical(&mut self, array: Canonical) -> VortexResult<()> {
+        let Canonical::Bool(array) = array else {
+            vortex_bail!("Expected Canonical::Bool, found {:?}", array);
+        };
+
+        match array.validity_mask()?.boolean_buffer() {
+            AllOr::All => {
+                // TODO(ngates): if the arrays align, we could just copy the bytes.
+                self.inner.extend(array.boolean_buffer().iter().map(Some));
+            }
+            AllOr::None => {
+                self.inner.append_nulls(array.len());
+            }
+            AllOr::Some(validity) => {
+                self.inner.extend(
+                    array
+                        .boolean_buffer()
+                        .iter()
+                        .zip_eq(validity.iter())
+                        .map(|(value, valid)| valid.then_some(value)),
+                );
+            }
+        }
+
+        Ok(())
     }
 
     fn finish(&mut self) -> VortexResult<Array> {

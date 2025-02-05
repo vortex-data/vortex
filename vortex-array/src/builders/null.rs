@@ -1,11 +1,11 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, IntoArray};
+use crate::{Array, Canonical, IntoArray};
 
 pub struct NullBuilder {
     length: usize,
@@ -46,6 +46,14 @@ impl ArrayBuilder for NullBuilder {
 
     fn append_nulls(&mut self, n: usize) {
         self.length += n;
+    }
+
+    fn extend_from_canonical(&mut self, array: Canonical) -> VortexResult<()> {
+        if !matches!(array, Canonical::Null(_)) {
+            vortex_bail!("Expected Null array, got {:?}", array);
+        }
+        self.append_nulls(array.len());
+        Ok(())
     }
 
     fn finish(&mut self) -> VortexResult<Array> {

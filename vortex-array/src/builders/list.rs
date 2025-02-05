@@ -11,7 +11,7 @@ use crate::builders::{
     builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder, PrimitiveBuilder,
 };
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, Canonical, IntoArray};
 
 pub struct ListBuilder<O: PrimInt + NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -115,6 +115,10 @@ where
                 .vortex_expect("Failed to append index");
         }
         self.validity.append_values(false, n);
+    }
+
+    fn extend_from_canonical(&mut self, _array: Canonical) -> VortexResult<()> {
+        todo!()
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
