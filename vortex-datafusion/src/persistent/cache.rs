@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::aliases::FoldHashBuilder;
+use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_file::{FileLayout, VortexOpenOptions};
@@ -12,7 +12,7 @@ use vortex_io::ObjectStoreReadAt;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
-    inner: Cache<Key, FileLayout, FoldHashBuilder>,
+    inner: Cache<Key, FileLayout, DefaultHashBuilder>,
     context: ContextRef,
 }
 
@@ -38,7 +38,7 @@ impl FileLayoutCache {
             .eviction_listener(|k: Arc<Key>, _v, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);
             })
-            .build_with_hasher(FoldHashBuilder::default());
+            .build_with_hasher(DefaultHashBuilder::default());
 
         Self { inner, context }
     }
