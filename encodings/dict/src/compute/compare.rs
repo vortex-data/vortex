@@ -15,59 +15,40 @@ impl CompareFn<DictArray> for DictEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(const_scalar) = rhs.as_constant() {
-            // TODO: support other operations if the dict is sorted.
-            if matches!(operator, Operator::Eq) {
-                return compare_eq_by_code(lhs, const_scalar);
-            }
-            // Ensure the other is the same length as the dictionary
-            let compare_result = compare(
-                lhs.values(),
-                ConstantArray::new(const_scalar, lhs.values().len()),
-                operator,
-            )?;
-            return take(compare_result, lhs.codes()).map(Some);
+        if rhs.is_constant() {
+            let compare_result = compare(lhs.values(), rhs, Operator::Eq)?;
+
+            let bool = compare_result.into_bool()?;
+            let bool_buffer = bool.boolean_buffer();
+            let mut indices_iter = bool_buffer.set_indices();
+
+            let result = match (indices_iter.next(), indices_iter.next()) {
+                // Couldn't find a value match, so the result is all false
+                (None, _) => ConstantArray::new(
+                    Scalar::bool(false, lhs.dtype().nullability()),
+                    lhs.codes().len(),
+                )
+                .into_array(),
+                // We found a single matching value so we can compare the codes directly.
+                // Note: the codes include nullability so we can just compare the codes directly, to the found code.
+                (Some(code), None) => try_cast(
+                    compare(
+                        lhs.codes(),
+                        try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
+                        Operator::Eq,
+                    )?,
+                    &DType::Bool(lhs.dtype().nullability()),
+                )?,
+                // more than one value matches
+                _ => take(&bool, lhs.codes())?,
+            };
+            return Ok(Some(result));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary
         // values in the future.
         Ok(None)
     }
-}
-
-fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<Array>> {
-    // If the RHS is constant, then we just need to compare against our encoded values.
-    let compare_result = compare(
-        lhs.values(),
-        ConstantArray::new(rhs, lhs.values().len()),
-        Operator::Eq,
-    )?;
-
-    let bool = compare_result.into_bool()?;
-    let bool_buffer = bool.boolean_buffer();
-    let mut indices_iter = bool_buffer.set_indices();
-
-    let result = match (indices_iter.next(), indices_iter.next()) {
-        // Couldn't find a value match, so the result is all false
-        (None, _) => ConstantArray::new(
-            Scalar::bool(false, lhs.dtype().nullability()),
-            lhs.codes().len(),
-        )
-        .into_array(),
-        // We found a single matching value so we can compare the codes directly.
-        // Note: the codes include nullability so we can just compare the codes directly, to the found code.
-        (Some(code), None) => try_cast(
-            compare(
-                lhs.codes(),
-                try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
-                Operator::Eq,
-            )?,
-            &DType::Bool(lhs.dtype().nullability()),
-        )?,
-        // more than one value matches
-        _ => take(&bool, lhs.codes())?,
-    };
-    Ok(Some(result))
 }
 
 #[cfg(test)]
