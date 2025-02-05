@@ -13,6 +13,9 @@ use vortex_error::{vortex_err, VortexUnwrap};
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
 pub trait VortexReadAt: Send + Sync + Clone + 'static {
+    /// The maximum byte distance between ranges that should be considered for coalescing into a single request.
+    /// As a general guideline, should be higher for higher latency storage backends.
+    const COALESCE_WINDOW: u64 = 2 << 20; // 1MB
     /// Request an asynchronous positional read. Results will be returned as a [`Bytes`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
@@ -42,6 +45,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
+    const COALESCE_WINDOW: u64 = T::COALESCE_WINDOW;
     fn read_byte_range(
         &self,
         pos: u64,
@@ -60,6 +64,7 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
 }
 
 impl VortexReadAt for Bytes {
+    const COALESCE_WINDOW: u64 = 0;
     fn read_byte_range(
         &self,
         pos: u64,
@@ -82,6 +87,7 @@ impl VortexReadAt for Bytes {
 }
 
 impl VortexReadAt for ByteBuffer {
+    const COALESCE_WINDOW: u64 = 0;
     fn read_byte_range(
         &self,
         pos: u64,

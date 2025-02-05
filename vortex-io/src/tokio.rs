@@ -60,6 +60,7 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
+    const COALESCE_WINDOW: u64 = 0;
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn read_byte_range(
         &self,

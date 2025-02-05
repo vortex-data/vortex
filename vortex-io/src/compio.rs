@@ -10,6 +10,7 @@ use vortex_error::VortexUnwrap;
 use crate::VortexReadAt;
 
 impl VortexReadAt for File {
+    const COALESCE_WINDOW: u64 = 0;
     fn read_byte_range(
         &self,
         pos: u64,
