@@ -34,15 +34,14 @@ impl Array {
             return Ok(StatsSet::empty_array());
         }
 
-        let mut stats_set = self.stats_set();
-
-        if let Some(stat) = stats_set.get(stat) {
+        if let Some(stat) = self.get_stat(stat) {
             if stat.is_exact() {
-                return Ok(stats_set);
+                return Ok(self.stats_set());
             }
         }
 
         let stats_set = if matches!(stat, Stat::Min | Stat::Max) {
+            let mut stats_set = self.stats_set();
             if let Some(MinMaxResult { min, max }) = min_max(self)? {
                 if min == max
                     && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
