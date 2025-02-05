@@ -3,35 +3,33 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::Array;
 
-pub trait LikeFn<Array> {
-    fn like(
-        &self,
-        array: Array,
-        pattern: &ArrayData,
-        options: LikeOptions,
-    ) -> VortexResult<Option<ArrayData>>;
+pub trait LikeFn<A> {
+    fn like(&self, array: A, pattern: &Array, options: LikeOptions) -> VortexResult<Option<Array>>;
 }
 
-impl<E: Encoding> LikeFn<ArrayData> for E
+impl<E: Encoding> LikeFn<Array> for E
 where
     E: LikeFn<E::Array>,
-    E::Array: TryFrom<ArrayData, Error = VortexError>,
+    E::Array: TryFrom<Array, Error = VortexError>,
 {
     fn like(
         &self,
-        array: ArrayData,
-        pattern: &ArrayData,
+        array: Array,
+        pattern: &Array,
         options: LikeOptions,
-    ) -> VortexResult<Option<ArrayData>> {
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        let array = <E::Array as TryFrom<ArrayData>>::try_from(array)?;
-        LikeFn::like(encoding, array, pattern, options)
+    ) -> VortexResult<Option<Array>> {
+        let encoding = array.vtable().clone();
+        LikeFn::like(
+            encoding
+                .as_any()
+                .downcast_ref::<E>()
+                .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
+            <E::Array as TryFrom<Array>>::try_from(array)?,
+            pattern,
+            options,
+        )
     }
 }
 
@@ -47,11 +45,7 @@ pub struct LikeOptions {
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(
-    array: ArrayData,
-    pattern: &ArrayData,
-    options: LikeOptions,
-) -> VortexResult<ArrayData> {
+pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult<Array> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -62,25 +56,25 @@ pub fn like(
         vortex_bail!(
             "Length mismatch lhs len {} ({}) != rhs len {} ({})",
             array.len(),
-            array.encoding().id(),
+            array.encoding(),
             pattern.len(),
-            pattern.encoding().id()
+            pattern.encoding()
         );
     }
 
     let expected_dtype =
         DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into());
-    let array_encoding = array.encoding().id();
+    let array_encoding = array.encoding();
 
     let result = array
-        .encoding()
+        .vtable()
         .like_fn()
         .and_then(|f| f.like(array.clone(), pattern, options).transpose())
         .unwrap_or_else(|| {
             // Otherwise, we canonicalize into a UTF8 array.
             log::debug!(
                 "No like implementation found for encoding {}",
-                array.encoding().id(),
+                array.encoding(),
             );
             arrow_like(array, pattern, options)
         })?;
@@ -103,20 +97,20 @@ pub fn like(
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: ArrayData,
-    pattern: &ArrayData,
+    array: Array,
+    pattern: &Array,
     options: LikeOptions,
-) -> VortexResult<ArrayData> {
+) -> VortexResult<Array> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
     debug_assert_eq!(
         array.len(),
         pattern.len(),
         "Arrow Like: length mismatch for {}",
-        array.encoding().id()
+        array.encoding()
     );
-    let lhs = unsafe { Datum::try_new(array)? };
-    let rhs = unsafe { Datum::try_new(pattern.clone())? };
+    let lhs = Datum::try_new(array)?;
+    let rhs = Datum::try_new(pattern.clone())?;
 
     let result = match (options.negated, options.case_insensitive) {
         (false, false) => arrow_string::like::like(&lhs, &rhs)?,

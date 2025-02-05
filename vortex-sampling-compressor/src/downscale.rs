@@ -1,14 +1,14 @@
 use vortex_array::array::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::EncodingVTable;
-use vortex_array::stats::{ArrayStatistics, Stat};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::stats::{Stat};
+use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
-pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
+pub fn downscale_integer_array(array: Array) -> VortexResult<Array> {
     if !array.is_encoding(PrimitiveEncoding.id()) {
         // This can happen if e.g. the array is ConstantArray.
         return Ok(array);
@@ -18,8 +18,8 @@ pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
     }
     let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
 
-    let min = array.statistics().compute(Stat::Min);
-    let max = array.statistics().compute(Stat::Max);
+    let min = array.compute_stat(Stat::Min);
+    let max = array.compute_stat(Stat::Max);
 
     let (Some(min), Some(max)) = (min, max) else {
         // This array but be all nulls.

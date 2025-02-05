@@ -103,7 +103,7 @@ mod tests;
 mod writer;
 
 pub use file::*;
-pub use footer::FileLayout;
+pub use footer::{FileLayout, Segment};
 pub use forever_constant::*;
 pub use open::*;
 pub use writer::*;

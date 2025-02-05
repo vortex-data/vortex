@@ -1,49 +1,49 @@
 use arrow_buffer::BooleanBuffer;
+use itertools::Itertools;
 use vortex_dtype::Nullability;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::FillForwardFn;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
+use crate::validity::Validity;
+use crate::{Array, IntoArray};
 
 impl FillForwardFn<BoolArray> for BoolEncoding {
-    fn fill_forward(&self, array: &BoolArray) -> VortexResult<ArrayData> {
-        let validity = array.logical_validity()?;
+    fn fill_forward(&self, array: &BoolArray) -> VortexResult<Array> {
+        let validity = array.validity_mask()?;
 
         // nothing to see or do in this case
         if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.to_array());
+            return Ok(array.clone().into_array());
         }
 
-        // all valid, but we need to convert to non-nullable
-        if validity.all_valid() {
-            return Ok(BoolArray::new(array.boolean_buffer(), Nullability::Nullable).into_array());
+        match validity.boolean_buffer() {
+            AllOr::All => {
+                // all valid, but we need to convert to non-nullable
+                Ok(BoolArray::new(array.boolean_buffer(), Nullability::Nullable).into_array())
+            }
+            AllOr::None => {
+                // all invalid => fill with default value (false)
+                Ok(
+                    BoolArray::try_new(BooleanBuffer::new_unset(array.len()), Validity::AllValid)?
+                        .into_array(),
+                )
+            }
+            AllOr::Some(validity) => {
+                let bools = array.boolean_buffer();
+                let mut last_value = false;
+                let buffer = BooleanBuffer::from_iter(bools.iter().zip_eq(validity.iter()).map(
+                    |(v, valid)| {
+                        if valid {
+                            last_value = v;
+                        }
+                        last_value
+                    },
+                ));
+                Ok(BoolArray::try_new(buffer, Validity::AllValid)?.into_array())
+            }
         }
-        // all invalid => fill with default value (false)
-        if validity.all_invalid() {
-            return Ok(BoolArray::try_new(
-                BooleanBuffer::new_unset(array.len()),
-                Validity::AllValid,
-            )?
-            .into_array());
-        }
-
-        let validity = validity
-            .to_null_buffer()?
-            .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
-
-        let bools = array.boolean_buffer();
-        let mut last_value = false;
-        let buffer = BooleanBuffer::from_iter(bools.iter().zip(validity.inner().iter()).map(
-            |(v, valid)| {
-                if valid {
-                    last_value = v;
-                }
-                last_value
-            },
-        ));
-        Ok(BoolArray::try_new(buffer, Validity::AllValid)?.into_array())
     }
 }
 
@@ -51,7 +51,7 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
 mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
-    use crate::{compute, IntoArrayData};
+    use crate::{compute, IntoArray};
 
     #[test]
     fn fill_forward() {

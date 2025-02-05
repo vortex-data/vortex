@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, Array, ArrayLen, IntoArray, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -11,9 +11,9 @@ impl CompareFn<DictArray> for DictEncoding {
     fn compare(
         &self,
         lhs: &DictArray,
-        rhs: &ArrayData,
+        rhs: &Array,
         operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
+    ) -> VortexResult<Option<Array>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
             // TODO: support other operations if the dict is sorted.

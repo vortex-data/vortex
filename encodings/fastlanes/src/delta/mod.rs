@@ -2,26 +2,26 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
-    RkyvMetadata,
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 mod compress;
 mod compute;
 
 impl_encoding!(
     "fastlanes.delta",
-    ids::FL_DELTA,
+    encoding_ids::FL_DELTA,
     Delta,
     RkyvMetadata<DeltaMetadata>
 );
@@ -86,8 +86,8 @@ impl DeltaArray {
     }
 
     pub fn try_from_delta_compress_parts(
-        bases: ArrayData,
-        deltas: ArrayData,
+        bases: Array,
+        deltas: Array,
         validity: Validity,
     ) -> VortexResult<Self> {
         let logical_len = deltas.len();
@@ -95,8 +95,8 @@ impl DeltaArray {
     }
 
     pub fn try_new(
-        bases: ArrayData,
-        deltas: ArrayData,
+        bases: Array,
+        deltas: Array,
         validity: Validity,
         offset: usize,
         logical_len: usize,
@@ -170,14 +170,14 @@ impl DeltaArray {
     }
 
     #[inline]
-    pub fn bases(&self) -> ArrayData {
+    pub fn bases(&self) -> Array {
         self.as_ref()
             .child(0, self.dtype(), self.bases_len())
             .vortex_expect("DeltaArray is missing bases child array")
     }
 
     #[inline]
-    pub fn deltas(&self) -> ArrayData {
+    pub fn deltas(&self) -> Array {
         self.as_ref()
             .child(1, self.dtype(), self.deltas_len())
             .vortex_expect("DeltaArray is missing deltas child array")
@@ -232,9 +232,9 @@ impl VariantsVTable<DeltaArray> for DeltaEncoding {
 
 impl PrimitiveArrayTrait for DeltaArray {}
 
-impl IntoCanonical for DeltaArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        delta_decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<DeltaArray> for DeltaEncoding {
+    fn into_canonical(&self, array: DeltaArray) -> VortexResult<Canonical> {
+        delta_decompress(array).map(Canonical::Primitive)
     }
 }
 
@@ -243,7 +243,11 @@ impl ValidityVTable<DeltaArray> for DeltaEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DeltaArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &DeltaArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &DeltaArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

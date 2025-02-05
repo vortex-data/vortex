@@ -1,29 +1,30 @@
 use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::{Canonical, IntoCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::SparseArray;
+use crate::{SparseArray, SparseEncoding};
 
-impl IntoCanonical for SparseArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let resolved_patches = self.resolved_patches()?;
+impl CanonicalVTable<SparseArray> for SparseEncoding {
+    fn into_canonical(&self, array: SparseArray) -> VortexResult<Canonical> {
+        let resolved_patches = array.resolved_patches()?;
         if resolved_patches.num_patches() == 0 {
-            return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
+            return ConstantArray::new(array.fill_scalar(), array.len()).into_canonical();
         }
 
-        if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
+        if matches!(array.dtype(), DType::Bool(_)) {
+            canonicalize_sparse_bools(resolved_patches, &array.fill_scalar())
         } else {
             let ptype = PType::try_from(resolved_patches.values().dtype())?;
             match_each_native_ptype!(ptype, |$P| {
                 canonicalize_sparse_primitives::<$P>(
                     resolved_patches,
-                    &self.fill_scalar(),
+                    &array.fill_scalar(),
                 )
             })
         }
@@ -85,7 +86,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::array::{BoolArray, BooleanBufferBuilder, PrimitiveArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArrayData, IntoCanonical};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexExpect;
@@ -103,9 +104,9 @@ mod test {
             .into_array();
         let sparse_bools =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
+        assert_eq!(sparse_bools.dtype(), &DType::Bool(Nullability::Nullable));
 
-        let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
+        let flat_bools = sparse_bools.into_bool().unwrap();
         let expected = bool_array_from_nullable_vec(
             vec![
                 Some(true),
@@ -170,11 +171,7 @@ mod test {
             DType::Primitive(PType::I32, Nullability::Nullable)
         );
 
-        let flat_ints = sparse_ints
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let flat_ints = sparse_ints.into_primitive().unwrap();
         let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,

@@ -1,15 +1,15 @@
 use std::cmp::Ordering;
+use std::ops::Deref;
 
-use itertools::{Itertools, MinMaxResult};
-use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
-use crate::array::{varbin_scalar, VarBinEncoding};
+use crate::array::VarBinEncoding;
 use crate::compute::scalar_at;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::{ArrayDType, ArrayTrait};
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::vtable::StatisticsVTable;
+use crate::Array;
 
 impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -17,12 +17,12 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     }
 }
 
-pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
+pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = Array>>(
     array: &T,
     stat: Stat,
 ) -> VortexResult<StatsSet> {
     if stat == Stat::UncompressedSizeInBytes {
-        return Ok(StatsSet::of(stat, array.nbytes()));
+        return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
     }
 
     if array.is_empty()
@@ -36,15 +36,15 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
 
     Ok(match stat {
         Stat::NullCount => {
-            let null_count = array.logical_validity()?.null_count();
+            let null_count = array.validity_mask()?.false_count();
             if null_count == array.len() {
                 return Ok(StatsSet::nulls(array.len(), array.dtype()));
             }
 
-            let mut stats = StatsSet::of(Stat::NullCount, null_count);
+            let mut stats = StatsSet::of(Stat::NullCount, Precision::exact(null_count));
             if null_count > 0 {
                 // we know that there is at least one null, but not all nulls, so it's not constant
-                stats.set(Stat::IsConstant, false);
+                stats.set(Stat::IsConstant, Precision::exact(false));
             }
             stats
         }
@@ -52,17 +52,16 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             let is_constant = array.with_iterator(compute_is_constant)?;
             if is_constant {
                 // we know that the array is not empty
-                StatsSet::constant(scalar_at(array, 0)?, array.len())
+                StatsSet::constant(scalar_at(array.deref(), 0)?, array.len())
             } else {
-                StatsSet::of(Stat::IsConstant, is_constant)
+                StatsSet::of(Stat::IsConstant, Precision::exact(is_constant))
             }
         }
-        Stat::Min | Stat::Max => compute_min_max(array)?,
         Stat::IsSorted => {
             let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
-            let mut stats = StatsSet::of(Stat::IsSorted, is_sorted);
+            let mut stats = StatsSet::of(Stat::IsSorted, Precision::exact(is_sorted));
             if !is_sorted {
-                stats.set(Stat::IsStrictSorted, false);
+                stats.set(Stat::IsStrictSorted, Precision::exact(false));
             }
             stats
         }
@@ -71,9 +70,9 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
                 iter.flatten()
                     .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
             })?;
-            let mut stats = StatsSet::of(Stat::IsStrictSorted, is_strict_sorted);
+            let mut stats = StatsSet::of(Stat::IsStrictSorted, Precision::exact(is_strict_sorted));
             if is_strict_sorted {
-                stats.set(Stat::IsSorted, true);
+                stats.set(Stat::IsSorted, Precision::exact(true));
             }
             stats
         }
@@ -81,7 +80,9 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
         | Stat::TrueCount
         | Stat::RunCount
         | Stat::BitWidthFreq
-        | Stat::TrailingZeroFreq => {
+        | Stat::TrailingZeroFreq
+        | Stat::Min
+        | Stat::Max => {
             vortex_panic!(
                 "Unreachable, stat {} should have already been handled",
                 stat
@@ -102,47 +103,6 @@ fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     true
 }
 
-fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> {
-    let mut stats = StatsSet::default();
-    if array.is_empty() {
-        return Ok(stats);
-    }
-
-    let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
-        MinMaxResult::NoElements => None,
-        MinMaxResult::OneElement(value) => {
-            let scalar = ByteBuffer::from(value.to_vec());
-            Some((scalar.clone(), scalar))
-        }
-        MinMaxResult::MinMax(min, max) => Some((
-            ByteBuffer::from(min.to_vec()),
-            ByteBuffer::from(max.to_vec()),
-        )),
-    })?;
-    let Some((min, max)) = minmax else {
-        // we know that the array is not empty, so it must be all nulls
-        return Ok(StatsSet::nulls(array.len(), array.dtype()));
-    };
-
-    if min == max {
-        // get (don't compute) null count if `min == max` to determine if it's constant
-        if array.statistics().get_as::<u64>(Stat::NullCount) == Some(0) {
-            // if there are no nulls, then the array is constant
-            return Ok(StatsSet::constant(
-                varbin_scalar(min, array.dtype()),
-                array.len(),
-            ));
-        }
-    } else {
-        stats.set(Stat::IsConstant, false);
-    }
-
-    stats.set(Stat::Min, min);
-    stats.set(Stat::Max, max);
-
-    Ok(stats)
-}
-
 #[cfg(test)]
 mod test {
     use std::ops::Deref;
@@ -151,7 +111,6 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::varbin::VarBinArray;
-    use crate::stats::{ArrayStatistics, Stat};
 
     fn array(dtype: DType) -> VarBinArray {
         VarBinArray::from_vec(
@@ -194,36 +153,5 @@ mod test {
         );
         assert!(!arr.statistics().compute_is_constant().unwrap());
         assert!(arr.statistics().compute_is_sorted().unwrap());
-    }
-
-    #[test]
-    fn some_nulls() {
-        let array = VarBinArray::from_iter(
-            vec![
-                Some("hello world"),
-                None,
-                Some("hello world this is a long string"),
-                None,
-            ],
-            DType::Utf8(Nullability::Nullable),
-        );
-        assert_eq!(
-            array.statistics().compute_min::<BufferString>().unwrap(),
-            BufferString::from("hello world".to_string())
-        );
-        assert_eq!(
-            array.statistics().compute_max::<BufferString>().unwrap(),
-            BufferString::from("hello world this is a long string".to_string())
-        );
-    }
-
-    #[test]
-    fn all_nulls() {
-        let array = VarBinArray::from_iter(
-            vec![Option::<&str>::None, None, None],
-            DType::Utf8(Nullability::Nullable),
-        );
-        assert!(array.statistics().get(Stat::Min).is_none());
-        assert!(array.statistics().get(Stat::Max).is_none());
     }
 }

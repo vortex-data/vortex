@@ -24,7 +24,7 @@ use vortex_scalar::{
 };
 
 use crate::builders::struct_::StructBuilder;
-use crate::ArrayData;
+use crate::Array;
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -55,7 +55,7 @@ pub trait ArrayBuilder: Send {
     /// Appends n "null" values to the array.
     fn append_nulls(&mut self, n: usize);
 
-    fn finish(&mut self) -> VortexResult<ArrayData>;
+    fn finish(&mut self) -> VortexResult<Array>;
 }
 
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {

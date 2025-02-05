@@ -11,7 +11,7 @@ use crate::builders::{
     builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder, PrimitiveBuilder,
 };
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 pub struct ListBuilder<O: PrimInt + NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -60,7 +60,7 @@ where
             Some(elements) => {
                 for scalar in elements {
                     // TODO(joe): This is slow, we should be able to append multiple values at once,
-                    // or the list scalar should hold an ArrayData
+                    // or the list scalar should hold an Array
                     self.value_builder.append_scalar(&scalar)?;
                 }
                 self.validity.append_value(true);
@@ -117,7 +117,7 @@ where
         self.validity.append_values(false, n);
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayData> {
+    fn finish(&mut self) -> VortexResult<Array> {
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::Array(self.validity.finish()?),

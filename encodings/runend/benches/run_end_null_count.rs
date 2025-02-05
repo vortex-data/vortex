@@ -7,7 +7,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::stats::Stat;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 
@@ -44,7 +44,7 @@ fn run_end_null_count(c: &mut Criterion) {
                         b.iter(|| {
                             black_box(
                                 array
-                                    .encoding()
+                                    .vtable()
                                     .compute_statistics(&array, Stat::NullCount)
                                     .unwrap(),
                             )

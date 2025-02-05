@@ -34,6 +34,7 @@ log = { workspace = true }
 moka = { workspace = true, features = ["future", "sync"] }
 object_store = { workspace = true }
 pin-project = { workspace = true }
+rand = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

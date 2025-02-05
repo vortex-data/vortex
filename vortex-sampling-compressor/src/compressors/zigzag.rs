@@ -1,9 +1,8 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::VortexResult;
 use vortex_zigzag::{zigzag_encode, ZigZagArray, ZigZagEncoding};
 
@@ -22,7 +21,7 @@ impl EncodingCompressor for ZigZagCompressor {
         constants::ZIGZAG_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array)?;
 
@@ -42,7 +41,7 @@ impl EncodingCompressor for ZigZagCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
@@ -56,7 +55,7 @@ impl EncodingCompressor for ZigZagCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ZigZagEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([ZigZagEncoding::ID])
     }
 }

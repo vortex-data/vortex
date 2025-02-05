@@ -8,43 +8,43 @@ mod slice;
 pub(crate) mod take;
 
 use vortex_array::compute::{
-    BinaryNumericFn, CompareFn, ComputeVTable, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn,
-    TakeFn,
+    BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
-use vortex_array::ArrayData;
+use vortex_array::vtable::ComputeVTable;
+use vortex_array::Array;
 
 use crate::RunEndEncoding;
 
 impl ComputeVTable for RunEndEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 }
@@ -53,13 +53,13 @@ impl ComputeVTable for RunEndEncoding {
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::test_harness::test_binary_numeric;
-    use vortex_array::{IntoArrayData, ToArrayData};
+    use vortex_array::IntoArray;
 
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
     }

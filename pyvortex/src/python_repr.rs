@@ -21,23 +21,38 @@ impl Display for DTypePythonRepr<'_> {
         let DTypePythonRepr(dtype) = self;
         match dtype {
             DType::Null => write!(f, "null()"),
-            DType::Bool(n) => write!(f, "bool({})", n.python_repr()),
+            DType::Bool(n) => write!(f, "bool(nullable={})", n.python_repr()),
             DType::Primitive(ptype, n) => match ptype {
                 PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
-                    write!(f, "uint({}, {})", ptype.bit_width(), n.python_repr())
+                    write!(
+                        f,
+                        "uint({}, nullable={})",
+                        ptype.bit_width(),
+                        n.python_repr()
+                    )
                 }
                 PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
-                    write!(f, "int({}, {})", ptype.bit_width(), n.python_repr())
+                    write!(
+                        f,
+                        "int({}, nullable={})",
+                        ptype.bit_width(),
+                        n.python_repr()
+                    )
                 }
                 PType::F16 | PType::F32 | PType::F64 => {
-                    write!(f, "float({}, {})", ptype.bit_width(), n.python_repr())
+                    write!(
+                        f,
+                        "float({}, nullable={})",
+                        ptype.bit_width(),
+                        n.python_repr()
+                    )
                 }
             },
-            DType::Utf8(n) => write!(f, "utf8({})", n.python_repr()),
-            DType::Binary(n) => write!(f, "binary({})", n.python_repr()),
+            DType::Utf8(n) => write!(f, "utf8(nullable={})", n.python_repr()),
+            DType::Binary(n) => write!(f, "binary(nullable={})", n.python_repr()),
             DType::Struct(st, n) => write!(
                 f,
-                "struct({{{}}}, {})",
+                "struct({{{}}}, nullable={})",
                 st.names()
                     .iter()
                     .zip(st.dtypes())
@@ -45,7 +60,12 @@ impl Display for DTypePythonRepr<'_> {
                     .join(", "),
                 n.python_repr()
             ),
-            DType::List(edt, n) => write!(f, "list({}, {})", edt.python_repr(), n.python_repr()),
+            DType::List(edt, n) => write!(
+                f,
+                "list({}, nullable={})",
+                edt.python_repr(),
+                n.python_repr()
+            ),
             DType::Extension(ext) => {
                 write!(
                     f,

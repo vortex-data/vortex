@@ -18,18 +18,30 @@ use vortex::file::{Scan, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
-use vortex::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex::{Array, IntoArray, IntoArrayVariant};
 
+use crate::arrays::PyArray;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
-use crate::{PyArray, TOKIO_RUNTIME};
+use crate::{install_module, TOKIO_RUNTIME};
+
+pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new_bound(py, "dataset")?;
+    parent.add_submodule(&m)?;
+    install_module("vortex._lib.dataset", &m)?;
+
+    m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
+    m.add_function(wrap_pyfunction!(dataset_from_path, &m)?)?;
+
+    Ok(())
+}
 
 pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     vortex_file: &VortexFile<FileIoDriver<T>>,
     projection: ExprRef,
     filter: Option<ExprRef>,
-    indices: Option<ArrayData>,
-) -> VortexResult<ArrayData> {
+    indices: Option<Array>,
+) -> VortexResult<Array> {
     let mut scan = Scan::new(projection);
 
     if let Some(filter) = filter {
@@ -103,15 +115,14 @@ impl TokioFileDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        let inner = read_array_from_reader(
+    ) -> PyResult<Array> {
+        Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
-            indices.map(PyArray::unwrap).cloned(),
+            indices.cloned().map(PyArray::into_inner),
         )
-        .await?;
-        Ok(PyArray::new(inner))
+        .await?)
     }
 
     async fn async_to_record_batch_reader(
@@ -126,7 +137,7 @@ impl TokioFileDataset {
             scan = scan.with_filter(filter);
         }
 
-        if let Some(indices) = indices.map(PyArray::unwrap).cloned() {
+        if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
             let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
@@ -147,13 +158,17 @@ impl TokioFileDataset {
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
-    pub fn to_array(
+    pub fn to_array<'py>(
         &self,
-        columns: Option<Vec<Bound<'_, PyAny>>>,
-        row_filter: Option<&Bound<'_, PyExpr>>,
+        py: Python<'py>,
+        columns: Option<Vec<Bound<'py, PyAny>>>,
+        row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))
+    ) -> PyResult<Bound<'py, PyArray>> {
+        PyArray::init(
+            py,
+            TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))?,
+        )
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
@@ -192,15 +207,14 @@ impl ObjectStoreUrlDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        let inner = read_array_from_reader(
+    ) -> PyResult<Array> {
+        Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
-            indices.map(PyArray::unwrap).cloned(),
+            indices.cloned().map(PyArray::into_inner),
         )
-        .await?;
-        Ok(PyArray::new(inner))
+        .await?)
     }
 
     async fn async_to_record_batch_reader(
@@ -215,7 +229,7 @@ impl ObjectStoreUrlDataset {
             scan = scan.with_filter(filter);
         }
 
-        if let Some(indices) = indices.map(PyArray::unwrap).cloned() {
+        if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
             let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
@@ -235,13 +249,17 @@ impl ObjectStoreUrlDataset {
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
-    pub fn to_array(
+    pub fn to_array<'py>(
         &self,
-        columns: Option<Vec<Bound<'_, PyAny>>>,
-        row_filter: Option<&Bound<'_, PyExpr>>,
+        py: Python<'py>,
+        columns: Option<Vec<Bound<'py, PyAny>>>,
+        row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<PyArray> {
-        TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))
+    ) -> PyResult<Bound<'py, PyArray>> {
+        PyArray::init(
+            py,
+            TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter, indices))?,
+        )
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]

@@ -22,8 +22,7 @@ mod pack;
 pub mod pruning;
 mod select;
 pub mod transform;
-#[allow(dead_code)]
-mod traversal;
+pub mod traversal;
 
 pub use binary::*;
 pub use get_item::*;
@@ -36,7 +35,7 @@ pub use operators::*;
 pub use pack::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
+use vortex_array::{Array, Canonical, IntoArray as _};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
 
@@ -44,14 +43,14 @@ use crate::traversal::{Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
-/// Represents logical operation on [`ArrayData`]s
+/// Represents logical operation on [`Array`]s
 pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
     ///
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let result = self.unchecked_evaluate(batch)?;
         debug_assert_eq!(result.dtype(), &self.return_dtype(batch.dtype())?);
         Ok(result)
@@ -62,7 +61,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
     /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
     /// includes such an assertion.
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array>;
 
     fn children(&self) -> Vec<&ExprRef>;
 
@@ -70,7 +69,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let empty = Canonical::empty(scope_dtype)?.into_array();
+        let empty = Canonical::empty(scope_dtype).into_array();
         self.unchecked_evaluate(&empty)
             .map(|array| array.dtype().clone())
     }

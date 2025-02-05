@@ -1,5 +1,7 @@
 //! Utilities to work with `Arrow` data and types.
 
+use arrow_array::ArrayRef;
+use arrow_schema::DataType;
 use vortex_error::VortexResult;
 
 pub use crate::arrow::dtype::{infer_data_type, infer_schema};
@@ -20,4 +22,10 @@ pub trait FromArrowType<T>: Sized {
 
 pub trait TryFromArrowType<T>: Sized {
     fn try_from_arrow(value: T) -> VortexResult<Self>;
+}
+
+pub trait IntoArrowArray {
+    fn into_arrow_preferred(self) -> VortexResult<ArrayRef>;
+
+    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrayRef>;
 }

@@ -1,29 +1,27 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use rkyv::from_bytes;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
-};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
-use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{StructArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
+use crate::encoding::encoding_ids;
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::validity::{Validity, ValidityMetadata};
+use crate::variants::StructArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 
 mod compute;
 
 impl_encoding!(
     "vortex.struct",
-    ids::STRUCT,
+    encoding_ids::STRUCT,
     Struct,
     RkyvMetadata<StructMetadata>
 );
@@ -51,7 +49,7 @@ impl StructArray {
         })
     }
 
-    pub fn children(&self) -> impl Iterator<Item = ArrayData> + '_ {
+    pub fn children(&self) -> impl Iterator<Item = Array> + '_ {
         (0..self.nfields()).map(move |idx| {
             self.maybe_null_field_by_idx(idx).unwrap_or_else(|| {
                 vortex_panic!("Field {} not found, nfields: {}", idx, self.nfields())
@@ -61,7 +59,7 @@ impl StructArray {
 
     pub fn try_new(
         names: FieldNames,
-        fields: Vec<ArrayData>,
+        fields: Vec<Array>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -102,9 +100,9 @@ impl StructArray {
         )
     }
 
-    pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayData)]) -> VortexResult<Self> {
+    pub fn from_fields<N: AsRef<str>>(items: &[(N, Array)]) -> VortexResult<Self> {
         let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
-        let fields: Vec<ArrayData> = items.iter().map(|(_, array)| array.clone()).collect();
+        let fields: Vec<Array> = items.iter().map(|(_, array)| array.clone()).collect();
         let len = fields
             .first()
             .map(|f| f.len())
@@ -162,7 +160,7 @@ impl VariantsVTable<StructArray> for StructEncoding {
 }
 
 impl StructArrayTrait for StructArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
         Some(
             self.field_info(&Field::Index(idx))
                 .map(|field_info| {
@@ -183,15 +181,15 @@ impl StructArrayTrait for StructArray {
         )
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
         self.project(projection).map(|a| a.into_array())
     }
 }
 
-impl IntoCanonical for StructArray {
+impl CanonicalVTable<StructArray> for StructEncoding {
     /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self))
+    fn into_canonical(&self, array: StructArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(array))
     }
 }
 
@@ -200,7 +198,11 @@ impl ValidityVTable<StructArray> for StructEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &StructArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &StructArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &StructArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -213,6 +215,9 @@ impl VisitorVTable<StructArray> for StructEncoding {
                 .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
+
+        visitor.visit_validity(&array.validity())?;
+
         Ok(())
     }
 }
@@ -225,9 +230,12 @@ impl StatisticsVTable<StructArray> for StructEncoding {
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
-                .map(|size| StatsSet::of(stat, size))
+                .map(|size| StatsSet::of(stat, Precision::exact(size)))
                 .unwrap_or_default(),
-            Stat::NullCount => StatsSet::of(stat, array.validity().null_count(array.len())?),
+            Stat::NullCount => StatsSet::of(
+                stat,
+                Precision::exact(array.validity().null_count(array.len())?),
+            ),
             _ => StatsSet::default(),
         })
     }
@@ -244,7 +252,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArray;
 
     #[test]
     fn test_project() {

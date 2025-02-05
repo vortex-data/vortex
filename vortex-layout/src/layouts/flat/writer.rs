@@ -1,6 +1,6 @@
 use vortex_array::parts::ArrayPartsFlatBuffer;
-use vortex_array::stats::{ArrayStatistics, Stat, STATS_TO_WRITE};
-use vortex_array::ArrayData;
+use vortex_array::stats::{Stat, STATS_TO_WRITE};
+use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::WriteFlatBufferExt;
@@ -8,7 +8,7 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::strategies::LayoutWriter;
-use crate::LayoutData;
+use crate::{Layout, LayoutVTableRef};
 
 pub struct FlatLayoutOptions {
     /// Stats to preserve when writing arrays
@@ -27,7 +27,7 @@ impl Default for FlatLayoutOptions {
 pub struct FlatLayoutWriter {
     options: FlatLayoutOptions,
     dtype: DType,
-    layout: Option<LayoutData>,
+    layout: Option<Layout>,
 }
 
 impl FlatLayoutWriter {
@@ -40,7 +40,7 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &ArrayData, stats: &[Stat]) {
+fn retain_only_stats(array: &Array, stats: &[Stat]) {
     array.statistics().retain_only(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
@@ -48,11 +48,7 @@ fn retain_only_stats(array: &ArrayData, stats: &[Stat]) {
 }
 
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segments: &mut dyn SegmentWriter,
-        chunk: ArrayData,
-    ) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         if self.layout.is_some() {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }
@@ -74,8 +70,8 @@ impl LayoutWriter for FlatLayoutWriter {
         let flatbuffer = ArrayPartsFlatBuffer::new(&chunk).write_flatbuffer_bytes();
         segment_ids.push(segments.put(flatbuffer.into_inner()));
 
-        self.layout = Some(LayoutData::new_owned(
-            &FlatLayout,
+        self.layout = Some(Layout::new_owned(
+            LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
             Some(segment_ids),
@@ -85,7 +81,7 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, _segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, _segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))
@@ -98,9 +94,9 @@ mod tests {
 
     use futures::executor::block_on;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::stats::{ArrayStatistics, Stat};
+    use vortex_array::stats::{Stat, Statistics};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, ToArrayData};
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
     use vortex_scan::RowMask;
@@ -117,7 +113,7 @@ mod tests {
             assert!(array.statistics().compute_bit_width_freq().is_some());
             assert!(array.statistics().compute_trailing_zero_freq().is_some());
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.into_array())
                 .unwrap();
 
             let result = layout
@@ -127,8 +123,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert!(result.statistics().get(Stat::BitWidthFreq).is_none());
-            assert!(result.statistics().get(Stat::TrailingZeroFreq).is_none());
+            assert!(result.get_stat(Stat::BitWidthFreq).is_none());
+            assert!(result.get_stat(Stat::TrailingZeroFreq).is_none());
         })
     }
 }

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
@@ -29,7 +29,7 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         Ok(batch.clone())
     }
 
@@ -50,6 +50,10 @@ pub fn ident() -> ExprRef {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability, PType};
+
     use crate::{ident, test_harness};
 
     #[test]
@@ -57,5 +61,14 @@ mod tests {
         let dtype = test_harness::struct_dtype();
         assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
         assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
+    }
+
+    #[test]
+    fn list_dtype() {
+        let in_dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        assert_eq!(ident().return_dtype(&in_dtype).unwrap(), in_dtype);
     }
 }

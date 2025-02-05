@@ -3,19 +3,19 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
 use vortex_array::compute::try_cast;
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
-use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoArrayData, SerdeMetadata};
+use vortex_array::validity::Validity;
+use vortex_array::variants::ExtensionArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable};
+use vortex_array::{encoding_ids, impl_encoding, Array, IntoArray, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 impl_encoding!(
     "vortex.datetimeparts",
-    ids::DATE_TIME_PARTS,
+    encoding_ids::DATE_TIME_PARTS,
     DateTimeParts,
     SerdeMetadata<DateTimePartsMetadata>
 );
@@ -32,9 +32,9 @@ pub struct DateTimePartsMetadata {
 impl DateTimePartsArray {
     pub fn try_new(
         dtype: DType,
-        days: ArrayData,
-        seconds: ArrayData,
-        subsecond: ArrayData,
+        days: Array,
+        seconds: Array,
+        subseconds: Array,
     ) -> VortexResult<Self> {
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
             vortex_bail!(
@@ -46,24 +46,24 @@ impl DateTimePartsArray {
         if !seconds.dtype().is_int() || seconds.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable integer", seconds.dtype());
         }
-        if !subsecond.dtype().is_int() || subsecond.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", subsecond.dtype());
+        if !subseconds.dtype().is_int() || subseconds.dtype().is_nullable() {
+            vortex_bail!(MismatchedTypes: "non-nullable integer", subseconds.dtype());
         }
 
         let length = days.len();
-        if length != seconds.len() || length != subsecond.len() {
+        if length != seconds.len() || length != subseconds.len() {
             vortex_bail!(
                 "Mismatched lengths {} {} {}",
                 days.len(),
                 seconds.len(),
-                subsecond.len()
+                subseconds.len()
             );
         }
 
         let metadata = DateTimePartsMetadata {
             days_ptype: days.dtype().try_into()?,
             seconds_ptype: seconds.dtype().try_into()?,
-            subseconds_ptype: subsecond.dtype().try_into()?,
+            subseconds_ptype: subseconds.dtype().try_into()?,
         };
 
         Self::try_from_parts(
@@ -71,12 +71,12 @@ impl DateTimePartsArray {
             length,
             SerdeMetadata(metadata),
             None,
-            Some([days, seconds, subsecond].into()),
+            Some([days, seconds, subseconds].into()),
             StatsSet::default(),
         )
     }
 
-    pub fn days(&self) -> ArrayData {
+    pub fn days(&self) -> Array {
         self.as_ref()
             .child(
                 0,
@@ -86,24 +86,24 @@ impl DateTimePartsArray {
             .vortex_expect("DatetimePartsArray missing days array")
     }
 
-    pub fn seconds(&self) -> ArrayData {
+    pub fn seconds(&self) -> Array {
         self.as_ref()
             .child(1, &self.metadata().seconds_ptype.into(), self.len())
             .vortex_expect("DatetimePartsArray missing seconds array")
     }
 
-    pub fn subsecond(&self) -> ArrayData {
+    pub fn subseconds(&self) -> Array {
         self.as_ref()
             .child(2, &self.metadata().subseconds_ptype.into(), self.len())
-            .vortex_expect("DatetimePartsArray missing subsecond array")
+            .vortex_expect("DatetimePartsArray missing subseconds array")
     }
 
     pub fn validity(&self) -> VortexResult<Validity> {
         // FIXME(ngates): this function is weird... can we just use logical validity?
-        Ok(self
-            .days()
-            .logical_validity()?
-            .into_validity(self.dtype().nullability()))
+        Ok(Validity::from_mask(
+            self.days().validity_mask()?,
+            self.dtype().nullability(),
+        ))
     }
 }
 
@@ -119,13 +119,13 @@ impl VariantsVTable<DateTimePartsArray> for DateTimePartsEncoding {
 }
 
 impl ExtensionArrayTrait for DateTimePartsArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         // FIXME(ngates): this needs to be a tuple array so we can implement Compare
         // we don't want to write validity twice, so we pull it up to the top
         let days = try_cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();
         StructArray::try_new(
             vec!["days".into(), "seconds".into(), "subseconds".into()].into(),
-            [days, self.seconds(), self.subsecond()].into(),
+            [days, self.seconds(), self.subseconds()].into(),
             self.len(),
             self.validity()
                 .vortex_expect("Failed to create struct array validity"),
@@ -140,8 +140,12 @@ impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
         array.days().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &DateTimePartsArray) -> VortexResult<LogicalValidity> {
-        array.days().logical_validity()
+    fn all_valid(&self, array: &DateTimePartsArray) -> VortexResult<bool> {
+        array.days().all_valid()
+    }
+
+    fn validity_mask(&self, array: &DateTimePartsArray) -> VortexResult<Mask> {
+        array.days().validity_mask()
     }
 }
 
@@ -153,7 +157,7 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
     ) -> VortexResult<()> {
         visitor.visit_child("days", &array.days())?;
         visitor.visit_child("seconds", &array.seconds())?;
-        visitor.visit_child("subsecond", &array.subsecond())
+        visitor.visit_child("subseconds", &array.subseconds())
     }
 }
 

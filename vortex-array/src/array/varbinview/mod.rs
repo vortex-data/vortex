@@ -2,27 +2,23 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::ScalarBuffer;
-use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 use crate::arrow::FromArrowArray;
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    RkyvMetadata,
-};
+use crate::validity::{Validity, ValidityMetadata};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
+use crate::{impl_encoding, Array, Canonical, RkyvMetadata};
 
 mod accessor;
 mod compute;
@@ -202,7 +198,7 @@ impl Display for VarBinViewMetadata {
 
 impl_encoding!(
     "vortex.varbinview",
-    ids::VAR_BIN_VIEW,
+    encoding_ids::VAR_BIN_VIEW,
     VarBinView,
     RkyvMetadata<VarBinViewMetadata>
 );
@@ -344,22 +340,16 @@ impl VarBinViewArray {
                         }
                     },
                 );
-                VarBinViewArray::try_from(ArrayData::from_arrow(
-                    &string_view_array,
-                    nullability.into(),
-                ))
-                .vortex_expect("StringViewArray to VarBinViewArray downcast")
+                VarBinViewArray::try_from(Array::from_arrow(&string_view_array, nullability.into()))
+                    .vortex_expect("StringViewArray to VarBinViewArray downcast")
             }
             DType::Binary(nullability) => {
                 let binary_view_array = generic_byte_view_builder::<BinaryViewType, _, _>(
                     iter.into_iter(),
                     GenericByteViewBuilder::append_option,
                 );
-                VarBinViewArray::try_from(ArrayData::from_arrow(
-                    &binary_view_array,
-                    nullability.into(),
-                ))
-                .vortex_expect("BinaryViewArray to VarBinViewArray downcast")
+                VarBinViewArray::try_from(Array::from_arrow(&binary_view_array, nullability.into()))
+                    .vortex_expect("BinaryViewArray to VarBinViewArray downcast")
             }
             other => vortex_panic!("VarBinViewArray must be Utf8 or Binary, was {other}"),
         }
@@ -371,7 +361,7 @@ impl VarBinViewArray {
         for s in iter {
             builder.append_value(s);
         }
-        let array = ArrayData::from_arrow(&builder.finish(), false);
+        let array = Array::from_arrow(&builder.finish(), false);
         VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
@@ -382,7 +372,7 @@ impl VarBinViewArray {
         let mut builder = StringViewBuilder::with_capacity(iter.size_hint().0);
         builder.extend(iter);
 
-        let array = ArrayData::from_arrow(&builder.finish(), true);
+        let array = Array::from_arrow(&builder.finish(), true);
         VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
@@ -392,7 +382,7 @@ impl VarBinViewArray {
         for b in iter {
             builder.append_value(b);
         }
-        let array = ArrayData::from_arrow(&builder.finish(), false);
+        let array = Array::from_arrow(&builder.finish(), false);
         VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
@@ -402,7 +392,7 @@ impl VarBinViewArray {
         let iter = iter.into_iter();
         let mut builder = BinaryViewBuilder::with_capacity(iter.size_hint().0);
         builder.extend(iter);
-        let array = ArrayData::from_arrow(&builder.finish(), true);
+        let array = Array::from_arrow(&builder.finish(), true);
         VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 }
@@ -428,11 +418,11 @@ where
 
 impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}
 
-impl IntoCanonical for VarBinViewArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let nullable = self.dtype().is_nullable();
-        let arrow_self = varbinview_as_arrow(&self);
-        let vortex_array = ArrayData::from_arrow(arrow_self, nullable);
+impl CanonicalVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn into_canonical(&self, array: VarBinViewArray) -> VortexResult<Canonical> {
+        let nullable = array.dtype().is_nullable();
+        let arrow_array = varbinview_as_arrow(&array);
+        let vortex_array = Array::from_arrow(arrow_array, nullable);
 
         Ok(Canonical::VarBinView(VarBinViewArray::try_from(
             vortex_array,
@@ -444,10 +434,9 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     let views = var_bin_view.views();
 
     let nulls = var_bin_view
-        .logical_validity()
+        .validity_mask()
         .vortex_expect("VarBinViewArray: failed to get logical validity")
-        .to_null_buffer()
-        .vortex_expect("VarBinViewArray: validity child must be bool");
+        .to_null_buffer();
 
     let data = (0..var_bin_view.nbuffers())
         .map(|i| var_bin_view.buffer(i))
@@ -483,7 +472,11 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &VarBinViewArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &VarBinViewArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -527,8 +520,9 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::varbinview::{BinaryView, VarBinViewArray};
+    use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, slice};
-    use crate::{ArrayLen, Canonical, IntoArrayData, IntoCanonical};
+    use crate::{Canonical, IntoArray};
 
     #[test]
     pub fn varbin_view() {

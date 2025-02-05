@@ -5,15 +5,14 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{
     scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
 };
-use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
+use vortex_array::stats::StatsSet;
+use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical, SerdeMetadata,
+    encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -24,7 +23,7 @@ use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encod
 
 impl_encoding!(
     "vortex.runend",
-    ids::RUN_END,
+    encoding_ids::RUN_END,
     RunEnd,
     SerdeMetadata<RunEndMetadata>
 );
@@ -37,7 +36,7 @@ pub struct RunEndMetadata {
 }
 
 impl RunEndArray {
-    pub fn try_new(ends: ArrayData, values: ArrayData) -> VortexResult<Self> {
+    pub fn try_new(ends: Array, values: Array) -> VortexResult<Self> {
         let length = if ends.is_empty() {
             0
         } else {
@@ -47,8 +46,8 @@ impl RunEndArray {
     }
 
     pub(crate) fn with_offset_and_length(
-        ends: ArrayData,
-        values: ArrayData,
+        ends: Array,
+        values: Array,
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
@@ -110,7 +109,7 @@ impl RunEndArray {
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: ArrayData) -> VortexResult<Self> {
+    pub fn encode(array: Array) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             let (ends, values) = runend_encode(&parray)?;
             Self::try_new(ends.into_array(), values)
@@ -132,7 +131,7 @@ impl RunEndArray {
     /// The `i`-th element indicates that there is a run of the same value, beginning
     /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn ends(&self) -> ArrayData {
+    pub fn ends(&self) -> Array {
         self.as_ref()
             .child(
                 0,
@@ -147,7 +146,7 @@ impl RunEndArray {
     /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
     /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn values(&self) -> ArrayData {
+    pub fn values(&self) -> Array {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().num_runs)
             .vortex_expect("RunEndArray is missing its values")
@@ -181,38 +180,40 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
         array.values().is_valid(physical_idx)
     }
 
-    fn logical_validity(&self, array: &RunEndArray) -> VortexResult<LogicalValidity> {
-        Ok(match array.values().logical_validity()? {
-            LogicalValidity::AllValid(_) => LogicalValidity::AllValid(array.len()),
-            LogicalValidity::AllInvalid(_) => LogicalValidity::AllInvalid(array.len()),
-            LogicalValidity::Mask(validity) => {
+    fn all_valid(&self, array: &RunEndArray) -> VortexResult<bool> {
+        array.values().all_valid()
+    }
+
+    fn validity_mask(&self, array: &RunEndArray) -> VortexResult<Mask> {
+        Ok(match array.values().validity_mask()? {
+            Mask::AllTrue(_) => Mask::AllTrue(array.len()),
+            Mask::AllFalse(_) => Mask::AllFalse(array.len()),
+            Mask::Values(values) => {
                 let ree_validity = RunEndArray::with_offset_and_length(
                     array.ends(),
-                    validity.into_array(),
+                    values.into_array(),
                     array.offset(),
                     array.len(),
                 )
                 .vortex_expect("invalid array")
                 .into_array();
-                LogicalValidity::Mask(Mask::from_buffer(
-                    ree_validity.into_bool()?.boolean_buffer(),
-                ))
+                Mask::from_buffer(ree_validity.into_bool()?.boolean_buffer())
             }
         })
     }
 }
 
-impl IntoCanonical for RunEndArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let pends = self.ends().into_primitive()?;
-        match self.dtype() {
+impl CanonicalVTable<RunEndArray> for RunEndEncoding {
+    fn into_canonical(&self, array: RunEndArray) -> VortexResult<Canonical> {
+        let pends = array.ends().into_primitive()?;
+        match array.dtype() {
             DType::Bool(_) => {
-                let bools = self.values().into_bool()?;
-                runend_decode_bools(pends, bools, self.offset(), self.len()).map(Canonical::Bool)
+                let bools = array.values().into_bool()?;
+                runend_decode_bools(pends, bools, array.offset(), array.len()).map(Canonical::Bool)
             }
             DType::Primitive(..) => {
-                let pvalues = self.values().into_primitive()?;
-                runend_decode_primitive(pends, pvalues, self.offset(), self.len())
+                let pvalues = array.values().into_primitive()?;
+                runend_decode_primitive(pends, pvalues, array.offset(), array.len())
                     .map(Canonical::Primitive)
             }
             _ => vortex_bail!("Only Primitive and Bool values are supported"),
@@ -231,7 +232,7 @@ impl VisitorVTable<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, SerdeMetadata};
+    use vortex_array::{IntoArray, SerdeMetadata};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

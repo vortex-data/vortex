@@ -6,3 +6,4 @@ mod canonical;
 mod compress;
 mod compute;
 mod stats;
+mod timestamp;

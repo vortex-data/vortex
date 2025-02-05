@@ -7,7 +7,7 @@ and remotely stored.
 This allows layouts to perform pruning of unused chunks and columns, without tying the logic to a specific file-based
 storage format, and without prescribing the column and row partitioning that a Vortex file can use.
 
-In fact, Layouts provide a mechanism to perform efficient scanning of columnar data over any storage medium.
+In fact, layouts provide a mechanism to perform efficient scanning of columnar data over any storage medium.
 The buffers might live in-memory, in a single file on-disk, split across many files, in a remote Redis, in Postgres
 block storage, or anywhere else that you can implement key/value blob storage.
 
@@ -15,12 +15,12 @@ In psuedo-code, a layout might look like this (note that unlike arrays, layouts 
 memory data):
 
 ```rust
-struct LayoutData {
+struct Layout {
     vtable: LayoutVTable,
     metadata: [u8],
     dtype: DType,
     length: u64,
-    children: [LayoutData],
+    children: [Layout],
     buffers: [BufferId],
 }
 ```
@@ -63,8 +63,8 @@ A `ChunkedLayout` holds a collection of row-wise partitioned child layouts. This
 computing statistics for each child chunk and only fetching chunks that are relevant to the expression being
 evaluated.
 
-* `chunks: [LayoutData]`: the first `n` children of a `ChunkedLayout` are the chunks themselves.
-* `statistics: LayoutData`: the last child is a statistics table, typically a `FlatLayout` (although different
+* `chunks: [Layout]`: the first `n` children of a `ChunkedLayout` are the chunks themselves.
+* `statistics: Layout`: the last child is a statistics table, typically a `FlatLayout` (although different
   layouts may be useful if some statistics grow very large, e.g. bloom filters). Each row corresponds to a chunk, and
   the columns hold statistics such as `min`, `max`, `null_count`, that are useful for pruning.
 
@@ -76,7 +76,7 @@ There are some additional layouts that we plan to add in the future:
   (likely chunked) in another child layout.
 * `ListLayout`: a layout that separates the offsets and values of a list array into two child layouts, allowing
   for efficient pruning of the values array based on the relevant offsets.
-* `MergeLayout` a struct layout that can split fields of a struct across separate layouts, combining the result back
+* `MergeLayout`: a struct layout that can split fields of a struct across separate layouts, combining the result back
   into a single struct. This can be useful to isolate outsized columns and use a different chunking strategy, without
   impacting the compression or read performance of the other columns.
 
@@ -100,7 +100,7 @@ The Rust trait looks like this:
 
 ### File-level Compression
 
-While chunk-level compression can be handed off to a compression strategy, i.e. `fn(ArrayData) -> ArrayData`, there
+While chunk-level compression can be handed off to a compression strategy, i.e. `fn(Array) -> Array`, there
 are some compression techniques that benefit from file-level awareness. For example, sharing a dictionary across
 all chunks of a column.
 

@@ -8,7 +8,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{ArrayData, IntoArrayData};
+use crate::{Array, IntoArray};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     values: BufferMut<T>,
@@ -72,7 +72,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.validity.append_n_nulls(n);
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayData> {
+    fn finish(&mut self) -> VortexResult<Array> {
         let validity = match (self.validity.finish(), self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,
             (Some(_), Nullability::NonNullable) => {

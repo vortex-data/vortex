@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
@@ -17,7 +17,7 @@ use crate::{ExprRef, VortexExpr};
 /// # Examples
 ///
 /// ```
-/// use vortex_array::IntoArrayData;
+/// use vortex_array::IntoArray;
 /// use vortex_array::compute::scalar_at;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
@@ -102,7 +102,7 @@ impl VortexExpr for Pack {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let len = batch.len();
         let value_arrays = self
             .values
@@ -110,7 +110,7 @@ impl VortexExpr for Pack {
             .map(|value_expr| value_expr.evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
         StructArray::try_new(self.names.clone(), value_arrays, len, Validity::NonNullable)
-            .map(IntoArrayData::into_array)
+            .map(IntoArray::into_array)
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -129,7 +129,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::array::{PrimitiveArray, StructArray};
-    use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant as _};
+    use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
@@ -144,7 +144,7 @@ mod tests {
         .unwrap()
     }
 
-    fn primitive_field(array: &ArrayData, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {

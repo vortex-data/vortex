@@ -1,10 +1,11 @@
 mod compare;
 
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+    filter, scalar_at, slice, take, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::vtable::ComputeVTable;
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -12,32 +13,36 @@ use vortex_scalar::Scalar;
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ComputeVTable for ALPEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 }
 
 impl ScalarAtFn<ALPArray> for ALPEncoding {
     fn scalar_at(&self, array: &ALPArray, index: usize) -> VortexResult<Scalar> {
+        if !array.encoded().is_valid(index)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
         if let Some(patches) = array.patches() {
             if let Some(patch) = patches.get_patched(index)? {
-                return Ok(patch);
+                return patch.cast(array.dtype());
             }
         }
 
@@ -54,7 +59,7 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
 }
 
 impl TakeFn<ALPArray> for ALPEncoding {
-    fn take(&self, array: &ALPArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ALPArray, indices: &Array) -> VortexResult<Array> {
         // TODO(ngates): wrap up indices in an array that caches decompression?
         Ok(ALPArray::try_new(
             take(array.encoded(), indices)?,
@@ -70,7 +75,7 @@ impl TakeFn<ALPArray> for ALPEncoding {
 }
 
 impl SliceFn<ALPArray> for ALPEncoding {
-    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<ArrayData> {
+    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<Array> {
         Ok(ALPArray::try_new(
             slice(array.encoded(), start, end)?,
             array.exponents(),
@@ -85,7 +90,7 @@ impl SliceFn<ALPArray> for ALPEncoding {
 }
 
 impl FilterFn<ALPArray> for ALPEncoding {
-    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayData> {
+    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<Array> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))

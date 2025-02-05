@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.3.0
 
       - name: Python Lint - Format
         run: uv run ruff format --check .
@@ -41,7 +41,13 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.3.0
+
+      # Ensure the stub files are up-to-date with the public API of the native module.
+      - name: Stubtest - PyVortex
+        run: |
+          uv run stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
+        working-directory: pyvortex/
 
       - name: Pytest - PyVortex
         run: |
@@ -112,7 +118,7 @@ jobs:
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
-            args: "--target wasm32-unknown-unknown --exclude vortex-datafusion"
+            args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-tui"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -123,7 +129,19 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
+        run: cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+  
+  check-min-deps:
+    name: "Check build with minimal dependencies"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+      - uses: taiki-e/install-action@cargo-hack
+      - uses: taiki-e/install-action@cargo-minimal-versions
+      - run: cargo minimal-versions check --direct --workspace --ignore-private
 
   rust-lint:
     name: "Rust (lint)"
@@ -136,15 +154,15 @@ jobs:
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rust Lint - Clippy All Features
-        run: cargo clippy --all-features --all-targets
+        run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
-        run: cargo clippy --all-targets
+        run: cargo clippy --locked --all-targets
       - name: Rust Lint - Clippy No Default Features
         run: |
           set -ex
 
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          for package in $(cargo check -p  2>&1 | grep '^    ')
+          for package in $(cargo check --locked -p  2>&1 | grep '^    ')
           do
               echo ---- $package ----
               cargo clippy --package $package --no-default-features
@@ -165,13 +183,15 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install grcov
+        if: github.ref == 'refs/heads/develop'
         run: cargo install grcov
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: Rust Test
-        run: cargo nextest run --workspace --all-features --no-fail-fast
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Generate coverage report
+        if: github.ref == 'refs/heads/develop'
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
@@ -179,6 +199,7 @@ jobs:
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
+        if: github.ref == 'refs/heads/develop'
         with:
           file: ${{ env.GRCOV_OUTPUT_FILE }}
 
@@ -196,7 +217,6 @@ jobs:
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: "RUSTSEC-2023-0384"
 
   miri:
     name: "miri"
@@ -210,12 +230,19 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Run tests with Miri
+      - name: Run all tests with Miri
         run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar
+        # For now, we only run Miri against known "fiddly" crates.
+        if: false
+      - name: Run Miri
+        run: cargo miri nextest run --no-fail-fast -p vortex-buffer
 
   bench-test:
     name: "bench test"
     runs-on: ubuntu-latest
+    # NOTE(ngates): disable running benchmark tests for now since they take a very long time and don't often fail.
+    #  Instead, the Slack channel notifications have been made to subscribe only to CI failures.
+    if: false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup

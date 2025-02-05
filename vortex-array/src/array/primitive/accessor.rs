@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::array::primitive::PrimitiveArray;
 use crate::validity::Validity;
-use crate::{ArrayLen, IntoArrayVariant};
+use crate::IntoArrayVariant;
 
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>

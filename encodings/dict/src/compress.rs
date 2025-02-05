@@ -1,7 +1,8 @@
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{BuildHasher, Hash};
 
 use arrow_buffer::BooleanBufferBuilder;
 use num_traits::AsPrimitive;
+use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, Entry, HashMap, HashTable, RandomState};
 use vortex_array::array::{
@@ -9,9 +10,9 @@ use vortex_array::array::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, ToBytes};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
@@ -21,24 +22,62 @@ use crate::DictArray;
 /// Statically assigned code for a null value.
 pub const NULL_CODE: u64 = 0;
 
-#[derive(Debug)]
-struct Value<T>(T);
+mod private {
+    use vortex_dtype::{half, NativePType};
 
-impl<T: ToBytes> Hash for Value<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_le_bytes().hash(state)
+    /// Value serves as a wrapper type to allow us to implement Hash and Eq on all primitive types.
+    ///
+    /// Rust does not define Hash/Eq for any of the float types due to the presence of
+    /// NaN and +/- 0. We don't care about storing multiple NaNs or zeros in our dictionaries,
+    /// so we define simple bit-wise Hash/Eq for the Value-wrapped versions of these types.
+    #[derive(Debug)]
+    pub struct Value<T>(pub T);
+
+    impl<T> PartialEq<Value<T>> for Value<T>
+    where
+        T: NativePType,
+    {
+        fn eq(&self, other: &Value<T>) -> bool {
+            self.0.is_eq(other.0)
+        }
     }
+
+    impl<T> Eq for Value<T> where T: NativePType {}
+
+    macro_rules! prim_value {
+        ($typ:ty) => {
+            impl core::hash::Hash for Value<$typ> {
+                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+                    self.0.hash(state);
+                }
+            }
+        };
+    }
+
+    macro_rules! float_value {
+        ($typ:ty) => {
+            impl core::hash::Hash for Value<$typ> {
+                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+                    self.0.to_bits().hash(state);
+                }
+            }
+        };
+    }
+
+    prim_value!(u8);
+    prim_value!(u16);
+    prim_value!(u32);
+    prim_value!(u64);
+    prim_value!(i8);
+    prim_value!(i16);
+    prim_value!(i32);
+    prim_value!(i64);
+    float_value!(half::f16);
+    float_value!(f32);
+    float_value!(f64);
 }
 
-impl<T: ToBytes> PartialEq<Self> for Value<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.to_le_bytes().eq(other.0.to_le_bytes())
-    }
-}
-
-impl<T: ToBytes> Eq for Value<T> {}
-
-pub fn dict_encode(array: &ArrayData) -> VortexResult<DictArray> {
+pub fn dict_encode(array: &Array) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = PrimitiveArray::maybe_from(array) {
         match_each_native_ptype!(pa.ptype(), |$P| {
             &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())
@@ -55,20 +94,23 @@ pub fn dict_encode(array: &ArrayData) -> VortexResult<DictArray> {
 }
 
 pub trait DictEncoder {
-    fn encode_array(&mut self, array: &ArrayData) -> VortexResult<ArrayData>;
+    fn encode_array(&mut self, array: &Array) -> VortexResult<Array>;
 
-    fn values(&mut self) -> ArrayData;
+    fn values(&mut self) -> Array;
 }
 
 /// Dictionary encode primitive array with given PType.
 /// Null values in the original array are encoded in the dictionary.
 pub struct PrimitiveDictBuilder<T> {
-    lookup: HashMap<Value<T>, u64>,
+    lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
     nullability: Nullability,
 }
 
-impl<T: NativePType> PrimitiveDictBuilder<T> {
+impl<T: NativePType> PrimitiveDictBuilder<T>
+where
+    private::Value<T>: Hash + Eq,
+{
     pub fn new(nullability: Nullability) -> Self {
         let mut values = BufferMut::<T>::empty();
 
@@ -77,7 +119,7 @@ impl<T: NativePType> PrimitiveDictBuilder<T> {
         };
 
         Self {
-            lookup: HashMap::new(),
+            lookup: HashMap::with_hasher(FxBuildHasher),
             values,
             nullability,
         }
@@ -85,7 +127,7 @@ impl<T: NativePType> PrimitiveDictBuilder<T> {
 
     #[inline]
     fn encode_value(&mut self, v: T) -> u64 {
-        match self.lookup.entry(Value(v)) {
+        match self.lookup.entry(private::Value(v)) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(vac) => {
                 let next_code = self.values.len() as u64;
@@ -97,8 +139,11 @@ impl<T: NativePType> PrimitiveDictBuilder<T> {
     }
 }
 
-impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T> {
-    fn encode_array(&mut self, array: &ArrayData) -> VortexResult<ArrayData> {
+impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
+where
+    private::Value<T>: Hash + Eq,
+{
+    fn encode_array(&mut self, array: &Array) -> VortexResult<Array> {
         if array.dtype().is_nullable() && self.nullability == Nullability::NonNullable {
             vortex_bail!("Cannot encode nullable array into non nullable dictionary")
         }
@@ -134,7 +179,7 @@ impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T> {
         Ok(PrimitiveArray::new(codes, validity).into_array())
     }
 
-    fn values(&mut self) -> ArrayData {
+    fn values(&mut self) -> Array {
         let values_validity = dict_values_validity(self.nullability.into(), self.values.len());
 
         PrimitiveArray::new(self.values.clone().freeze(), values_validity).into_array()
@@ -206,7 +251,7 @@ impl BytesDictBuilder {
         &mut self,
         accessor: A,
         len: usize,
-    ) -> VortexResult<ArrayData> {
+    ) -> VortexResult<Array> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
@@ -242,7 +287,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode_array(&mut self, array: &ArrayData) -> VortexResult<ArrayData> {
+    fn encode_array(&mut self, array: &Array) -> VortexResult<Array> {
         if array.dtype().is_nullable() && !self.dtype.is_nullable() {
             vortex_bail!("Cannot encode nullable array into non nullable dictionary")
         }
@@ -261,7 +306,7 @@ impl DictEncoder for BytesDictBuilder {
         vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
     }
 
-    fn values(&mut self) -> ArrayData {
+    fn values(&mut self) -> Array {
         let values_validity = dict_values_validity(self.dtype.is_nullable(), self.views.len());
         VarBinViewArray::try_new(
             self.views.clone().freeze(),

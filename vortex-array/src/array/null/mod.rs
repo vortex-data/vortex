@@ -1,22 +1,21 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
-use crate::encoding::ids;
-use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityVTable};
-use crate::variants::{NullArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{impl_encoding, ArrayLen, Canonical, EmptyMetadata, IntoCanonical};
+use crate::encoding::encoding_ids;
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::validity::Validity;
+use crate::variants::NullArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
+};
+use crate::{impl_encoding, Canonical, EmptyMetadata};
 
 mod compute;
 
-impl_encoding!("vortex.null", ids::NULL, Null, EmptyMetadata);
+impl_encoding!("vortex.null", encoding_ids::NULL, Null, EmptyMetadata);
 
 impl NullArray {
     pub fn new(len: usize) -> Self {
@@ -32,9 +31,9 @@ impl NullArray {
     }
 }
 
-impl IntoCanonical for NullArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(self))
+impl CanonicalVTable<NullArray> for NullEncoding {
+    fn into_canonical(&self, array: NullArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Null(array))
     }
 }
 
@@ -43,15 +42,19 @@ impl ValidityVTable<NullArray> for NullEncoding {
         Ok(false)
     }
 
-    fn logical_validity(&self, array: &NullArray) -> VortexResult<LogicalValidity> {
-        Ok(LogicalValidity::AllInvalid(array.len()))
+    fn all_valid(&self, array: &NullArray) -> VortexResult<bool> {
+        Ok(array.len() == 0)
+    }
+
+    fn validity_mask(&self, array: &NullArray) -> VortexResult<Mask> {
+        Ok(Mask::AllFalse(array.len()))
     }
 }
 
 impl StatisticsVTable<NullArray> for NullEncoding {
     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
         Ok(StatsSet::nulls(array.len(), &DType::Null))

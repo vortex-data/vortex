@@ -1,6 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::VortexResult;
 use vortex_sparse::{SparseArray, SparseEncoding};
 
@@ -19,13 +18,13 @@ impl EncodingCompressor for SparseCompressor {
         constants::SPARSE_COST
     }
 
-    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(SparseEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayData,
+        array: &Array,
         _: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
@@ -46,7 +45,7 @@ impl EncodingCompressor for SparseCompressor {
         ))
     }
 
-    fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&SparseEncoding as EncodingRef])
+    fn used_encodings(&self) -> HashSet<EncodingId> {
+        HashSet::from([SparseEncoding::ID])
     }
 }

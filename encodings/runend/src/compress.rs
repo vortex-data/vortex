@@ -1,18 +1,19 @@
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
 use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::iter::trimmed_ends_iter;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
-pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, ArrayData)> {
+pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Array)> {
     let validity = match array.validity() {
         Validity::NonNullable => None,
         Validity::AllValid => None,
@@ -147,7 +148,7 @@ pub fn runend_decode_primitive(
             runend_decode_typed_primitive(
                 trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
                 values.as_slice::<$P>(),
-                values.logical_validity()?,
+                values.validity_mask()?,
                 values.dtype().nullability(),
                 length,
             )
@@ -165,7 +166,7 @@ pub fn runend_decode_bools(
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
             values.boolean_buffer(),
-            values.logical_validity()?,
+            values.validity_mask()?,
             values.dtype().nullability(),
             length,
         )
@@ -175,22 +176,22 @@ pub fn runend_decode_bools(
 pub fn runend_decode_typed_primitive<T: NativePType>(
     run_ends: impl Iterator<Item = usize>,
     values: &[T],
-    values_validity: LogicalValidity,
+    values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
     Ok(match values_validity {
-        LogicalValidity::AllValid(_) => {
+        Mask::AllTrue(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             for (end, value) in run_ends.zip_eq(values) {
                 decoded.push_n(*value, end - decoded.len());
             }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
-        LogicalValidity::AllInvalid(_) => {
+        Mask::AllFalse(_) => {
             PrimitiveArray::new(buffer![T::default(); length], Validity::AllInvalid)
         }
-        LogicalValidity::Mask(mask) => {
+        Mask::Values(mask) => {
             let mut decoded = BufferMut::with_capacity(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
@@ -218,23 +219,23 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
 pub fn runend_decode_typed_bool(
     run_ends: impl Iterator<Item = usize>,
     values: BooleanBuffer,
-    values_validity: LogicalValidity,
+    values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
 ) -> VortexResult<BoolArray> {
     Ok(match values_validity {
-        LogicalValidity::AllValid(_) => {
+        Mask::AllTrue(_) => {
             let mut decoded = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(values.iter()) {
                 decoded.append_n(end - decoded.len(), value);
             }
             BoolArray::new(decoded.finish(), values_nullability)
         }
-        LogicalValidity::AllInvalid(_) => {
+        Mask::AllFalse(_) => {
             BoolArray::try_new(BooleanBuffer::new_unset(length), Validity::AllInvalid)
                 .vortex_expect("invalid array")
         }
-        LogicalValidity::Mask(mask) => {
+        Mask::Values(mask) => {
             let mut decoded = BooleanBufferBuilder::new(length);
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(

@@ -1,12 +1,12 @@
+use std::ops::Deref;
 use std::sync::Arc;
 
 pub use adapter::*;
 pub use ext::*;
-use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
 
-use crate::validity::Validity;
-use crate::ArrayData;
+use crate::Array;
 
 mod adapter;
 mod ext;
@@ -15,21 +15,19 @@ pub const ITER_BATCH_SIZE: usize = 1024;
 
 /// A stream of array chunks along with a DType.
 /// Analogous to Arrow's RecordBatchReader.
-pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayData>> {
+pub trait ArrayIterator: Iterator<Item = VortexResult<Array>> {
     fn dtype(&self) -> &DType;
 }
 
 pub type AccessorRef<T> = Arc<dyn Accessor<T>>;
 
 /// Define the basic behavior required for batched iterators
-pub trait Accessor<T>: Send + Sync {
+pub trait Accessor<T>: Send + Sync + Deref<Target = Array> {
     fn batch_size(&self, start_idx: usize) -> usize {
-        usize::min(ITER_BATCH_SIZE, self.array_len() - start_idx)
+        usize::min(ITER_BATCH_SIZE, self.len() - start_idx)
     }
-    fn array_len(&self) -> usize;
-    fn is_valid(&self, index: usize) -> bool;
+
     fn value_unchecked(&self, index: usize) -> T;
-    fn array_validity(&self) -> Validity;
 
     #[inline]
     fn decode_batch(&self, start_idx: usize) -> Vec<T> {

@@ -6,12 +6,12 @@ use std::sync::Arc;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 #[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
@@ -19,18 +19,23 @@ use crate::array::PrimitiveArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
-use crate::encoding::ids;
-use crate::stats::{StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, DeserializeMetadata, IntoCanonical,
-    RkyvMetadata,
+use crate::encoding::encoding_ids;
+use crate::stats::StatsSet;
+use crate::validity::{Validity, ValidityMetadata};
+use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use crate::{impl_encoding, Array, Canonical, RkyvMetadata};
 
-impl_encoding!("vortex.list", ids::LIST, List, RkyvMetadata<ListMetadata>);
+impl_encoding!(
+    "vortex.list",
+    encoding_ids::LIST,
+    List,
+    RkyvMetadata<ListMetadata>
+);
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -56,11 +61,7 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
-    pub fn try_new(
-        elements: ArrayData,
-        offsets: ArrayData,
-        validity: Validity,
-    ) -> VortexResult<Self> {
+    pub fn try_new(elements: Array, offsets: Array, validity: Validity) -> VortexResult<Self> {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();
@@ -135,14 +136,14 @@ impl ListArray {
     }
 
     // TODO: fetches the elements at index
-    pub fn elements_at(&self, index: usize) -> VortexResult<ArrayData> {
+    pub fn elements_at(&self, index: usize) -> VortexResult<Array> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         slice(self.elements(), start, end)
     }
 
     // TODO: fetches the offsets of the array ignoring validity
-    pub fn offsets(&self) -> ArrayData {
+    pub fn offsets(&self) -> Array {
         // TODO: find cheap transform
         self.as_ref()
             .child(1, &self.metadata().offset_ptype.into(), self.len() + 1)
@@ -150,7 +151,7 @@ impl ListArray {
     }
 
     // TODO: fetches the elements of the array ignoring validity
-    pub fn elements(&self) -> ArrayData {
+    pub fn elements(&self) -> Array {
         let dtype = self
             .dtype()
             .as_list_element()
@@ -177,9 +178,9 @@ impl VisitorVTable<ListArray> for ListEncoding {
     }
 }
 
-impl IntoCanonical for ListArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self))
+impl CanonicalVTable<ListArray> for ListEncoding {
+    fn into_canonical(&self, array: ListArray) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array))
     }
 }
 
@@ -192,7 +193,11 @@ impl ValidityVTable<ListArray> for ListEncoding {
         array.is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ListArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &ListArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ListArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -202,7 +207,7 @@ impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then
     /// appended to the array.
-    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
+    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<Array>
     where
         I::Item: IntoIterator,
         <I::Item as IntoIterator>::Item: Into<Scalar>,
@@ -241,7 +246,7 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData};
+    use crate::IntoArray;
 
     #[test]
     fn test_empty_list_array() {

@@ -10,23 +10,23 @@ use vortex_array::ContextRef;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
-use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, FLAT_LAYOUT_ID};
+use crate::vtable::LayoutVTable;
+use crate::{Layout, LayoutId, FLAT_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct FlatLayout;
 
-impl LayoutEncoding for FlatLayout {
+impl LayoutVTable for FlatLayout {
     fn id(&self) -> LayoutId {
         FLAT_LAYOUT_ID
     }
 
     fn reader(
         &self,
-        layout: LayoutData,
+        layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -35,7 +35,7 @@ impl LayoutEncoding for FlatLayout {
 
     fn register_splits(
         &self,
-        layout: &LayoutData,
+        layout: &Layout,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,

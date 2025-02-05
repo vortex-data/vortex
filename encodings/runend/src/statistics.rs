@@ -2,12 +2,13 @@ use std::cmp;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity as _, LogicalValidity};
+use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType as _, ArrayLen as _, IntoArrayVariant as _};
+use vortex_array::vtable::StatisticsVTable;
+use vortex_array::IntoArrayVariant as _;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
 use crate::{RunEndArray, RunEndEncoding};
@@ -15,14 +16,14 @@ use crate::{RunEndArray, RunEndEncoding};
 impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::Min | Stat::Max => array.values().statistics().compute(stat),
+            Stat::Min | Stat::Max => array.values().compute_stat(stat),
             Stat::IsSorted => Some(ScalarValue::from(
                 array
                     .values()
                     .statistics()
                     .compute_is_sorted()
                     .unwrap_or(false)
-                    && array.logical_validity()?.all_valid(),
+                    && array.validity_mask()?.all_true(),
             )),
             Stat::TrueCount => match array.dtype() {
                 DType::Bool(_) => Some(ScalarValue::from(array.true_count()?)),
@@ -34,7 +35,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 
         let mut stats = StatsSet::default();
         if let Some(stat_value) = maybe_stat {
-            stats.set(stat, stat_value);
+            stats.set(stat, Precision::exact(stat_value));
         }
         Ok(stats)
     }
@@ -53,8 +54,8 @@ impl RunEndArray {
         decompressed_ends: &[P],
         decompressed_values: BooleanBuffer,
     ) -> VortexResult<u64> {
-        Ok(match self.values().logical_validity()? {
-            LogicalValidity::AllValid(_) => {
+        Ok(match self.values().validity_mask()? {
+            Mask::AllTrue(_) => {
                 let mut begin = self.offset() as u64;
                 decompressed_ends
                     .iter()
@@ -68,9 +69,9 @@ impl RunEndArray {
                     })
                     .sum()
             }
-            LogicalValidity::AllInvalid(_) => 0,
-            LogicalValidity::Mask(mask) => {
-                let mut is_valid = mask.indices().iter();
+            Mask::AllFalse(_) => 0,
+            Mask::Values(values) => {
+                let mut is_valid = values.indices().iter();
                 match is_valid.next() {
                     None => self.len() as u64,
                     Some(&valid_index) => {
@@ -102,10 +103,10 @@ impl RunEndArray {
 
     fn null_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
-        let null_count = match self.values().logical_validity()? {
-            LogicalValidity::AllValid(_) => 0u64,
-            LogicalValidity::AllInvalid(_) => self.len() as u64,
-            LogicalValidity::Mask(mask) => {
+        let null_count = match self.values().validity_mask()? {
+            Mask::AllTrue(_) => 0u64,
+            Mask::AllFalse(_) => self.len() as u64,
+            Mask::Values(mask) => {
                 match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.null_count_with_array_validity(ends.as_slice::<$P>(), mask.boolean_buffer()))
             }
         };
@@ -148,9 +149,9 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::array::BoolArray;
     use vortex_array::compute::slice;
-    use vortex_array::stats::{ArrayStatistics as _, Stat};
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayData;
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;

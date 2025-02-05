@@ -3,26 +3,27 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, RkyvMetadata,
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 mod compress;
 mod compute;
 
 impl_encoding!(
     "fastlanes.bitpacked",
-    ids::FL_BITPACKED,
+    encoding_ids::FL_BITPACKED,
     BitPacked,
     RkyvMetadata<BitPackedMetadata>
 );
@@ -234,7 +235,7 @@ impl BitPackedArray {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    pub fn encode(array: &ArrayData, bit_width: u8) -> VortexResult<Self> {
+    pub fn encode(array: &Array, bit_width: u8) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
             bitpack_encode(parray, bit_width)
         } else {
@@ -251,9 +252,9 @@ impl BitPackedArray {
     }
 }
 
-impl IntoCanonical for BitPackedArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        unpack(self).map(Canonical::Primitive)
+impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
+    fn into_canonical(&self, array: BitPackedArray) -> VortexResult<Canonical> {
+        unpack(array).map(Canonical::Primitive)
     }
 }
 
@@ -262,7 +263,11 @@ impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BitPackedArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &BitPackedArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &BitPackedArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -298,7 +303,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical, RkyvMetadata};
+    use vortex_array::{IntoArray, IntoArrayVariant, RkyvMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 
@@ -352,8 +357,6 @@ mod test {
         assert!(packed_with_patches.patches().is_some());
         assert_eq!(
             packed_with_patches
-                .into_canonical()
-                .unwrap()
                 .into_primitive()
                 .unwrap()
                 .as_slice::<i32>(),

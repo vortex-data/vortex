@@ -9,10 +9,10 @@ use crate::array::VarBinEncoding;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
-    fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinArray, indices: &Array) -> VortexResult<Array> {
         let offsets = array.offsets().into_primitive()?;
         let data = array.bytes();
         let indices = indices.clone().into_primitive()?;
@@ -37,8 +37,8 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
     indices: &[I],
     validity: Validity,
 ) -> VortexResult<VarBinArray> {
-    let logical_validity = validity.to_logical(offsets.len() - 1)?;
-    if let Some(v) = logical_validity.to_null_buffer()? {
+    let validity_mask = validity.to_logical(offsets.len() - 1)?;
+    if let Some(v) = validity_mask.to_null_buffer() {
         return Ok(take_nullable(dtype, offsets, data, indices, v));
     }
 
@@ -53,7 +53,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
         let stop = offsets[idx + 1].to_usize().ok_or_else(|| {
             vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
         })?;
-        builder.push(Some(&data[start..stop]));
+        builder.append_value(&data[start..stop]);
     }
     Ok(builder.finish(dtype))
 }
@@ -77,9 +77,9 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
             let stop = offsets[idx + 1].to_usize().unwrap_or_else(|| {
                 vortex_panic!("Failed to convert offset to usize: {}", offsets[idx + 1])
             });
-            builder.push(Some(&data[start..stop]));
+            builder.append_value(&data[start..stop]);
         } else {
-            builder.push(None);
+            builder.append_null();
         }
     }
     builder.finish(dtype)

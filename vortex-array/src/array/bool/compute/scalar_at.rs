@@ -3,7 +3,6 @@ use vortex_scalar::Scalar;
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::ScalarAtFn;
-use crate::ArrayDType;
 
 impl ScalarAtFn<BoolArray> for BoolEncoding {
     fn scalar_at(&self, array: &BoolArray, index: usize) -> VortexResult<Scalar> {

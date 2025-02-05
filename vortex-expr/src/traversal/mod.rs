@@ -3,6 +3,7 @@ mod visitor;
 
 use itertools::Itertools;
 pub use references::ReferenceCollector;
+pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
@@ -216,7 +217,7 @@ impl Node for ExprRef {
         visitor.visit_up(self, context, children)
     }
 
-    // A pre-order transform, with an option to ignore sub-tress (using visit_down).
+    // A post-order transform, with an option to ignore sub-tress (using visit_down).
     fn transform<V: MutNodeVisitor<NodeTy = Self>>(
         self,
         visitor: &mut V,

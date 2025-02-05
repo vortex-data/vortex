@@ -5,16 +5,16 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{Array, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
-    use vortex_array::encoding::Encoding;
-    use vortex_array::stats::{ArrayStatistics, Stat};
+    use vortex_array::stats::{Precision, Stat};
     use vortex_array::variants::StructArrayTrait;
+    use vortex_array::Encoding;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimePartsEncoding;
@@ -33,7 +33,7 @@ mod tests {
             CompressConfig::default(),
         );
 
-        let def: &[(&str, ArrayData)] = &[
+        let def: &[(&str, Array)] = &[
             ("prim_col", make_primitive_column(65536)),
             ("bool_col", make_bool_column(65536)),
             ("varbin_col", make_string_column(65536)),
@@ -41,7 +41,7 @@ mod tests {
             ("timestamp_col", make_timestamp_column(65536)),
         ];
 
-        let fields: Vec<ArrayData> = def.iter().map(|(_, arr)| arr.clone()).collect();
+        let fields: Vec<Array> = def.iter().map(|(_, arr)| arr.clone()).collect();
         let field_names: FieldNames = FieldNames::from(
             def.iter()
                 .map(|(name, _)| FieldName::from(*name))
@@ -70,14 +70,13 @@ mod tests {
 
         let chunk_size = 1 << 14;
 
-        let ints: Vec<ArrayData> = (0..4).map(|_| make_primitive_column(chunk_size)).collect();
-        let bools: Vec<ArrayData> = (0..4).map(|_| make_bool_column(chunk_size)).collect();
-        let varbins: Vec<ArrayData> = (0..4).map(|_| make_string_column(chunk_size)).collect();
-        let binaries: Vec<ArrayData> = (0..4).map(|_| make_binary_column(chunk_size)).collect();
-        let timestamps: Vec<ArrayData> =
-            (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
+        let ints: Vec<Array> = (0..4).map(|_| make_primitive_column(chunk_size)).collect();
+        let bools: Vec<Array> = (0..4).map(|_| make_bool_column(chunk_size)).collect();
+        let varbins: Vec<Array> = (0..4).map(|_| make_string_column(chunk_size)).collect();
+        let binaries: Vec<Array> = (0..4).map(|_| make_binary_column(chunk_size)).collect();
+        let timestamps: Vec<Array> = (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
 
-        fn chunked(arrays: Vec<ArrayData>) -> ArrayData {
+        fn chunked(arrays: Vec<Array>) -> Array {
             let dtype = arrays[0].dtype().clone();
             ChunkedArray::try_new(arrays, dtype).unwrap().into_array()
         }
@@ -122,12 +121,12 @@ mod tests {
             .unwrap();
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
-            assert_eq!(chunk.encoding().id(), BitPackedEncoding::ID);
+            assert_eq!(chunk.encoding(), BitPackedEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some((chunk.len() * 8) + 1)
+                Some(Precision::exact((chunk.len() * 8) + 1))
             );
         }
 
@@ -137,12 +136,12 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in bool_col.chunks() {
-            assert_eq!(chunk.encoding().id(), BoolEncoding::ID);
+            assert_eq!(chunk.encoding(), BoolEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(chunk.len().div_ceil(8) + 2)
+                Some(Precision::exact(chunk.len().div_ceil(8) + 2))
             );
         }
 
@@ -152,15 +151,12 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in varbin_col.chunks() {
-            assert!(
-                chunk.encoding().id() == DictEncoding::ID
-                    || chunk.encoding().id() == FSSTEncoding::ID
-            );
+            assert!(chunk.encoding() == DictEncoding::ID || chunk.encoding() == FSSTEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(1392641_usize)
+                Some(Precision::exact(1392641_usize))
             );
         }
 
@@ -170,12 +166,12 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in binary_col.chunks() {
-            assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
+            assert_eq!(chunk.encoding(), VarBinEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(134357007_usize)
+                Some(Precision::exact(134357007_usize))
             );
         }
 
@@ -185,21 +181,21 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in timestamp_col.chunks() {
-            assert_eq!(chunk.encoding().id(), DateTimePartsEncoding::ID);
+            assert_eq!(chunk.encoding(), DateTimePartsEncoding::ID);
             assert_eq!(
                 chunk
                     .statistics()
                     .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(chunk.len() * 8 + 4)
+                Some(Precision::exact(chunk.len() * 8 + 4))
             )
         }
     }
 
-    fn make_primitive_column(count: usize) -> ArrayData {
+    fn make_primitive_column(count: usize) -> Array {
         Buffer::from_iter(0..count as i64).into_array()
     }
 
-    fn make_bool_column(count: usize) -> ArrayData {
+    fn make_bool_column(count: usize) -> Array {
         BoolArray::new(
             BooleanBuffer::from_iter((0..count).map(|_| rand::random::<bool>())),
             Nullability::NonNullable,
@@ -207,11 +203,11 @@ mod tests {
         .into_array()
     }
 
-    fn make_string_column(count: usize) -> ArrayData {
+    fn make_string_column(count: usize) -> Array {
         let values = ["zzzz", "bbbbbb", "cccccc", "ddddd"];
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         for i in 0..count {
-            builder.push_value(values[i % values.len()].as_bytes());
+            builder.append_value(values[i % values.len()].as_bytes());
         }
 
         builder
@@ -219,11 +215,11 @@ mod tests {
             .into_array()
     }
 
-    fn make_binary_column(count: usize) -> ArrayData {
+    fn make_binary_column(count: usize) -> Array {
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         let random: Vec<u8> = (0..count).map(|_| rand::random::<u8>()).collect();
         for i in 1..=count {
-            builder.push_value(&random[0..i]);
+            builder.append_value(&random[0..i]);
         }
 
         builder
@@ -231,7 +227,7 @@ mod tests {
             .into_array()
     }
 
-    fn make_timestamp_column(count: usize) -> ArrayData {
+    fn make_timestamp_column(count: usize) -> Array {
         // Make new timestamps in incrementing order from EPOCH.
         let t0 = chrono::NaiveDateTime::default().and_utc();
 
@@ -240,6 +236,6 @@ mod tests {
         )
         .into_array();
 
-        ArrayData::from(TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, None))
+        Array::from(TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, None))
     }
 }

@@ -16,7 +16,7 @@ use bench_vortex::public_bi_data::BenchmarkDatasets;
 use bench_vortex::public_bi_data::PBIDataset::*;
 use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::{fetch_taxi_data, tpch};
+use bench_vortex::{fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
@@ -29,12 +29,13 @@ use regex::Regex;
 use simplelog::*;
 use tokio::runtime::{Handle, Runtime};
 use vortex::array::{ChunkedArray, StructArray};
+use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 
@@ -107,7 +108,7 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 fn vortex_compress_write(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
-    array: &ArrayData,
+    array: &Array,
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
     let compressed = compressor.compress(array, None)?.into_array();
@@ -131,7 +132,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
             .try_collect::<Vec<_>>()
             .await?
             .into_iter()
-            .map(|a| a.into_arrow())
+            .map(|a| a.into_arrow_preferred())
             .collect::<VortexResult<Vec<_>>>()
     })
 }
@@ -139,7 +140,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
 fn vortex_compressed_written_size(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
-    array: &ArrayData,
+    array: &Array,
 ) -> VortexResult<u64> {
     vortex_compress_write(runtime, compressor, array, &mut Vec::new())
 }
@@ -153,7 +154,7 @@ fn benchmark_compress<F, U>(
     bench_name: &str,
 ) where
     F: Fn() -> U,
-    U: AsRef<ArrayData>,
+    U: AsRef<Array>,
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {
@@ -388,12 +389,7 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         "TPC-H l_comment chunked",
     );
 
-    let comments_canonical = comments
-        .into_canonical()
-        .unwrap()
-        .into_struct()
-        .unwrap()
-        .into_array();
+    let comments_canonical = comments.into_struct().unwrap().into_array();
     let dtype = comments_canonical.dtype().clone();
     let comments_canonical_chunked =
         ChunkedArray::try_new(vec![comments_canonical], dtype).unwrap();
@@ -408,8 +404,27 @@ fn tpc_h_l_comment(c: &mut Criterion) {
     );
 }
 
+fn wide_table(c: &mut Criterion) {
+    let row_count = 1000;
+    let compressor = SamplingCompressor::default();
+    for chunks in [1, 50] {
+        for num_columns in [10, 100, 1000] {
+            let name = format!("wide table cols={num_columns} chunks={chunks} rows={row_count}");
+            benchmark_compress(
+                c,
+                &compressor,
+                || generate_struct_of_list_of_ints_array(num_columns, row_count, chunks).unwrap(),
+                10,
+                None,
+                &name,
+            );
+        }
+    }
+}
+
 criterion_group!(
     benches,
+    wide_table,
     yellow_taxi_trip_data,
     public_bi_benchmark,
     tpc_h_l_comment,

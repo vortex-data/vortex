@@ -17,7 +17,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
+use vortex_layout::{Layout, LayoutContextRef, LayoutId};
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::io::file::FileIoDriver;
@@ -316,7 +316,7 @@ impl VortexOpenOptions {
 
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
-            LayoutData::new_viewed_unchecked(
+            Layout::new_viewed_unchecked(
                 root_encoding,
                 dtype,
                 bytes.clone(),

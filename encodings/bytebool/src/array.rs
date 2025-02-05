@@ -3,20 +3,22 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
-use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayLen, Canonical, IntoCanonical, SerdeMetadata};
+use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::variants::BoolArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
+use vortex_array::{encoding_ids, impl_encoding, Canonical, SerdeMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 impl_encoding!(
     "vortex.bytebool",
-    ids::BYTE_BOOL,
+    encoding_ids::BYTE_BOOL,
     ByteBool,
     SerdeMetadata<ByteBoolMetadata>
 );
@@ -99,10 +101,10 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
     }
 }
 
-impl IntoCanonical for ByteBoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let boolean_buffer = BooleanBuffer::from(self.as_slice());
-        let validity = self.validity();
+impl CanonicalVTable<ByteBoolArray> for ByteBoolEncoding {
+    fn into_canonical(&self, array: ByteBoolArray) -> VortexResult<Canonical> {
+        let boolean_buffer = BooleanBuffer::from(array.as_slice());
+        let validity = array.validity();
 
         Ok(Canonical::Bool(BoolArray::try_new(
             boolean_buffer,
@@ -116,7 +118,11 @@ impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ByteBoolArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &ByteBoolArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ByteBoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -131,7 +137,6 @@ impl VisitorVTable<ByteBoolArray> for ByteBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::validity::ArrayValidity;
 
     use super::*;
 

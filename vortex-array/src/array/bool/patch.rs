@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::array::BoolArray;
 use crate::patches::Patches;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
+use crate::IntoArrayVariant;
 
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
@@ -13,9 +13,9 @@ impl BoolArray {
         let indices = patches.indices().clone().into_primitive()?;
         let values = patches.values().clone().into_bool()?;
 
-        let patched_validity =
-            self.validity()
-                .patch(self.len(), &indices.to_array(), values.validity())?;
+        let patched_validity = self
+            .validity()
+            .patch(self.len(), &indices, values.validity())?;
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {

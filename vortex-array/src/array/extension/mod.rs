@@ -1,25 +1,30 @@
-use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
-use crate::encoding::ids;
-use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
-use crate::validate::ValidateVTable;
-use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use crate::variants::{ExtensionArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, EmptyMetadata, IntoCanonical,
+use crate::encoding::encoding_ids;
+use crate::stats::{Stat, StatsSet};
+use crate::variants::ExtensionArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use crate::{impl_encoding, Array, Canonical, EmptyMetadata};
+
 mod compute;
 
-impl_encoding!("vortex.ext", ids::EXTENSION, Extension, EmptyMetadata);
+impl_encoding!(
+    "vortex.ext",
+    encoding_ids::EXTENSION,
+    Extension,
+    EmptyMetadata
+);
 
 impl ExtensionArray {
-    pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
+    pub fn new(ext_dtype: Arc<ExtDType>, storage: Array) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
             storage.dtype(),
@@ -37,7 +42,7 @@ impl ExtensionArray {
         .vortex_expect("Invalid ExtensionArray")
     }
 
-    pub fn storage(&self) -> ArrayData {
+    pub fn storage(&self) -> Array {
         self.as_ref()
             .child(0, self.ext_dtype().storage_dtype(), self.len())
             .vortex_expect("Missing storage array for ExtensionArray")
@@ -62,14 +67,14 @@ impl VariantsVTable<ExtensionArray> for ExtensionEncoding {
 }
 
 impl ExtensionArrayTrait for ExtensionArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         self.storage()
     }
 }
 
-impl IntoCanonical for ExtensionArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self))
+impl CanonicalVTable<ExtensionArray> for ExtensionEncoding {
+    fn into_canonical(&self, array: ExtensionArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array))
     }
 }
 
@@ -78,8 +83,12 @@ impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
         array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ExtensionArray) -> VortexResult<LogicalValidity> {
-        array.storage().logical_validity()
+    fn all_valid(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        array.storage().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ExtensionArray) -> VortexResult<Mask> {
+        array.storage().validity_mask()
     }
 }
 
@@ -101,7 +110,8 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
-    use crate::IntoArrayData;
+    use crate::stats::Precision;
+    use crate::IntoArray;
 
     #[test]
     fn compute_statistics() {
@@ -123,8 +133,14 @@ mod tests {
             num_stats
         );
 
-        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(1i64));
-        assert_eq!(stats.get_as::<i64>(Stat::Max), Some(5_i64));
-        assert_eq!(stats.get_as::<usize>(Stat::NullCount), Some(0));
+        assert_eq!(stats.get_as::<i64>(Stat::Min), Some(Precision::exact(1i64)));
+        assert_eq!(
+            stats.get_as::<i64>(Stat::Max),
+            Some(Precision::exact(5_i64))
+        );
+        assert_eq!(
+            stats.get_as::<usize>(Stat::NullCount),
+            Some(Precision::exact(0usize))
+        );
     }
 }

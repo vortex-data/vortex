@@ -6,7 +6,7 @@ use crate::array::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayLen, IntoArrayVariant};
+use crate::IntoArrayVariant;
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]

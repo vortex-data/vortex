@@ -1,17 +1,24 @@
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBinArray, VarBinEncoding};
-use vortex_array::encoding::{ids, Encoding};
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
-use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, IntoCanonical, SerdeMetadata};
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::Validity;
+use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+};
+use vortex_array::{encoding_ids, impl_encoding, Array, Encoding, IntoArrayVariant, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
-impl_encoding!("vortex.fsst", ids::FSST, FSST, SerdeMetadata<FSSTMetadata>);
+impl_encoding!(
+    "vortex.fsst",
+    encoding_ids::FSST,
+    FSST,
+    SerdeMetadata<FSSTMetadata>
+);
 
 static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
@@ -34,10 +41,10 @@ impl FSSTArray {
     /// which tells the decoder to emit the following byte without doing a table lookup.
     pub fn try_new(
         dtype: DType,
-        symbols: ArrayData,
-        symbol_lengths: ArrayData,
-        codes: ArrayData,
-        uncompressed_lengths: ArrayData,
+        symbols: Array,
+        symbol_lengths: Array,
+        codes: Array,
+        uncompressed_lengths: Array,
     ) -> VortexResult<Self> {
         // Check: symbols must be a u64 array
         if symbols.dtype() != &SYMBOLS_DTYPE {
@@ -65,10 +72,10 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
         }
 
-        if codes.encoding().id() != VarBinEncoding::ID {
+        if codes.encoding() != VarBinEncoding::ID {
             vortex_bail!(
                 InvalidArgument: "codes must have varbin encoding, was {}",
-                codes.encoding().id()
+                codes.encoding()
             );
         }
 
@@ -98,21 +105,21 @@ impl FSSTArray {
     }
 
     /// Access the symbol table array
-    pub fn symbols(&self) -> ArrayData {
+    pub fn symbols(&self) -> Array {
         self.as_ref()
             .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len)
             .vortex_expect("FSSTArray symbols child")
     }
 
     /// Access the symbol table array
-    pub fn symbol_lengths(&self) -> ArrayData {
+    pub fn symbol_lengths(&self) -> Array {
         self.as_ref()
             .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len)
             .vortex_expect("FSSTArray symbol_lengths child")
     }
 
     /// Access the codes array
-    pub fn codes(&self) -> ArrayData {
+    pub fn codes(&self) -> Array {
         self.as_ref()
             .child(2, &self.codes_dtype(), self.len())
             .vortex_expect("FSSTArray codes child")
@@ -125,7 +132,7 @@ impl FSSTArray {
     }
 
     /// Get the uncompressed length for each element in the array.
-    pub fn uncompressed_lengths(&self) -> ArrayData {
+    pub fn uncompressed_lengths(&self) -> Array {
         self.as_ref()
             .child(3, &self.uncompressed_lengths_dtype(), self.len())
             .vortex_expect("FSST uncompressed_lengths child")
@@ -158,16 +165,12 @@ impl FSSTArray {
         // canonicalize the symbols child array, so we can view it contiguously
         let symbols_array = self
             .symbols()
-            .into_canonical()
-            .map_err(|err| err.with_context("Failed to canonicalize symbols array"))?
             .into_primitive()
             .map_err(|err| err.with_context("Symbols must be a Primitive Array"))?;
         let symbols = symbols_array.as_slice::<u64>();
 
         let symbol_lengths_array = self
             .symbol_lengths()
-            .into_canonical()
-            .map_err(|err| err.with_context("Failed to canonicalize symbol_lengths array"))?
             .into_primitive()
             .map_err(|err| err.with_context("Symbol lengths must be a Primitive Array"))?;
         let symbol_lengths = symbol_lengths_array.as_slice::<u8>();
@@ -198,8 +201,12 @@ impl ValidityVTable<FSSTArray> for FSSTEncoding {
         array.codes().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &FSSTArray) -> VortexResult<LogicalValidity> {
-        array.codes().logical_validity()
+    fn all_valid(&self, array: &FSSTArray) -> VortexResult<bool> {
+        array.codes().all_valid()
+    }
+
+    fn validity_mask(&self, array: &FSSTArray) -> VortexResult<Mask> {
+        array.codes().validity_mask()
     }
 }
 

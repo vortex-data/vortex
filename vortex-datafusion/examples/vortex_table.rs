@@ -11,7 +11,7 @@ use tokio::fs::OpenOptions;
 use url::Url;
 use vortex_array::array::{ChunkedArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::IntoArrayData;
+use vortex_array::IntoArray;
 use vortex_buffer::buffer;
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_error::vortex_err;

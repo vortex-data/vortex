@@ -1,31 +1,29 @@
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
-use crate::encoding::EncodingRef;
-use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
-use crate::{ArrayDType, ArrayData};
+use crate::stats::PRUNING_STATS;
+use crate::{Array, EncodingId};
 
 pub trait CompressionStrategy {
-    fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData>;
+    fn compress(&self, array: &Array) -> VortexResult<Array>;
 
-    fn used_encodings(&self) -> HashSet<EncodingRef>;
+    fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 
 /// Check that compression did not alter the length of the validity array.
-pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
+pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::validity::ArrayValidity;
+        use vortex_error::VortexExpect;
 
         let old_validity = arr
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity")
             .len();
         let new_validity = compressed
-            .logical_validity()
+            .validity_mask()
             .vortex_expect("failed to compute validity ")
             .len();
 
@@ -39,12 +37,11 @@ pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
 }
 
 /// Check that compression did not alter the dtype
-pub fn check_dtype_unchanged(arr: &ArrayData, compressed: &ArrayData) {
+pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::ArrayDType;
         debug_assert!(
             arr.dtype() == compressed.dtype(),
             "Compression changed dtype: {} -> {}\nFrom array: {}Into array {}",
@@ -57,7 +54,7 @@ pub fn check_dtype_unchanged(arr: &ArrayData, compressed: &ArrayData) {
 }
 
 // Check that compression preserved the statistics.
-pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
+pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -67,22 +64,19 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
         for (stat, value) in arr
             .statistics()
-            .to_set()
+            .stats_set()
             .into_iter()
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
             let compressed_scalar = compressed
                 .statistics()
-                .get(stat)
-                .map(|sv| Scalar::new(stat.dtype(compressed.dtype()), sv));
+                .get_stat(stat)
+                .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(
-                compressed_scalar,
-                Some(Scalar::new(stat.dtype(arr.dtype()), value.clone())),
-                "Compression changed {stat} from {value} to {}",
-                compressed_scalar
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "null".to_string()),
+                compressed_scalar.clone(),
+                Some(value.clone().into_scalar(stat.dtype(arr.dtype()))),
+                "Compression changed {stat} from {value} to {:?}",
+                compressed_scalar.as_ref(),
             );
         }
     }
@@ -90,7 +84,7 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
 
 /// Eagerly compute certain statistics (i.e., pruning stats plus UncompressedSizeInBytes) for an array.
 /// This function is intended to be called in compressors, immediately before compression occurs.
-pub fn compute_precompression_stats(arr: &ArrayData) -> VortexResult<()> {
+pub fn compute_precompression_stats(arr: &Array) -> VortexResult<()> {
     arr.statistics().compute_uncompressed_size_in_bytes();
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }

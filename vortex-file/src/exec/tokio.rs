@@ -4,7 +4,7 @@ use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
 use tokio::runtime::Handle;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::exec::ExecDriver;
@@ -18,8 +18,8 @@ pub struct TokioDriver {
 impl ExecDriver for TokioDriver {
     fn drive(
         &self,
-        stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<ArrayData>>>>,
-    ) -> BoxStream<'static, VortexResult<ArrayData>> {
+        stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<Array>>>>,
+    ) -> BoxStream<'static, VortexResult<Array>> {
         let handle = self.handle.clone();
 
         stream

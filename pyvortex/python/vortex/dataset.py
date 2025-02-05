@@ -6,9 +6,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
 
-from . import encoding
-from ._lib import dataset as _lib_dataset
-from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
+import vortex as vx
+from vortex._lib import dataset as _dataset
+from vortex.arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
 
 class VortexDataset(pyarrow.dataset.Dataset):
@@ -24,11 +24,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_url(url: str):
-        return VortexDataset(_lib_dataset.dataset_from_url(url))
+        return VortexDataset(_dataset.dataset_from_url(url))
 
     @staticmethod
     def from_path(path: str):
-        return VortexDataset(_lib_dataset.dataset_from_path(path))
+        return VortexDataset(_dataset.dataset_from_path(path))
 
     @property
     def schema(self) -> pa.Schema:
@@ -231,7 +231,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         """
         return self._dataset.to_array(
-            columns=columns, row_filter=filter, indices=encoding.array(indices.cast(pa.uint64()))
+            columns=columns, row_filter=filter, indices=vx.array(indices.cast(pa.uint64()))
         ).to_arrow_table()
 
     def to_record_batch_reader(
@@ -400,11 +400,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
 
 def from_path(path: str) -> VortexDataset:
-    return VortexDataset(_lib_dataset.dataset_from_path(path))
+    return VortexDataset(_dataset.dataset_from_path(path))
 
 
 def from_url(url: str) -> VortexDataset:
-    return VortexDataset(_lib_dataset.dataset_from_url(url))
+    return VortexDataset(_dataset.dataset_from_url(url))
 
 
 class VortexScanner(pa.dataset.Scanner):

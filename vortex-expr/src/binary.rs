@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, Operator, VortexExpr};
@@ -46,7 +46,7 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 
@@ -84,7 +84,7 @@ impl PartialEq for BinaryExpr {
 ///
 /// ```
 /// use vortex_array::array::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{eq, ident, lit};
@@ -107,7 +107,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, not_eq};
@@ -130,7 +130,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{gt_eq, ident, lit};
@@ -153,7 +153,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{gt, ident, lit};
@@ -176,7 +176,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, lt_eq};
@@ -199,7 +199,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, lt};
@@ -222,7 +222,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::BoolArray;
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_expr::{ ident, lit, or};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
@@ -243,7 +243,7 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::array::BoolArray;
-/// use vortex_array::{IntoArrayData, IntoArrayVariant};
+/// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_expr::{and, ident, lit};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();

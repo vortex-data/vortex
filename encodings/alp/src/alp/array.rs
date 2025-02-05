@@ -2,23 +2,26 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::StatisticsVTable;
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoCanonical,
-    SerdeMetadata,
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
+    VisitorVTable,
 };
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 use crate::alp::{alp_encode, decompress, Exponents};
 
-impl_encoding!("vortex.alp", ids::ALP, ALP, SerdeMetadata<ALPMetadata>);
+impl_encoding!(
+    "vortex.alp",
+    encoding_ids::ALP,
+    ALP,
+    SerdeMetadata<ALPMetadata>
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
@@ -28,7 +31,7 @@ pub struct ALPMetadata {
 
 impl ALPArray {
     pub fn try_new(
-        encoded: ArrayData,
+        encoded: Array,
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<Self> {
@@ -43,6 +46,14 @@ impl ALPArray {
         let mut children = Vec::with_capacity(2);
         children.push(encoded);
         if let Some(patches) = &patches {
+            if patches.dtype() != &dtype {
+                vortex_bail!(MismatchedTypes: dtype, patches.dtype());
+            }
+
+            if !patches.values().all_valid()? {
+                vortex_bail!("ALPArray: patches must not contain invalid entries");
+            }
+
             children.push(patches.indices().clone());
             children.push(patches.values().clone());
         }
@@ -62,7 +73,7 @@ impl ALPArray {
         )
     }
 
-    pub fn encode(array: ArrayData) -> VortexResult<ArrayData> {
+    pub fn encode(array: Array) -> VortexResult<Array> {
         if let Some(parray) = PrimitiveArray::maybe_from(array) {
             Ok(alp_encode(&parray)?.into_array())
         } else {
@@ -70,7 +81,7 @@ impl ALPArray {
         }
     }
 
-    pub fn encoded(&self) -> ArrayData {
+    pub fn encoded(&self) -> Array {
         self.as_ref()
             .child(0, &self.encoded_dtype(), self.len())
             .vortex_expect("Missing encoded child in ALPArray")
@@ -124,14 +135,18 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
         array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPArray) -> VortexResult<LogicalValidity> {
-        array.encoded().logical_validity()
+    fn all_valid(&self, array: &ALPArray) -> VortexResult<bool> {
+        array.encoded().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ALPArray) -> VortexResult<Mask> {
+        array.encoded().validity_mask()
     }
 }
 
-impl IntoCanonical for ALPArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        decompress(self).map(Canonical::Primitive)
+impl CanonicalVTable<ALPArray> for ALPEncoding {
+    fn into_canonical(&self, array: ALPArray) -> VortexResult<Canonical> {
+        decompress(array).map(Canonical::Primitive)
     }
 }
 

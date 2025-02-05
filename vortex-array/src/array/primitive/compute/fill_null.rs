@@ -10,10 +10,10 @@ use crate::array::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant as _};
+use crate::{Array, IntoArray, IntoArrayVariant as _};
 
 impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
-    fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<ArrayData> {
+    fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<Array> {
         let result_validity = match fill_value.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
@@ -53,8 +53,8 @@ mod test {
     use crate::array::primitive::PrimitiveArray;
     use crate::array::BoolArray;
     use crate::compute::fill_null;
-    use crate::validity::{ArrayValidity, Validity};
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::validity::Validity;
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn fill_null_leading_none() {
@@ -65,7 +65,7 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![42, 8, 42, 10, 42]);
-        assert!(p.logical_validity().unwrap().all_valid());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -78,7 +78,7 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![255, 255, 255, 255, 255]);
-        assert!(p.logical_validity().unwrap().all_valid());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -93,7 +93,7 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8, 10, 12, 14, 16]);
-        assert!(p.logical_validity().unwrap().all_valid());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
@@ -104,6 +104,6 @@ mod test {
             .into_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8u8, 10, 12, 14, 16]);
-        assert!(p.logical_validity().unwrap().all_valid());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 }

@@ -3,7 +3,7 @@ use flatbuffers::root;
 use futures::future::try_join_all;
 use vortex_array::compute::{filter, slice};
 use vortex_array::parts::ArrayParts;
-use vortex_array::ArrayData;
+use vortex_array::Array;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_flatbuffers::{array as fba, FlatBuffer};
@@ -15,11 +15,7 @@ use crate::{ExprEvaluator, LayoutReader};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
-    async fn evaluate_expr(
-        self: &Self,
-        row_mask: RowMask,
-        expr: ExprRef,
-    ) -> VortexResult<ArrayData> {
+    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
         // Fetch all the array buffers.
@@ -47,7 +43,7 @@ impl ExprEvaluator for FlatReader {
             buffers,
         );
 
-        // Decode into an ArrayData.
+        // Decode into an Array.
         let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
         assert_eq!(
             array.len() as u64,
@@ -64,7 +60,6 @@ impl ExprEvaluator for FlatReader {
             .vortex_expect("RowMask begin must fit within FlatLayout size");
         let array = slice(array, begin, begin + row_mask.len())?;
         let array = filter(&array, row_mask.filter_mask())?;
-
         // Then apply the expression
         expr.evaluate(&array)
     }
@@ -78,7 +73,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
     use vortex_scan::RowMask;
@@ -93,7 +88,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.clone().into_array())
                 .unwrap();
 
             let result = layout
@@ -118,7 +113,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.into_array())
                 .unwrap();
 
             let expr = gt(Identity::new_expr(), lit(3i32));
@@ -144,7 +139,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.to_array())
+                .push_one(&mut segments, array.clone().into_array())
                 .unwrap();
 
             let result = layout

@@ -6,16 +6,13 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
-use crate::encoding::ids;
+use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
-use crate::validate::ValidateVTable;
-use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{BoolArrayTrait, VariantsVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayLen, Canonical, DeserializeMetadata, IntoArrayData, IntoCanonical,
-    RkyvMetadata,
-};
+use crate::validity::{Validity, ValidityMetadata};
+use crate::variants::BoolArrayTrait;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{CanonicalVTable, ValidateVTable};
+use crate::{impl_encoding, Canonical, IntoArray, RkyvMetadata};
 
 pub mod compute;
 mod patch;
@@ -23,8 +20,16 @@ mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use vortex_mask::Mask;
 
-impl_encoding!("vortex.bool", ids::BOOL, Bool, RkyvMetadata<BoolMetadata>);
+use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
+
+impl_encoding!(
+    "vortex.bool",
+    encoding_ids::BOOL,
+    Bool,
+    RkyvMetadata<BoolMetadata>
+);
 
 #[derive(
     Clone,
@@ -200,9 +205,9 @@ impl FromIterator<Option<bool>> for BoolArray {
     }
 }
 
-impl IntoCanonical for BoolArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(self))
+impl CanonicalVTable<BoolArray> for BoolEncoding {
+    fn into_canonical(&self, array: BoolArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Bool(array))
     }
 }
 
@@ -211,7 +216,11 @@ impl ValidityVTable<BoolArray> for BoolEncoding {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &BoolArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &BoolArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &BoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }
@@ -233,7 +242,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn bool_array() {

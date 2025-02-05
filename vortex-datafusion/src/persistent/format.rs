@@ -4,32 +4,36 @@ use std::sync::Arc;
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FilePushdownSupport};
+use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
 use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
 use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
-    not_impl_err, ColumnStatistics, DataFusionError, Result as DFResult, ScalarValue, Statistics,
+    config_datafusion_err, not_impl_err, ColumnStatistics, DataFusionError, GetExt,
+    Result as DFResult, ScalarValue, Statistics,
 };
+use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
+use datafusion_physical_plan::insert::DataSinkExec;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
 use vortex_array::stats::Stat;
-use vortex_array::ContextRef;
+use vortex_array::{stats, ContextRef};
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
-use vortex_scalar::Scalar;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
+use super::sink::VortexSink;
 use crate::can_be_pushed_down;
+use crate::converter::directional_bound_to_df_precision;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]
@@ -54,6 +58,56 @@ impl Default for VortexFormatOptions {
             concurrent_infer_schema_ops: 64,
             cache_size_mb: 256,
         }
+    }
+}
+
+/// Minimal factory to create [`VortexFormat`] instances.
+#[derive(Debug)]
+pub struct VortexFormatFactory {
+    context: ContextRef,
+}
+
+impl VortexFormatFactory {
+    // Because FileFormatFactory has a default method
+    /// Create a new [`VortexFormatFactory`] with the default encoding context.
+    pub fn default_config() -> Self {
+        Self::with_context(ContextRef::default())
+    }
+
+    /// Create a new [`VortexFormatFactory`] that creates [`VortexFormat`] instances with the provided [`Context`](vortex_array::Context).
+    pub fn with_context(context: ContextRef) -> Self {
+        Self { context }
+    }
+}
+
+impl GetExt for VortexFormatFactory {
+    fn get_ext(&self) -> String {
+        VORTEX_FILE_EXTENSION.to_string()
+    }
+}
+
+impl FileFormatFactory for VortexFormatFactory {
+    #[allow(clippy::disallowed_types)]
+    fn create(
+        &self,
+        _state: &SessionState,
+        format_options: &std::collections::HashMap<String, String>,
+    ) -> DFResult<Arc<dyn FileFormat>> {
+        if !format_options.is_empty() {
+            return Err(config_datafusion_err!(
+                "Vortex tables don't support any options"
+            ));
+        }
+
+        Ok(Arc::new(VortexFormat::new(self.context.clone())))
+    }
+
+    fn default(&self) -> Arc<dyn FileFormat> {
+        Arc::new(VortexFormat::default())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -115,8 +169,8 @@ impl FileFormat for VortexFormat {
                 let cache = self.file_layout_cache.clone();
                 async move {
                     let file_layout = cache.try_get(&o, store).await?;
-                    let s = infer_schema(file_layout.dtype())?;
-                    VortexResult::Ok(s)
+                    let stats_set = infer_schema(file_layout.dtype())?;
+                    VortexResult::Ok(stats_set)
                 }
             })
             .buffered(self.opts.concurrent_infer_schema_ops)
@@ -149,7 +203,7 @@ impl FileFormat for VortexFormat {
         let field_paths = table_schema
             .fields()
             .iter()
-            .map(|f| FieldPath::from_name(f.name().to_owned()))
+            .map(|field| FieldPath::from_name(field.name().to_owned()))
             .collect();
         let stats = vxf
             .statistics(
@@ -165,40 +219,41 @@ impl FileFormat for VortexFormat {
             .await?;
 
         // Sum up the total byte size across all the columns.
-        let total_byte_size = Precision::Inexact(
+        let total_byte_size = directional_bound_to_df_precision(Some(
             stats
                 .iter()
-                .map(|s| {
-                    s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or_default()
+                .map(|stats_set| {
+                    stats_set
+                        .get_as::<usize>(Stat::UncompressedSizeInBytes)
+                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
                 })
-                .sum(),
-        );
+                .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
+                    acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
+                }),
+        ));
 
         let column_statistics = stats
             .into_iter()
             .zip(table_schema.fields().iter())
-            .map(|(s, f)| {
-                let null_count = s.get_as::<usize>(Stat::NullCount);
-                let min = s
-                    .get(Stat::Min)
-                    .cloned()
-                    .map(|n| Scalar::new(DType::from_arrow(f.as_ref()), n))
-                    .and_then(|s| ScalarValue::try_from(s).ok());
-                let max = s
-                    .get(Stat::Max)
-                    .cloned()
-                    .map(|n| Scalar::new(DType::from_arrow(f.as_ref()), n))
-                    .and_then(|s| ScalarValue::try_from(s).ok());
+            .map(|(stats_set, field)| {
+                let null_count = stats_set.get_as::<usize>(Stat::NullCount);
+                let min = stats_set
+                    .get_scalar(Stat::Min, DType::from_arrow(field.as_ref()))
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
+                let max = stats_set
+                    .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
+                    .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
                 ColumnStatistics {
-                    null_count: null_count
-                        .map(Precision::Exact)
-                        .unwrap_or(Precision::Absent),
-                    max_value: max.map(Precision::Exact).unwrap_or(Precision::Absent),
-                    min_value: min.map(Precision::Exact).unwrap_or(Precision::Absent),
-                    distinct_count: s
+                    null_count: directional_bound_to_df_precision(null_count),
+                    max_value: directional_bound_to_df_precision(max),
+                    min_value: directional_bound_to_df_precision(min),
+                    distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
-                        .and_then(|is_constant| is_constant.then_some(Precision::Exact(1)))
+                        .and_then(|is_constant| {
+                            is_constant.some_exact().map(|_| Precision::Exact(1))
+                        })
                         .unwrap_or(Precision::Absent),
                 }
             })
@@ -237,12 +292,24 @@ impl FileFormat for VortexFormat {
 
     async fn create_writer_physical_plan(
         &self,
-        _input: Arc<dyn ExecutionPlan>,
+        input: Arc<dyn ExecutionPlan>,
         _state: &SessionState,
-        _conf: FileSinkConfig,
-        _order_requirements: Option<LexRequirement>,
+        conf: FileSinkConfig,
+        order_requirements: Option<LexRequirement>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        not_impl_err!("Writer not implemented for this format")
+        if conf.insert_op != InsertOp::Append {
+            return not_impl_err!("Overwrites are not implemented yet for Parquet");
+        }
+
+        let sink_schema = conf.output_schema().clone();
+        let sink = Arc::new(VortexSink::new(conf));
+
+        Ok(Arc::new(DataSinkExec::new(
+            input,
+            sink,
+            sink_schema,
+            order_requirements,
+        )) as _)
     }
 
     fn supports_filters_pushdown(
@@ -260,5 +327,62 @@ impl FileFormat for VortexFormat {
         } else {
             Ok(FilePushdownSupport::NotSupportedForFilter)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion::prelude::SessionContext;
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::persistent::register_vortex_format_factory;
+
+    #[tokio::test]
+    async fn create_table() {
+        let dir = TempDir::new().unwrap();
+
+        let factory = VortexFormatFactory::default_config();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        let df = session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex LOCATION '{}'",
+                dir.path().to_str().unwrap()
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(df.count().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn fail_table_config() {
+        let dir = TempDir::new().unwrap();
+
+        let factory = VortexFormatFactory::default_config();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex LOCATION '{}' \
+                OPTIONS( some_key 'value' );",
+                dir.path().to_str().unwrap()
+            ))
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
     }
 }

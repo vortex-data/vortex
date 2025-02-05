@@ -1,13 +1,13 @@
 use std::any::Any;
 
 use arrow_array::builder::{ArrayBuilder as _, BooleanBuilder as ArrowBooleanBuilder};
-use arrow_array::Array;
+use arrow_array::Array as ArrowArray;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::ArrayData;
+use crate::Array;
 
 pub struct BoolBuilder {
     inner: ArrowBooleanBuilder,
@@ -69,13 +69,13 @@ impl ArrayBuilder for BoolBuilder {
         self.inner.append_nulls(n);
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayData> {
+    fn finish(&mut self) -> VortexResult<Array> {
         let arrow = self.inner.finish();
 
         if !self.dtype().is_nullable() && arrow.null_count() > 0 {
             vortex_bail!("Non-nullable builder has null values");
         }
 
-        Ok(ArrayData::from_arrow(&arrow, self.nullability.into()))
+        Ok(Array::from_arrow(&arrow, self.nullability.into()))
     }
 }

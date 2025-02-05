@@ -11,7 +11,7 @@ use vortex::dtype::{DType, Nullability};
 use vortex::ipc::iterator::{ArrayIteratorIPC, SyncIPCReader};
 use vortex::iter::ArrayIteratorExt;
 use vortex::validity::Validity;
-use vortex::{Context, IntoArrayData, IntoArrayVariant};
+use vortex::{Context, IntoArray, IntoArrayVariant};
 
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(

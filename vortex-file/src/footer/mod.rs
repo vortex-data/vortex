@@ -4,4 +4,4 @@ mod segment;
 
 pub use file_layout::*;
 pub(crate) use postscript::*;
-pub(crate) use segment::*;
+pub use segment::*;

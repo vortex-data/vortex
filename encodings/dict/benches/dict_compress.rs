@@ -9,7 +9,7 @@ use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinArray, VarBinView
 use vortex_array::compute::{compare, Operator};
 use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::validity::Validity;
-use vortex_array::IntoCanonical as _;
+use vortex_array::IntoCanonical;
 use vortex_buffer::Buffer;
 use vortex_dict::dict_encode;
 

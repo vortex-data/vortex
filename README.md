@@ -100,7 +100,6 @@ The Vortex type-system is still in flux. The current set of logical types is:
 * Struct
 * List (partially implemented)
 * Date/Time/DateTime/Duration (implemented as an extension type)
-* Decimal: TODO
 * FixedList: TODO
 * Tensor: TODO
 * Union: TODO

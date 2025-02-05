@@ -10,9 +10,9 @@ use compressors::varbin::VarBinCompressor;
 use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
-    ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, ChunkedEncoding, ConstantEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
+    StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::encoding::EncodingRef;
 use vortex_array::{Context, ContextRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
@@ -74,33 +74,37 @@ pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
     &DictCompressor,
     &FoRCompressor,
     &FSSTCompressor,
+    &ListCompressor,
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
-    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
-        &ALPEncoding as EncodingRef,
-        &ALPRDEncoding,
-        &ByteBoolEncoding,
-        &DateTimePartsEncoding,
-        &DictEncoding,
-        &BitPackedEncoding,
-        &DeltaEncoding,
-        &FoREncoding,
-        &FSSTEncoding,
-        &PrimitiveEncoding,
-        &RunEndEncoding,
-        &SparseEncoding,
-        &StructEncoding,
-        &ListEncoding,
-        &VarBinEncoding,
-        &VarBinViewEncoding,
-        &ZigZagEncoding,
+        ALPEncoding::vtable(),
+        ALPRDEncoding::vtable(),
+        BitPackedEncoding::vtable(),
+        BoolEncoding::vtable(),
+        ByteBoolEncoding::vtable(),
+        ChunkedEncoding::vtable(),
+        ConstantEncoding::vtable(),
+        DateTimePartsEncoding::vtable(),
+        DeltaEncoding::vtable(),
+        DictEncoding::vtable(),
+        FoREncoding::vtable(),
+        FSSTEncoding::vtable(),
+        ListEncoding::vtable(),
+        NullEncoding::vtable(),
+        PrimitiveEncoding::vtable(),
+        RunEndEncoding::vtable(),
+        SparseEncoding::vtable(),
+        StructEncoding::vtable(),
+        VarBinEncoding::vtable(),
+        VarBinViewEncoding::vtable(),
+        ZigZagEncoding::vtable(),
     ]))
 });
 

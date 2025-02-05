@@ -5,12 +5,12 @@ use vortex_scalar::Scalar;
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::iter::Accessor;
-use crate::validity::{ArrayValidity, Validity};
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{ArrayData, ArrayLen, IntoArrayData};
+use crate::vtable::VariantsVTable;
+use crate::{Array, IntoArray};
 
 /// Constant arrays support all DTypes
 impl VariantsVTable<ConstantArray> for ConstantEncoding {
@@ -62,25 +62,8 @@ where
     T: Clone,
     T: TryFrom<Scalar, Error = VortexError>,
 {
-    fn array_len(&self) -> usize {
-        self.len()
-    }
-
-    fn is_valid(&self, index: usize) -> bool {
-        ArrayValidity::is_valid(self, index)
-            .vortex_expect("Failed to check validity of constant array")
-    }
-
     fn value_unchecked(&self, _index: usize) -> T {
         T::try_from(self.scalar()).vortex_expect("Failed to convert scalar to value")
-    }
-
-    fn array_validity(&self) -> Validity {
-        if self.scalar().is_null() {
-            Validity::AllInvalid
-        } else {
-            Validity::AllValid
-        }
     }
 }
 
@@ -91,14 +74,14 @@ impl Utf8ArrayTrait for ConstantArray {}
 impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
         self.scalar()
             .as_struct()
             .field_by_idx(idx)
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayData> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
         Ok(
             ConstantArray::new(self.scalar().as_struct().project(projection)?, self.len())
                 .into_array(),
@@ -109,7 +92,7 @@ impl StructArrayTrait for ConstantArray {
 impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
-    fn storage_data(&self) -> ArrayData {
+    fn storage_data(&self) -> Array {
         ConstantArray::new(self.scalar().as_extension().storage(), self.len()).into_array()
     }
 }

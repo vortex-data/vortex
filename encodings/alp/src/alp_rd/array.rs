@@ -2,23 +2,25 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validate::ValidateVTable;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::Validity;
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::vtable::{
+    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable,
+};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, Canonical, IntoCanonical, SerdeMetadata,
+    encoding_ids, impl_encoding, Array, Canonical, IntoArrayVariant, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::alp_rd::alp_rd_decode;
 
 impl_encoding!(
     "vortex.alprd",
-    ids::ALP_RD,
+    encoding_ids::ALP_RD,
     ALPRD,
     SerdeMetadata<ALPRDMetadata>
 );
@@ -35,9 +37,9 @@ pub struct ALPRDMetadata {
 impl ALPRDArray {
     pub fn try_new(
         dtype: DType,
-        left_parts: ArrayData,
+        left_parts: Array,
         left_parts_dict: impl AsRef<[u16]>,
-        right_parts: ArrayData,
+        right_parts: Array,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<Self> {
@@ -151,14 +153,14 @@ impl ALPRDArray {
     ///
     /// These are bit-packed and dictionary encoded, and cannot directly be interpreted without
     /// the metadata of this array.
-    pub fn left_parts(&self) -> ArrayData {
+    pub fn left_parts(&self) -> Array {
         self.as_ref()
             .child(0, &self.left_parts_dtype(), self.len())
             .vortex_expect("ALPRDArray: left_parts child")
     }
 
     /// The rightmost (least significant) bits of the floating point values stored in the array.
-    pub fn right_parts(&self) -> ArrayData {
+    pub fn right_parts(&self) -> Array {
         self.as_ref()
             .child(1, &self.right_parts_dtype(), self.len())
             .vortex_expect("ALPRDArray: right_parts child")
@@ -193,37 +195,35 @@ impl ALPRDArray {
     }
 }
 
-impl IntoCanonical for ALPRDArray {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        let left_parts = self.left_parts().into_canonical()?.into_primitive()?;
-        let right_parts = self.right_parts().into_canonical()?.into_primitive()?;
+impl CanonicalVTable<ALPRDArray> for ALPRDEncoding {
+    fn into_canonical(&self, array: ALPRDArray) -> VortexResult<Canonical> {
+        let left_parts = array.left_parts().into_primitive()?;
+        let right_parts = array.right_parts().into_primitive()?;
 
         // Decode the left_parts using our builtin dictionary.
-        let left_parts_dict = &self.metadata().dict[0..self.metadata().dict_len as usize];
+        let left_parts_dict = &array.metadata().dict[0..array.metadata().dict_len as usize];
 
-        let decoded_array = if self.is_f32() {
+        let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
                     left_parts_dict,
-                    self.metadata().right_bit_width,
+                    array.metadata().right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
-                    self.left_parts_patches(),
+                    array.left_parts_patches(),
                 )?,
-                self.logical_validity()?
-                    .into_validity(self.dtype().nullability()),
+                Validity::from_mask(array.validity_mask()?, array.dtype().nullability()),
             )
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
                     left_parts.into_buffer::<u16>(),
                     left_parts_dict,
-                    self.metadata().right_bit_width,
+                    array.metadata().right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
-                    self.left_parts_patches(),
+                    array.left_parts_patches(),
                 )?,
-                self.logical_validity()?
-                    .into_validity(self.dtype().nullability()),
+                Validity::from_mask(array.validity_mask()?, array.dtype().nullability()),
             )
         };
 
@@ -237,9 +237,14 @@ impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
         array.left_parts().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &ALPRDArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &ALPRDArray) -> VortexResult<bool> {
         // Use validity from left_parts
-        array.left_parts().logical_validity()
+        array.left_parts().all_valid()
+    }
+
+    fn validity_mask(&self, array: &ALPRDArray) -> VortexResult<Mask> {
+        // Use validity from left_parts
+        array.left_parts().validity_mask()
     }
 }
 
@@ -265,7 +270,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{IntoArrayData, IntoCanonical, SerdeMetadata};
+    use vortex_array::{IntoArrayVariant, SerdeMetadata};
     use vortex_dtype::PType;
 
     use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};
@@ -307,12 +312,7 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array
-            .into_array()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let decoded = rd_array.into_primitive().unwrap();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
         assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);

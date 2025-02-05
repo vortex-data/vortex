@@ -1,17 +1,21 @@
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
-use crate::validity::{LogicalValidity, ValidityVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::ArrayLen;
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{ValidityVTable, VisitorVTable};
 
 impl ValidityVTable<VarBinArray> for VarBinEncoding {
     fn is_valid(&self, array: &VarBinArray, index: usize) -> VortexResult<bool> {
         array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self, array: &VarBinArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &VarBinArray) -> VortexResult<bool> {
+        array.validity().all_valid()
+    }
+
+    fn validity_mask(&self, array: &VarBinArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
 }

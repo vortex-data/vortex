@@ -20,11 +20,10 @@ workspace = true
 [lib]
 name = "pyvortex"
 crate-type = ["rlib", "cdylib"]
-doctest = false
+doctest = false # TODO(ngates): why?
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }
-flume = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }

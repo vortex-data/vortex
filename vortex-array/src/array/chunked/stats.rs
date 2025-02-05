@@ -2,8 +2,8 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::ArrayDType;
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
     fn compute_statistics(&self, array: &ChunkedArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -14,10 +14,13 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
             .map(|c| {
                 let s = c.statistics();
                 match stat {
+                    // We need to know min and max to merge_ordered these stats.
                     Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {
                         s.compute_all(&[stat, Stat::Min, Stat::Max]).ok()
                     }
-                    _ => s.compute(stat).map(|s| StatsSet::of(stat, s)),
+                    _ => s
+                        .compute_stat(stat)
+                        .map(|s| StatsSet::of(stat, Precision::exact(s))),
                 }
                 .unwrap_or_default()
             })

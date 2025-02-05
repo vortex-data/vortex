@@ -4,32 +4,31 @@ use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
-use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
+use crate::stats::{Precision, Stat, StatsSet};
+use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
         if array.is_empty() {
             return Ok(StatsSet::new_unchecked(vec![
-                (Stat::TrueCount, 0.into()),
-                (Stat::NullCount, 0.into()),
-                (Stat::RunCount, 0.into()),
+                (Stat::TrueCount, Precision::exact(0)),
+                (Stat::NullCount, Precision::exact(0)),
+                (Stat::RunCount, Precision::exact(0)),
             ]));
         }
 
-        match array.logical_validity()? {
-            LogicalValidity::AllValid(_) => self.compute_statistics(&array.boolean_buffer(), stat),
-            LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
-            LogicalValidity::Mask(mask) => self.compute_statistics(
-                &NullableBools(&array.boolean_buffer(), mask.boolean_buffer()),
+        match array.validity_mask()? {
+            Mask::AllTrue(_) => self.compute_statistics(&array.boolean_buffer(), stat),
+            Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
+            Mask::Values(values) => self.compute_statistics(
+                &NullableBools(&array.boolean_buffer(), values.boolean_buffer()),
                 stat,
             ),
         }
@@ -45,7 +44,6 @@ impl StatisticsVTable<NullableBools<'_>> for BoolEncoding {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
         ) {
-            let _null_count = array.1.count_set_bits();
             return Ok(StatsSet::bools_with_true_and_null_count(
                 array.0.bitand(array.1).count_set_bits(),
                 array.1.len() - array.1.count_set_bits(),
@@ -154,14 +152,15 @@ impl BoolStatsAccumulator {
 
     pub fn finish(self) -> StatsSet {
         StatsSet::new_unchecked(vec![
-            (Stat::NullCount, self.null_count.into()),
-            (Stat::IsSorted, self.is_sorted.into()),
+            (Stat::NullCount, Precision::exact(self.null_count)),
+            (Stat::IsSorted, Precision::exact(self.is_sorted)),
             (
                 Stat::IsStrictSorted,
-                (self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)))
-                    .into(),
+                Precision::exact(
+                    self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)),
+                ),
             ),
-            (Stat::RunCount, self.run_count.into()),
+            (Stat::RunCount, Precision::exact(self.run_count)),
         ])
     }
 }
@@ -172,7 +171,7 @@ mod test {
     use vortex_dtype::Nullability;
 
     use crate::array::BoolArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::{Stat, Statistics};
 
     #[test]
     fn bool_stats() {
@@ -276,8 +275,8 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert!(bool_arr.statistics().compute(Stat::Min).is_none());
-        assert!(bool_arr.statistics().compute(Stat::Max).is_none());
+        assert!(bool_arr.compute_stat(Stat::Min).is_none());
+        assert!(bool_arr.compute_stat(Stat::Max).is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);

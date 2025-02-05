@@ -5,7 +5,7 @@ pub use take_rows::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::ArrayData;
+use crate::Array;
 
 mod adapter;
 mod ext;
@@ -14,6 +14,6 @@ mod take_rows;
 /// A stream of array chunks along with a DType.
 ///
 /// Can be thought of as equivalent to Arrow's RecordBatchReader.
-pub trait ArrayStream: Stream<Item = VortexResult<ArrayData>> {
+pub trait ArrayStream: Stream<Item = VortexResult<Array>> {
     fn dtype(&self) -> &DType;
 }

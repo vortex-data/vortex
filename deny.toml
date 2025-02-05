@@ -11,7 +11,7 @@ feature-depth = 1
 
 
 [advisories]
-ignore = ["RUSTSEC-2024-0384"]
+ignore = []
 
 [licenses]
 # List of explicitly allowed licenses
@@ -27,6 +27,7 @@ allow = [
     "ISC",
     "MIT",
     "MPL-2.0",
+    "NCSA",
     "OpenSSL",
     "Unicode-3.0",
     "Unicode-DFS-2016",

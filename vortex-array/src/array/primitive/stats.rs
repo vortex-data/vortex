@@ -3,20 +3,19 @@ use std::cmp::Ordering;
 use std::mem::size_of;
 
 use arrow_buffer::buffer::BooleanBuffer;
-use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::nbytes::ArrayNBytes;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::compute::min_max;
+use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, IntoArrayVariant};
+use crate::vtable::StatisticsVTable;
 
 trait PStatsType:
     NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
@@ -34,58 +33,51 @@ impl<T> PStatsType for T where
 impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
+            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
         }
 
-        let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
-            match array.logical_validity()? {
-                LogicalValidity::AllValid(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
-                LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
-                LogicalValidity::Mask(m) => self.compute_statistics(
-                    &NullableValues(
-                        array.as_slice::<$P>(),
-                        m.boolean_buffer(),
-                    ),
-                    stat
-                ),
-            }
-        })?;
+        if stat == Stat::Max || stat == Stat::Min {
+            min_max(array)?;
+            return Ok(array.stats_set());
+        }
 
-        if let Some(min) = stats.get(Stat::Min) {
-            stats.set(Stat::Min, min.clone());
-        }
-        if let Some(max) = stats.get(Stat::Max) {
-            stats.set(Stat::Max, max.clone());
-        }
-        Ok(stats)
+        match_each_native_ptype!(array.ptype(), |$P| {
+            self.compute_stats_with_validity::<$P>(array, stat)
+        })
     }
 }
 
-impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
+impl PrimitiveEncoding {
+    #[inline]
+    fn compute_stats_with_validity<P: NativePType + PStatsType>(
+        &self,
+        array: &PrimitiveArray,
+        stat: Stat,
+    ) -> VortexResult<StatsSet> {
+        match array.validity_mask()? {
+            Mask::AllTrue(_) => self.compute_statistics(array.as_slice::<P>(), stat),
+            Mask::AllFalse(len) => Ok(StatsSet::nulls(len, array.dtype())),
+            Mask::Values(v) => self.compute_statistics(
+                &NullableValues(array.as_slice::<P>(), v.boolean_buffer()),
+                stat,
+            ),
+        }
+    }
+}
+
+impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &[T], stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
         }
 
         Ok(match stat {
-            Stat::Min | Stat::Max => {
-                let mut stats = compute_min_max(array.iter().copied(), true);
-                stats.set(
-                    Stat::IsConstant,
-                    stats
-                        .get_as::<T>(Stat::Min)
-                        .zip(stats.get_as::<T>(Stat::Max))
-                        .map(|(min, max)| min == max)
-                        .unwrap_or(false),
-                );
-                stats
-            }
             Stat::IsConstant => {
                 let first = array[0];
                 let is_constant = array.iter().all(|x| first.is_eq(*x));
-                StatsSet::of(Stat::IsConstant, is_constant)
+                StatsSet::of(Stat::IsConstant, Precision::exact(is_constant))
             }
-            Stat::NullCount => StatsSet::of(Stat::NullCount, 0u64),
+            Stat::NullCount => StatsSet::of(Stat::NullCount, Precision::exact(0u64)),
             Stat::IsSorted => compute_is_sorted(array.iter().copied()),
             Stat::IsStrictSorted => compute_is_strict_sorted(array.iter().copied()),
             Stat::RunCount => compute_run_count(array.iter().copied()),
@@ -95,6 +87,7 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
                 stats.finish()
             }
             Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
+            _ => unreachable!("already handled above"),
         })
     }
 }
@@ -125,8 +118,8 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
         }
 
         let mut stats = StatsSet::new_unchecked(vec![
-            (Stat::NullCount, null_count.into()),
-            (Stat::IsConstant, false.into()),
+            (Stat::NullCount, Precision::exact(null_count)),
+            (Stat::IsConstant, Precision::exact(false)),
         ]);
         // we know that there is at least one null, but not all nulls, so it's not constant
         if stat == Stat::IsConstant {
@@ -134,9 +127,7 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
         }
 
         let mut set_indices = nulls.1.set_indices();
-        if matches!(stat, Stat::Min | Stat::Max) {
-            stats.extend(compute_min_max(set_indices.map(|next| values[next]), false));
-        } else if stat == Stat::IsSorted {
+        if stat == Stat::IsSorted {
             stats.extend(compute_is_sorted(set_indices.map(|next| values[next])));
         } else if stat == Stat::IsStrictSorted {
             stats.extend(compute_is_strict_sorted(
@@ -170,32 +161,6 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
     }
 }
 
-fn compute_min_max<T: PStatsType>(
-    iter: impl Iterator<Item = T>,
-    could_be_constant: bool,
-) -> StatsSet {
-    // this `compare` function provides a total ordering (even for NaN values)
-    match iter.minmax_by(|a, b| a.total_compare(*b)) {
-        MinMaxResult::NoElements => StatsSet::default(),
-        MinMaxResult::OneElement(x) => {
-            let scalar = x.into();
-            StatsSet::new_unchecked(vec![
-                (Stat::Min, scalar.clone()),
-                (Stat::Max, scalar),
-                (Stat::IsConstant, could_be_constant.into()),
-            ])
-        }
-        MinMaxResult::MinMax(min, max) => StatsSet::new_unchecked(vec![
-            (Stat::Min, min.into()),
-            (Stat::Max, max.into()),
-            (
-                Stat::IsConstant,
-                (could_be_constant && min.total_compare(max) == Ordering::Equal).into(),
-            ),
-        ]),
-    }
-}
-
 fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut sorted = true;
     let Some(mut prev) = iter.next() else {
@@ -210,11 +175,11 @@ fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
     }
 
     if sorted {
-        StatsSet::of(Stat::IsSorted, true)
+        StatsSet::of(Stat::IsSorted, Precision::exact(true))
     } else {
         StatsSet::new_unchecked(vec![
-            (Stat::IsSorted, false.into()),
-            (Stat::IsStrictSorted, false.into()),
+            (Stat::IsSorted, Precision::exact(false)),
+            (Stat::IsStrictSorted, Precision::exact(false)),
         ])
     }
 }
@@ -235,11 +200,11 @@ fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) ->
 
     if strict_sorted {
         StatsSet::new_unchecked(vec![
-            (Stat::IsSorted, true.into()),
-            (Stat::IsStrictSorted, true.into()),
+            (Stat::IsSorted, Precision::exact(true)),
+            (Stat::IsStrictSorted, Precision::exact(true)),
         ])
     } else {
-        StatsSet::of(Stat::IsStrictSorted, false)
+        StatsSet::of(Stat::IsStrictSorted, Precision::exact(false))
     }
 }
 
@@ -254,7 +219,7 @@ fn compute_run_count<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
             prev = next;
         }
     }
-    StatsSet::of(Stat::RunCount, run_count)
+    StatsSet::of(Stat::RunCount, Precision::exact(run_count))
 }
 
 trait BitWidth {
@@ -335,8 +300,11 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
     pub fn finish(self) -> StatsSet {
         StatsSet::new_unchecked(vec![
-            (Stat::BitWidthFreq, self.bit_widths.into()),
-            (Stat::TrailingZeroFreq, self.trailing_zeros.into()),
+            (Stat::BitWidthFreq, Precision::exact(self.bit_widths)),
+            (
+                Stat::TrailingZeroFreq,
+                Precision::exact(self.trailing_zeros),
+            ),
         ])
     }
 }
@@ -344,7 +312,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 #[cfg(test)]
 mod test {
     use crate::array::primitive::PrimitiveArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::{Stat, Statistics};
 
     #[test]
     fn stats() {
@@ -406,8 +374,8 @@ mod test {
     #[test]
     fn all_null() {
         let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
-        let min = arr.statistics().compute(Stat::Min);
-        let max = arr.statistics().compute(Stat::Max);
+        let min = arr.compute_stat(Stat::Min);
+        let max = arr.compute_stat(Stat::Max);
         assert!(min.is_none());
         assert!(max.is_none());
     }

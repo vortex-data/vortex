@@ -1,27 +1,32 @@
 //! Traits and utilities to compute and access array statistics.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
-use futures_util::TryStreamExt;
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-pub use statsset::*;
+pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::Array;
 
+mod bound;
 pub mod flatbuffers;
-mod statsset;
+mod precision;
+mod stat_bound;
+mod stats_set;
+
+pub use bound::{LowerBound, UpperBound};
+pub use precision::Precision;
+pub use stat_bound::*;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
@@ -65,6 +70,86 @@ pub enum Stat {
     NullCount,
     /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes,
+}
+
+/// These structs allow the extraction of the bound from the `Precision` value.
+/// They tie together the Stat and the StatBound, which allows the bound to be extracted.
+pub struct Max;
+pub struct Min;
+pub struct BitWidthFreq;
+pub struct TrailingZeroFreq;
+pub struct IsConstant;
+pub struct IsSorted;
+pub struct IsStrictSorted;
+pub struct RunCount;
+pub struct TrueCount;
+pub struct NullCount;
+pub struct UncompressedSizeInBytes;
+
+impl<T: PartialOrd + Clone> StatType<T> for BitWidthFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::BitWidthFreq;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrailingZeroFreq {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrailingZeroFreq;
+}
+
+impl StatType<bool> for IsConstant {
+    type Bound = Precision<bool>;
+
+    const STAT: Stat = Stat::IsConstant;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for IsStrictSorted {
+    type Bound = Precision<T>;
+
+    const STAT: Stat = Stat::IsStrictSorted;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for RunCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::RunCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for TrueCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::TrueCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for NullCount {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::NullCount;
+}
+
+impl<T: PartialOrd + Clone> StatType<T> for UncompressedSizeInBytes {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::UncompressedSizeInBytes;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Max {
+    type Bound = UpperBound<T>;
+
+    const STAT: Stat = Stat::Max;
+}
+
+impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
+    type Bound = LowerBound<T>;
+
+    const STAT: Stat = Stat::Min;
 }
 
 impl Stat {
@@ -168,30 +253,32 @@ impl Display for Stat {
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<ScalarValue>;
+    fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
 
     /// Get all existing statistics
-    fn to_set(&self) -> StatsSet;
+    fn stats_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: ScalarValue);
+    fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>);
 
     /// Clear the value of the statistic
-    fn clear(&self, stat: Stat);
+    fn clear_stat(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present.
+    /// Computes the value of the stat if it's not present and inexact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute(&self, stat: Stat) -> Option<ScalarValue>;
+    fn compute_stat(&self, stat: Stat) -> Option<ScalarValue>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
+    // [deprecated]
+    // TODO(joe): replace with `compute_statistics`
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for stat in stats {
-            if let Some(s) = self.compute(*stat) {
-                stats_set.set(*stat, s)
+            if let Some(s) = self.compute_stat(*stat) {
+                stats_set.set(*stat, Precision::exact(s))
             }
         }
         Ok(stats_set)
@@ -200,28 +287,18 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 }
 
-pub trait ArrayStatistics {
-    fn statistics(&self) -> &dyn Statistics;
-
-    fn inherit_statistics(&self, parent: &dyn Statistics);
-}
-
-/// Encoding VTable for computing array statistics.
-pub trait StatisticsVTable<Array: ?Sized> {
-    /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
+impl Array {
+    pub fn statistics(&self) -> &(dyn Statistics + '_) {
+        self
     }
-}
 
-impl<E: Encoding + 'static> StatisticsVTable<ArrayData> for E
-where
-    E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        StatisticsVTable::compute_statistics(encoding, array_ref, stat)
+    // FIXME(ngates): this is really slow...
+    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
+        let stats = self.statistics();
+        // The stats_set call performs a slow clone of the stats
+        for (stat, scalar) in parent.stats_set() {
+            stats.set_stat(stat, scalar);
+        }
     }
 }
 
@@ -235,9 +312,9 @@ impl dyn Statistics + '_ {
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
-    ) -> Option<U> {
-        self.get(stat)
-            .map(|s| U::try_from(&s))
+    ) -> Option<Precision<U>> {
+        self.get_stat(stat)
+            .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
             .unwrap_or_else(|err| {
                 vortex_panic!(
@@ -247,6 +324,18 @@ impl dyn Statistics + '_ {
                     std::any::type_name::<U>()
                 )
             })
+    }
+
+    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
+    where
+        S: StatType<U>,
+        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    {
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
+    }
+
+    pub fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
+        self.get_stat(stat).map(|s| s.into_scalar(dtype.clone()))
     }
 
     /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
@@ -259,7 +348,7 @@ impl dyn Statistics + '_ {
         &self,
         stat: Stat,
     ) -> Option<U> {
-        self.compute(stat)
+        self.compute_stat(stat)
             .map(|s| U::try_from(&s))
             .transpose()
             .unwrap_or_else(|err| {
@@ -327,7 +416,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &ArrayData) -> u8 {
+pub fn trailing_zeros(array: &Array) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()
@@ -347,7 +436,7 @@ mod test {
     use enum_iterator::all;
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{ArrayStatistics, Stat};
+    use crate::stats::Stat;
 
     #[test]
     fn min_of_nulls_is_not_panic() {

@@ -52,17 +52,21 @@ static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow", "rkyv"] }
 vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true, features = ["rkyv", "serde"] }
-vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers", "rancor"] }
+vortex-error = { workspace = true, features = [
+    "flatbuffers",
+    "flexbuffers",
+    "rancor",
+] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true, features = [
-    "flatbuffers",
-    "serde",
-    "arbitrary",
-] }
+vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
 
 [features]
-arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
+arbitrary = [
+    "dep:arbitrary",
+    "vortex-dtype/arbitrary",
+    "vortex-scalar/arbitrary",
+]
 test-harness = ["dep:goldenfile"]
 canonical_counter = []
 

@@ -6,26 +6,23 @@ use std::fmt::{Debug, Display};
 
 use futures_util::stream;
 use itertools::Itertools;
-use rkyv::{access, to_bytes};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
-use crate::encoding::{ids, EncodingVTable};
+use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validate::ValidateVTable;
+use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
-use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, DeserializeMetadata, IntoArrayData,
-    IntoCanonical, RkyvMetadata,
-};
+use crate::visitor::ArrayVisitor;
+use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
+use crate::{impl_encoding, Array, IntoArray, IntoCanonical, RkyvMetadata};
 
 mod canonical;
 mod compute;
@@ -34,7 +31,7 @@ mod variants;
 
 impl_encoding!(
     "vortex.chunked",
-    ids::CHUNKED,
+    encoding_ids::CHUNKED,
     Chunked,
     RkyvMetadata<ChunkedMetadata>
 );
@@ -55,7 +52,7 @@ impl Display for ChunkedMetadata {
 impl ChunkedArray {
     const ENDS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 
-    pub fn try_new(chunks: Vec<ArrayData>, dtype: DType) -> VortexResult<Self> {
+    pub fn try_new(chunks: Vec<Array>, dtype: DType) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
@@ -93,7 +90,7 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk(&self, idx: usize) -> VortexResult<ArrayData> {
+    pub fn chunk(&self, idx: usize) -> VortexResult<Array> {
         if idx >= self.nchunks() {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
@@ -112,7 +109,7 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> ArrayData {
+    pub fn chunk_offsets(&self) -> Array {
         self.as_ref()
             .child(0, &Self::ENDS_DTYPE, self.nchunks() + 1)
             .vortex_expect("Missing chunk ends in ChunkedArray")
@@ -136,7 +133,7 @@ impl ChunkedArray {
         (index_chunk, index_in_chunk)
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item = ArrayData> + '_ {
+    pub fn chunks(&self) -> impl Iterator<Item = Array> + '_ {
         (0..self.nchunks()).map(|c| {
             self.chunk(c).unwrap_or_else(|e| {
                 vortex_panic!(
@@ -193,6 +190,7 @@ impl ChunkedArray {
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
                 ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                    .into_array()
                     .into_canonical()?
                     .into(),
             );
@@ -204,9 +202,9 @@ impl ChunkedArray {
 
 impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
 
-impl FromIterator<ArrayData> for ChunkedArray {
-    fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {
-        let chunks: Vec<ArrayData> = iter.into_iter().collect();
+impl FromIterator<Array> for ChunkedArray {
+    fn from_iter<T: IntoIterator<Item = Array>>(iter: T) -> Self {
+        let chunks: Vec<Array> = iter.into_iter().collect();
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())
@@ -231,9 +229,18 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
         array.chunk(chunk)?.is_valid(offset_in_chunk)
     }
 
-    fn logical_validity(&self, array: &ChunkedArray) -> VortexResult<LogicalValidity> {
+    fn all_valid(&self, array: &ChunkedArray) -> VortexResult<bool> {
+        for chunk in array.chunks() {
+            if !chunk.all_valid()? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn validity_mask(&self, array: &ChunkedArray) -> VortexResult<Mask> {
         // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
-        let validity: Validity = array.chunks().map(|a| a.logical_validity()).try_collect()?;
+        let validity: Validity = array.chunks().map(|a| a.validity_mask()).try_collect()?;
         validity.to_logical(array.len())
     }
 }
@@ -247,7 +254,7 @@ mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{assert_arrays_eq, IntoArray, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

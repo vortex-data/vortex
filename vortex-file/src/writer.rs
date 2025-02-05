@@ -30,7 +30,7 @@ impl VortexWriteOptions {
 }
 
 impl VortexWriteOptions {
-    /// Perform an async write of the provided stream of `ArrayData`.
+    /// Perform an async write of the provided stream of `Array`.
     pub async fn write<W: VortexWrite, S: ArrayStream + Unpin>(
         self,
         write: W,
