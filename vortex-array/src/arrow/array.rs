@@ -26,7 +26,7 @@ use crate::array::{
     VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, Statistics as _};
 use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
@@ -69,12 +69,8 @@ where
             Buffer::from_arrow_scalar_buffer(value.into_inner()),
             Validity::NonNullable,
         );
-        primitive
-            .statistics()
-            .set_stat(Stat::IsSorted, Precision::exact(true));
-        primitive
-            .statistics()
-            .set_stat(Stat::IsStrictSorted, Precision::exact(true));
+        primitive.set_stat(Stat::IsSorted, Precision::exact(true));
+        primitive.set_stat(Stat::IsStrictSorted, Precision::exact(true));
         primitive.into_array()
     }
 }

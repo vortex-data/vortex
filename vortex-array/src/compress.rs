@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
-use crate::stats::PRUNING_STATS;
+use crate::stats::{Statistics as _, PRUNING_STATS};
 use crate::{Array, EncodingId};
 
 pub trait CompressionStrategy {
@@ -69,7 +69,6 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
             let compressed_scalar = compressed
-                .statistics()
                 .get_stat(stat)
                 .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(

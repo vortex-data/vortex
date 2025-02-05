@@ -60,8 +60,8 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 
     let mut stats = sliced.stats_set();
     stats.combine_sets(&derived_stats, array.dtype())?;
-    for (stat, val) in stats.iter() {
-        sliced.statistics().set_stat(*stat, val.clone())
+    for (stat, val) in stats.into_iter() {
+        sliced.set_stat(stat, val)
     }
 
     debug_assert_eq!(

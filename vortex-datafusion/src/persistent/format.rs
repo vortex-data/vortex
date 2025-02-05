@@ -169,8 +169,8 @@ impl FileFormat for VortexFormat {
                 let cache = self.file_layout_cache.clone();
                 async move {
                     let file_layout = cache.try_get(&o, store).await?;
-                    let stats_set = infer_schema(file_layout.dtype())?;
-                    VortexResult::Ok(stats_set)
+                    let inferred_schema = infer_schema(file_layout.dtype())?;
+                    VortexResult::Ok(inferred_schema)
                 }
             })
             .buffered(self.opts.concurrent_infer_schema_ops)

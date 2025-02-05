@@ -26,7 +26,7 @@ where
 
 impl Array {
     /// Computes ths statistics for the given array and stat. This will update the stats of the array
-    /// and return this stats_set.
+    /// and return this [`StatsSet`].
     ///
     /// Other stats might be computed or inferred at the same time.
     pub fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
@@ -34,14 +34,15 @@ impl Array {
             return Ok(StatsSet::empty_array());
         }
 
-        if let Some(stat) = self.get_stat(stat) {
+        let mut stats_set = self.stats_set();
+
+        if let Some(stat) = stats_set.get(stat) {
             if stat.is_exact() {
-                return Ok(self.stats_set());
+                return Ok(stats_set);
             }
         }
 
         let stats_set = if matches!(stat, Stat::Min | Stat::Max) {
-            let mut stats_set = self.stats_set();
             if let Some(MinMaxResult { min, max }) = min_max(self)? {
                 if min == max
                     && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))

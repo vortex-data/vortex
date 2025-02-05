@@ -67,8 +67,8 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     stats.combine_sets(&derived_stats, array.dtype())?;
     // TODO(joe): add
     // taken.inherit_statistics(&stats)?;
-    for (stat, val) in stats.iter() {
-        taken.statistics().set_stat(*stat, val.clone())
+    for (stat, val) in stats.into_iter() {
+        taken.set_stat(stat, val)
     }
 
     debug_assert_eq!(
