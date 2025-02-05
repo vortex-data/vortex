@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
+use vortex_array::aliases::FoldHashBuilder;
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_file::{FileLayout, VortexOpenOptions};
@@ -11,7 +12,7 @@ use vortex_io::ObjectStoreReadAt;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
-    inner: Cache<Key, FileLayout>,
+    inner: Cache<Key, FileLayout, FoldHashBuilder>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -36,7 +37,7 @@ impl FileLayoutCache {
             .eviction_listener(|k: Arc<Key>, _v, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);
             })
-            .build();
+            .build_with_hasher(FoldHashBuilder::default());
 
         Self { inner }
     }
@@ -44,11 +45,11 @@ impl FileLayoutCache {
     pub async fn try_get(
         &self,
         object: &ObjectMeta,
-        store: Arc<dyn ObjectStore>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> VortexResult<FileLayout> {
         self.inner
             .try_get_with(Key::from(object), async {
-                let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+                let os_read_at = ObjectStoreReadAt::new(object_store, object.location.clone());
                 let vxf = VortexOpenOptions::new(ContextRef::default())
                     .with_file_size(object.size as u64)
                     .open(os_read_at)

@@ -140,15 +140,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
             let read = read.clone();
             let segment_map = segment_map.clone();
             let segment_cache = segment_cache.clone();
-            async move {
-                evaluate(
-                    read.clone(),
-                    request,
-                    segment_map.clone(),
-                    segment_cache.clone(),
-                )
-                .await
-            }
+            async move { evaluate(read, request, segment_map, segment_cache).await }
         });
 
         // Buffer some number of concurrent I/O operations.

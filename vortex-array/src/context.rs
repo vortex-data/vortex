@@ -18,6 +18,11 @@ pub struct Context {
 pub type ContextRef = Arc<Context>;
 
 impl Context {
+    pub fn empty() -> Self {
+        Self {
+            encodings: HashMap::default(),
+        }
+    }
     pub fn with_encoding(mut self, encoding: VTableRef) -> Self {
         self.encodings.insert(encoding.id().code(), encoding);
         self
