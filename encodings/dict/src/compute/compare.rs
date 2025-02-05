@@ -44,28 +44,30 @@ fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<Array
     )?;
 
     let bool = compare_result.into_bool()?;
+    let bool_buffer = bool.boolean_buffer();
+    let mut indices_iter = bool_buffer.set_indices();
 
-    // Couldn't find a value match, so the result is all false
-    let Some(code) = bool.boolean_buffer().set_indices().next() else {
-        return Ok(Some(
-            ConstantArray::new(
-                Scalar::bool(false, lhs.dtype().nullability()),
-                lhs.codes().len(),
-            )
-            .into_array(),
-        ));
-    };
-
-    // The codes include nullability so we can just compare the codes directly, to the found code.
-    let compare_result = try_cast(
-        compare(
-            lhs.codes(),
-            try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
-            Operator::Eq,
+    let result = match (indices_iter.next(), indices_iter.next()) {
+        // Couldn't find a value match, so the result is all false
+        (None, _) => ConstantArray::new(
+            Scalar::bool(false, lhs.dtype().nullability()),
+            lhs.codes().len(),
+        )
+        .into_array(),
+        // We found a single matching value so we can compare the codes directly.
+        // Note: the codes include nullability so we can just compare the codes directly, to the found code.
+        (Some(code), None) => try_cast(
+            compare(
+                lhs.codes(),
+                try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
+                Operator::Eq,
+            )?,
+            &DType::Bool(lhs.dtype().nullability()),
         )?,
-        &DType::Bool(lhs.dtype().nullability()),
-    )?;
-    Ok(Some(compare_result))
+        // more than one value matches
+        _ => DictArray::try_new(lhs.codes().clone(), bool.into_array())?.into_array(),
+    };
+    Ok(Some(result))
 }
 
 #[cfg(test)]
