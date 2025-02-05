@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::CastFn;
@@ -7,14 +7,41 @@ use crate::{Array, IntoArray};
 
 impl CastFn<BoolArray> for BoolEncoding {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<Array> {
-        assert!(matches!(dtype, DType::Bool(_)));
+        if !matches!(dtype, DType::Bool(_)) {
+            vortex_bail!(
+                "Cannot cast {} to {}",
+                array.dtype().to_string(),
+                dtype.to_string()
+            );
+        }
 
         // If the types are the same, return the array,
         // otherwise set the array nullability as the dtype nullability.
-        if array.dtype() != dtype {
+        if dtype.is_nullable() || array.all_valid()? {
             Ok(BoolArray::new(array.boolean_buffer(), dtype.nullability()).into_array())
         } else {
-            Ok(array.clone().into_array())
+            vortex_bail!("Cannot cast null array to non-nullable type");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::array::bool::{DType, Nullability};
+    use crate::array::BoolArray;
+    use crate::compute::try_cast;
+
+    #[test]
+    fn try_cast_bool_success() {
+        let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
+
+        assert!(try_cast(bool.clone(), &DType::Bool(Nullability::NonNullable)).is_ok());
+    }
+
+    #[test]
+    fn try_cast_bool_fail() {
+        let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
+
+        assert!(try_cast(bool.clone(), &DType::Bool(Nullability::NonNullable)).is_err());
     }
 }

@@ -31,7 +31,7 @@ pub struct DictMetadata {
 impl DictArray {
     pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
-            vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
+            vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
         Self::try_from_parts(
             values.dtype().clone(),
