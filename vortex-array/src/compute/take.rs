@@ -59,6 +59,10 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
         .get_as_bound::<Max, usize>()
         .is_some_and(|max| max < array.len());
 
+    if !checked_indices {
+        println!("FALSE");
+    }
+
     let derived_stats = derive_take_stats(array);
 
     let taken = take_impl(array, indices, checked_indices)?;
