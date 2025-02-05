@@ -157,7 +157,8 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             .map(|p| p.min_index())
             .transpose()?
             .unwrap_or_else(|| array.len());
-        let first_non_null_idx = array.validity().null_count(array.len())?;
+        // In sorted order, nulls come before all the non-null values, i.e. we have true count worth of non null values at the end
+        let first_non_null_idx = array.null_count()?;
 
         Ok(Self {
             packed_as_slice: array.packed_slice::<T>(),
