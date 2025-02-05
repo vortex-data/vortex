@@ -1,0 +1,79 @@
+use divan::Bencher;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use vortex_array::array::VarBinArray;
+use vortex_array::IntoCanonical;
+use vortex_dtype::{DType, Nullability};
+use vortex_fsst::{fsst_compress, fsst_train_compressor};
+
+fn main() {
+    divan::main();
+}
+
+// Helper function to generate random string data.
+fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> VarBinArray {
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut strings = Vec::with_capacity(string_count);
+
+    for _ in 0..string_count {
+        // Generate a random string with length around `avg_len`. The number of possible
+        // characters within the random string is defined by `unique_chars`.
+        strings.push(Some(
+            (0..(avg_len as f64 * rng.gen_range(0.5..1.5)) as usize)
+                .map(|_| rng.gen_range(b'a'..(b'a' + unique_chars)) as char)
+                .collect::<String>()
+                .into_bytes(),
+        ));
+    }
+
+    VarBinArray::from_iter(
+        strings
+            .into_iter()
+            .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
+        DType::Binary(Nullability::NonNullable),
+    )
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn compress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
+    let (string_count, avg_len, unique_chars) = args;
+    let array = generate_test_data(string_count, avg_len, unique_chars);
+    let compressor = fsst_train_compressor(&array).unwrap();
+
+    bencher.bench_local(move || fsst_compress(&array, &compressor).unwrap())
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn decompress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
+    let (string_count, avg_len, unique_chars) = args;
+    let array = generate_test_data(string_count, avg_len, unique_chars);
+    let compressor = fsst_train_compressor(&array).unwrap();
+    let encoded = fsst_compress(&array, &compressor).unwrap();
+
+    bencher
+        .with_inputs(|| encoded.clone())
+        .bench_values(|encoded| encoded.into_canonical().unwrap())
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn train_compressor(bencher: Bencher, args: (usize, usize, u8)) {
+    let (string_count, avg_len, unique_chars) = args;
+    let array = generate_test_data(string_count, avg_len, unique_chars);
+    bencher.bench_local(move || fsst_train_compressor(&array).unwrap())
+}
+
+// [(string_count, avg_len, unique_chars)]
+const BENCH_ARGS: [(usize, usize, u8); 12] = [
+    (10_000, 4, 4),
+    (10_000, 16, 4),
+    (10_000, 64, 4),
+    (100_000, 4, 4),
+    (100_000, 16, 4),
+    (100_000, 64, 4),
+    (10_000, 4, 8),
+    (10_000, 16, 8),
+    (10_000, 64, 8),
+    (100_000, 4, 8),
+    (100_000, 16, 8),
+    (100_000, 64, 8),
+];
