@@ -35,7 +35,7 @@ impl CompareFn<DictArray> for DictEncoding {
                     compare(
                         lhs.codes(),
                         try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
-                        Operator::Eq,
+                        operator,
                     )?,
                     &DType::Bool(lhs.dtype().nullability()),
                 )?,
