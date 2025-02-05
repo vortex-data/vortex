@@ -65,7 +65,7 @@ fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<Array
             &DType::Bool(lhs.dtype().nullability()),
         )?,
         // more than one value matches
-        _ => DictArray::try_new(lhs.codes(), bool.into_array())?.into_array(),
+        _ => take(&bool, lhs.codes())?,
     };
     Ok(Some(result))
 }
