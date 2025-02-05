@@ -99,5 +99,5 @@ fn bench_compare(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, encode, decode);
+criterion_group!(benches, encode, decode, bench_compare);
 criterion_main!(benches);
