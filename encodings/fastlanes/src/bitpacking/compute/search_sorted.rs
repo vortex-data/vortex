@@ -37,7 +37,7 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
-            let searcher = BitPackedSearch::<'_, $P>::new(array)?;
+            let searcher = BitPackedSearch::<'_, $P>::try_new(array)?;
 
             values
                 .iter()
@@ -77,7 +77,7 @@ impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
-            let searcher = BitPackedSearch::<'_, $P>::new(array)?;
+            let searcher = BitPackedSearch::<'_, $P>::try_new(array)?;
 
             values
                 .iter()
@@ -131,10 +131,10 @@ where
         if usize_value > array.max_packed_value() {
             patches.search_sorted(usize_value, side)
         } else {
-            Ok(BitPackedSearch::<'_, T>::new(array)?.search_sorted(&value, side))
+            Ok(BitPackedSearch::<'_, T>::try_new(array)?.search_sorted(&value, side))
         }
     } else {
-        Ok(BitPackedSearch::<'_, T>::new(array)?.search_sorted(&value, side))
+        Ok(BitPackedSearch::<'_, T>::try_new(array)?.search_sorted(&value, side))
     }
 }
 
@@ -152,7 +152,7 @@ struct BitPackedSearch<'a, T> {
 }
 
 impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
-    pub fn new(array: &'a BitPackedArray) -> VortexResult<Self> {
+    pub fn try_new(array: &'a BitPackedArray) -> VortexResult<Self> {
         let first_patch_index = array
             .patches()
             .map(|p| p.min_index())
