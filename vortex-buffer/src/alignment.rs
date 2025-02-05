@@ -24,6 +24,11 @@ impl Alignment {
         Self(align)
     }
 
+    /// Create a new 1-byte alignment.
+    pub const fn none() -> Self {
+        Self::new(1)
+    }
+
     /// Create an alignment from the alignment of a type `T`.
     ///
     /// ## Example

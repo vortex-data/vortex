@@ -38,7 +38,6 @@ mod macros;
 mod metadata;
 pub mod nbytes;
 pub mod partial_ord;
-pub mod parts;
 pub mod patches;
 pub mod serde;
 pub mod stats;

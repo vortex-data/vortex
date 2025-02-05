@@ -1,13 +1,15 @@
+use std::fmt::{Debug, Formatter};
 use std::iter;
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::{root, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
+use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_dtype::{DType, TryFromBytes};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
-use crate::Array;
+use crate::{Array, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -42,14 +44,14 @@ impl Array {
         }
 
         // Allocate result buffers, including a possible padding buffer for each.
-        let mut buffers = Vec::with_capacity(2 * (array_buffers.len() + 1));
+        let mut buffers = vec![];
 
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
         let mut fb_buffers = Vec::with_capacity(buffers.capacity());
 
         // If we're including padding, we need to find the maximum required buffer alignment.
-        let alignment = array_buffers
+        let max_alignment = array_buffers
             .iter()
             .map(|buf| buf.alignment())
             .chain(iter::once(FlatBuffer::alignment()))
@@ -57,7 +59,11 @@ impl Array {
             .vortex_expect("There is at least one alignment, the flatbuffer one");
 
         // Create a shared buffer of zeros we can use for padding
-        let zeros = ByteBuffer::zeroed(*alignment);
+        let zeros = ByteBuffer::zeroed(*max_alignment);
+
+        // We push an empty buffer with the maximum alignment, so then subsequent buffers
+        // will be aligned. For subsequent buffers, we always push a 1-byte alignment.
+        buffers.push(ByteBuffer::zeroed_aligned(0, max_alignment));
 
         // Keep track of where we are in the "file" to calculate padding.
         let mut pos = options.offset;
@@ -82,7 +88,7 @@ impl Array {
                 u32::try_from(buffer.len()).vortex_expect("buffers fit into u32"),
             ));
             pos += buffer.len();
-            buffers.push(buffer);
+            buffers.push(buffer.aligned(Alignment::none()));
         }
 
         let fb_root = ArrayNodeFlatBuffer::new(&self).write_flatbuffer(&mut fbb);
@@ -106,7 +112,7 @@ impl Array {
                 buffers.push(zeros.slice(0..padding));
             }
         }
-        buffers.push(fb_buffer);
+        buffers.push(fb_buffer.aligned(Alignment::none()));
 
         // Finally, we write down the u32 length for the flatbuffer.
         buffers.push(ByteBuffer::from(
@@ -120,8 +126,13 @@ impl Array {
     }
 
     /// Deserialize an array from a [`ByteBuffer`].
-    pub fn deserialize(_bytes: ByteBuffer) -> Self {
-        todo!()
+    pub fn deserialize(
+        bytes: ByteBuffer,
+        ctx: ContextRef,
+        dtype: DType,
+        length: usize,
+    ) -> VortexResult<Self> {
+        ArrayParts::try_from(bytes)?.decode(ctx, dtype, length)
     }
 }
 
@@ -193,5 +204,86 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
                 stats,
             },
         )
+    }
+}
+
+/// [`ArrayParts`] represents the information from an [`Array`] that makes up the serialized
+/// form. For example, it uses stores integer encoding IDs rather than a reference to an encoding
+/// vtable, and it doesn't store any [`DType`] information.
+///
+/// An [`ArrayParts`] can be fully decoded into an [`Array`] using the `decode` function.
+pub struct ArrayParts {
+    // Typed as fb::Array
+    flatbuffer: FlatBuffer,
+    flatbuffer_loc: usize,
+    buffers: Vec<ByteBuffer>,
+}
+
+impl Debug for ArrayParts {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArrayParts")
+            .field("flatbuffer", &self.flatbuffer.len())
+            .field("flatbuffer_loc", &self.flatbuffer_loc)
+            .field("buffers", &self.buffers.len())
+            .finish()
+    }
+}
+
+impl ArrayParts {
+    /// Decode an [`ArrayParts`] into an [`Array`].
+    pub fn decode(self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<Array> {
+        Array::try_new_viewed(
+            ctx,
+            dtype,
+            len,
+            self.flatbuffer,
+            // SAFETY: ArrayComponents guarantees the buffers are valid.
+            |buf| unsafe { Ok(fba::ArrayNode::follow(buf, self.flatbuffer_loc)) },
+            self.buffers,
+        )
+    }
+}
+
+impl TryFrom<ByteBuffer> for ArrayParts {
+    type Error = VortexError;
+
+    fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
+        // The final 4 bytes contain the length of the flatbuffer.
+        if value.len() < 4 {
+            vortex_bail!("ArrayParts buffer is too short");
+        }
+
+        let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
+        let fb_buffer =
+            FlatBuffer::try_from(value.slice((value.len() - fb_length)..value.len() - 4))?;
+
+        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+
+        let mut offset = 0;
+        let buffers = fb_array
+            .buffers()
+            .unwrap_or_default()
+            .iter()
+            .map(|fb_buffer| {
+                // Skip padding
+                offset += fb_buffer.padding() as usize;
+
+                let buffer_len = fb_buffer.length() as usize;
+
+                // Extract a buffer and ensure it's aligned, copying if necessary
+                let buffer = value
+                    .slice(offset..(offset + buffer_len))
+                    .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
+
+                offset += buffer_len;
+                buffer
+            })
+            .collect_vec();
+
+        Ok(ArrayParts {
+            flatbuffer: fb_buffer.clone(),
+            flatbuffer_loc: fb_array._tab.loc(),
+            buffers,
+        })
     }
 }
