@@ -335,6 +335,10 @@ impl<T> BufferMut<T> {
     ///
     /// assert_eq!(builder.len(), 3);
     /// ```
+    ///
+    /// # Safety
+    ///
+    /// Assumes the buffer has enough capacity to hold the slice
     #[inline]
     pub unsafe fn extend_from_slice_unchecked(&mut self, slice: &[T]) {
         let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
