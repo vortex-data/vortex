@@ -45,37 +45,44 @@ impl MessageEncoder {
         // TODO(ngates): again, this a ton of padding...
         let mut fbb = FlatBufferBuilder::from_vec(vec![0u8; 4]);
 
-        let header = match message {
+        let (header, body_len) = match message {
             EncoderMessage::Array(array) => {
-                buffers.extend(
-                    array
-                        .serialize(&SerializeOptions::default())
-                        .into_iter()
-                        .map(|b| b.into_inner()),
-                );
-                fb::ArrayMessage::create(
+                let header = fb::ArrayMessage::create(
                     &mut fbb,
                     &fb::ArrayMessageArgs {
                         row_count: u32::try_from(array.len())
                             .vortex_expect("Array length must fit into u32"),
                     },
                 )
-                .as_union_value()
+                .as_union_value();
+                let array_buffers = array.serialize(&SerializeOptions::default());
+                let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
+                buffers.extend(array_buffers.into_iter().map(|b| b.into_inner()));
+
+                (header, body_len)
             }
             EncoderMessage::Buffer(buffer) => {
-                buffers.push(buffer.clone().into_inner());
-                fb::BufferMessage::create(
+                let header = fb::BufferMessage::create(
                     &mut fbb,
                     &fb::BufferMessageArgs {
                         alignment_exponent: buffer.alignment().exponent(),
                     },
                 )
-                .as_union_value()
+                .as_union_value();
+                let body_len = buffer.len() as u64;
+                buffers.push(buffer.clone().into_inner());
+
+                (header, body_len)
             }
             EncoderMessage::DType(dtype) => {
-                let dtype_buffer = dtype.write_flatbuffer_bytes().into_inner().into_inner();
-                buffers.push(dtype_buffer);
-                fb::DTypeMessage::create(&mut fbb, &fb::DTypeMessageArgs {}).as_union_value()
+                let header =
+                    fb::DTypeMessage::create(&mut fbb, &fb::DTypeMessageArgs {}).as_union_value();
+
+                let buffer = dtype.write_flatbuffer_bytes().into_inner().into_inner();
+                let body_len = buffer.len() as u64;
+                buffers.push(buffer);
+
+                (header, body_len)
             }
         };
 
@@ -87,6 +94,7 @@ impl MessageEncoder {
             EncoderMessage::DType(_) => fb::MessageHeader::DTypeMessage,
         });
         msg.add_header(header);
+        msg.add_body_size(body_len);
         let msg = msg.finish();
 
         // Finish the flatbuffer and swap it out for the placeholder buffer.
