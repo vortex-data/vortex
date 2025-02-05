@@ -8,6 +8,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
+use crate::segments::source::SegmentSource;
 use crate::segments::SegmentRequest;
 
 /// The [`SegmentChannel`] is responsible for funnelling segment requests from each of the
@@ -29,14 +30,16 @@ impl SegmentChannel {
             request_recv: recv,
         }
     }
+}
 
+impl SegmentSource for SegmentChannel {
     /// Returns a reader for the segment cache.
-    pub fn reader(&self) -> Arc<dyn AsyncSegmentReader + 'static> {
+    fn reader(&self) -> Arc<dyn AsyncSegmentReader + 'static> {
         Arc::new(SegmentChannelReader(self.request_send.clone()))
     }
 
     /// Returns the stream of segment requests.
-    pub fn into_stream(self) -> impl Stream<Item = SegmentRequest> {
+    fn into_driver(self) -> impl Stream<Item = SegmentRequest> {
         self.request_recv
     }
 }
