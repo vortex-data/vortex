@@ -6,6 +6,9 @@ impl Mask {
     /// We are more interested in low selectivity `self` (as indices) with a boolean buffer mask,
     /// so we don't optimize for other cases, yet.
     ///
+    /// Note: we might be able to accelerate this function on x86 with BMI, see:
+    /// <https://www.microsoft.com/en-us/research/uploads/prod/2023/06/parquet-select-sigmod23.pdf>
+    ///
     /// # Examples
     ///
     /// Keep the third and fifth set values from mask `m1`:

@@ -1,4 +1,4 @@
-use vortex_array::parts::ArrayPartsFlatBuffer;
+use vortex_array::parts::ArrayNodeFlatBuffer;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
 use vortex_array::Array;
 use vortex_dtype::DType;
@@ -67,7 +67,7 @@ impl LayoutWriter for FlatLayoutWriter {
         }
 
         // ...followed by a FlatBuffer describing the array layout.
-        let flatbuffer = ArrayPartsFlatBuffer::new(&chunk).write_flatbuffer_bytes();
+        let flatbuffer = ArrayNodeFlatBuffer::new(&chunk).write_flatbuffer_bytes();
         segment_ids.push(segments.put(flatbuffer.into_inner()));
 
         self.layout = Some(Layout::new_owned(

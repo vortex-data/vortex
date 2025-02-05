@@ -106,6 +106,9 @@ impl MessageDecoder {
                             let array_msg = msg
                                 .header_as_array_message()
                                 .vortex_expect("array message header");
+
+                            array_msg.row_count();
+
                             let buffers_length: u64 = array_msg
                                 .buffers()
                                 .unwrap_or_default()
