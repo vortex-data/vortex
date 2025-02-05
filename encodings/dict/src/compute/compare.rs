@@ -1,6 +1,6 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
-use vortex_array::{ArrayDType, Array, ArrayLen, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -35,7 +35,7 @@ impl CompareFn<DictArray> for DictEncoding {
     }
 }
 
-fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<ArrayData>> {
+fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<Array>> {
     // If the RHS is constant, then we just need to compare against our encoded values.
     let compare_result = compare(
         lhs.values(),
@@ -65,7 +65,7 @@ fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<Array
             &DType::Bool(lhs.dtype().nullability()),
         )?,
         // more than one value matches
-        _ => DictArray::try_new(lhs.codes().clone(), bool.into_array())?.into_array(),
+        _ => DictArray::try_new(lhs.codes(), bool.into_array())?.into_array(),
     };
     Ok(Some(result))
 }
@@ -74,7 +74,7 @@ fn compare_eq_by_code(lhs: &DictArray, rhs: Scalar) -> VortexResult<Option<Array
 mod tests {
     use vortex_array::array::ConstantArray;
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
