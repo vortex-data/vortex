@@ -172,7 +172,7 @@ impl StatsAccumulator {
                 .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
 
             // We drop any all-null stats columns
-            if values.null_count()? == values.len() {
+            if values.invalid_count()? == values.len() {
                 continue;
             }
 

@@ -8,7 +8,7 @@ use crate::{DateTimePartsArray, DateTimePartsEncoding};
 impl StatisticsVTable<DateTimePartsArray> for DateTimePartsEncoding {
     fn compute_statistics(&self, array: &DateTimePartsArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::NullCount => Some(ScalarValue::from(array.null_count()?)),
+            Stat::NullCount => Some(ScalarValue::from(array.invalid_count()?)),
             Stat::IsConstant => Some(ScalarValue::from(
                 array.days().is_constant()
                     && array.seconds().is_constant()

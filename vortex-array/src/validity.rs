@@ -32,11 +32,11 @@ impl Array {
     }
 
     /// Return the number of null elements in the array.
-    pub fn null_count(&self) -> VortexResult<usize> {
+    pub fn invalid_count(&self) -> VortexResult<usize> {
         if !self.dtype().is_nullable() {
             return Ok(0);
         }
-        self.vtable().null_count(self)
+        self.vtable().invalid_count(self)
     }
 
     /// Return the canonical validity of the array as a [`Mask`].
