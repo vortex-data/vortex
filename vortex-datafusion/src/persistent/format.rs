@@ -113,13 +113,7 @@ impl FileFormatFactory for VortexFormatFactory {
 
 impl Default for VortexFormat {
     fn default() -> Self {
-        let opts = VortexFormatOptions::default();
-
-        Self {
-            context: Default::default(),
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
-            opts,
-        }
+        Self::new(Default::default())
     }
 }
 
@@ -128,8 +122,8 @@ impl VortexFormat {
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
+            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb, context.clone()),
             context,
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
             opts,
         }
     }

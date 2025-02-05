@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
-use crate::stats::{Statistics as _, PRUNING_STATS};
+use crate::stats::PRUNING_STATS;
 use crate::{Array, EncodingId};
 
 pub trait CompressionStrategy {
@@ -59,7 +59,7 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::stats::Stat;
+        use crate::stats::{Stat, Statistics as _};
 
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
         for (stat, value) in arr

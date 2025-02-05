@@ -13,6 +13,7 @@ use vortex_io::ObjectStoreReadAt;
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
     inner: Cache<Key, FileLayout, FoldHashBuilder>,
+    context: ContextRef,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -31,7 +32,7 @@ impl From<&ObjectMeta> for Key {
 }
 
 impl FileLayoutCache {
-    pub fn new(size_mb: usize) -> Self {
+    pub fn new(size_mb: usize, context: ContextRef) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
             .eviction_listener(|k: Arc<Key>, _v, cause| {
@@ -39,7 +40,7 @@ impl FileLayoutCache {
             })
             .build_with_hasher(FoldHashBuilder::default());
 
-        Self { inner }
+        Self { inner, context }
     }
 
     pub async fn try_get(
@@ -50,7 +51,7 @@ impl FileLayoutCache {
         self.inner
             .try_get_with(Key::from(object), async {
                 let os_read_at = ObjectStoreReadAt::new(object_store, object.location.clone());
-                let vxf = VortexOpenOptions::new(ContextRef::default())
+                let vxf = VortexOpenOptions::new(self.context.clone())
                     .with_file_size(object.size as u64)
                     .open(os_read_at)
                     .await?;
