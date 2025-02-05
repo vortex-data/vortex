@@ -187,7 +187,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             for (idx, end) in run_ends.enumerate() {
                 for _ in 0..(end - pos).div_ceil(8) {
                     unsafe {
-                        decoded.push_n_unchecked(values[idx], 8);
+                        decoded.push_n_unchecked(*values.get_unchecked(idx), 8);
                     }
                 }
                 pos = end;
