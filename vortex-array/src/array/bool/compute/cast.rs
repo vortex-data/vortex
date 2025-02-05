@@ -35,7 +35,7 @@ mod tests {
     fn try_cast_bool_success() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
 
-        let res = try_cast(bool.clone(), &DType::Bool(Nullability::NonNullable));
+        let res = try_cast(bool, &DType::Bool(Nullability::NonNullable));
         assert!(res.is_ok());
         assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
     }
@@ -44,6 +44,6 @@ mod tests {
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
 
-        assert!(try_cast(bool.clone(), &DType::Bool(Nullability::NonNullable)).is_err());
+        assert!(try_cast(bool, &DType::Bool(Nullability::NonNullable)).is_err());
     }
 }
