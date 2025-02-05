@@ -13,7 +13,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 
@@ -170,10 +170,13 @@ where
         } else {
             primitive.with_iterator(|it| {
                 for value in it {
-                    let code = value.map(|v| self.encode_value(*v)).unwrap_or(NULL_CODE);
+                    let code = value
+                        .map(|v| self.encode_value(*v))
+                        .ok_or_else(|| vortex_err!("Null value in non-nullable array"))?;
                     unsafe { codes.push_unchecked(code) }
                 }
-            })?;
+                VortexResult::Ok(())
+            })??;
             (codes, Validity::NonNullable)
         };
         Ok(PrimitiveArray::new(codes, validity).into_array())

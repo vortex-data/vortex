@@ -12,7 +12,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 impl_encoding!(
@@ -87,9 +87,12 @@ impl CanonicalVTable<DictArray> for DictEncoding {
 
 impl ValidityVTable<DictArray> for DictEncoding {
     fn is_valid(&self, array: &DictArray, index: usize) -> VortexResult<bool> {
-        let scalar = scalar_at(array.codes(), index).unwrap_or_else(|err| {
-            vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
-        });
+        let scalar = scalar_at(array.codes(), index).map_err(|err| {
+            err.with_context(format!(
+                "Failed to get index {} from DictArray codes",
+                index
+            ))
+        })?;
 
         if scalar.is_null() {
             return Ok(false);
