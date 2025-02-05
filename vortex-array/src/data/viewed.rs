@@ -36,8 +36,8 @@ impl Debug for ViewedArray {
 }
 
 impl ViewedArray {
-    pub fn flatbuffer(&self) -> fb::Array {
-        unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
+    pub fn flatbuffer(&self) -> fb::ArrayNode {
+        unsafe { fb::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
     // TODO(ngates): should we separate self and DType lifetimes? Should DType be cloned?
@@ -61,7 +61,7 @@ impl ViewedArray {
         })
     }
 
-    fn array_child(&self, idx: usize) -> Option<fb::Array> {
+    fn array_child(&self, idx: usize) -> Option<fb::ArrayNode> {
         let children = self.flatbuffer().children()?;
         (idx < children.len()).then(|| children.get(idx))
     }

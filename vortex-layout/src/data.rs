@@ -33,8 +33,8 @@ pub struct OwnedLayout {
     vtable: LayoutVTableRef,
     dtype: DType,
     row_count: u64,
-    segments: Option<Vec<SegmentId>>,
-    children: Option<Vec<Layout>>,
+    segments: Vec<SegmentId>,
+    children: Vec<Layout>,
     metadata: Option<Bytes>,
 }
 
@@ -61,8 +61,8 @@ impl Layout {
         vtable: LayoutVTableRef,
         dtype: DType,
         row_count: u64,
-        segments: Option<Vec<SegmentId>>,
-        children: Option<Vec<Layout>>,
+        segments: Vec<SegmentId>,
+        children: Vec<Layout>,
         metadata: Option<Bytes>,
     ) -> Self {
         Self(Inner::Owned(OwnedLayout {
@@ -163,7 +163,7 @@ impl Layout {
     /// Returns the number of children of the layout.
     pub fn nchildren(&self) -> usize {
         match &self.0 {
-            Inner::Owned(owned) => owned.children.as_ref().map_or(0, |children| children.len()),
+            Inner::Owned(owned) => owned.children.len(),
             Inner::Viewed(viewed) => viewed
                 .flatbuffer()
                 .children()
@@ -182,11 +182,7 @@ impl Layout {
         }
         match &self.0 {
             Inner::Owned(o) => {
-                let child = o
-                    .children
-                    .as_ref()
-                    .vortex_expect("child bounds already checked")[i]
-                    .clone();
+                let child = o.children[i].clone();
                 if child.dtype() != &dtype {
                     vortex_bail!("child dtype mismatch");
                 }
@@ -225,11 +221,7 @@ impl Layout {
             vortex_panic!("child index out of bounds");
         }
         match &self.0 {
-            Inner::Owned(o) => o
-                .children
-                .as_ref()
-                .vortex_expect("child bounds already checked")[i]
-                .row_count(),
+            Inner::Owned(o) => o.children[i].row_count(),
             Inner::Viewed(v) => v
                 .flatbuffer()
                 .children()
@@ -242,7 +234,7 @@ impl Layout {
     /// Returns the number of segments in the layout.
     pub fn nsegments(&self) -> usize {
         match &self.0 {
-            Inner::Owned(owned) => owned.segments.as_ref().map_or(0, |segments| segments.len()),
+            Inner::Owned(owned) => owned.segments.len(),
             Inner::Viewed(viewed) => viewed
                 .flatbuffer()
                 .segments()
@@ -253,10 +245,7 @@ impl Layout {
     /// Fetch the i'th segment id of the layout.
     pub fn segment_id(&self, i: usize) -> Option<SegmentId> {
         match &self.0 {
-            Inner::Owned(owned) => owned
-                .segments
-                .as_ref()
-                .and_then(|msgs| msgs.get(i).copied()),
+            Inner::Owned(owned) => owned.segments.get(i).copied(),
             Inner::Viewed(viewed) => viewed
                 .flatbuffer()
                 .segments()
@@ -315,17 +304,22 @@ impl WriteFlatBuffer for Layout {
         match &self.0 {
             Inner::Owned(layout) => {
                 let metadata = layout.metadata.as_ref().map(|b| fbb.create_vector(b));
-                let children = layout.children.as_ref().map(|children| {
-                    children
+                let children = (!layout.children.is_empty()).then(|| {
+                    layout
+                        .children
                         .iter()
                         .map(|c| c.write_flatbuffer(fbb))
                         .collect::<Vec<_>>()
                 });
                 let children = children.map(|c| fbb.create_vector(&c));
-                let segments = layout
-                    .segments
-                    .as_ref()
-                    .map(|m| m.iter().map(|s| s.deref()).copied().collect::<Vec<u32>>());
+                let segments = (!layout.segments.is_empty()).then(|| {
+                    layout
+                        .segments
+                        .iter()
+                        .map(|s| s.deref())
+                        .copied()
+                        .collect::<Vec<u32>>()
+                });
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
                 layout::Layout::create(

@@ -1,9 +1,8 @@
-use vortex_array::parts::ArrayPartsFlatBuffer;
+use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
 use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
-use vortex_flatbuffers::WriteFlatBufferExt;
 
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
@@ -55,27 +54,15 @@ impl LayoutWriter for FlatLayoutWriter {
         let row_count = chunk.len() as u64;
         retain_only_stats(&chunk, &self.options.array_stats);
 
-        // We store each Array buffer in its own segment.
-        let mut segment_ids = vec![];
-        for child in chunk.depth_first_traversal() {
-            for buffer in child.byte_buffers() {
-                // TODO(ngates): decide a way of splitting buffers if they exceed u32 size.
-                //  We could write empty segments either side of buffers to concatenate?
-                //  Or we could use Layout::metadata to store this information.
-                segment_ids.push(segments.put(buffer));
-            }
-        }
-
-        // ...followed by a FlatBuffer describing the array layout.
-        let flatbuffer = ArrayPartsFlatBuffer::new(&chunk).write_flatbuffer_bytes();
-        segment_ids.push(segments.put(flatbuffer.into_inner()));
+        let buffers = chunk.serialize(&SerializeOptions::default());
+        let segment_id = segments.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
             LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
-            Some(segment_ids),
-            None,
+            vec![segment_id],
+            vec![],
             None,
         ));
         Ok(())

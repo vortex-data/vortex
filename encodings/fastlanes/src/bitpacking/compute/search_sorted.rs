@@ -11,7 +11,7 @@ use vortex_array::compute::{
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
@@ -37,7 +37,7 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
-            let searcher = BitPackedSearch::<'_, $P>::new(array);
+            let searcher = BitPackedSearch::<'_, $P>::try_new(array)?;
 
             values
                 .iter()
@@ -77,7 +77,7 @@ impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
-            let searcher = BitPackedSearch::<'_, $P>::new(array);
+            let searcher = BitPackedSearch::<'_, $P>::try_new(array)?;
 
             values
                 .iter()
@@ -131,10 +131,10 @@ where
         if usize_value > array.max_packed_value() {
             patches.search_sorted(usize_value, side)
         } else {
-            Ok(BitPackedSearch::<'_, T>::new(array).search_sorted(&value, side))
+            Ok(BitPackedSearch::<'_, T>::try_new(array)?.search_sorted(&value, side))
         }
     } else {
-        Ok(BitPackedSearch::<'_, T>::new(array).search_sorted(&value, side))
+        Ok(BitPackedSearch::<'_, T>::try_new(array)?.search_sorted(&value, side))
     }
 }
 
@@ -152,33 +152,32 @@ struct BitPackedSearch<'a, T> {
 }
 
 impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
-    pub fn new(array: &'a BitPackedArray) -> Self {
+    pub fn try_new(array: &'a BitPackedArray) -> VortexResult<Self> {
         let first_patch_index = array
             .patches()
             .map(|p| p.min_index())
-            .transpose()
-            .vortex_expect("Failed to get min patch index")
+            .transpose()?
             .unwrap_or_else(|| array.len());
         let first_non_null_idx = match array.validity() {
             Validity::NonNullable | Validity::AllValid => 0,
             Validity::AllInvalid => array.len(),
             Validity::Array(varray) => {
-                // In sorted order, nulls come before all the non-null values.
-                varray
-                    .statistics()
-                    .compute_true_count()
-                    .vortex_expect("Failed to compute true count")
+                // In sorted order, nulls come before all the non-null values, i.e. we have true count worth of non null values at the end
+                array.len()
+                    - varray.statistics().compute_true_count().ok_or_else(|| {
+                        vortex_err!("Couldn't compute true count for validity of bitpacked array")
+                    })?
             }
         };
 
-        Self {
+        Ok(Self {
             packed_as_slice: array.packed_slice::<T>(),
             offset: array.offset(),
             length: array.len(),
             bit_width: array.bit_width(),
             first_non_null_idx,
             first_patch_index,
-        }
+        })
     }
 }
 
@@ -211,10 +210,12 @@ impl<T> Len for BitPackedSearch<'_, T> {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::{
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
     };
+    use vortex_array::validity::Validity;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
@@ -341,6 +342,29 @@ mod test {
         assert_eq!(
             search_sorted(&bitpacked, -4, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(0)
+        );
+    }
+
+    #[test]
+    fn test_non_null_patches() {
+        let bitpacked = BitPackedArray::encode(
+            &PrimitiveArray::new(
+                buffer![0u64, 0, 0, 0, 0, 2815694643789679, 8029759183936649593],
+                Validity::Array(
+                    BoolArray::from(BooleanBuffer::from(vec![
+                        false, false, false, false, false, true, true,
+                    ]))
+                    .into_array(),
+                ),
+            )
+            .into_array(),
+            0,
+        )
+        .unwrap()
+        .into_array();
+        assert_eq!(
+            search_sorted(&bitpacked, 0, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(5)
         );
     }
 }

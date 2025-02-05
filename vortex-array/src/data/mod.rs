@@ -83,7 +83,7 @@ impl Array {
         buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>
     where
-        F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
+        F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::ArrayNode>,
     {
         let array = flatbuffer_init(flatbuffer.as_ref())?;
         let flatbuffer_loc = array._tab.loc();
