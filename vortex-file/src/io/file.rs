@@ -63,6 +63,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
         stream: impl Stream<Item = SegmentRequest> + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
         // We map the segment requests to their respective locations within the file.
+        let coalescing_window = self.read.performance_hint().coalescing_window();
         let segment_map = self.file_layout.segment_map().clone();
         let stream = stream.filter_map(move |request| {
             let segment_map = segment_map.clone();
@@ -128,7 +129,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
 
         // Coalesce the segment requests to minimize the number of I/O operations.
         let stream = stream
-            .map(|r| coalesce(r, R::COALESCE_WINDOW))
+            .map(move |r| coalesce(r, coalescing_window))
             .flat_map(stream::iter);
 
         // Submit the coalesced requests to the I/O.

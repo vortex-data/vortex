@@ -10,7 +10,7 @@ use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use vortex_error::VortexUnwrap;
 
-use crate::{IoBuf, VortexReadAt, VortexWrite};
+use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
 pub struct TokioAdapter<IO>(pub IO);
 
@@ -60,7 +60,6 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
-    const COALESCE_WINDOW: u64 = 0;
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn read_byte_range(
         &self,
@@ -81,6 +80,10 @@ impl VortexReadAt for TokioFile {
         let this = self.clone();
 
         async move { this.metadata().map(|metadata| metadata.len()) }
+    }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::local()
     }
 }
 
