@@ -181,9 +181,16 @@ fn main() {
             for _ in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
-                    execute_query(&context, &query)
-                        .await
-                        .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                    let context = context.clone();
+                    let query = query.clone();
+                    tokio::task::spawn(async move {
+                        execute_query(&context, &query)
+                            .await
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                    })
+                    .await
+                    .unwrap();
+
                     start.elapsed()
                 });
 
