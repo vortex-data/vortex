@@ -36,7 +36,7 @@ impl Array {
         if !self.dtype().is_nullable() {
             return Ok(0);
         }
-        self.vtable().invalid_count(self)
+        self.vtable().null_count(self)
     }
 
     /// Return the canonical validity of the array as a [`Mask`].
