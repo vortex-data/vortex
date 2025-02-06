@@ -40,9 +40,10 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
 mod tests {
 
     use vortex_buffer::BufferString;
-    use vortex_dtype::DType;
+    use vortex_dtype::DType::Utf8;
+    use vortex_dtype::Nullability::Nullable;
+    use vortex_scalar::Scalar;
 
-    use crate::array::varbin::Nullability;
     use crate::array::VarBinArray;
     use crate::compute::{min_max, MinMaxResult};
     use crate::stats::{Stat, Statistics};
@@ -56,23 +57,29 @@ mod tests {
                 Some("hello world this is a long string"),
                 None,
             ],
-            DType::Utf8(Nullability::Nullable),
+            Utf8(Nullable),
         );
         let MinMaxResult { min, max } = min_max(array).unwrap().unwrap();
 
-        assert_eq!(min, BufferString::from("hello world".to_string()).into());
+        assert_eq!(
+            min,
+            Scalar::new(
+                Utf8(Nullable),
+                BufferString::from("hello world".to_string()).into(),
+            )
+        );
         assert_eq!(
             max,
-            BufferString::from("hello world this is a long string".to_string()).into(),
+            Scalar::new(
+                Utf8(Nullable),
+                BufferString::from("hello world this is a long string".to_string()).into()
+            )
         );
     }
 
     #[test]
     fn all_nulls() {
-        let array = VarBinArray::from_iter(
-            vec![Option::<&str>::None, None, None],
-            DType::Utf8(Nullability::Nullable),
-        );
+        let array = VarBinArray::from_iter(vec![Option::<&str>::None, None, None], Utf8(Nullable));
         assert!(array.get_stat(Stat::Min).is_none());
         assert!(array.get_stat(Stat::Max).is_none());
     }

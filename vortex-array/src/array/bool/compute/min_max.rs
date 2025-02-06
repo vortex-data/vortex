@@ -1,7 +1,5 @@
 use std::ops::BitAnd;
 
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -24,21 +22,21 @@ impl MinMaxFn<BoolArray> for BoolEncoding {
         let Some(slice) = slices.next() else {
             // all false
             return Ok(Some(MinMaxResult {
-                min: Scalar::new(DType::Bool(NonNullable), false.into()),
-                max: Scalar::new(DType::Bool(NonNullable), false.into()),
+                min: Scalar::new(array.dtype().clone(), false.into()),
+                max: Scalar::new(array.dtype().clone(), false.into()),
             }));
         };
         if slice.0 == 0 && slice.1 == x.len() {
             // all true
             return Ok(Some(MinMaxResult {
-                min: Scalar::new(DType::Bool(NonNullable), true.into()),
-                max: Scalar::new(DType::Bool(NonNullable), true.into()),
+                min: Scalar::new(array.dtype().clone(), true.into()),
+                max: Scalar::new(array.dtype().clone(), true.into()),
             }));
         };
 
         Ok(Some(MinMaxResult {
-            min: Scalar::new(DType::Bool(NonNullable), false.into()),
-            max: Scalar::new(DType::Bool(NonNullable), true.into()),
+            min: Scalar::new(array.dtype().clone(), false.into()),
+            max: Scalar::new(array.dtype().clone(), true.into()),
         }))
     }
 }
