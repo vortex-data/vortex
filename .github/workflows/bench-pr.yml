@@ -59,6 +59,7 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           shell: bash
           run: |
+            rustup default nightly
             cargo install --force cargo-codspeed --locked
             cargo codspeed build ${{ matrix.benchmark.id }}
             cargo codspeed run ${{ matrix.benchmark.id }}
