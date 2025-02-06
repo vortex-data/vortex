@@ -258,7 +258,7 @@ impl<I: IoDriver> VortexFile<I> {
         let segment_channel = SegmentChannel::new();
 
         // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self
+        let reader = self
             .file_layout
             .root_layout()
             .reader(segment_channel.reader(), self.ctx.clone())?;

@@ -1,6 +1,5 @@
 mod compare;
 mod to_arrow;
-
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 

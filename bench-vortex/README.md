@@ -24,7 +24,13 @@ For profiling, you can open in Instruments using the following invocation:
 cargo instruments -p bench-vortex --bin tpch_benchmark --template Time --profile bench
 ```
 
-# Common Issues
+## Memory allocators
+
+If you don't want to use the default system allocator, there are `"jemalloc"` and `"mimalloc"` features available that configure a different allocators at compile time.
+
+As of this writing, if both are enabled `mimalloc` will be used.
+
+## Common Issues
 
 If the benchmarks fail because of this error:
 

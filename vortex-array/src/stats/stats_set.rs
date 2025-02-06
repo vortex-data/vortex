@@ -538,7 +538,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::PrimitiveArray;
-    use crate::stats::{Precision, Stat, StatsSet};
+    use crate::stats::{Precision, Stat, Statistics, StatsSet};
     use crate::IntoArray as _;
 
     #[test]
@@ -829,9 +829,9 @@ mod test {
         let all_stats = all::<Stat>()
             .filter(|s| !matches!(s, Stat::TrueCount))
             .collect_vec();
-        array.statistics().compute_all(&all_stats).unwrap();
+        array.compute_all(&all_stats).unwrap();
 
-        let stats = array.statistics().to_set();
+        let stats = array.statistics().stats_set();
         for stat in &all_stats {
             assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
         }

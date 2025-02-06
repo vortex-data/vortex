@@ -30,8 +30,9 @@ datafusion-physical-expr = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+hashbrown = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["future", "sync"] }
+moka = { workspace = true, features = ["future", "quanta"] }
 object_store = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }

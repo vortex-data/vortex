@@ -5,7 +5,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{Array, IntoArray};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
@@ -20,7 +20,7 @@ impl CompareFn<FoRArray> for FoREncoding {
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
                 match_each_integer_ptype!(constant.ptype(), |$T| {
-                    return compare_constant(lhs, constant.typed_value::<$T>(), operator);
+                    return compare_constant(lhs, constant.typed_value::<$T>().vortex_expect("null scalar handled in top-level"), operator);
                 })
             }
         }
@@ -31,13 +31,13 @@ impl CompareFn<FoRArray> for FoREncoding {
 
 fn compare_constant<T>(
     lhs: &FoRArray,
-    rhs: Option<T>,
+    mut rhs: T,
     operator: Operator,
 ) -> VortexResult<Option<Array>>
 where
     T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
-    Scalar: From<Option<T>>,
+    Scalar: From<T>,
 {
     // For now, we only support equals and not equals. Comparisons are a little more fiddly to
     // get right regarding how to handle overflow and the wrapping subtraction.
@@ -49,12 +49,9 @@ where
     let reference = reference.as_primitive().typed_value::<T>();
 
     // We encode the RHS into the FoR domain.
-    let rhs = rhs.map(|mut rhs| {
-        if let Some(reference) = reference {
-            rhs = rhs.wrapping_sub(&reference);
-        }
-        rhs
-    });
+    if let Some(reference) = reference {
+        rhs = rhs.wrapping_sub(&reference);
+    }
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
@@ -89,15 +86,15 @@ mod tests {
         .unwrap();
 
         assert_result(
-            compare_constant(&lhs, Some(30i32), Operator::Eq),
+            compare_constant(&lhs, 30i32, Operator::Eq),
             [false, true, false],
         );
         assert_result(
-            compare_constant(&lhs, Some(12i32), Operator::NotEq),
+            compare_constant(&lhs, 12i32, Operator::NotEq),
             [true, true, false],
         );
         for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
-            assert!(compare_constant(&lhs, Some(30i32), op).unwrap().is_none());
+            assert!(compare_constant(&lhs, 30i32, op).unwrap().is_none());
         }
     }
 
@@ -112,11 +109,11 @@ mod tests {
         .unwrap();
 
         assert_result(
-            compare_constant(&lhs, Some(-1i32), Operator::Eq),
+            compare_constant(&lhs, -1i32, Operator::Eq),
             [false, false, false],
         );
         assert_result(
-            compare_constant(&lhs, Some(-1i32), Operator::NotEq),
+            compare_constant(&lhs, -1i32, Operator::NotEq),
             [true, true, true],
         );
     }
@@ -132,11 +129,11 @@ mod tests {
         .unwrap();
 
         assert_result(
-            compare_constant(&lhs, Some(435090932899640449i64), Operator::Eq),
+            compare_constant(&lhs, 435090932899640449i64, Operator::Eq),
             [false, true],
         );
         assert_result(
-            compare_constant(&lhs, Some(435090932899640449i64), Operator::NotEq),
+            compare_constant(&lhs, 435090932899640449i64, Operator::NotEq),
             [true, false],
         );
     }

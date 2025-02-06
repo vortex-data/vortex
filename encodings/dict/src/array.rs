@@ -12,7 +12,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 impl_encoding!(
@@ -30,8 +30,8 @@ pub struct DictMetadata {
 
 impl DictArray {
     pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
-        if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
+        if !codes.dtype().is_unsigned_int() {
+            vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
         Self::try_from_parts(
             values.dtype().clone(),
@@ -50,7 +50,11 @@ impl DictArray {
     #[inline]
     pub fn codes(&self) -> Array {
         self.as_ref()
-            .child(0, &DType::from(self.metadata().codes_ptype), self.len())
+            .child(
+                0,
+                &DType::Primitive(self.metadata().codes_ptype, self.dtype().nullability()),
+                self.len(),
+            )
             .vortex_expect("DictArray is missing its codes child array")
     }
 
@@ -83,10 +87,17 @@ impl CanonicalVTable<DictArray> for DictEncoding {
 
 impl ValidityVTable<DictArray> for DictEncoding {
     fn is_valid(&self, array: &DictArray, index: usize) -> VortexResult<bool> {
-        let values_index = scalar_at(array.codes(), index)
-            .unwrap_or_else(|err| {
-                vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
-            })
+        let scalar = scalar_at(array.codes(), index).map_err(|err| {
+            err.with_context(format!(
+                "Failed to get index {} from DictArray codes",
+                index
+            ))
+        })?;
+
+        if scalar.is_null() {
+            return Ok(false);
+        };
+        let values_index: usize = scalar
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert dictionary code to usize");
@@ -125,6 +136,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
         if array.dtype().is_nullable() {
             let primitive_codes = array.codes().into_primitive()?;
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+                // This is correct since the code will be 0 if the value is null.
                 let is_valid = primitive_codes
                     .as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {

@@ -46,9 +46,9 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     let array = array.as_ref();
     let indices = indices.as_ref();
 
-    if !indices.dtype().is_int() || indices.dtype().is_nullable() {
+    if !indices.dtype().is_int() {
         vortex_bail!(
-            "Take indices must be a non-nullable integer type, got {}",
+            "Take indices must be an integer type, got {}",
             indices.dtype()
         );
     }
@@ -63,12 +63,12 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 
     let taken = take_impl(array, indices, checked_indices)?;
 
-    let mut stats = taken.to_set();
+    let mut stats = taken.stats_set();
     stats.combine_sets(&derived_stats, array.dtype())?;
     // TODO(joe): add
     // taken.inherit_statistics(&stats)?;
-    for (stat, val) in stats.iter() {
-        taken.statistics().set(*stat, val.clone())
+    for (stat, val) in stats.into_iter() {
+        taken.set_stat(stat, val)
     }
 
     debug_assert_eq!(
@@ -88,7 +88,7 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 }
 
 fn derive_take_stats(arr: &Array) -> StatsSet {
-    let stats = arr.to_set();
+    let stats = arr.stats_set();
 
     stats.keep_exact_inexact_stats(
         // Any combination of elements from a constant array is still const

@@ -2,7 +2,7 @@ use datafusion_common::stats::Precision;
 use datafusion_common::{ColumnStatistics, Result as DFResult, ScalarValue, Statistics};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
-use vortex_array::stats::Stat;
+use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::variants::StructArrayTrait;
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -29,22 +29,16 @@ pub(crate) fn chunked_array_df_stats(
                         .get_as::<u64>(Stat::NullCount)
                         .map(|n| n.map(|n| n as usize)),
                 ),
-                max_value: directional_bound_to_df_precision(arr.statistics().get(Stat::Max).map(
-                    |n| {
-                        n.into_scalar(array.dtype().clone()).map(|n| {
-                            ScalarValue::try_from(n)
-                                .vortex_expect("cannot convert scalar to df scalar")
-                        })
-                    },
-                )),
-                min_value: directional_bound_to_df_precision(arr.statistics().get(Stat::Min).map(
-                    |n| {
-                        n.into_scalar(array.dtype().clone()).map(|n| {
-                            ScalarValue::try_from(n)
-                                .vortex_expect("cannot convert scalar to df scalar")
-                        })
-                    },
-                )),
+                max_value: directional_bound_to_df_precision(arr.get_stat(Stat::Max).map(|n| {
+                    n.into_scalar(array.dtype().clone()).map(|n| {
+                        ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
+                    })
+                })),
+                min_value: directional_bound_to_df_precision(arr.get_stat(Stat::Min).map(|n| {
+                    n.into_scalar(array.dtype().clone()).map(|n| {
+                        ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
+                    })
+                })),
                 distinct_count: Precision::Absent,
             }
         })

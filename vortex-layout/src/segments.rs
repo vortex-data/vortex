@@ -45,11 +45,12 @@ pub trait SegmentWriter {
     //  if we know we're going to read an entire FlatLayout together, then we should probably
     //  serialize it into a single segment that is 512 byte aligned? Or else, we should guarantee
     //  to align the the first segment to 512, and then assume that coalescing captures the rest.
-    fn put(&mut self, buffer: ByteBuffer) -> SegmentId;
+    fn put(&mut self, buffer: &[ByteBuffer]) -> SegmentId;
 }
 
 #[cfg(test)]
 pub mod test {
+    use vortex_buffer::ByteBufferMut;
     use vortex_error::{vortex_err, VortexExpect};
 
     use super::*;
@@ -60,10 +61,17 @@ pub mod test {
     }
 
     impl SegmentWriter for TestSegments {
-        fn put(&mut self, data: ByteBuffer) -> SegmentId {
+        fn put(&mut self, data: &[ByteBuffer]) -> SegmentId {
             let id = u32::try_from(self.segments.len())
                 .vortex_expect("Cannot store more than u32::MAX segments");
-            self.segments.push(data);
+
+            // Combine all the buffers since we're only a test implementation
+            let mut buffer = ByteBufferMut::empty();
+            for segment in data {
+                buffer.extend_from_slice(segment.as_ref());
+            }
+            self.segments.push(buffer.freeze());
+
             id.into()
         }
     }

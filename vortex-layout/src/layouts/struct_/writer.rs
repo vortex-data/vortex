@@ -84,8 +84,8 @@ impl LayoutWriter for StructLayoutWriter {
             LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
             self.row_count,
-            None,
-            Some(column_layouts),
+            vec![],
+            column_layouts,
             None,
         ))
     }

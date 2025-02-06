@@ -31,9 +31,14 @@ workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true }
+divan = { workspace = true }
 rand = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
 name = "dict_compress"
+harness = false
+
+[[bench]]
+name = "dict_compare"
 harness = false

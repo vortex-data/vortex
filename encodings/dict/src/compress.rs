@@ -1,5 +1,6 @@
 use std::hash::{BuildHasher, Hash};
 
+use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
@@ -12,7 +13,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 
@@ -152,20 +153,39 @@ where
         }
 
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
-
         let primitive = array.clone().into_primitive()?;
-        primitive.with_iterator(|it| {
-            for value in it {
-                let code = if let Some(&v) = value {
-                    self.encode_value(v)
-                } else {
-                    NULL_CODE
-                };
-                unsafe { codes.push_unchecked(code) }
-            }
-        })?;
 
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
+        let (codes, validity) = if array.dtype().is_nullable() {
+            let mut null_buf = NullBufferBuilder::new(array.len());
+            primitive.with_iterator(|it| {
+                for value in it {
+                    let (code, validity) = value
+                        .map(|v| (self.encode_value(*v), true))
+                        .unwrap_or((NULL_CODE, false));
+                    null_buf.append(validity);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (
+                codes,
+                null_buf
+                    .finish()
+                    .map(Validity::from)
+                    .unwrap_or(Validity::AllValid),
+            )
+        } else {
+            primitive.with_iterator(|it| {
+                for value in it {
+                    let code = value
+                        .map(|v| self.encode_value(*v))
+                        .ok_or_else(|| vortex_err!("Null value in non-nullable array"))?;
+                    unsafe { codes.push_unchecked(code) }
+                }
+                VortexResult::Ok(())
+            })??;
+            (codes, Validity::NonNullable)
+        };
+        Ok(PrimitiveArray::new(codes, validity).into_array())
     }
 
     fn values(&mut self) -> Array {
@@ -244,20 +264,40 @@ impl BytesDictBuilder {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
-        accessor.with_iterator(|it| {
-            for value in it {
-                let code = if let Some(v) = value {
-                    self.encode_value(&mut local_lookup, v)
-                } else {
-                    NULL_CODE
-                };
-                unsafe { codes.push_unchecked(code) }
-            }
-        })?;
+        let (codes, validity) = if self.dtype.is_nullable() {
+            let mut null_buf = NullBufferBuilder::new(len);
+
+            accessor.with_iterator(|it| {
+                for value in it {
+                    let (code, validity) = value
+                        .map(|v| (self.encode_value(&mut local_lookup, v), true))
+                        .unwrap_or((NULL_CODE, false));
+                    null_buf.append(validity);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (
+                codes,
+                null_buf
+                    .finish()
+                    .map(Validity::from)
+                    .unwrap_or(Validity::AllValid),
+            )
+        } else {
+            accessor.with_iterator(|it| {
+                for value in it {
+                    let code = value
+                        .map(|v| self.encode_value(&mut local_lookup, v))
+                        .unwrap_or(NULL_CODE);
+                    unsafe { codes.push_unchecked(code) }
+                }
+            })?;
+            (codes, Validity::NonNullable)
+        };
 
         // Restore lookup dictionary back into the struct
         self.lookup = Some(local_lookup);
-        Ok(PrimitiveArray::new(codes, Validity::NonNullable).into_array())
+        Ok(PrimitiveArray::new(codes, validity).into_array())
     }
 }
 

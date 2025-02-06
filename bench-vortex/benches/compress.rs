@@ -16,7 +16,9 @@ use bench_vortex::public_bi_data::BenchmarkDatasets;
 use bench_vortex::public_bi_data::PBIDataset::*;
 use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::{fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch};
+use bench_vortex::{
+    feature_flagged_allocator, fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch,
+};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
@@ -38,6 +40,8 @@ use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
+
+feature_flagged_allocator!();
 
 #[derive(serde::Serialize)]
 struct GenericBenchmarkResults<'a> {

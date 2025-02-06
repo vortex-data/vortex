@@ -8,9 +8,15 @@ use vortex_array::stats;
 pub fn directional_bound_to_df_precision<T: Debug + Clone + Eq + PartialOrd>(
     bound: Option<stats::Precision<T>>,
 ) -> Precision<T> {
+    bound.map(bound_to_datafusion).unwrap_or_default()
+}
+
+pub fn bound_to_datafusion<T>(bound: stats::Precision<T>) -> Precision<T>
+where
+    T: Debug + Clone + Eq + PartialOrd,
+{
     match bound {
-        Some(stats::Precision::Exact(val)) => Precision::Exact(val),
-        Some(stats::Precision::Inexact(val)) => Precision::Inexact(val),
-        None => Precision::Absent,
+        stats::Precision::Exact(val) => Precision::Exact(val),
+        stats::Precision::Inexact(val) => Precision::Inexact(val),
     }
 }

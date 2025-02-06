@@ -95,8 +95,8 @@ impl LayoutWriter for ChunkedLayoutWriter {
             LayoutVTableRef::from_static(&ChunkedLayout),
             self.dtype.clone(),
             self.row_count,
-            None,
-            Some(children),
+            vec![],
+            children,
             metadata,
         ))
     }

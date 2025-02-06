@@ -30,8 +30,8 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
-    fn performance_hint(&self) -> usize {
-        0
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::default()
     }
 
     /// Asynchronously get the number of bytes of data readable.
@@ -39,6 +39,34 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     /// For a file it will be the size in bytes, for an object in an
     /// `ObjectStore` it will be the `ObjectMeta::size`.
     fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static;
+}
+
+pub struct PerformanceHint {
+    coalescing_window: u64,
+}
+
+impl Default for PerformanceHint {
+    fn default() -> Self {
+        Self {
+            coalescing_window: 2 << 20, //1MB,
+        }
+    }
+}
+
+impl PerformanceHint {
+    pub fn new(coalescing_window: u64) -> Self {
+        Self { coalescing_window }
+    }
+
+    /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
+    pub fn local() -> Self {
+        Self::new(0)
+    }
+
+    /// The maximum distance between two reads that should coalesced into a single operation.
+    pub fn coalescing_window(&self) -> u64 {
+        self.coalescing_window
+    }
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
@@ -50,7 +78,7 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         T::read_byte_range(self, pos, len)
     }
 
-    fn performance_hint(&self) -> usize {
+    fn performance_hint(&self) -> PerformanceHint {
         T::performance_hint(self)
     }
 
@@ -79,6 +107,10 @@ impl VortexReadAt for Bytes {
     fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
         ready(Ok(self.len() as u64))
     }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::local()
+    }
 }
 
 impl VortexReadAt for ByteBuffer {
@@ -96,6 +128,10 @@ impl VortexReadAt for ByteBuffer {
             )));
         }
         ready(Ok(self.slice(read_start..read_end).into_inner()))
+    }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::local()
     }
 
     fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {

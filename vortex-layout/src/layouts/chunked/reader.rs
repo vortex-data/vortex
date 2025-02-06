@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use arrow_buffer::BooleanBuffer;
 use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::stats::{stats_from_bitset_bytes, Stat};
+use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
@@ -73,15 +73,12 @@ impl ChunkedReader {
                         let nchunks = self.layout.nchildren() - 1;
 
                         // Figure out which stats are present
-                        let present_stats: Arc<[Stat]> =
-                            Arc::from(stats_from_bitset_bytes(metadata.as_ref()));
+                        let present_stats = stats_from_bitset_bytes(metadata.as_ref());
 
-                        let layout_dtype = self.layout.dtype().clone();
+                        let layout_dtype = self.layout.dtype();
                         let stats_dtype =
-                            StatsTable::dtype_for_stats_table(&layout_dtype, &present_stats);
-                        let stats_layout = self
-                            .layout
-                            .child(self.layout.nchildren() - 1, stats_dtype)?;
+                            StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
+                        let stats_layout = self.layout.child(nchunks, stats_dtype)?;
 
                         let stats_array = stats_layout
                             .reader(self.segments.clone(), self.ctx.clone())?
@@ -91,11 +88,11 @@ impl ChunkedReader {
                             )
                             .await?;
 
-                        Some(StatsTable::try_new(
+                        Some(StatsTable::try_new_unchecked(
                             layout_dtype.clone(),
                             stats_array,
-                            present_stats.clone(),
-                        )?)
+                            present_stats.into(),
+                        ))
                     }
                 })
             })

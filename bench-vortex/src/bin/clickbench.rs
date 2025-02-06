@@ -1,15 +1,14 @@
 #![feature(exit_status_error)]
 
-use std::fs;
+use std::fs::{self, File};
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, get_session_with_cache, idempotent, physical_plan, setup_logger, Format,
-    IdempotentPath as _, Measurement,
+    execute_query, feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
+    setup_logger, Format, IdempotentPath as _, Measurement,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -18,7 +17,9 @@ use itertools::Itertools;
 use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
-use vortex::error::vortex_panic;
+use vortex::error::{vortex_panic, VortexExpect};
+
+feature_flagged_allocator!();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -61,35 +62,39 @@ fn main() {
     }
     .expect("Failed building the Runtime");
     let basepath = "clickbench".to_data_path();
+    let client = reqwest::blocking::Client::default();
 
     // The clickbench-provided file is missing some higher-level type info, so we reprocess it
     // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
     (0_u32..100).into_par_iter().for_each(|idx| {
         let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
         idempotent(&output_path, |output_path| {
-            eprintln!("Fixing parquet file {idx}");
+            eprintln!("Downloading file {idx}");
+            let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
 
-            // We need to set the home directory because GitHub Actions doesn't set it in a way
-            // that DuckDB respects.
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/ci-runner".to_string());
 
-            let command = format!(
-                "
-                SET home_directory='{home}';
-                INSTALL HTTPFS;
-                COPY (SELECT * REPLACE
-                    (epoch_ms(EventTime * 1000) AS EventTime, \
-                    epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
-                    epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
-                        DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) \
-                FROM read_parquet('https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{idx}.parquet', binary_as_string=True)) TO '{}' (FORMAT 'parquet');",
-                output_path.to_str().unwrap()
-            );
-            Command::new("duckdb")
-                .arg("-c")
-                .arg(command)
-                .status()?
-                .exit_ok()?;
+            let make_req = || client.get(&url).send();
+            let mut output = None;
+
+            for attempt in 1..4 {
+                match make_req() {
+                    Ok(r) => {
+                          output = Some(r.error_for_status());
+                          break;
+                    },
+                    Err(e) => {
+                        eprintln!("Request for file {idx} timed out, retying for the {attempt} time");
+                        output = Some(Err(e));
+                    }
+                }
+
+                // Very basic backoff mechanism
+                std::thread::sleep(Duration::from_secs(attempt));
+            }
+
+            let mut response = output.vortex_expect("Must have value here")?;
+            let mut file = File::create(output_path)?;
+            response.copy_to(&mut file)?;
 
             anyhow::Ok(PathBuf::from(output_path))
         })
@@ -178,9 +183,16 @@ fn main() {
             for _ in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
-                    execute_query(&context, &query)
-                        .await
-                        .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                    let context = context.clone();
+                    let query = query.clone();
+                    tokio::task::spawn(async move {
+                        execute_query(&context, &query)
+                            .await
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                    })
+                    .await
+                    .unwrap();
+
                     start.elapsed()
                 });
 

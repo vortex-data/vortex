@@ -5,39 +5,30 @@ enum MessageVersion: uint8 {
     V0 = 0,
 }
 
-enum Compression: uint8 {
-    None = 0,
-}
-
-/// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
-/// immediately after the message in the byte stream.
+/// Indicates the message body contains a flatbuffer Array message, followed by array buffers.
 table ArrayMessage {
-    /// The array's hierarchical definition.
-    array: Array;
     /// The row count of the array.
-    row_count: uint64;
-    /// The locations of the data buffers of the array, in ascending order of offset.
-    buffers: [Buffer];
+    row_count: uint32;
 }
 
-table Buffer {
-    /// The length of the buffer in bytes.
-    length: uint64;
-    /// The length of any padding bytes written immediately following the buffer.
-    padding: uint16;
-    /// The minimum alignment of the buffer.
-    alignment: uint16;
+/// Indicates the body contains a regular byte buffer.
+table BufferMessage {
+    alignment_exponent: uint8;
 }
+
+/// Indicates the body contains a flatbuffer DType message.
+table DTypeMessage {}
 
 union MessageHeader {
     ArrayMessage,
-    Buffer,
-    DType,
+    BufferMessage,
+    DTypeMessage,
 }
 
 table Message {
     version: MessageVersion = V0;
     header: MessageHeader;
+    body_size: uint64;
 }
 
 root_type Message;

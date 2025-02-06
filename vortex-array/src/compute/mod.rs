@@ -14,7 +14,7 @@ pub use boolean::{
     and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
 };
 pub use cast::{try_cast, CastFn};
-pub use compare::{compare, scalar_cmp, CompareFn, Operator};
+pub use compare::{compare, compare_lengths_to_empty, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
 pub use fill_null::{fill_null, FillNullFn};
 pub use filter::{filter, FilterFn};

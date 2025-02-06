@@ -46,6 +46,11 @@ impl<'a> BinaryScalar<'a> {
             ))),
         ))
     }
+
+    /// Returns whether its value is non-null and empty, otherwise `None`.
+    pub fn is_empty(&self) -> Option<bool> {
+        self.value.as_ref().map(|v| v.is_empty())
+    }
 }
 
 impl Scalar {

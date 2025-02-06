@@ -1,5 +1,5 @@
+use bench_vortex::feature_flagged_allocator;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
-use mimalloc::MiMalloc;
 use rand::distributions::Alphanumeric;
 use rand::seq::SliceRandom as _;
 use rand::{thread_rng, Rng, SeedableRng as _};
@@ -24,8 +24,7 @@ use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{IntoArray, IntoCanonical};
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+feature_flagged_allocator!();
 
 fn primitive(c: &mut Criterion) {
     let mut group = c.benchmark_group("primitive-decompression");

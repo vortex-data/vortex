@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use vortex_array::array::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
@@ -170,7 +170,7 @@ impl VisitorVTable<SparseArray> for SparseEncoding {
 impl StatisticsVTable<SparseArray> for SparseEncoding {
     fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
         let values = array.patches().into_values();
-        let stats = values.statistics().compute_all(&[stat])?;
+        let stats = values.compute_all(&[stat])?;
         if array.len() == values.len() {
             return Ok(stats);
         }

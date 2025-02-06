@@ -171,7 +171,7 @@ mod test {
     use vortex_dtype::Nullability;
 
     use crate::array::BoolArray;
-    use crate::stats::Stat;
+    use crate::stats::{Stat, Statistics};
 
     #[test]
     fn bool_stats() {
@@ -275,8 +275,8 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(bool_arr.statistics().compute_is_constant().unwrap());
-        assert!(bool_arr.statistics().compute(Stat::Min).is_none());
-        assert!(bool_arr.statistics().compute(Stat::Max).is_none());
+        assert!(bool_arr.compute_stat(Stat::Min).is_none());
+        assert!(bool_arr.compute_stat(Stat::Max).is_none());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);

@@ -1,5 +1,5 @@
 use vortex_array::array::PrimitiveArray;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
@@ -98,7 +98,7 @@ impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
 
         // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
-            if let Some(val) = array.encoded().statistics().compute(stat) {
+            if let Some(val) = array.encoded().compute_stat(stat) {
                 stats.set(stat, Precision::exact(val));
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
