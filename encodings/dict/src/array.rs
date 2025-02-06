@@ -70,6 +70,10 @@ impl ValidateVTable<DictArray> for DictEncoding {}
 
 impl CanonicalVTable<DictArray> for DictEncoding {
     fn into_canonical(&self, array: DictArray) -> VortexResult<Canonical> {
+        if array.values().len() == 453 {
+            println!("DictArray values len: {}", array.tree_display());
+        }
+
         match array.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
