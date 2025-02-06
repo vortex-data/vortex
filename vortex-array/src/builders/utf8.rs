@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical};
+use crate::Array;
 
 pub struct Utf8Builder {
     inner: StringViewBuilder,
@@ -62,7 +62,7 @@ impl ArrayBuilder for Utf8Builder {
         }
     }
 
-    fn extend_from_canonical(&mut self, _array: Canonical) -> VortexResult<()> {
+    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
         todo!()
     }
 

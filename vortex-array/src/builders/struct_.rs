@@ -96,7 +96,8 @@ impl ArrayBuilder for StructBuilder {
         self.validity.append_value(false);
     }
 
-    fn extend_from_canonical(&mut self, array: Canonical) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?;
         let Canonical::Struct(array) = array else {
             vortex_bail!("Expected Canonical::Struct, found {:?}", array);
         };

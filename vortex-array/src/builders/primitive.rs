@@ -10,7 +10,7 @@ use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     values: BufferMut<T>,
@@ -74,7 +74,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.validity.append_n_nulls(n);
     }
 
-    fn extend_from_canonical(&mut self, array: Canonical) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?;
         let Canonical::Primitive(array) = array else {
             vortex_bail!("Cannot extend from non-primitive array");
         };

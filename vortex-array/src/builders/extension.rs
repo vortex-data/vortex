@@ -74,7 +74,8 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_nulls(n)
     }
 
-    fn extend_from_canonical(&mut self, array: Canonical) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?;
         let Canonical::Extension(array) = array else {
             vortex_bail!("Expected Extension array, got {:?}", array);
         };

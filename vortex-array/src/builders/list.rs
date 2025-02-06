@@ -11,7 +11,7 @@ use crate::builders::{
     builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder, PrimitiveBuilder,
 };
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, IntoArray};
 
 pub struct ListBuilder<O: PrimInt + NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -117,7 +117,7 @@ where
         self.validity.append_values(false, n);
     }
 
-    fn extend_from_canonical(&mut self, _array: Canonical) -> VortexResult<()> {
+    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
         todo!()
     }
 

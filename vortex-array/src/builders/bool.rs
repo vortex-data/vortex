@@ -9,7 +9,7 @@ use vortex_mask::AllOr;
 
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical};
+use crate::{Array, Canonical, IntoCanonical};
 
 pub struct BoolBuilder {
     inner: ArrowBooleanBuilder,
@@ -71,7 +71,8 @@ impl ArrayBuilder for BoolBuilder {
         self.inner.append_nulls(n);
     }
 
-    fn extend_from_canonical(&mut self, array: Canonical) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?;
         let Canonical::Bool(array) = array else {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
         };
