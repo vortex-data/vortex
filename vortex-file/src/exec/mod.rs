@@ -1,3 +1,5 @@
+mod mode;
+pub use mode::*;
 pub mod inline;
 
 #[cfg(feature = "tokio")]
@@ -16,7 +18,7 @@ use vortex_error::VortexResult;
 /// pool.
 ///
 /// Note that the futures encapsulate heavy CPU code such as filtering and decompression. To
-/// offload keep I/O work separate, please see the [`crate::io::IoDriver`] trait.
+/// offload keep I/O work separate, please see the [`crate::IoDriver`] trait.
 pub trait ExecDriver: Send + Sync {
     fn drive(
         &self,

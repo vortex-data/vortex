@@ -4,7 +4,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::{stream, FutureExt, Stream};
 use itertools::Itertools;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
 mod arc_iter;
@@ -222,5 +222,9 @@ impl<D: ScanDriver> Scan<D> {
             .drive(self.driver_options.unwrap_or_default(), exec_stream)?;
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
+    }
+
+    pub async fn into_array(self) -> VortexResult<Array> {
+        self.into_stream()?.into_array().await
     }
 }

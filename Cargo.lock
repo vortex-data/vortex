@@ -5414,6 +5414,7 @@ dependencies = [
  "vortex-ipc",
  "vortex-layout",
  "vortex-mask",
+ "vortex-sampling-compressor",
  "vortex-scalar",
  "vortex-scan",
 ]

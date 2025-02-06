@@ -4,7 +4,7 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::StreamExt;
+use futures::{pin_mut, StreamExt};
 use futures_executor::block_on;
 use futures_util::TryStreamExt;
 use itertools::Itertools;
@@ -21,8 +21,7 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
-use crate::io::IoDriver;
-use crate::{Scan, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
+use crate::{FileVortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
 
 #[test]
 fn test_eof_values() {
@@ -53,12 +52,15 @@ async fn test_read_simple() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let stream = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all())
-        .unwrap());
+        .scan()
+        .into_stream()
+        .unwrap();
+    pin_mut!(stream);
+
     let mut batch_count = 0;
     let mut row_count = 0;
 
@@ -139,14 +141,16 @@ async fn test_read_projection() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
     let array = file
-        .scan(Scan::new(select(["strings".into()], ident())))
+        .scan()
+        .with_projection(select(["strings".into()], ident()))
+        .into_stream()
         .unwrap()
-        .into_array_data()
+        .into_array()
         .await
         .unwrap();
 
@@ -176,6 +180,7 @@ async fn test_read_projection() {
     assert_eq!(actual, strings_expected);
 
     let array = file
+        .scan()
         .scan(Scan::new(select(["numbers".into()], ident())))
         .unwrap()
         .into_array_data()
@@ -986,7 +991,7 @@ async fn test_repeated_projection() {
     );
 }
 
-fn chunked_file() -> VortexFile<impl IoDriver> {
+fn chunked_file() -> FileVortexFile<impl IoDriver> {
     let array = ChunkedArray::from_iter([
         buffer![0, 1, 2].into_array(),
         buffer![3, 4, 5].into_array(),

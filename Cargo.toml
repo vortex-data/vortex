@@ -239,7 +239,6 @@ lto = "thin"      # attempts to perform optimizations across all crates within t
 
 [profile.bench]
 codegen-units = 16 # default for "release", which "bench" inherits
-lto = false  # disable LTO for faster compilation, and slightly slower but at least consistent runtimes
 debug = true
 
 [profile.benchtest]
@@ -248,4 +247,5 @@ debug-assertions = true
 
 [profile.samply]
 inherits = "release"
+lto = false  # disable LTO for faster compilation, and slightly slower but at least consistent runtimes
 debug = true

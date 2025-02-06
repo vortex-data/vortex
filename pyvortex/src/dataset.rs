@@ -14,7 +14,7 @@ use vortex::error::VortexResult;
 use vortex::expr::{ident, ExprRef, Select};
 use vortex::file::io::file::FileIoDriver;
 use vortex::file::read::VortexRecordBatchReader;
-use vortex::file::{Scan, VortexFile, VortexOpenOptions};
+use vortex::file::{FileVortexFile, Scan, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stream::ArrayStream;
@@ -37,7 +37,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
-    vortex_file: &VortexFile<FileIoDriver<T>>,
+    vortex_file: &FileVortexFile<FileIoDriver<T>>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     indices: Option<Array>,
@@ -95,7 +95,7 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
 
 #[pyclass(name = "TokioFileDataset", module = "io")]
 pub struct TokioFileDataset {
-    vxf: VortexFile<FileIoDriver<TokioFile>>,
+    vxf: FileVortexFile<FileIoDriver<TokioFile>>,
     schema: SchemaRef,
 }
 
@@ -186,7 +186,7 @@ impl TokioFileDataset {
 
 #[pyclass(name = "ObjectStoreUrlDataset", module = "io")]
 pub struct ObjectStoreUrlDataset {
-    vxf: VortexFile<FileIoDriver<ObjectStoreReadAt>>,
+    vxf: FileVortexFile<FileIoDriver<ObjectStoreReadAt>>,
     schema: SchemaRef,
 }
 

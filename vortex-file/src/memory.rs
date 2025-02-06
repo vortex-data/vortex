@@ -1,31 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_executor::block_on;
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
-use vortex_layout::scan::{Scan, ScanDriver};
+use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
-use crate::segments::NoOpSegmentCache;
-use crate::{FileLayout, Segment, VortexOpenOptions};
-
-impl VortexOpenOptions {
-    /// Open an in-memory file contained in the provided buffer.
-    pub fn open_memory<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<InMemoryVortexFile> {
-        let buffer = buffer.into();
-
-        // No point caching anything, and we can block_on since I/O is basically free.
-        let file_layout = block_on(self.read_file_layout(&buffer, &NoOpSegmentCache))?;
-
-        Ok(InMemoryVortexFile {
-            buffer,
-            file_layout,
-            ctx: self.ctx,
-        })
-    }
-}
+use crate::segments::SegmentCache;
+use crate::{FileLayout, Segment, VortexFileOpener};
 
 #[derive(Clone)]
 pub struct InMemoryVortexFile {
@@ -34,11 +17,23 @@ pub struct InMemoryVortexFile {
     ctx: ContextRef,
 }
 
-impl InMemoryVortexFile {
-    pub fn scan(self) -> Scan<InMemoryVortexFile> {
-        let layout = self.file_layout.root_layout().clone();
-        let ctx = self.ctx.clone();
-        Scan::new(self, layout, ctx)
+impl VortexFileOpener for InMemoryVortexFile {
+    type Options = ();
+    type Read = ByteBuffer;
+    type ScanDriver = Self;
+
+    fn open(
+        ctx: ContextRef,
+        segment_cache: Arc<dyn SegmentCache>,
+        file_layout: FileLayout,
+        _options: Self::Options,
+        read: Self::Read,
+    ) -> VortexResult<Self> {
+        Ok(Self {
+            buffer: read,
+            file_layout,
+            ctx,
+        })
     }
 }
 
