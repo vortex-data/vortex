@@ -11,17 +11,19 @@ use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::compute::scalar_at;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, Context, ContextRef, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
-use crate::{FileVortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
+use crate::{
+    InMemoryVortexFile, VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE,
+    VERSION,
+};
 
 #[test]
 fn test_eof_values() {
@@ -148,8 +150,6 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .with_projection(select(["strings".into()], ident()))
-        .into_stream()
-        .unwrap()
         .into_array()
         .await
         .unwrap();
@@ -181,9 +181,8 @@ async fn test_read_projection() {
 
     let array = file
         .scan()
-        .scan(Scan::new(select(["numbers".into()], ident())))
-        .unwrap()
-        .into_array_data()
+        .with_projection(select(["numbers".into()], ident()))
+        .into_array()
         .await
         .unwrap();
 
@@ -230,11 +229,12 @@ async fn unequal_batches() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let mut stream = pin!(VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all())
+        .scan()
+        .into_stream()
         .unwrap());
 
     let mut batch_count = 0;
@@ -293,11 +293,12 @@ async fn write_chunked() {
         .await
         .unwrap();
 
-    let mut stream = pin!(VortexOpenOptions::new(Arc::new(Context::default()))
+    let mut stream = pin!(VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all())
+        .scan()
+        .into_stream()
         .unwrap());
     let mut array_len: usize = 0;
     while let Some(array) = stream.next().await {
@@ -329,11 +330,13 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all().with_filter(eq(get_item("name", ident()), lit("Joseph"))))
+        .scan()
+        .with_filter(eq(get_item("name", ident()), lit("Joseph")))
+        .into_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -386,17 +389,19 @@ async fn filter_or() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all().with_filter(or(
+        .scan()
+        .with_filter(or(
             eq(get_item("name", ident()), lit("Angela")),
             and(
                 gt_eq(get_item("age", ident()), lit(20)),
                 lt_eq(get_item("age", ident()), lit(30)),
             ),
-        )))
+        ))
+        .into_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -455,14 +460,16 @@ async fn filter_and() {
         .await
         .unwrap();
 
-    let result = VortexOpenOptions::new(Arc::new(Context::default()))
+    let result = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap()
-        .scan(Scan::all().with_filter(and(
+        .scan()
+        .with_filter(and(
             gt(get_item("age", ident()), lit(21)),
             lt_eq(get_item("age", ident()), lit(33)),
-        )))
+        ))
+        .into_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -515,16 +522,16 @@ async fn test_with_indices_simple() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
 
     // test no indices
     let actual_kept_array = file
-        .scan(Scan::all().with_row_indices(Buffer::<u64>::empty()))
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_row_indices(Buffer::<u64>::empty())
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -536,9 +543,9 @@ async fn test_with_indices_simple() {
     let kept_indices = [0_u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
     let actual_kept_array = file
-        .scan(Scan::all().with_row_indices(Buffer::from_iter(kept_indices)))
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_row_indices(Buffer::from_iter(kept_indices))
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -559,9 +566,9 @@ async fn test_with_indices_simple() {
 
     // test all indices
     let actual_array = file
-        .scan(Scan::all().with_row_indices((0u64..500).collect::<Buffer<_>>()))
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_row_indices((0u64..500).collect::<Buffer<_>>())
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -599,16 +606,16 @@ async fn test_with_indices_on_two_columns() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
 
     let kept_indices = [0_u64, 3, 7];
     let array = file
-        .scan(Scan::all().with_row_indices(Buffer::from_iter(kept_indices)))
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_row_indices(Buffer::from_iter(kept_indices))
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -669,19 +676,16 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
 
     let actual_kept_array = file
-        .scan(
-            Scan::all()
-                .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
-                .with_row_indices(Buffer::empty()),
-        )
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
+        .with_row_indices(Buffer::empty())
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -695,13 +699,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let kept_indices = [0u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
     let actual_kept_array = file
-        .scan(
-            Scan::all()
-                .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
-                .with_row_indices(Buffer::from_iter(kept_indices)),
-        )
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
+        .with_row_indices(Buffer::from_iter(kept_indices))
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -726,13 +727,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     // test all indices
     let actual_array = file
-        .scan(
-            Scan::all()
-                .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
-                .with_row_indices((0..500).collect::<Buffer<_>>()),
-        )
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
+        .with_row_indices((0..500).collect::<Buffer<_>>())
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -791,15 +789,15 @@ async fn filter_string_chunked() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
 
     let actual_array = file
-        .scan(Scan::all().with_filter(eq(get_item("name", ident()), lit("Joseph"))))
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_filter(eq(get_item("name", ident()), lit("Joseph")))
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -875,18 +873,18 @@ async fn test_pruning_with_or() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
 
     let actual_array = file
-        .scan(Scan::all().with_filter(or(
+        .scan()
+        .with_filter(or(
             lt_eq(get_item("letter", ident()), lit("J")),
             lt(get_item("number", ident()), lit(25)),
-        )))
-        .unwrap()
-        .into_array_data()
+        ))
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -964,18 +962,15 @@ async fn test_repeated_projection() {
         .await
         .unwrap();
 
-    let file = VortexOpenOptions::new(Arc::new(Context::default()))
+    let file = VortexOpenOptions::in_memory()
         .open(buf.freeze())
         .await
         .unwrap();
 
     let actual = file
-        .scan(Scan::new(select(
-            ["strings".into(), "strings".into()],
-            ident(),
-        )))
-        .unwrap()
-        .into_array_data()
+        .scan()
+        .with_projection(select(["strings".into(), "strings".into()], ident()))
+        .into_array()
         .await
         .unwrap()
         .into_struct()
@@ -991,7 +986,7 @@ async fn test_repeated_projection() {
     );
 }
 
-fn chunked_file() -> FileVortexFile<impl IoDriver> {
+fn chunked_file() -> VortexFile<InMemoryVortexFile> {
     let array = ChunkedArray::from_iter([
         buffer![0, 1, 2].into_array(),
         buffer![3, 4, 5].into_array(),
@@ -1004,9 +999,7 @@ fn chunked_file() -> FileVortexFile<impl IoDriver> {
             .write(vec![], array.into_array_stream())
             .await?
             .into();
-        VortexOpenOptions::new(ContextRef::default())
-            .open(buffer)
-            .await
+        VortexOpenOptions::in_memory().open(buffer).await
     })
     .vortex_expect("Failed to create test file")
 }
@@ -1014,7 +1007,7 @@ fn chunked_file() -> FileVortexFile<impl IoDriver> {
 #[test]
 fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file();
-    let result = block_on(vxf.scan(Scan::all())?.into_array_data())?.into_primitive()?;
+    let result = block_on(vxf.scan().into_array())?.into_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -1024,11 +1017,8 @@ fn basic_file_roundtrip() -> VortexResult<()> {
 #[test]
 fn file_take() -> VortexResult<()> {
     let vxf = chunked_file();
-    let result = block_on(
-        vxf.scan(Scan::all().with_row_indices(buffer![0, 1, 8]))?
-            .into_array_data(),
-    )?
-    .into_primitive()?;
+    let result =
+        block_on(vxf.scan().with_row_indices(buffer![0, 1, 8]).into_array())?.into_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
 

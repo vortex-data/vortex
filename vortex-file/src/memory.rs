@@ -24,8 +24,8 @@ impl VortexFileOpener for InMemoryVortexFile {
 
     fn open(
         ctx: ContextRef,
-        segment_cache: Arc<dyn SegmentCache>,
         file_layout: FileLayout,
+        _segment_cache: Arc<dyn SegmentCache>,
         _options: Self::Options,
         read: Self::Read,
     ) -> VortexResult<Self> {
@@ -34,6 +34,10 @@ impl VortexFileOpener for InMemoryVortexFile {
             file_layout,
             ctx,
         })
+    }
+
+    fn scan_driver(&self) -> Self::ScanDriver {
+        self.clone()
     }
 }
 

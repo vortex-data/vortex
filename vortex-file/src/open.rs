@@ -30,11 +30,10 @@ pub struct VortexFile<F: VortexFileOpener> {
 }
 
 impl<F: VortexFileOpener> VortexFile<F> {
-    ///
-    pub fn scan(self) -> Scan<F::ScanDriver> {
+    pub fn scan(&self) -> Scan<F::ScanDriver> {
         let layout = self.file_layout.root_layout().clone();
         let ctx = self.ctx.clone();
-        Scan::new(self.file, layout, ctx)
+        Scan::new(self.file.scan_driver(), layout, ctx)
     }
 }
 
@@ -50,6 +49,8 @@ pub trait VortexFileOpener: Sized {
         options: Self::Options,
         read: Self::Read,
     ) -> VortexResult<Self>;
+
+    fn scan_driver(&self) -> Self::ScanDriver;
 }
 
 /// Open options for a Vortex file reader.
@@ -135,8 +136,6 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     }
 }
 
-pub struct FileOpenOptions;
-
 impl<R: VortexReadAt> VortexOpenOptions<FileVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
@@ -152,7 +151,7 @@ impl<R: VortexReadAt> VortexOpenOptions<FileVortexFile<R>> {
                 CacheBuilder::new(1 << 30),
             )),
             initial_read_size: Self::INITIAL_READ_SIZE,
-            options: FileOpenOptions,
+            options: (),
         }
     }
 }
@@ -168,13 +167,17 @@ impl<F: VortexFileOpener> VortexOpenOptions<F> {
             Some(file_layout) => file_layout,
         };
 
-        F::open(
-            self.ctx,
-            file_layout,
-            self.segment_cache,
-            self.options,
-            read,
-        )
+        Ok(VortexFile {
+            ctx: self.ctx.clone(),
+            file_layout: file_layout.clone(),
+            file: F::open(
+                self.ctx,
+                file_layout,
+                self.segment_cache,
+                self.options,
+                read,
+            )?,
+        })
     }
 
     /// Read the [`FileLayout`] from the file.

@@ -25,15 +25,13 @@ pub struct FileVortexFile<R> {
     read: R,
     ctx: ContextRef,
     file_layout: FileLayout,
-
     segment_cache: Arc<dyn SegmentCache>,
-    segment_channel: SegmentChannel,
 }
 
 impl<R: VortexReadAt> VortexFileOpener for FileVortexFile<R> {
     type Options = ();
     type Read = R;
-    type ScanDriver = Self;
+    type ScanDriver = FileScanDriver<R>;
 
     fn open(
         ctx: ContextRef,
@@ -47,8 +45,16 @@ impl<R: VortexReadAt> VortexFileOpener for FileVortexFile<R> {
             ctx,
             file_layout,
             segment_cache,
-            segment_channel: SegmentChannel::new(),
         })
+    }
+
+    fn scan_driver(&self) -> Self::ScanDriver {
+        FileScanDriver {
+            read: self.read.clone(),
+            file_layout: self.file_layout.clone(),
+            segment_cache: self.segment_cache.clone(),
+            segment_channel: SegmentChannel::new(),
+        }
     }
 }
 
@@ -70,7 +76,14 @@ impl Default for FileScanOptions {
     }
 }
 
-impl<R: VortexReadAt> ScanDriver for FileVortexFile<R> {
+pub struct FileScanDriver<R> {
+    read: R,
+    file_layout: FileLayout,
+    segment_cache: Arc<dyn SegmentCache>,
+    segment_channel: SegmentChannel,
+}
+
+impl<R: VortexReadAt> ScanDriver for FileScanDriver<R> {
     type Options = FileScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
