@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, get_session_with_cache, idempotent, physical_plan, setup_logger, Format,
-    IdempotentPath as _, Measurement,
+    execute_query, feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
+    setup_logger, Format, IdempotentPath as _, Measurement,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -18,6 +18,8 @@ use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use vortex::error::{vortex_panic, VortexExpect};
+
+feature_flagged_allocator!();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
