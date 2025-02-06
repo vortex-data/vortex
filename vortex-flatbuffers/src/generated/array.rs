@@ -11,9 +11,294 @@ use core::cmp::Ordering;
 extern crate flatbuffers;
 use self::flatbuffers::{EndianScalar, Follow};
 
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_COMPRESSION: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_COMPRESSION: u8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_COMPRESSION: [Compression; 2] = [
+  Compression::None,
+  Compression::LZ4,
+];
+
+/// The compression mechanism used to compress the buffer.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct Compression(pub u8);
+#[allow(non_upper_case_globals)]
+impl Compression {
+  pub const None: Self = Self(0);
+  pub const LZ4: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::None,
+    Self::LZ4,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::None => Some("None"),
+      Self::LZ4 => Some("LZ4"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for Compression {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for Compression {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for Compression {
+    type Output = Compression;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for Compression {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for Compression {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for Compression {}
+/// A Buffer describes the location of a data buffer in the byte stream as a packed 64-bit struct.
+// struct Buffer, aligned to 4
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct Buffer(pub [u8; 8]);
+impl Default for Buffer { 
+  fn default() -> Self { 
+    Self([0; 8])
+  }
+}
+impl core::fmt::Debug for Buffer {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    f.debug_struct("Buffer")
+      .field("padding", &self.padding())
+      .field("alignment_exponent", &self.alignment_exponent())
+      .field("compression", &self.compression())
+      .field("length", &self.length())
+      .finish()
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for Buffer {}
+impl<'a> flatbuffers::Follow<'a> for Buffer {
+  type Inner = &'a Buffer;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    <&'a Buffer>::follow(buf, loc)
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a Buffer {
+  type Inner = &'a Buffer;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    flatbuffers::follow_cast_ref::<Buffer>(buf, loc)
+  }
+}
+impl<'b> flatbuffers::Push for Buffer {
+    type Output = Buffer;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = ::core::slice::from_raw_parts(self as *const Buffer as *const u8, <Self as flatbuffers::Push>::size());
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> flatbuffers::PushAlignment {
+        flatbuffers::PushAlignment::new(4)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for Buffer {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> Buffer {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    padding: u16,
+    alignment_exponent: u8,
+    compression: Compression,
+    length: u32,
+  ) -> Self {
+    let mut s = Self([0; 8]);
+    s.set_padding(padding);
+    s.set_alignment_exponent(alignment_exponent);
+    s.set_compression(compression);
+    s.set_length(length);
+    s
+  }
+
+  /// The length of any padding bytes written immediately before the buffer.
+  pub fn padding(&self) -> u16 {
+    let mut mem = core::mem::MaybeUninit::<<u16 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u16 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_padding(&mut self, x: u16) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        core::mem::size_of::<<u16 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  /// The minimum alignment of the buffer, stored as an exponent of 2.
+  pub fn alignment_exponent(&self) -> u8 {
+    let mut mem = core::mem::MaybeUninit::<<u8 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[2..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u8 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_alignment_exponent(&mut self, x: u8) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[2..].as_mut_ptr(),
+        core::mem::size_of::<<u8 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  /// The compression algorithm used to compress the buffer.
+  pub fn compression(&self) -> Compression {
+    let mut mem = core::mem::MaybeUninit::<<Compression as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[3..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<Compression as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_compression(&mut self, x: Compression) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[3..].as_mut_ptr(),
+        core::mem::size_of::<<Compression as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  /// The length of the buffer in bytes.
+  pub fn length(&self) -> u32 {
+    let mut mem = core::mem::MaybeUninit::<<u32 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[4..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u32 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_length(&mut self, x: u32) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[4..].as_mut_ptr(),
+        core::mem::size_of::<<u32 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
 pub enum ArrayOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
+/// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
+/// immediately after the message in the byte stream.
 pub struct Array<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
@@ -27,11 +312,8 @@ impl<'a> flatbuffers::Follow<'a> for Array<'a> {
 }
 
 impl<'a> Array<'a> {
-  pub const VT_ENCODING: flatbuffers::VOffsetT = 4;
-  pub const VT_METADATA: flatbuffers::VOffsetT = 6;
-  pub const VT_CHILDREN: flatbuffers::VOffsetT = 8;
-  pub const VT_BUFFERS: flatbuffers::VOffsetT = 10;
-  pub const VT_STATS: flatbuffers::VOffsetT = 12;
+  pub const VT_ROOT: flatbuffers::VOffsetT = 4;
+  pub const VT_BUFFERS: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -43,49 +325,27 @@ impl<'a> Array<'a> {
     args: &'args ArrayArgs<'args>
   ) -> flatbuffers::WIPOffset<Array<'bldr>> {
     let mut builder = ArrayBuilder::new(_fbb);
-    if let Some(x) = args.stats { builder.add_stats(x); }
     if let Some(x) = args.buffers { builder.add_buffers(x); }
-    if let Some(x) = args.children { builder.add_children(x); }
-    if let Some(x) = args.metadata { builder.add_metadata(x); }
-    builder.add_encoding(args.encoding);
+    if let Some(x) = args.root { builder.add_root(x); }
     builder.finish()
   }
 
 
+  /// The array's hierarchical definition.
   #[inline]
-  pub fn encoding(&self) -> u16 {
+  pub fn root(&self) -> Option<ArrayNode<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u16>(Array::VT_ENCODING, Some(0)).unwrap()}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ArrayNode>>(Array::VT_ROOT, None)}
   }
+  /// The locations of the data buffers of the array
   #[inline]
-  pub fn metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
+  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, Buffer>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Array::VT_METADATA, None)}
-  }
-  #[inline]
-  pub fn children(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Array<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Array>>>>(Array::VT_CHILDREN, None)}
-  }
-  #[inline]
-  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, u16>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u16>>>(Array::VT_BUFFERS, None)}
-  }
-  #[inline]
-  pub fn stats(&self) -> Option<ArrayStats<'a>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ArrayStats>>(Array::VT_STATS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, Buffer>>>(Array::VT_BUFFERS, None)}
   }
 }
 
@@ -96,31 +356,22 @@ impl flatbuffers::Verifiable for Array<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<u16>("encoding", Self::VT_ENCODING, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Array>>>>("children", Self::VT_CHILDREN, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u16>>>("buffers", Self::VT_BUFFERS, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<ArrayStats>>("stats", Self::VT_STATS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ArrayNode>>("root", Self::VT_ROOT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Buffer>>>("buffers", Self::VT_BUFFERS, false)?
      .finish();
     Ok(())
   }
 }
 pub struct ArrayArgs<'a> {
-    pub encoding: u16,
-    pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
-    pub children: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Array<'a>>>>>,
-    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u16>>>,
-    pub stats: Option<flatbuffers::WIPOffset<ArrayStats<'a>>>,
+    pub root: Option<flatbuffers::WIPOffset<ArrayNode<'a>>>,
+    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Buffer>>>,
 }
 impl<'a> Default for ArrayArgs<'a> {
   #[inline]
   fn default() -> Self {
     ArrayArgs {
-      encoding: 0,
-      metadata: None,
-      children: None,
+      root: None,
       buffers: None,
-      stats: None,
     }
   }
 }
@@ -131,24 +382,12 @@ pub struct ArrayBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_encoding(&mut self, encoding: u16) {
-    self.fbb_.push_slot::<u16>(Array::VT_ENCODING, encoding, 0);
+  pub fn add_root(&mut self, root: flatbuffers::WIPOffset<ArrayNode<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ArrayNode>>(Array::VT_ROOT, root);
   }
   #[inline]
-  pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Array::VT_METADATA, metadata);
-  }
-  #[inline]
-  pub fn add_children(&mut self, children: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Array<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Array::VT_CHILDREN, children);
-  }
-  #[inline]
-  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u16>>) {
+  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , Buffer>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Array::VT_BUFFERS, buffers);
-  }
-  #[inline]
-  pub fn add_stats(&mut self, stats: flatbuffers::WIPOffset<ArrayStats<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ArrayStats>>(Array::VT_STATS, stats);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayBuilder<'a, 'b, A> {
@@ -168,6 +407,168 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayBuilder<'a, 'b, A> {
 impl core::fmt::Debug for Array<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Array");
+      ds.field("root", &self.root());
+      ds.field("buffers", &self.buffers());
+      ds.finish()
+  }
+}
+pub enum ArrayNodeOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ArrayNode<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ArrayNode<'a> {
+  type Inner = ArrayNode<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> ArrayNode<'a> {
+  pub const VT_ENCODING: flatbuffers::VOffsetT = 4;
+  pub const VT_METADATA: flatbuffers::VOffsetT = 6;
+  pub const VT_CHILDREN: flatbuffers::VOffsetT = 8;
+  pub const VT_BUFFERS: flatbuffers::VOffsetT = 10;
+  pub const VT_STATS: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ArrayNode { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ArrayNodeArgs<'args>
+  ) -> flatbuffers::WIPOffset<ArrayNode<'bldr>> {
+    let mut builder = ArrayNodeBuilder::new(_fbb);
+    if let Some(x) = args.stats { builder.add_stats(x); }
+    if let Some(x) = args.buffers { builder.add_buffers(x); }
+    if let Some(x) = args.children { builder.add_children(x); }
+    if let Some(x) = args.metadata { builder.add_metadata(x); }
+    builder.add_encoding(args.encoding);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn encoding(&self) -> u16 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u16>(ArrayNode::VT_ENCODING, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(ArrayNode::VT_METADATA, None)}
+  }
+  #[inline]
+  pub fn children(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayNode<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayNode>>>>(ArrayNode::VT_CHILDREN, None)}
+  }
+  #[inline]
+  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, u16>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u16>>>(ArrayNode::VT_BUFFERS, None)}
+  }
+  #[inline]
+  pub fn stats(&self) -> Option<ArrayStats<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ArrayStats>>(ArrayNode::VT_STATS, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for ArrayNode<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u16>("encoding", Self::VT_ENCODING, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayNode>>>>("children", Self::VT_CHILDREN, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u16>>>("buffers", Self::VT_BUFFERS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ArrayStats>>("stats", Self::VT_STATS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ArrayNodeArgs<'a> {
+    pub encoding: u16,
+    pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+    pub children: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayNode<'a>>>>>,
+    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u16>>>,
+    pub stats: Option<flatbuffers::WIPOffset<ArrayStats<'a>>>,
+}
+impl<'a> Default for ArrayNodeArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ArrayNodeArgs {
+      encoding: 0,
+      metadata: None,
+      children: None,
+      buffers: None,
+      stats: None,
+    }
+  }
+}
+
+pub struct ArrayNodeBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayNodeBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_encoding(&mut self, encoding: u16) {
+    self.fbb_.push_slot::<u16>(ArrayNode::VT_ENCODING, encoding, 0);
+  }
+  #[inline]
+  pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayNode::VT_METADATA, metadata);
+  }
+  #[inline]
+  pub fn add_children(&mut self, children: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayNode<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayNode::VT_CHILDREN, children);
+  }
+  #[inline]
+  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u16>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayNode::VT_BUFFERS, buffers);
+  }
+  #[inline]
+  pub fn add_stats(&mut self, stats: flatbuffers::WIPOffset<ArrayStats<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ArrayStats>>(ArrayNode::VT_STATS, stats);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayNodeBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ArrayNodeBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ArrayNode<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ArrayNode<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ArrayNode");
       ds.field("encoding", &self.encoding());
       ds.field("metadata", &self.metadata());
       ds.field("children", &self.children());

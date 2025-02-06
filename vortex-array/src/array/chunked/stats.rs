@@ -19,7 +19,7 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
                         s.compute_all(&[stat, Stat::Min, Stat::Max]).ok()
                     }
                     _ => s
-                        .compute(stat)
+                        .compute_stat(stat)
                         .map(|s| StatsSet::of(stat, Precision::exact(s))),
                 }
                 .unwrap_or_default()

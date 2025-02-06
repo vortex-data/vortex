@@ -1,9 +1,37 @@
 include "vortex-scalar/scalar.fbs";
 
+/// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
+/// immediately after the message in the byte stream.
 table Array {
+    /// The array's hierarchical definition.
+    root: ArrayNode;
+    /// The locations of the data buffers of the array
+    buffers: [Buffer];
+}
+
+/// The compression mechanism used to compress the buffer.
+enum Compression: uint8 {
+    None = 0,
+    LZ4 = 1,
+}
+
+/// A Buffer describes the location of a data buffer in the byte stream as a packed 64-bit struct.
+struct Buffer {
+    /// The length of any padding bytes written immediately before the buffer.
+    padding: uint16;
+    /// The minimum alignment of the buffer, stored as an exponent of 2.
+    alignment_exponent: uint8;
+    /// The compression algorithm used to compress the buffer.
+    compression: Compression;
+    /// The length of the buffer in bytes.
+    length: uint32;
+}
+
+
+table ArrayNode {
     encoding: uint16;
     metadata: [ubyte];
-    children: [Array];
+    children: [ArrayNode];
     buffers: [uint16];
     stats: ArrayStats;
 }

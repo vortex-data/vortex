@@ -28,10 +28,6 @@ impl ComputeVTable for BoolEncoding {
         None
     }
 
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
-        Some(self)
-    }
-
     fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<Array>> {
         Some(self)
     }
@@ -69,6 +65,10 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+        Some(self)
+    }
+
+    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
         Some(self)
     }
 }

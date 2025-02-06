@@ -1,6 +1,7 @@
 use async_trait::async_trait;
-use futures::future::{ready, try_join_all};
-use futures::FutureExt;
+use futures::future::ready;
+use futures::stream::FuturesOrdered;
+use futures::{FutureExt, TryStreamExt as _};
 use vortex_array::array::{ChunkedArray, ConstantArray};
 use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
@@ -22,7 +23,7 @@ impl ExprEvaluator for ChunkedReader {
         let pruning_mask = self.pruning_mask(&expr).await?;
 
         // Now we set up futures to evaluate each chunk at the same time
-        let mut chunks = Vec::with_capacity(self.nchunks());
+        let mut chunks = FuturesOrdered::new();
 
         let mut row_offset = 0;
         for chunk_idx in 0..self.nchunks() {
@@ -55,19 +56,17 @@ impl ExprEvaluator for ChunkedReader {
                         Scalar::bool(false, dtype.nullability()),
                         chunk_mask.true_count(),
                     );
-                    chunks.push(ready(Ok(false_array.into_array())).boxed());
+                    chunks.push_back(ready(Ok(false_array.into_array())).boxed());
                     continue;
                 }
             }
 
             // Otherwise, we need to read it. So we set up a mask for the chunk range.
 
-            let expr = expr.clone();
-            chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr).boxed());
+            chunks.push_back(chunk_reader.evaluate_expr(chunk_mask, expr.clone()));
         }
 
-        // Wait for all chunks to be evaluated
-        let chunks = try_join_all(chunks).await?;
+        let chunks = chunks.try_collect::<Vec<_>>().await?;
 
         Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
     }

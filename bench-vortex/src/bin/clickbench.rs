@@ -1,15 +1,14 @@
 #![feature(exit_status_error)]
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, get_session_with_cache, idempotent, physical_plan, setup_logger, Format,
-    IdempotentPath as _, Measurement,
+    execute_query, feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
+    setup_logger, Format, IdempotentPath as _, Measurement,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -18,7 +17,9 @@ use itertools::Itertools;
 use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
-use vortex::error::vortex_panic;
+use vortex::error::{vortex_panic, VortexExpect};
+
+feature_flagged_allocator!();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -61,6 +62,7 @@ fn main() {
     }
     .expect("Failed building the Runtime");
     let basepath = "clickbench".to_data_path();
+    let client = reqwest::blocking::Client::default();
 
     // The clickbench-provided file is missing some higher-level type info, so we reprocess it
     // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
@@ -69,12 +71,30 @@ fn main() {
         idempotent(&output_path, |output_path| {
             eprintln!("Downloading file {idx}");
             let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
-            let r = reqwest::blocking::get(url)?.error_for_status()?;
-            let body = r.bytes()?;
 
-            let mut file = OpenOptions::new().create_new(true).write(true).open(output_path)?;
-            file.write_all(body.as_ref())?;
-            file.flush()?;
+
+            let make_req = || client.get(&url).send();
+            let mut output = None;
+
+            for attempt in 1..4 {
+                match make_req() {
+                    Ok(r) => {
+                          output = Some(r.error_for_status());
+                          break;
+                    },
+                    Err(e) => {
+                        eprintln!("Request for file {idx} timed out, retying for the {attempt} time");
+                        output = Some(Err(e));
+                    }
+                }
+
+                // Very basic backoff mechanism
+                std::thread::sleep(Duration::from_secs(attempt));
+            }
+
+            let mut response = output.vortex_expect("Must have value here")?;
+            let mut file = File::create(output_path)?;
+            response.copy_to(&mut file)?;
 
             anyhow::Ok(PathBuf::from(output_path))
         })
@@ -163,9 +183,16 @@ fn main() {
             for _ in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
-                    execute_query(&context, &query)
-                        .await
-                        .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                    let context = context.clone();
+                    let query = query.clone();
+                    tokio::task::spawn(async move {
+                        execute_query(&context, &query)
+                            .await
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                    })
+                    .await
+                    .unwrap();
+
                     start.elapsed()
                 });
 

@@ -23,12 +23,12 @@ impl WriteFlatBuffer for &dyn Statistics {
             .map(|v| fbb.create_vector(v.as_slice()));
 
         let min = self
-            .get(Stat::Min)
+            .get_stat(Stat::Min)
             .and_then(Precision::some_exact)
             .map(|min| min.write_flatbuffer(fbb));
 
         let max = self
-            .get(Stat::Max)
+            .get_stat(Stat::Max)
             .and_then(Precision::some_exact)
             .map(|max| max.write_flatbuffer(fbb));
 

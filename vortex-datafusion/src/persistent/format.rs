@@ -33,7 +33,7 @@ use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
 use crate::can_be_pushed_down;
-use crate::converter::directional_bound_to_df_precision;
+use crate::converter::{bound_to_datafusion, directional_bound_to_df_precision};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 #[derive(Debug)]
@@ -46,18 +46,13 @@ pub struct VortexFormat {
 /// Options to configure the [`VortexFormat`].
 #[derive(Debug)]
 pub struct VortexFormatOptions {
-    /// The number of concurrency tasks used to infer the schema of multiple Vortex files.
-    pub concurrent_infer_schema_ops: usize,
     /// The size of the in-memory [`vortex_file::FileLayout`] cache.
     pub cache_size_mb: usize,
 }
 
 impl Default for VortexFormatOptions {
     fn default() -> Self {
-        Self {
-            concurrent_infer_schema_ops: 64,
-            cache_size_mb: 256,
-        }
+        Self { cache_size_mb: 256 }
     }
 }
 
@@ -113,13 +108,7 @@ impl FileFormatFactory for VortexFormatFactory {
 
 impl Default for VortexFormat {
     fn default() -> Self {
-        let opts = VortexFormatOptions::default();
-
-        Self {
-            context: Default::default(),
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
-            opts,
-        }
+        Self::new(Default::default())
     }
 }
 
@@ -128,10 +117,15 @@ impl VortexFormat {
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
+            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb, context.clone()),
             context,
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
             opts,
         }
+    }
+
+    /// Return the format specific configuration
+    pub fn options(&self) -> &VortexFormatOptions {
+        &self.opts
     }
 }
 
@@ -159,23 +153,30 @@ impl FileFormat for VortexFormat {
 
     async fn infer_schema(
         &self,
-        _state: &SessionState,
+        state: &SessionState,
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
-        let file_schemas = stream::iter(objects.iter().cloned())
+        let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_layout_cache.clone();
                 async move {
                     let file_layout = cache.try_get(&o, store).await?;
-                    let s = infer_schema(file_layout.dtype())?;
-                    VortexResult::Ok(s)
+                    let inferred_schema = infer_schema(file_layout.dtype())?;
+                    VortexResult::Ok((o.location, inferred_schema))
                 }
             })
-            .buffered(self.opts.concurrent_infer_schema_ops)
+            .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
             .try_collect::<Vec<_>>()
             .await?;
+
+        // Get consistent order of schemas for `Schema::try_merge`, as some filesystems don't have deterministic listing orders
+        file_schemas.sort_by(|(l1, _), (l2, _)| l1.cmp(l2));
+        let file_schemas = file_schemas
+            .into_iter()
+            .map(|(_, schema)| schema)
+            .collect::<Vec<_>>();
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
 
@@ -203,7 +204,7 @@ impl FileFormat for VortexFormat {
         let field_paths = table_schema
             .fields()
             .iter()
-            .map(|f| FieldPath::from_name(f.name().to_owned()))
+            .map(|field| FieldPath::from_name(field.name().to_owned()))
             .collect();
         let stats = vxf
             .statistics(
@@ -218,36 +219,38 @@ impl FileFormat for VortexFormat {
             )?
             .await?;
 
+        let total_byte_size = stats
+            .iter()
+            .map(|stats_set| {
+                stats_set
+                    .get_as::<usize>(Stat::UncompressedSizeInBytes)
+                    .unwrap_or_else(|| stats::Precision::inexact(0_usize))
+            })
+            .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
+                acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
+            });
+
         // Sum up the total byte size across all the columns.
-        let total_byte_size = directional_bound_to_df_precision(Some(
-            stats
-                .iter()
-                .map(|s| {
-                    s.get_as::<usize>(Stat::UncompressedSizeInBytes)
-                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
-                })
-                .fold(stats::Precision::exact(0_usize), |acc, s| {
-                    acc.zip(s).map(|(acc, s)| acc + s)
-                }),
-        ));
+        let total_byte_size = bound_to_datafusion(total_byte_size);
 
         let column_statistics = stats
             .into_iter()
             .zip(table_schema.fields().iter())
-            .map(|(s, f)| {
-                let null_count = s.get_as::<usize>(Stat::NullCount);
-                let min = s
-                    .get_scalar(Stat::Min, DType::from_arrow(f.as_ref()))
+            .map(|(stats_set, field)| {
+                let null_count = stats_set.get_as::<usize>(Stat::NullCount);
+                let min = stats_set
+                    .get_scalar(Stat::Min, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
 
-                let max = s
-                    .get_scalar(Stat::Max, DType::from_arrow(f.as_ref()))
+                let max = stats_set
+                    .get_scalar(Stat::Max, DType::from_arrow(field.as_ref()))
                     .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+
                 ColumnStatistics {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),
                     min_value: directional_bound_to_df_precision(min),
-                    distinct_count: s
+                    distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
                         .and_then(|is_constant| {
                             is_constant.some_exact().map(|_| Precision::Exact(1))
@@ -276,6 +279,23 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         let metrics = ExecutionPlanMetricsSet::new();
 
+        if file_scan_config
+            .file_groups
+            .iter()
+            .flatten()
+            .any(|f| f.range.is_some())
+        {
+            return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
+        }
+
+        if file_scan_config.limit.is_some() {
+            return not_impl_err!("Limit isn't implemented yet for Vortex");
+        }
+
+        if !file_scan_config.table_partition_cols.is_empty() {
+            return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
+        }
+
         let exec = VortexExec::try_new(
             file_scan_config,
             metrics,
@@ -296,7 +316,11 @@ impl FileFormat for VortexFormat {
         order_requirements: Option<LexRequirement>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if conf.insert_op != InsertOp::Append {
-            return not_impl_err!("Overwrites are not implemented yet for Parquet");
+            return not_impl_err!("Overwrites are not implemented yet for Vortex");
+        }
+
+        if !conf.table_partition_cols.is_empty() {
+            return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
         let sink_schema = conf.output_schema().clone();

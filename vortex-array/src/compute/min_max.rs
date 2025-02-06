@@ -1,4 +1,3 @@
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -46,7 +45,7 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
         .get_scalar(Stat::Max, array.dtype())
         .and_then(Precision::some_exact);
 
-    if let (Some(min), Some(max)) = (min, max) {
+    if let Some((min, max)) = min.zip(max) {
         return Ok(Some(MinMaxResult { min, max }));
     }
 
@@ -61,23 +60,23 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
         }
     };
 
-    if let Some(MinMaxResult { min, max }) = &min_max {
+    if let Some(MinMaxResult { min, max }) = min_max.as_ref() {
         debug_assert_eq!(
             min.dtype(),
-            &array.dtype().with_nullability(NonNullable),
+            array.dtype(),
             "MinMax min dtype mismatch {}",
             array.encoding()
         );
 
-        array.set(Stat::Min, Precision::exact(min.clone().into_value()));
+        array.set_stat(Stat::Min, Precision::exact(min.clone().into_value()));
 
         debug_assert_eq!(
             max.dtype(),
-            &array.dtype().with_nullability(NonNullable),
-            "MinMax min dtype mismatch {}",
+            array.dtype(),
+            "MinMax max dtype mismatch {}",
             array.encoding()
         );
-        array.set(Stat::Max, Precision::exact(max.clone().into_value()));
+        array.set_stat(Stat::Max, Precision::exact(max.clone().into_value()));
 
         debug_assert!(
             min <= max,

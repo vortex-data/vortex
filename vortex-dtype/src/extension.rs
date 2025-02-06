@@ -58,7 +58,7 @@ impl From<&[u8]> for ExtMetadata {
 }
 
 /// A type descriptor for an extension type
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
     id: ExtID,

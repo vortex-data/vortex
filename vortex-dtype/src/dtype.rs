@@ -18,7 +18,7 @@ pub type FieldNames = Arc<[FieldName]>;
 ///
 /// Vortex arrays preserve a single logical type, while the encodings allow for multiple
 /// physical ways to encode that type.
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
     /// The logical null type (only has a single value, `null`)

@@ -3,7 +3,7 @@ use vortex_array::compute::{and, compare, or, try_cast, CompareFn, Operator};
 use vortex_array::{Array, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::{DateTimePartsArray, DateTimePartsEncoding};
 use crate::timestamp;
@@ -20,11 +20,12 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
-        let Ok(Some(timestamp)) = rhs_const
+        let Ok(timestamp) = rhs_const
             .as_extension()
             .storage()
             .as_primitive()
             .as_::<i64>()
+            .map(|maybe_value| maybe_value.vortex_expect("null scalar handled in top-level"))
         else {
             return Ok(None);
         };

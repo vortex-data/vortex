@@ -479,6 +479,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "bzip2",
+ "cfg-if",
  "clap",
  "criterion",
  "datafusion",
@@ -505,6 +506,7 @@ dependencies = [
  "simplelog",
  "tabled",
  "tar",
+ "tikv-jemallocator",
  "tokio",
  "uuid",
  "vortex",
@@ -2118,9 +2120,9 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
 name = "goldenfile"
-version = "1.7.3"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "672ff1c2f0537cf3f92065ce8aa77e2fc3f2abae2c805eb67f40ceecfbdee428"
+checksum = "cf39e208efa110ca273f7255aea02485103ffcb7e5dfa5e4196b05a02411618e"
 dependencies = [
  "scopeguard",
  "similar-asserts",
@@ -2937,6 +2939,7 @@ dependencies = [
  "loom",
  "parking_lot",
  "portable-atomic",
+ "quanta",
  "rustc_version",
  "smallvec",
  "tagptr",
@@ -4088,9 +4091,9 @@ checksum = "719b953e2095829ee67db738b3bfa9fa368c94900df327b3f07fe6e794d2fe1f"
 
 [[package]]
 name = "rustc-hash"
-version = "2.1.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7fb8039b3032c191086b10f11f319a6e99e1e82889c5cc6046f515c9db1d497"
+checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
 
 [[package]]
 name = "rustc_version"
@@ -4737,6 +4740,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "tikv-jemalloc-sys"
+version = "0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd3c60906412afa9c2b5b5a48ca6a5abe5736aec9eb48ad05037a677e52e4e2d"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cec5ff18518d81584f477e9bfdf957f5bb0979b0bac3af4ca30b5b3ae2d2865"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
+]
+
+[[package]]
 name = "time"
 version = "0.3.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5237,6 +5260,7 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "futures",
+ "hashbrown 0.15.2",
  "itertools 0.14.0",
  "log",
  "moka",
@@ -5289,6 +5313,7 @@ version = "0.24.0"
 dependencies = [
  "arrow-buffer",
  "criterion",
+ "divan",
  "num-traits",
  "rand",
  "rustc-hash",
@@ -5402,6 +5427,7 @@ dependencies = [
  "pin-project-lite",
  "rayon",
  "rstest",
+ "rustc-hash",
  "tokio",
  "tracing",
  "vortex-array",

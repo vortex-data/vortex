@@ -4,7 +4,7 @@ use std::io;
 use bytes::Bytes;
 use futures::FutureExt;
 
-use crate::VortexReadAt;
+use crate::{PerformanceHint, VortexReadAt};
 
 /// An adapter that offsets all reads by a fixed amount.
 pub struct OffsetReadAt<R> {
@@ -39,7 +39,7 @@ impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
         self.read.read_byte_range(pos + self.offset, len)
     }
 
-    fn performance_hint(&self) -> usize {
+    fn performance_hint(&self) -> PerformanceHint {
         self.read.performance_hint()
     }
 

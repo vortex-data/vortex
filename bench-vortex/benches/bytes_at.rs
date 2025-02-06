@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use bench_vortex::feature_flagged_allocator;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use parquet::data_type::AsBytes;
 use vortex::array::{VarBinArray, VarBinViewArray};
@@ -12,6 +13,8 @@ use vortex::ipc::iterator::{ArrayIteratorIPC, SyncIPCReader};
 use vortex::iter::ArrayIteratorExt;
 use vortex::validity::Validity;
 use vortex::{Context, IntoArray, IntoArrayVariant};
+
+feature_flagged_allocator!();
 
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(

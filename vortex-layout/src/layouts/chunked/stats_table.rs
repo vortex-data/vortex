@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
@@ -30,11 +30,16 @@ impl StatsTable {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
-        Ok(Self {
+
+        Ok(Self::try_new_unchecked(column_dtype, array, stats))
+    }
+
+    pub fn try_new_unchecked(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> Self {
+        Self {
             column_dtype,
             array,
             stats,
-        })
+        }
     }
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
@@ -74,7 +79,7 @@ impl StatsTable {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max => {
-                    if let Some(s) = array.statistics().compute(*stat) {
+                    if let Some(s) = array.compute_stat(*stat) {
                         stats_set.set(*stat, Precision::exact(s))
                     }
                 }
@@ -147,7 +152,7 @@ impl StatsAccumulator {
 
     pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.statistics().compute(*s) {
+            if let Some(v) = array.compute_stat(*s) {
                 builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;
             } else {
                 builder.append_null();
@@ -172,7 +177,7 @@ impl StatsAccumulator {
                 .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
 
             // We drop any all-null stats columns
-            if values.null_count()? == values.len() {
+            if values.invalid_count()? == values.len() {
                 continue;
             }
 

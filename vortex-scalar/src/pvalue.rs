@@ -250,28 +250,42 @@ int_pvalue!(i16, I16);
 int_pvalue!(i32, I32);
 int_pvalue!(i64, I64);
 
-macro_rules! float_pvalue {
-    ($T:ty, $PT:tt) => {
-        impl TryFrom<PValue> for $T {
-            type Error = VortexError;
+impl TryFrom<PValue> for f64 {
+    type Error = VortexError;
 
-            fn try_from(value: PValue) -> Result<Self, Self::Error> {
-                match value {
-                    PValue::F16(f) => <$T as NumCast>::from(f),
-                    PValue::F32(f) => <$T as NumCast>::from(f),
-                    PValue::F64(f) => <$T as NumCast>::from(f),
-                    _ => None,
-                }
-                .ok_or_else(|| {
-                    vortex_err!("Cannot read primitive value {:?} as {}", value, PType::$PT)
-                })
-            }
+    fn try_from(value: PValue) -> Result<Self, Self::Error> {
+        // We serialize f64 as u64, but this can also sometimes be narrowed down to u8 if e.g. == 0
+        match value {
+            PValue::U8(u) => Some(Self::from_bits(u as u64)),
+            PValue::U16(u) => Some(Self::from_bits(u as u64)),
+            PValue::U32(u) => Some(Self::from_bits(u as u64)),
+            PValue::U64(u) => Some(Self::from_bits(u)),
+            PValue::F16(f) => <Self as NumCast>::from(f),
+            PValue::F32(f) => <Self as NumCast>::from(f),
+            PValue::F64(f) => <Self as NumCast>::from(f),
+            _ => None,
         }
-    };
+        .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F64))
+    }
 }
 
-float_pvalue!(f32, F32);
-float_pvalue!(f64, F64);
+impl TryFrom<PValue> for f32 {
+    type Error = VortexError;
+
+    fn try_from(value: PValue) -> Result<Self, Self::Error> {
+        // We serialize f32 as u32, but this can also sometimes be narrowed down to u8 if e.g. == 0
+        match value {
+            PValue::U8(u) => Some(Self::from_bits(u as u32)),
+            PValue::U16(u) => Some(Self::from_bits(u as u32)),
+            PValue::U32(u) => Some(Self::from_bits(u)),
+            PValue::F16(f) => <Self as NumCast>::from(f),
+            PValue::F32(f) => <Self as NumCast>::from(f),
+            PValue::F64(f) => <Self as NumCast>::from(f),
+            _ => None,
+        }
+        .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F32))
+    }
+}
 
 impl TryFrom<PValue> for f16 {
     type Error = VortexError;

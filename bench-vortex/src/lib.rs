@@ -52,6 +52,21 @@ pub mod vortex_utils;
 const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
 const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
+#[macro_export]
+macro_rules! feature_flagged_allocator {
+    () => {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "mimalloc")] {
+                #[global_allocator]
+                static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+            } else if #[cfg(feature = "jemalloc")] {
+                #[global_allocator]
+                static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+            }
+        }
+    };
+}
+
 pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         (*(ALL_ENCODINGS_CONTEXT.clone()))

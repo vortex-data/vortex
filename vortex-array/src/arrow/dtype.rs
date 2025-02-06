@@ -16,7 +16,7 @@ use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, Sch
 use vortex_datetime_dtype::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use vortex_datetime_dtype::is_temporal_ext_type;
 use vortex_dtype::{DType, FieldName, Nullability, PType, StructDType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowType, TryFromArrowType};
 
@@ -68,8 +68,12 @@ impl FromArrowType<&Field> for DType {
 
         let nullability: Nullability = field.is_nullable().into();
 
-        if let Ok(ptype) = PType::try_from_arrow(field.data_type()) {
-            return Primitive(ptype, nullability);
+        if field.data_type().is_integer() || field.data_type().is_floating() {
+            return Primitive(
+                PType::try_from_arrow(field.data_type())
+                    .vortex_expect("arrow float/integer to ptype"),
+                nullability,
+            );
         }
 
         match field.data_type() {
