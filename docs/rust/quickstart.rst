@@ -33,8 +33,6 @@ Vortex array:
    >>> import vortex as vx
    >>> parquet = pq.read_table("_static/example.parquet")
    >>> vtx = vx.array(parquet)
-   >>> vtx
-   sdjfk
    >>> vtx.nbytes
    141055
 
