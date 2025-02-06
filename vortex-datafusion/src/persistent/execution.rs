@@ -115,12 +115,12 @@ impl ExecutionPlan for VortexExec {
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
 
-        let arrow_schema = self.file_scan_config.file_schema.clone();
+        let file_schema = self.file_scan_config.file_schema.clone();
 
         let projection = self.file_scan_config.projection.as_ref().map(|projection| {
             projection
                 .iter()
-                .map(|i| FieldName::from(arrow_schema.fields[*i].name().clone()))
+                .map(|i| FieldName::from(file_schema.fields[*i].name().clone()))
                 .collect()
         });
 
@@ -131,7 +131,7 @@ impl ExecutionPlan for VortexExec {
             projection,
             self.predicate.clone(),
             self.initial_read_cache.clone(),
-            &self.file_scan_config,
+            file_schema,
             self.projected_arrow_schema.clone(),
         )?;
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;

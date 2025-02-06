@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener, FileScanConfig};
+use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
@@ -36,10 +36,10 @@ impl VortexFileOpener {
         projection: Option<FieldNames>,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         file_layout_cache: FileLayoutCache,
-        config: &FileScanConfig,
+        file_schema: SchemaRef,
         projected_arrow_schema: SchemaRef,
     ) -> VortexResult<Self> {
-        let dtype = DType::from_arrow(config.file_schema.clone());
+        let dtype = DType::from_arrow(file_schema);
         let filter = predicate
             .as_ref()
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
