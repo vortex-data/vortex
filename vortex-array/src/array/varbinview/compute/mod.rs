@@ -67,7 +67,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<Array> {
         // Compute the new validity
 
-        // This is valid since all elements even null values are inside the min-max valid range.
+        // This is valid since all elements (of all arrays) even null values are inside must be the
+        // min-max valid range.
         let validity = array.validity().take(indices)?;
         let indices = indices.clone().into_primitive()?;
 
