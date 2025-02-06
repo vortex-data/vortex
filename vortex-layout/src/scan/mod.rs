@@ -4,9 +4,9 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::{stream, FutureExt, Stream};
 use itertools::Itertools;
-use vortex_array::stream::ArrayStream;
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_buffer::Buffer;
-use vortex_expr::ExprRef;
+use vortex_expr::{ExprRef, Identity};
 mod arc_iter;
 mod split_by;
 use futures::StreamExt;
@@ -23,14 +23,18 @@ use crate::scan::arc_iter::ArcIter;
 use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader};
 
-pub trait Driver: 'static {
+pub trait ScanDriver: 'static + Sized {
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
     fn drive(
         self,
         dtype: DType,
         stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>>,
-    ) -> VortexResult<impl ArrayStream>;
+    ) -> VortexResult<impl ArrayStream> {
+        // The default driver implementation simply wraps the stream up in an ArrayStreamAdapter.
+        let stream = stream.filter_map(|fut| async { fut.await.transpose() });
+        Ok(ArrayStreamAdapter::new(dtype, stream))
+    }
 }
 
 /// A struct for building a scan operation.
@@ -45,6 +49,18 @@ pub struct Scan<D> {
 }
 
 impl<D> Scan<D> {
+    pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
+        Self {
+            driver,
+            layout,
+            ctx,
+            projection: Identity::new_expr(),
+            filter: None,
+            row_indices: None,
+            split_by: SplitBy::Layout,
+        }
+    }
+
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -93,7 +109,7 @@ impl<D> Scan<D> {
     }
 }
 
-impl<D: Driver> Scan<D> {
+impl<D: ScanDriver> Scan<D> {
     /// Perform the scan operation and return a stream of arrays.
     pub fn into_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         let field_mask = self.field_mask(self.layout.dtype())?;

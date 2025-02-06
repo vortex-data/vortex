@@ -32,7 +32,7 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{ExecutionMode, VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{Array, IntoArray, IntoArrayVariant};
@@ -124,11 +124,15 @@ fn vortex_compress_write(
 #[inline(never)]
 fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
     runtime.block_on(async {
+        // use vortex::file::Scan;
         VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
             .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
-            .open(buf)
-            .await?
-            .scan(Scan::all())?
+            .open_memory(buf)?
+            .scan()
+            .into_stream()?
+            // .open(buf)
+            // .await?
+            // .scan(Scan::all())?
             .try_collect::<Vec<_>>()
             .await?
             .into_iter()

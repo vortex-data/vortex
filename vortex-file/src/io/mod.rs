@@ -1,4 +1,5 @@
 pub mod file;
+mod memory;
 
 use futures::Stream;
 use vortex_error::VortexResult;

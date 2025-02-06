@@ -29,7 +29,7 @@ const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 /// Open options for a Vortex file reader.
 pub struct VortexOpenOptions {
     /// The Vortex Array encoding context.
-    ctx: ContextRef,
+    pub(crate) ctx: ContextRef,
     /// The Vortex Layout encoding context.
     layout_ctx: LayoutContextRef,
     /// An optional, externally provided, file size.
@@ -184,7 +184,7 @@ impl VortexOpenOptions {
     }
 
     /// Read the [`FileLayout`] from the file.
-    async fn read_file_layout<R: VortexReadAt>(
+    pub(crate) async fn read_file_layout<R: VortexReadAt>(
         &self,
         read: &R,
         segment_cache: &dyn SegmentCache,

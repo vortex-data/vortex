@@ -24,7 +24,6 @@ use vortex_scan::{RowMask, Scanner};
 use crate::exec::ExecDriver;
 use crate::io::IoDriver;
 use crate::segments::channel::SegmentChannel;
-use crate::segments::SegmentSource;
 use crate::{FileLayout, SplitBy};
 
 /// A Vortex file ready for reading.
@@ -120,7 +119,7 @@ impl Scan {
 }
 
 /// Async implementation of Vortex File.
-impl<I: SegmentSource> VortexFile<I> {
+impl<I: IoDriver> VortexFile<I> {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.file_layout.row_count()
@@ -206,11 +205,14 @@ impl<I: SegmentSource> VortexFile<I> {
 
         let result_dtype = scanner.result_dtype().clone();
 
+        // Set up a segment channel to collect segment requests from the execution stream.
+        let segment_channel = SegmentChannel::new();
+
         // Create a single LayoutReader that is reused for the entire scan.
         let reader: Arc<dyn LayoutReader> = self
             .file_layout
             .root_layout()
-            .reader(self.io_driver.reader(), self.ctx.clone())?;
+            .reader(segment_channel.reader(), self.ctx.clone())?;
 
         // Now we give one end of the channel to the layout reader...
         let exec_stream = stream::iter(row_masks)
