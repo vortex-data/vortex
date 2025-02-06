@@ -184,7 +184,12 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         Mask::AllTrue(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             for (end, value) in run_ends.zip_eq(values) {
-                decoded.push_n(*value, end - decoded.len());
+                assert!(end <= length);
+                // SAFETY:
+                // We preallocate enough capacity because we know the total length
+                unsafe {
+                    decoded.push_n_unchecked(*value, end - decoded.len());
+                }
             }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
@@ -200,14 +205,23 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                     .zip(mask.boolean_buffer().iter())
                     .map(|(&v, is_valid)| is_valid.then_some(v)),
             ) {
+                assert!(end <= length);
                 match value {
                     None => {
                         decoded_validity.append_n(end - decoded.len(), false);
-                        decoded.push_n(T::default(), end - decoded.len());
+                        // SAFETY:
+                        // We preallocate enough capacity because we know the total length
+                        unsafe {
+                            decoded.push_n_unchecked(T::default(), end - decoded.len());
+                        }
                     }
                     Some(value) => {
                         decoded_validity.append_n(end - decoded.len(), true);
-                        decoded.push_n(value, end - decoded.len());
+                        // SAFETY:
+                        // We preallocate enough capacity because we know the total length
+                        unsafe {
+                            decoded.push_n_unchecked(value, end - decoded.len());
+                        }
                     }
                 }
             }
