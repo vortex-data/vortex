@@ -60,7 +60,7 @@ jobs:
 
           cargo criterion \
                 --bench ${{ matrix.benchmark.id }} \
-                --features mimalloc
+                --features mimalloc \
                 --message-format=json \
             > ${{ matrix.benchmark.id }}-raw.json
 
