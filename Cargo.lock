@@ -481,7 +481,7 @@ dependencies = [
  "bzip2",
  "cfg-if",
  "clap",
- "criterion",
+ "codspeed-criterion-compat",
  "datafusion",
  "datafusion-common",
  "datafusion-physical-plan",
@@ -798,10 +798,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
+name = "codspeed"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "450a0e9df9df1c154156f4344f99d8f6f6e69d0fc4de96ef6e2e68b2ec3bce97"
+dependencies = [
+ "colored",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "codspeed-criterion-compat"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eb1a6cb9c20e177fde58cdef97c1c7c9264eb1424fe45c4fccedc2fb078a569"
+dependencies = [
+ "codspeed",
+ "colored",
+ "criterion",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
+
+[[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "comfy-table"
@@ -5187,7 +5221,7 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "backtrace",
- "criterion",
+ "codspeed-criterion-compat",
  "enum-iterator",
  "flatbuffers 25.1.24",
  "flexbuffers",
@@ -5312,7 +5346,7 @@ name = "vortex-dict"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "criterion",
+ "codspeed-criterion-compat",
  "divan",
  "num-traits",
  "rand",
@@ -5391,7 +5425,7 @@ version = "0.24.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
- "criterion",
+ "codspeed-criterion-compat",
  "divan",
  "fastlanes",
  "itertools 0.14.0",
@@ -5568,7 +5602,7 @@ name = "vortex-runend"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "criterion",
+ "codspeed-criterion-compat",
  "itertools 0.14.0",
  "num-traits",
  "rand",
