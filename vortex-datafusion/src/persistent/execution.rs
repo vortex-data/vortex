@@ -114,9 +114,7 @@ impl ExecutionPlan for VortexExec {
         let object_store = context
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
-
         let file_schema = self.file_scan_config.file_schema.clone();
-
         let projection = self.file_scan_config.projection.as_ref().map(|projection| {
             projection
                 .iter()

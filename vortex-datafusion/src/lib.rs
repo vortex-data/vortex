@@ -28,20 +28,22 @@ const SUPPORTED_BINARY_OPS: &[Operator] = &[
 ];
 
 fn supported_data_types(dt: DataType) -> bool {
+    use DataType::*;
     let is_supported = dt.is_integer()
         || dt.is_floating()
         || dt.is_null()
-        || dt == DataType::Boolean
-        || dt == DataType::Binary
-        || dt == DataType::Utf8
-        || dt == DataType::Binary
-        || dt == DataType::BinaryView
-        || dt == DataType::Utf8View
-        || dt == DataType::Date32
-        || dt == DataType::Date64
         || matches!(
             dt,
-            DataType::Timestamp(_, _) | DataType::Time32(_) | DataType::Time64(_)
+            Boolean
+                | Utf8
+                | Utf8View
+                | Binary
+                | BinaryView
+                | Date32
+                | Date64
+                | Timestamp(_, _)
+                | Time32(_)
+                | Time64(_)
         );
 
     if !is_supported {
