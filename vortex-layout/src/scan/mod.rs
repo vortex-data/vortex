@@ -24,43 +24,43 @@ use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader};
 
 pub trait ScanDriver: 'static + Sized {
+    type Options: Default;
+
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
     fn drive(
         self,
+        options: &Self::Options,
         stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + 'static,
-        _concurrency: usize,
     ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
         // The default driver implementation simply wraps the stream up in an ArrayStreamAdapter.
-        Ok(stream
-            //.buffered(concurrency)
-            .filter_map(|result| async { result.await.transpose() }))
+        Ok(stream.filter_map(|result| async { result.await.transpose() }))
     }
 }
 
 /// A struct for building a scan operation.
-pub struct Scan<D> {
+pub struct Scan<D: ScanDriver> {
     driver: D,
+    driver_options: Option<D::Options>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
     split_by: SplitBy,
-    concurrency: usize,
 }
 
-impl<D> Scan<D> {
+impl<D: ScanDriver> Scan<D> {
     pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
         Self {
             driver,
+            driver_options: None,
             layout,
             ctx,
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
             split_by: SplitBy::Layout,
-            concurrency: 10,
         }
     }
 
@@ -89,8 +89,8 @@ impl<D> Scan<D> {
         self
     }
 
-    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency;
+    pub fn with_options(mut self, options: D::Options) -> Self {
+        self.driver_options = Some(options);
         self
     }
 
@@ -217,7 +217,9 @@ impl<D: ScanDriver> Scan<D> {
             }
         });
 
-        let stream = self.driver.drive(exec_stream, self.concurrency)?;
+        let stream = self
+            .driver
+            .drive(self.driver_options.unwrap_or_default(), exec_stream)?;
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
