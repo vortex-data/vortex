@@ -187,9 +187,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                 assert!(end <= length);
                 // SAFETY:
                 // We preallocate enough capacity because we know the total length
-                unsafe {
-                    decoded.push_n_unchecked(*value, end - decoded.len());
-                }
+                unsafe { decoded.push_n_unchecked(*value, end - decoded.len()) };
             }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
@@ -211,17 +209,13 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                         decoded_validity.append_n(end - decoded.len(), false);
                         // SAFETY:
                         // We preallocate enough capacity because we know the total length
-                        unsafe {
-                            decoded.push_n_unchecked(T::default(), end - decoded.len());
-                        }
+                        unsafe { decoded.push_n_unchecked(T::default(), end - decoded.len()) };
                     }
                     Some(value) => {
                         decoded_validity.append_n(end - decoded.len(), true);
                         // SAFETY:
                         // We preallocate enough capacity because we know the total length
-                        unsafe {
-                            decoded.push_n_unchecked(value, end - decoded.len());
-                        }
+                        unsafe { decoded.push_n_unchecked(value, end - decoded.len()) };
                     }
                 }
             }
