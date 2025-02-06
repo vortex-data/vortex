@@ -27,14 +27,14 @@ use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use simplelog::*;
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::file::{ExecutionMode, InMemoryVortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
-use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
@@ -125,13 +125,9 @@ fn vortex_compress_write(
 fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
     runtime.block_on(async {
         // use vortex::file::Scan;
-        VortexOpenOptions::new_memory()
-            .open(buf)
-            .
-
-        VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-            .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
-            .open_memory(buf)?
+        VortexOpenOptions::in_memory(buf)
+            .open()
+            .await?
             .scan()
             .into_stream()?
             // .open(buf)
