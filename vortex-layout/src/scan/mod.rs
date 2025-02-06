@@ -30,7 +30,7 @@ pub trait ScanDriver: 'static + Sized {
 
     fn drive(
         self,
-        options: &Self::Options,
+        _options: Self::Options,
         stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + 'static,
     ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
         // The default driver implementation simply wraps the stream up in an ArrayStreamAdapter.
