@@ -1,9 +1,11 @@
-use vortex_dtype::DType;
+use std::cmp::min;
+
 use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::builders::{ArrayBuilder, BoolBuilder};
 use crate::compute::{compare, slice, CompareFn, Operator};
-use crate::{Array, IntoArray};
+use crate::Array;
 
 impl CompareFn<ChunkedArray> for ChunkedEncoding {
     fn compare(
@@ -13,29 +15,29 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         let mut idx = 0;
-        let mut compare_chunks = Vec::with_capacity(lhs.nchunks());
+        // let mut compare_chunks = Vec::with_capacity(lhs.nchunks());
+
+        // TODO(joe): bool builder her
+        let mut bool_builder = BoolBuilder::with_capacity(
+            // nullable <= non-nullable
+            min(lhs.dtype().nullability(), rhs.dtype().nullability()),
+            lhs.len(),
+        );
 
         for chunk in lhs.chunks().filter(|c| !c.is_empty()) {
             let sliced = slice(rhs, idx, idx + chunk.len())?;
             let cmp_result = compare(&chunk, &sliced, operator)?;
 
-            compare_chunks.push(cmp_result);
+            bool_builder.extend_from_array(cmp_result)?;
             idx += chunk.len();
         }
 
-        Ok(Some(
-            ChunkedArray::try_new(
-                compare_chunks,
-                DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
-            )?
-            .into_array(),
-        ))
+        bool_builder.finish().map(Some)
     }
 }
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::array::PrimitiveArray;
 
