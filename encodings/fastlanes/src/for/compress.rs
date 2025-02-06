@@ -36,7 +36,7 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
         if bool {
             v.wrapping_sub(&min)
         } else {
-            min.clone()
+            T::zero()
         }
     })
 }

@@ -242,13 +242,10 @@ lto = "thin"      # attempts to perform optimizations across all crates within t
 codegen-units = 16 # default for "release", which "bench" inherits
 debug = true
 
-[profile.qbench]
-inherits = "bench"
-lto = false
-
 [profile.benchtest]
 inherits = "bench"
 debug-assertions = true
+lto = false # bench without lto (so it builds faster)
 
 [profile.samply]
 inherits = "release"
