@@ -54,6 +54,7 @@ jobs:
         env:
           BENCH_VORTEX_RATIOS: ".*"
           RUSTFLAGS: "-C target-cpu=native"
+          HOME: /home/ci-runner
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
           shell: bash
