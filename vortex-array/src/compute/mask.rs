@@ -64,12 +64,10 @@ pub fn mask(array: &Array, mask: Mask) -> VortexResult<Array> {
         );
     }
 
-    let true_count = mask.true_count();
-
-    let masked = if true_count == 0 {
+    let masked = if matches!(mask, Mask::AllFalse(_)) {
         // Fast-path for empty mask
         try_cast(array, &array.dtype().as_nullable())?
-    } else if true_count == mask.len() {
+    } else if matches!(mask, Mask::AllTrue(_)) {
         // Fast-path for full mask.
         ConstantArray::new(
             Scalar::null(array.dtype().clone().as_nullable()),
