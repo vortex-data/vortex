@@ -1,14 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Stream;
 use futures_executor::block_on;
-use futures_util::future::BoxFuture;
-use futures_util::StreamExt;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{Array, ContextRef};
+use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::scan::{Scan, ScanDriver};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -27,7 +22,7 @@ impl VortexOpenOptions {
         Ok(InMemoryVortexFile {
             buffer,
             file_layout,
-            ctx: self.ctx.clone(),
+            ctx: self.ctx,
         })
     }
 }
@@ -50,15 +45,6 @@ impl InMemoryVortexFile {
 impl ScanDriver for InMemoryVortexFile {
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         Arc::new(self.clone())
-    }
-
-    fn drive(
-        self,
-        dtype: DType,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>>,
-    ) -> VortexResult<impl ArrayStream> {
-        let stream = stream.filter_map(|fut| async { fut.await.transpose() });
-        Ok(ArrayStreamAdapter::new(dtype, stream))
     }
 }
 

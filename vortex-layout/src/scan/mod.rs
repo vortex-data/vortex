@@ -28,12 +28,13 @@ pub trait ScanDriver: 'static + Sized {
 
     fn drive(
         self,
-        dtype: DType,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>>,
-    ) -> VortexResult<impl ArrayStream> {
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + 'static,
+        _concurrency: usize,
+    ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
         // The default driver implementation simply wraps the stream up in an ArrayStreamAdapter.
-        let stream = stream.filter_map(|fut| async { fut.await.transpose() });
-        Ok(ArrayStreamAdapter::new(dtype, stream))
+        Ok(stream
+            //.buffered(concurrency)
+            .filter_map(|result| async { result.await.transpose() }))
     }
 }
 
@@ -46,6 +47,7 @@ pub struct Scan<D> {
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
     split_by: SplitBy,
+    concurrency: usize,
 }
 
 impl<D> Scan<D> {
@@ -58,6 +60,7 @@ impl<D> Scan<D> {
             filter: None,
             row_indices: None,
             split_by: SplitBy::Layout,
+            concurrency: 10,
         }
     }
 
@@ -81,8 +84,18 @@ impl<D> Scan<D> {
         self
     }
 
+    pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
+        self.split_by = split_by;
+        self
+    }
+
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+
     /// Compute a mask of field paths referenced by this scan.
-    pub fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldMask>> {
+    fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldMask>> {
         // TODO(joe): simplify this expr once
         let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
         let filter = self
@@ -204,6 +217,8 @@ impl<D: ScanDriver> Scan<D> {
             }
         });
 
-        self.driver.drive(result_dtype, exec_stream)
+        let stream = self.driver.drive(exec_stream, self.concurrency)?;
+
+        Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
 }
