@@ -97,8 +97,8 @@ mod footer;
 mod memory;
 mod open;
 pub mod read;
+mod reader;
 pub mod segments;
-mod split_by;
 #[cfg(test)]
 mod tests;
 mod unified;

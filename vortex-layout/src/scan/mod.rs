@@ -30,8 +30,7 @@ pub trait ScanDriver: 'static + Sized {
 
     fn drive(
         self,
-        _options: Self::Options,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + 'static,
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
     ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
         // The default driver implementation simply wraps the stream up in an ArrayStreamAdapter.
         Ok(stream.filter_map(|result| async { result.await.transpose() }))
@@ -81,6 +80,11 @@ impl<D: ScanDriver> Scan<D> {
 
     pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
         self.row_indices = Some(row_indices);
+        self
+    }
+
+    pub fn with_some_row_indices(mut self, row_indices: Option<Buffer<u64>>) -> Self {
+        self.row_indices = row_indices;
         self
     }
 
@@ -217,9 +221,7 @@ impl<D: ScanDriver> Scan<D> {
             }
         });
 
-        let stream = self
-            .driver
-            .drive(self.driver_options.unwrap_or_default(), exec_stream)?;
+        let stream = self.driver.drive(exec_stream)?;
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }

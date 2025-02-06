@@ -190,13 +190,13 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-        let vxf = VortexOpenOptions::new(self.context.clone())
+        let vxf = VortexOpenOptions::file(read_at)
             .with_file_layout(
                 self.file_layout_cache
                     .try_get(object, store.clone())
                     .await?,
             )
-            .open(read_at)
+            .open()
             .await?;
 
         // Evaluate the statistics for each column that we are able to return to DataFusion.
@@ -215,7 +215,7 @@ impl FileFormat for VortexFormat {
                     Stat::UncompressedSizeInBytes,
                 ]
                 .into(),
-            )?
+            )
             .await?;
 
         // Sum up the total byte size across all the columns.

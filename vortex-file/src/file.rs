@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -7,7 +8,7 @@ use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
-use vortex_array::{Array, ContextRef};
+use vortex_array::Array;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -21,43 +22,30 @@ use crate::segments::SegmentCache;
 use crate::unified::UnifiedDriverStream;
 use crate::VortexFileOpener;
 
-pub struct FileVortexFile<R> {
-    read: R,
-    ctx: ContextRef,
-    file_layout: FileLayout,
-    segment_cache: Arc<dyn SegmentCache>,
-}
+pub struct FileVortexFile<R>(PhantomData<R>);
 
 impl<R: VortexReadAt> VortexFileOpener for FileVortexFile<R> {
-    type Options = ();
+    type Options = FileScanOptions;
     type Read = R;
     type ScanDriver = FileScanDriver<R>;
 
-    fn open(
-        ctx: ContextRef,
+    fn scan_driver(
+        read: Self::Read,
+        options: Self::Options,
         file_layout: FileLayout,
         segment_cache: Arc<dyn SegmentCache>,
-        _options: Self::Options,
-        read: Self::Read,
-    ) -> VortexResult<Self> {
-        Ok(Self {
+    ) -> Self::ScanDriver {
+        FileScanDriver {
             read,
-            ctx,
+            options,
             file_layout,
             segment_cache,
-        })
-    }
-
-    fn scan_driver(&self) -> Self::ScanDriver {
-        FileScanDriver {
-            read: self.read.clone(),
-            file_layout: self.file_layout.clone(),
-            segment_cache: self.segment_cache.clone(),
             segment_channel: SegmentChannel::new(),
         }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct FileScanOptions {
     /// The number of concurrent splits to process.
     execution_concurrency: usize,
@@ -78,6 +66,7 @@ impl Default for FileScanOptions {
 
 pub struct FileScanDriver<R> {
     read: R,
+    options: FileScanOptions,
     file_layout: FileLayout,
     segment_cache: Arc<dyn SegmentCache>,
     segment_channel: SegmentChannel,
@@ -94,12 +83,12 @@ impl<R: VortexReadAt> ScanDriver for FileScanDriver<R> {
 
     fn drive(
         self,
-        options: Self::Options,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + 'static,
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
     ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
-        let exec_driver = options
+        let exec_driver = self
+            .options
             .execution_mode
-            .into_driver(options.execution_concurrency);
+            .into_driver(self.options.execution_concurrency);
         let exec_stream = exec_driver.drive(stream.boxed());
 
         // Now we set up the I/O stream to poll the other end of the segment channel.
@@ -195,7 +184,7 @@ impl<R: VortexReadAt> ScanDriver for FileScanDriver<R> {
         });
 
         // Buffer some number of concurrent I/O operations.
-        let io_stream = io_stream.buffer_unordered(options.io_concurrency);
+        let io_stream = io_stream.buffer_unordered(self.options.io_concurrency);
 
         // Finally, we unify the stream to drive both the CPU and I/O requests.
         Ok(UnifiedDriverStream {

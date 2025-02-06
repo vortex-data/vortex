@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_file::{FileLayout, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
@@ -49,9 +48,9 @@ impl FileLayoutCache {
         self.inner
             .try_get_with(Key::from(object), async {
                 let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-                let vxf = VortexOpenOptions::new(ContextRef::default())
+                let vxf = VortexOpenOptions::file(os_read_at)
                     .with_file_size(object.size as u64)
-                    .open(os_read_at)
+                    .open()
                     .await?;
                 VortexResult::Ok(vxf.file_layout().clone())
             })

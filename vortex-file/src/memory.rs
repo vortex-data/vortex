@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::scan::ScanDriver;
@@ -14,7 +13,6 @@ use crate::{FileLayout, Segment, VortexFileOpener};
 pub struct InMemoryVortexFile {
     buffer: ByteBuffer,
     file_layout: FileLayout,
-    ctx: ContextRef,
 }
 
 impl VortexFileOpener for InMemoryVortexFile {
@@ -22,22 +20,16 @@ impl VortexFileOpener for InMemoryVortexFile {
     type Read = ByteBuffer;
     type ScanDriver = Self;
 
-    fn open(
-        ctx: ContextRef,
+    fn scan_driver(
+        read: Self::Read,
+        _options: Self::Options,
         file_layout: FileLayout,
         _segment_cache: Arc<dyn SegmentCache>,
-        _options: Self::Options,
-        read: Self::Read,
-    ) -> VortexResult<Self> {
-        Ok(Self {
+    ) -> Self::ScanDriver {
+        Self {
             buffer: read,
             file_layout,
-            ctx,
-        })
-    }
-
-    fn scan_driver(&self) -> Self::ScanDriver {
-        self.clone()
+        }
     }
 }
 
