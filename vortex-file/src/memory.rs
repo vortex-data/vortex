@@ -9,6 +9,10 @@ use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 use crate::segments::SegmentCache;
 use crate::{FileLayout, Segment, VortexFileOpener};
 
+/// A Vortex file that is backed by an in-memory buffer.
+///
+/// This type of file reader performs no coalescing or other clever orchestration, simply
+/// zero-copy slicing the segments from the buffer.
 #[derive(Clone)]
 pub struct InMemoryVortexFile {
     buffer: ByteBuffer,

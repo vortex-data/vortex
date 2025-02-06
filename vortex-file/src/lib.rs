@@ -22,9 +22,9 @@
 //!
 //! # Reading
 //!
-//! Reading is implemented by [`FileVortexFile`]. It's "opened" by [`VortexOpenOptions`], which can be provided with information about's the file's
+//! Reading is implemented by [`GenericVortexFile`]. It's "opened" by [`VortexOpenOptions`], which can be provided with information about's the file's
 //! structure to save on IO before the actual data read. Once the file is open and has done the initial IO work to understand its own structure,
-//! it can be turned into a stream by calling [`FileVortexFile::scan`] with a [`Scan`], which defines filtering and projection on the file.
+//! it can be turned into a stream by calling [`GenericVortexFile::scan`] with a [`Scan`], which defines filtering and projection on the file.
 //!
 //! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
 //! It also caches buffers between stages of the scan, saving on duplicate IO. The cache can also be reused between scans of the same file (See [`SegmentCache`](`crate::segments::SegmentCache`)).
@@ -94,10 +94,9 @@
 pub mod exec;
 mod file;
 mod footer;
+mod generic;
 mod memory;
 mod open;
-pub mod read;
-mod reader;
 pub mod segments;
 #[cfg(test)]
 mod tests;
@@ -107,6 +106,7 @@ mod writer;
 pub use file::*;
 pub use footer::{FileLayout, Segment};
 pub use forever_constant::*;
+pub use generic::*;
 pub use memory::*;
 pub use open::*;
 pub use writer::*;

@@ -28,12 +28,12 @@ pub trait ScanDriver: 'static + Sized {
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
-    fn drive(
+    fn drive<T: 'static>(
         self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
-    ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
-        // The default driver implementation simply wraps the stream up in an ArrayStreamAdapter.
-        Ok(stream.filter_map(|result| async { result.await.transpose() }))
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<T>>> + Send + 'static,
+    ) -> VortexResult<impl Stream<Item = VortexResult<T>> + 'static> {
+        // The default driver implementation simply resolves the futures in the stream.
+        Ok(stream.then(|result| result))
     }
 }
 
@@ -221,7 +221,10 @@ impl<D: ScanDriver> Scan<D> {
             }
         });
 
-        let stream = self.driver.drive(exec_stream)?;
+        let stream = self
+            .driver
+            .drive(exec_stream)?
+            .filter_map(|result| async { result.transpose() });
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }

@@ -6,80 +6,20 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
-use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, FieldPath};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::{Scan, ScanDriver};
+use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{Layout, LayoutContextRef, LayoutId, StatsEvaluator};
+use vortex_layout::{Layout, LayoutContextRef, LayoutId};
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
-use crate::{FileVortexFile, InMemoryVortexFile, EOF_SIZE, MAGIC_BYTES, VERSION};
-
-/// Trait for a Vortex file.
-///
-/// This exists so different Vortex file types can configure their scan operations differently.
-pub struct VortexFile<F: VortexFileOpener> {
-    read: F::Read,
-    options: F::Options,
-    ctx: ContextRef,
-    file_layout: FileLayout,
-    segment_cache: Arc<dyn SegmentCache>,
-    _marker: PhantomData<F>,
-}
-
-impl<F: VortexFileOpener> VortexFile<F> {
-    pub fn row_count(&self) -> u64 {
-        self.file_layout.row_count()
-    }
-
-    pub fn dtype(&self) -> &DType {
-        self.file_layout.dtype()
-    }
-
-    pub fn file_layout(&self) -> &FileLayout {
-        &self.file_layout
-    }
-
-    pub async fn statistics(
-        &self,
-        field_paths: Arc<[FieldPath]>,
-        stats: Arc<[Stat]>,
-    ) -> VortexResult<Vec<StatsSet>> {
-        let driver = F::scan_driver(
-            self.read.clone(),
-            self.options.clone(),
-            self.file_layout.clone(),
-            self.segment_cache.clone(),
-        );
-
-        let layout = self.file_layout.root_layout();
-        let reader = layout.reader(driver.segment_reader(), self.ctx.clone())?;
-
-        reader.evaluate_stats(field_paths, stats).await?;
-        todo!()
-    }
-
-    pub fn scan(&self) -> Scan<F::ScanDriver> {
-        let driver = F::scan_driver(
-            self.read.clone(),
-            self.options.clone(),
-            self.file_layout.clone(),
-            self.segment_cache.clone(),
-        );
-        Scan::new(
-            driver,
-            self.file_layout.root_layout().clone(),
-            self.ctx.clone(),
-        )
-    }
-}
+use crate::{GenericVortexFile, InMemoryVortexFile, VortexFile, EOF_SIZE, MAGIC_BYTES, VERSION};
 
 pub trait VortexFileOpener: Sized {
     type Options: Clone;
@@ -129,7 +69,7 @@ impl<F: VortexFileOpener> VortexOpenOptions<F> {
     /// Configure a known file layout.
     ///
     /// If this is provided, then the Vortex file can be opened without performing any I/O.
-    /// Once open, the [`FileLayout`] can be accessed via [`FileVortexFile::file_layout`].
+    /// Once open, the [`FileLayout`] can be accessed via [`GenericVortexFile::file_layout`].
     pub fn with_file_layout(mut self, file_layout: FileLayout) -> Self {
         self.file_layout = Some(file_layout);
         self
@@ -181,7 +121,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     }
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<FileVortexFile<R>> {
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     pub fn file(read: R) -> Self {

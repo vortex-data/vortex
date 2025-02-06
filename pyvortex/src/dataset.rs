@@ -12,8 +12,7 @@ use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ident, ExprRef, Select};
-use vortex::file::read::VortexRecordBatchReader;
-use vortex::file::{FileVortexFile, VortexFile, VortexFileOpener, VortexOpenOptions};
+use vortex::file::{GenericVortexFile, VortexFile, VortexFileOpener, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
 use vortex::{Array, IntoArray, IntoArrayVariant};
@@ -21,6 +20,7 @@ use vortex::{Array, IntoArray, IntoArrayVariant};
 use crate::arrays::PyArray;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
+use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{install_module, TOKIO_RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -93,7 +93,7 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
 
 #[pyclass(name = "TokioFileDataset", module = "io")]
 pub struct TokioFileDataset {
-    vxf: VortexFile<FileVortexFile<TokioFile>>,
+    vxf: VortexFile<GenericVortexFile<TokioFile>>,
     schema: SchemaRef,
 }
 
@@ -182,7 +182,7 @@ impl TokioFileDataset {
 
 #[pyclass(name = "ObjectStoreUrlDataset", module = "io")]
 pub struct ObjectStoreUrlDataset {
-    vxf: VortexFile<FileVortexFile<ObjectStoreReadAt>>,
+    vxf: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
     schema: SchemaRef,
 }
 
