@@ -2,9 +2,9 @@ name: PR Benchmarks
 
 on:
   pull_request:
-    types: [ labeled, synchronize ]
-    branches: [ "develop" ]
-  workflow_dispatch: { }
+    types: [labeled, synchronize]
+    branches: ["develop"]
+  workflow_dispatch: {}
 
 permissions:
   actions: write
@@ -49,24 +49,37 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run benchmark
-        shell: bash
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v3
         env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-        run: |
-          cargo install cargo-criterion
-          sudo apt-get update && sudo apt-get install -y jq
+          BENCH_VORTEX_RATIOS: ".*"
+          RUSTFLAGS: "-C target-cpu=native"
+        with:
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          shell: bash
+          run: |
+            cargo install cargo-codspeed --locked
+            cargo codspeed build ${{ matrix.benchmark.id }}
+            cargo codspeed run ${{ matrix.benchmark.id }}
 
-          cargo criterion \
-                --bench ${{ matrix.benchmark.id }} \
-                --features mimalloc \
-                --message-format=json \
-            > ${{ matrix.benchmark.id }}-raw.json
+        # - name: Run benchmark
+        #   shell: bash
+        #   env:
+        #     BENCH_VORTEX_RATIOS: '.*'
+        #     RUSTFLAGS: '-C target-cpu=native'
+        #   run: |
+        #     cargo install cargo-criterion
+        #     sudo apt-get update && sudo apt-get install -y jq
 
-          cat ${{ matrix.benchmark.id }}-raw.json \
-            | bash scripts/coerce-criterion-json.sh \
-            > ${{ matrix.benchmark.id }}.json
+        #     cargo criterion \
+        #           --bench ${{ matrix.benchmark.id }} \
+        #           --features mimalloc \
+        #           --message-format=json \
+        #       > ${{ matrix.benchmark.id }}-raw.json
+
+        #     cat ${{ matrix.benchmark.id }}-raw.json \
+        #       | bash scripts/coerce-criterion-json.sh \
+        #       > ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -120,8 +133,8 @@ jobs:
       - name: Run TPC-H benchmark
         shell: bash
         env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
+          BENCH_VORTEX_RATIOS: ".*"
+          RUSTFLAGS: "-C target-cpu=native"
         run: |
           cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
       - name: Setup AWS CLI
@@ -177,8 +190,8 @@ jobs:
       - name: Run Clickbench benchmark
         shell: bash
         env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
+          BENCH_VORTEX_RATIOS: ".*"
+          RUSTFLAGS: "-C target-cpu=native"
           HOME: /home/ci-runner
         run: |
           cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
