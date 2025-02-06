@@ -37,9 +37,9 @@ impl VortexFileOpener {
         predicate: Option<Arc<dyn PhysicalExpr>>,
         file_layout_cache: FileLayoutCache,
         config: &FileScanConfig,
+        projected_arrow_schema: SchemaRef,
     ) -> VortexResult<Self> {
         let dtype = DType::from_arrow(config.file_schema.clone());
-        let (projected_arrow_schema, ..) = config.project();
         let filter = predicate
             .as_ref()
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
