@@ -5408,8 +5408,6 @@ dependencies = [
 name = "vortex-file"
 version = "0.24.0"
 dependencies = [
- "arrow-array",
- "arrow-schema",
  "async-trait",
  "bytes",
  "flatbuffers 25.1.24",
@@ -5419,9 +5417,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "moka",
- "pin-project-lite",
  "rayon",
- "rstest",
  "rustc-hash",
  "tokio",
  "tracing",
@@ -5433,10 +5429,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-layout",
- "vortex-mask",
  "vortex-sampling-compressor",
- "vortex-scalar",
- "vortex-scan",
 ]
 
 [[package]]
