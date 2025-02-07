@@ -16,13 +16,15 @@ use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
+type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
+
 #[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
-    pruning_result: Arc<RwLock<HashMap<ExprRef, Arc<OnceCell<Option<BooleanBuffer>>>>>>,
+    pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
     /// Shared stats table
     stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
