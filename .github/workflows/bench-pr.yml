@@ -25,6 +25,13 @@ jobs:
 
   codspeed_bench:
     needs: label_trigger
+    strategy:
+      matrix:
+        benchmark:
+          - id: compare
+            name: vortex-array compare
+          - id: alp_compress
+            name: alp compress
     name: Run benchmarks
     runs-on: ubuntu-latest
     steps:
@@ -49,9 +56,7 @@ jobs:
 
       - name: Run the benchmarks
         env:
-          BENCH_VORTEX_RATIOS: ".*"
           RUSTFLAGS: "-C target-cpu=native"
-          HOME: /home/ci-runner
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run compare
