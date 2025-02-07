@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use futures_util::FutureExt;
-use oneshot;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldPath};
