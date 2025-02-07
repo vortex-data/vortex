@@ -125,10 +125,10 @@ impl VortexExpr for Merge {
                 let field_name = struct_dtype.field_name(i).vortex_expect("never OOB");
                 let field_dtype = struct_dtype.field_by_index(i).vortex_expect("never OOB");
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
-                    arrays[idx] = field_dtype.into();
+                    arrays[idx] = field_dtype;
                 } else {
                     field_names.push(field_name.clone());
-                    arrays.push(field_dtype.into());
+                    arrays.push(field_dtype);
                 }
             }
         }

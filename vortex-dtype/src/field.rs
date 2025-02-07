@@ -36,7 +36,6 @@ impl Display for Field {
         match self {
             Field::Name(name) => write!(f, "${name}"),
             Field::ElementType => write!(f, "[]"),
-            Field::StorageType => write!(f, "ext"),
         }
     }
 }

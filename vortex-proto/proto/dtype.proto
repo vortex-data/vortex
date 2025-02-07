@@ -70,7 +70,6 @@ message DType {
 message Field {
   oneof field_type {
     string name = 1;
-    uint64 index = 2;
   }
 }
 

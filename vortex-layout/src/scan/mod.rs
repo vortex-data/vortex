@@ -241,9 +241,9 @@ fn field_mask(
         return Ok(vec![FieldMask::All]);
     };
 
-    let projection_mask = immediate_scope_access(&projection, struct_dtype)?;
+    let projection_mask = immediate_scope_access(projection, struct_dtype)?;
     let filter_mask = filter
-        .map(|f| immediate_scope_access(&f, struct_dtype))
+        .map(|f| immediate_scope_access(f, struct_dtype))
         .transpose()?
         .unwrap_or_default();
 
