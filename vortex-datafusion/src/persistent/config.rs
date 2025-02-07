@@ -4,8 +4,7 @@ use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::FileScanConfig;
 use datafusion_common::Statistics;
 use datafusion_physical_expr::LexOrdering;
-use vortex_array::arrow::FromArrowType as _;
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::FieldName;
 use vortex_expr::{ident, select, VortexExpr};
 
 /// Vortex specific methods for [`FileScanConfig`]
@@ -14,10 +13,9 @@ pub trait FileScanConfigExt {
 }
 
 impl FileScanConfigExt for FileScanConfig {
-    /// Apply the projection to the [`DType`] in addition to the original schema and statistics, and create a [`VortexExpr`] to represent it.
+    /// Apply the projection to the original schema and statistics, and create a [`VortexExpr`] to represent it.
     fn project_for_vortex(&self) -> ConfigProjection {
         let (arrow_schema, statistics, orderings) = self.project();
-        let dtype = DType::from_arrow(arrow_schema.as_ref());
         let projection_expr = match self.projection {
             None => ident(),
             Some(_) => projection_expr(&arrow_schema),
@@ -28,7 +26,6 @@ impl FileScanConfigExt for FileScanConfig {
             statistics,
             orderings,
             projection_expr,
-            dtype,
         }
     }
 }
@@ -38,7 +35,6 @@ pub struct ConfigProjection {
     pub statistics: Statistics,
     pub orderings: Vec<LexOrdering>,
     pub projection_expr: Arc<dyn VortexExpr>,
-    pub dtype: DType,
 }
 
 fn projection_expr(projected_arrow_schema: &SchemaRef) -> Arc<dyn VortexExpr> {

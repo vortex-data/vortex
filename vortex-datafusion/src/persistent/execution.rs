@@ -13,10 +13,7 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
 use vortex_array::ContextRef;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{and, VortexExpr};
 
 use super::cache::FileLayoutCache;
@@ -49,10 +46,9 @@ impl VortexExec {
             mut statistics,
             orderings,
             projection_expr,
-            dtype,
         } = file_scan_config.project_for_vortex();
 
-        let predicate = make_vortex_predicate(predicate, dtype)?;
+        let predicate = make_vortex_predicate(predicate);
 
         // We must take care to report in-exact statistics if we have any form of filter
         // push-down.
@@ -166,10 +162,7 @@ impl ExecutionPlan for VortexExec {
     }
 }
 
-fn make_vortex_predicate(
-    predicate: Option<Arc<dyn PhysicalExpr>>,
-    dtype: DType,
-) -> VortexResult<Option<Arc<dyn VortexExpr>>> {
+fn make_vortex_predicate(predicate: Option<Arc<dyn PhysicalExpr>>) -> Option<Arc<dyn VortexExpr>> {
     predicate
         .as_ref()
         // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
@@ -181,9 +174,7 @@ fn make_vortex_predicate(
                 .into_iter()
                 .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
                 .reduce(and)
-                .map(|expr| simplify_typed(expr, &dtype))
         })
-        .transpose()
 }
 
 fn repartition_by_size(
