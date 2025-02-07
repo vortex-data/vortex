@@ -57,6 +57,8 @@ fn params() -> impl Iterator<Item = &'static (usize, usize)> {
         (1_000, 1_000),
         (10_000, 100),
         (100_000, 1000),
+        (100_000, 10000),
+        (10_000, 100_000),
     ]
     .iter()
 }
@@ -84,23 +86,6 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
         .clone()
         .canonicalize_into(builder.as_mut())
         .vortex_unwrap();
-    let res = builder
-        .finish()
-        .vortex_unwrap()
-        .into_canonical()
-        .vortex_unwrap()
-        .into_bool()
-        .vortex_unwrap();
-
-    let res2 = chunk
-        .clone()
-        .into_canonical()
-        .vortex_unwrap()
-        .into_bool()
-        .vortex_unwrap();
-
-    assert_eq!(res.validity(), res2.validity());
-    assert_eq!(res.boolean_buffer(), res2.boolean_buffer());
 
     bencher.bench(|| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);

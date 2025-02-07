@@ -6,7 +6,7 @@ use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_error::VortexUnwrap;
+use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_fastlanes::bitpack_to_best_bit_width;
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
 fn make_array<T: NativePType>(len: usize) -> Array {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..len)
-        .map(|_| T::from(rng.gen_range(0..100)).unwrap())
+        .map(|_| T::from(rng.gen_range(0..100)).vortex_expect("valid value"))
         .collect::<BufferMut<T>>()
         .into_array()
         .into_primitive()

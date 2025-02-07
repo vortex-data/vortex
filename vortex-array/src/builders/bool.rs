@@ -14,7 +14,7 @@ use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
-    nulls: Option<LazyNullBufferBuilder>,
+    nulls: LazyNullBufferBuilder,
     nullability: Nullability,
     dtype: DType,
 }
@@ -25,41 +25,27 @@ impl BoolBuilder {
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
-        let null_cap = if nullability == NonNullable {
-            0
-        } else {
-            capacity
-        };
-
         Self {
             inner: BooleanBufferBuilder::new(capacity),
-            nulls: (nullability == Nullable).then(|| LazyNullBufferBuilder::new(null_cap)),
+            nulls: LazyNullBufferBuilder::new(capacity),
             nullability,
             dtype: DType::Bool(nullability),
         }
     }
 
     pub fn append_value(&mut self, value: bool) {
-        self.inner.append(value);
-        if let Some(nulls) = &mut self.nulls {
-            nulls.append_non_null()
-        }
+        self.append_values(value, 1)
     }
 
     pub fn append_values(&mut self, value: bool, n: usize) {
         self.inner.append_n(n, value);
+        self.nulls.append_n_non_nulls(n)
     }
 
     pub fn append_option(&mut self, value: Option<bool>) {
         match value {
             Some(value) => self.append_value(value),
             None => self.append_null(),
-        }
-    }
-
-    fn append_non_nulls(&mut self, n: usize) {
-        if let Some(nulls) = &mut self.nulls {
-            nulls.append_n_non_nulls(n)
         }
     }
 }
@@ -82,18 +68,12 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.inner.append_n(n, false);
-        if let Some(nulls) = &mut self.nulls {
-            nulls.append_n_non_nulls(n)
-        }
+        self.append_values(false, n)
     }
 
     fn append_nulls(&mut self, n: usize) {
-        if let Some(nulls) = &mut self.nulls {
-            nulls.append_n_nulls(n)
-        } else {
-            vortex_panic!("Cannot append nulls to non-nullable builder")
-        }
+        self.inner.append_n(n, false);
+        self.nulls.append_n_nulls(n)
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
@@ -106,20 +86,10 @@ impl ArrayBuilder for BoolBuilder {
 
         match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                self.append_non_nulls(array.len());
-                // If the array is all valid and this builder is non-nullable,
-                // we don't need to do anything
+                self.nulls.append_n_non_nulls(array.len());
             }
-            AllOr::None => {
-                self.append_nulls(array.len());
-            }
-            AllOr::Some(validity) => {
-                if let Some(nulls) = &mut self.nulls {
-                    nulls.append_buffer(validity.clone())
-                } else {
-                    vortex_bail!("Cannot append nulls to non-nullable builder")
-                }
-            }
+            AllOr::None => self.nulls.append_n_nulls(array.len()),
+            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
         }
 
         Ok(())
@@ -128,12 +98,11 @@ impl ArrayBuilder for BoolBuilder {
     fn finish(&mut self) -> VortexResult<Array> {
         let bools = self.inner.finish();
 
-        let nulls = self.nulls.as_mut().take().and_then(|n| n.finish());
+        let nulls = self.nulls.finish();
         let validity = match (self.nullability, nulls) {
             (NonNullable, None) => Validity::NonNullable,
             (Nullable, None) => Validity::AllValid,
             (Nullable, Some(arr)) => Validity::from(arr),
-            // TODO(joe): Handle all empty nulls as a offset.
             _ => vortex_panic!("Invalid nullability/nulls combination"),
         };
 
@@ -155,7 +124,7 @@ mod tests {
 
         (0..chunk_count)
             .map(|_| {
-                BoolArray::from_iter((0..len).map(|_| match rng.gen_range::<u8, _>(1..=1) {
+                BoolArray::from_iter((0..len).map(|_| match rng.gen_range::<u8, _>(0..=2) {
                     0 => Some(false),
                     1 => Some(true),
                     2 => None,
