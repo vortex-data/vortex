@@ -83,8 +83,7 @@ impl BoolArray {
     /// otherwise a copy is created.
     ///
     /// The second value of the tuple is a bit_offset of first value in first byte of the returned builder
-    pub fn into_boolean_builder(self) -> (BooleanBufferBuilder, usize) {
-        let first_byte_bit_offset = self.metadata().first_byte_bit_offset as usize;
+    pub fn into_boolean_builder(self) -> BooleanBufferBuilder {
         let len = self.len();
         let arrow_buffer = self.into_buffer().into_arrow_buffer();
         let mutable_buf = if arrow_buffer.ptr_offset() == 0 {
@@ -98,10 +97,8 @@ impl BoolArray {
             buf.extend_from_slice(arrow_buffer.as_slice());
             buf
         };
-        (
-            BooleanBufferBuilder::new_from_buffer(mutable_buf, len + first_byte_bit_offset),
-            first_byte_bit_offset,
-        )
+
+        BooleanBufferBuilder::new_from_buffer(mutable_buf, len)
     }
 
     pub fn validity(&self) -> Validity {
@@ -127,19 +124,17 @@ impl BoolArray {
     pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
-        let first_byte_bit_offset = (buffer_offset % 8) as u8;
-        let buffer_byte_offset = buffer_offset - (first_byte_bit_offset as usize);
+        // let first_byte_bit_offset = (buffer_offset % 8) as u8;
+        // let buffer_byte_offset = buffer_offset - (first_byte_bit_offset as usize);
 
-        let inner = buffer
-            .into_inner()
-            .bit_slice(buffer_byte_offset, buffer_len);
+        let inner = buffer.into_inner().bit_slice(buffer_offset, buffer_len);
 
         Self::try_from_parts(
             DType::Bool(validity.nullability()),
             buffer_len,
             RkyvMetadata(BoolMetadata {
                 validity: validity.to_metadata(buffer_len)?,
-                first_byte_bit_offset,
+                first_byte_bit_offset: 0,
             }),
             Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
             validity.into_array().map(|v| [v].into()),
@@ -295,9 +290,8 @@ mod tests {
             BoolArray::from(builder.finish())
         };
         let sliced = slice(arr.clone(), 4, 12).unwrap();
-        let (values, offset) = sliced.clone().into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[254, 15]);
+        let values = sliced.clone().into_bool().unwrap().into_boolean_builder();
+        assert_eq!(values.as_slice(), &[255]);
 
         // patch the underlying array
         let patches = Patches::new(
@@ -306,14 +300,13 @@ mod tests {
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(patches).unwrap();
-        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 0);
+        let values = arr.into_bool().unwrap().into_boolean_builder();
+
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[254, 15]); // unchanged
+        let values = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(values.as_slice(), &[255]); // unchanged
     }
 
     #[test]
@@ -332,8 +325,7 @@ mod tests {
         let arr = arr.patch(patches).unwrap();
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
-        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 0);
+        let values = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(values.as_slice(), &[254, 127]);
     }
 }
