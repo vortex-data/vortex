@@ -124,8 +124,6 @@ impl BoolArray {
     pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
-        // let first_byte_bit_offset = (buffer_offset % 8) as u8;
-        // let buffer_byte_offset = buffer_offset - (first_byte_bit_offset as usize);
 
         let inner = buffer.into_inner().bit_slice(buffer_offset, buffer_len);
 
