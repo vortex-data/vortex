@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -40,13 +39,11 @@ fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>, dtype: &DType) -> O
 where
     T: Into<ScalarValue> + NativePType + Copy,
 {
-    let dtype = dtype.with_nullability(NonNullable);
-
     // this `compare` function provides a total ordering (even for NaN values)
     match iter.minmax_by(|a, b| a.total_compare(**b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::new(dtype, x.into());
+            let scalar = Scalar::new(dtype.clone(), x.into());
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
@@ -54,7 +51,7 @@ where
         }
         itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
             min: Scalar::new(dtype.clone(), min.into()),
-            max: Scalar::new(dtype, max.into()),
+            max: Scalar::new(dtype.clone(), max.into()),
         }),
     }
 }

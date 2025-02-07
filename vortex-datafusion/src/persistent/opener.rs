@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener, FileScanConfig};
+use arrow_schema::SchemaRef;
+use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
@@ -24,7 +25,7 @@ pub(crate) struct VortexFileOpener {
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
     pub(crate) file_layout_cache: FileLayoutCache,
-    pub config: FileScanConfig,
+    pub projected_arrow_schema: SchemaRef,
 }
 
 impl VortexFileOpener {
@@ -34,9 +35,10 @@ impl VortexFileOpener {
         projection: Option<FieldNames>,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         file_layout_cache: FileLayoutCache,
-        config: FileScanConfig,
+        file_schema: SchemaRef,
+        projected_arrow_schema: SchemaRef,
     ) -> VortexResult<Self> {
-        let dtype = DType::from_arrow(config.file_schema.clone());
+        let dtype = DType::from_arrow(file_schema);
         let filter = predicate
             .as_ref()
             // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
@@ -65,38 +67,38 @@ impl VortexFileOpener {
             projection,
             filter,
             file_layout_cache,
-            config,
+            projected_arrow_schema,
         })
     }
 }
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let this = self.clone();
-
-        // Construct the projection expression based on the DataFusion projection mask.
-        // Each index in the mask corresponds to the field position of the root DType.
-
         let read_at =
-            ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
+            ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
+
+        let filter = self.filter.clone();
+        let projection = self.projection.clone();
+        let ctx = self.ctx.clone();
+        let file_layout_cache = self.file_layout_cache.clone();
+        let object_store = self.object_store.clone();
+        let projected_arrow_schema = self.projected_arrow_schema.clone();
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
-                .with_ctx(this.ctx.clone())
+                .with_ctx(ctx.clone())
                 .with_file_layout(
-                    this.file_layout_cache
-                        .try_get(&file_meta.object_meta, this.object_store.clone())
+                    file_layout_cache
+                        .try_get(&file_meta.object_meta, object_store)
                         .await?,
                 )
                 .open()
                 .await?;
 
-            let (projected_arrow_schema, ..) = this.config.project();
-
             Ok(vxf
                 .scan()
-                .with_projection(this.projection.clone())
-                .with_some_filter(this.filter.clone())
+                .with_projection(projection.clone())
+                .with_some_filter(filter.clone())
                 .into_array_stream()?
                 .map_ok(move |array| {
                     let st = array.into_struct()?;

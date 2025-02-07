@@ -30,11 +30,16 @@ impl StatsTable {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
-        Ok(Self {
+
+        Ok(Self::try_new_unchecked(column_dtype, array, stats))
+    }
+
+    pub fn try_new_unchecked(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> Self {
+        Self {
             column_dtype,
             array,
             stats,
-        })
+        }
     }
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].

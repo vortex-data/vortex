@@ -11,7 +11,7 @@ use vortex_array::IntoCanonical;
 use vortex_buffer::Buffer;
 use vortex_dict::dict_encode;
 
-fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
+pub fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
     let mut rng = thread_rng();
     let value_range = len as f64 * uniqueness;
     let range = Uniform::new(-(value_range / 2.0) as i32, (value_range / 2.0) as i32);
@@ -19,7 +19,7 @@ fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
     PrimitiveArray::new(data, Validity::NonNullable)
 }
 
-fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
+pub fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
     let mut rng = thread_rng();
     let uniq_cnt = (len as f64 * uniqueness) as usize;
     let dict: Vec<String> = (0..uniq_cnt)

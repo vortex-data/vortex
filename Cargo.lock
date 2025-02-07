@@ -479,6 +479,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "bzip2",
+ "cfg-if",
  "clap",
  "criterion",
  "datafusion",
@@ -505,6 +506,7 @@ dependencies = [
  "simplelog",
  "tabled",
  "tar",
+ "tikv-jemallocator",
  "tokio",
  "uuid",
  "vortex",
@@ -1818,7 +1820,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2118,9 +2120,9 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
 name = "goldenfile"
-version = "1.7.3"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "672ff1c2f0537cf3f92065ce8aa77e2fc3f2abae2c805eb67f40ceecfbdee428"
+checksum = "cf39e208efa110ca273f7255aea02485103ffcb7e5dfa5e4196b05a02411618e"
 dependencies = [
  "scopeguard",
  "similar-asserts",
@@ -2584,7 +2586,7 @@ checksum = "e19b23d53f35ce9f56aebc7d1bb4e6ac1e9c0db7ac85c8d1760c04379edced37"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2637,7 +2639,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2937,6 +2939,7 @@ dependencies = [
  "loom",
  "parking_lot",
  "portable-atomic",
+ "quanta",
  "rustc_version",
  "smallvec",
  "tagptr",
@@ -3193,9 +3196,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.20.2"
+version = "1.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
+checksum = "945462a4b81e43c4e3ba96bd7b49d834c6f61198356aa858733bc4acf3cbe62e"
 
 [[package]]
 name = "oorandom"
@@ -3770,7 +3773,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4111,7 +4114,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4653,7 +4656,7 @@ dependencies = [
  "getrandom 0.3.1",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4734,6 +4737,26 @@ dependencies = [
  "byteorder",
  "integer-encoding",
  "ordered-float",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd3c60906412afa9c2b5b5a48ca6a5abe5736aec9eb48ad05037a677e52e4e2d"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cec5ff18518d81584f477e9bfdf957f5bb0979b0bac3af4ca30b5b3ae2d2865"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
@@ -5237,6 +5260,7 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "futures",
+ "hashbrown 0.15.2",
  "itertools 0.14.0",
  "log",
  "moka",
@@ -5289,6 +5313,7 @@ version = "0.24.0"
 dependencies = [
  "arrow-buffer",
  "criterion",
+ "divan",
  "num-traits",
  "rand",
  "rustc-hash",
@@ -5402,6 +5427,7 @@ dependencies = [
  "pin-project-lite",
  "rayon",
  "rstest",
+ "rustc-hash",
  "tokio",
  "tracing",
  "vortex-array",
@@ -5838,7 +5864,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

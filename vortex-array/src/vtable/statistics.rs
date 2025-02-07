@@ -26,7 +26,7 @@ where
 
 impl Array {
     /// Computes ths statistics for the given array and stat. This will update the stats of the array
-    /// and return this stats_set.
+    /// and return this [`StatsSet`].
     ///
     /// Other stats might be computed or inferred at the same time.
     pub fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {

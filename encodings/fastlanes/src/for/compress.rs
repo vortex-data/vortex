@@ -18,7 +18,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let dtype = array.dtype().clone();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         let unsigned_ptype = array.ptype().to_unsigned();
-        compress_primitive::<$T>(array, $T::try_from(&min)?)
+        compress_primitive::<$T>(array, $T::try_from(&min)?)?
             .reinterpret_cast(unsigned_ptype)
             .into_array()
     });
@@ -29,8 +29,16 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
-) -> PrimitiveArray {
-    parray.map_each::<T, _, _>(|v| v.wrapping_sub(&min))
+) -> VortexResult<PrimitiveArray> {
+    // Set null values to the min value, ensuring that decompress into a value in the primitive
+    // range (and stop them wrapping around)
+    parray.map_each_with_validity::<T, _, _>(|(v, bool)| {
+        if bool {
+            v.wrapping_sub(&min)
+        } else {
+            T::zero()
+        }
+    })
 }
 
 pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {

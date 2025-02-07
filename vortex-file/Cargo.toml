@@ -26,11 +26,12 @@ futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
-moka = { workspace = true, features = ["future"] }
+moka = { workspace = true, features = ["future", "quanta"] }
 pin-project-lite = { workspace = true }
 rayon = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }

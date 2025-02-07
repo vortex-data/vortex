@@ -1,10 +1,11 @@
-use vortex_array::array::{PrimitiveArray, PrimitiveEncoding};
+use vortex_array::array::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
-use vortex_array::stats::{Stat, Statistics as _};
+use vortex_array::stats::{Stat, Statistics};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: Array) -> VortexResult<Array> {
@@ -12,14 +13,20 @@ pub fn downscale_integer_array(array: Array) -> VortexResult<Array> {
         // This can happen if e.g. the array is ConstantArray.
         return Ok(array);
     }
+    if array.is_empty() {
+        return Ok(array);
+    }
     let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
 
-    let min = array
-        .compute_stat(Stat::Min)
-        .ok_or_else(|| vortex_err!("Failed to compute min on primitive array"))?;
-    let max = array
-        .compute_stat(Stat::Max)
-        .ok_or_else(|| vortex_err!("Failed to compute max on primitive array"))?;
+    let min = array.compute_stat(Stat::Min);
+    let max = array.compute_stat(Stat::Max);
+
+    let (Some(min), Some(max)) = (min, max) else {
+        // This array but be all nulls.
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+        );
+    };
 
     // If we can't cast to i64, then leave the array as its original type.
     // It's too big to downcast anyway.

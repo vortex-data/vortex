@@ -48,8 +48,11 @@ impl<F: VortexFileOpener> VortexFile<F> {
             self.segment_cache.clone(),
         );
 
-        let layout = self.file_layout.root_layout();
-        let reader = layout.reader(driver.segment_reader(), self.ctx.clone())?;
+        // Create a single LayoutReader that is reused for the entire scan.
+        let reader = self
+            .file_layout
+            .root_layout()
+            .reader(driver.segment_reader(), self.ctx.clone())?;
 
         reader.evaluate_stats(field_paths, stats).await?;
         todo!()
