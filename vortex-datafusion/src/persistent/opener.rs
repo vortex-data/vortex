@@ -3,17 +3,12 @@ use std::sync::Arc;
 use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
-use vortex_array::arrow::FromArrowType;
 use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_dtype::{DType, FieldNames};
 use vortex_error::VortexResult;
-use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{and, ident, lit, select, ExprRef};
+use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::{ExecutionMode, Scan, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
@@ -33,35 +28,11 @@ impl VortexFileOpener {
     pub fn new(
         ctx: ContextRef,
         object_store: Arc<dyn ObjectStore>,
-        projection: Option<FieldNames>,
-        predicate: Option<Arc<dyn PhysicalExpr>>,
+        projection: Arc<dyn VortexExpr>,
+        filter: Option<Arc<dyn VortexExpr>>,
         file_layout_cache: FileLayoutCache,
-        file_schema: SchemaRef,
         projected_arrow_schema: SchemaRef,
     ) -> VortexResult<Self> {
-        let dtype = DType::from_arrow(file_schema);
-        let filter = predicate
-            .as_ref()
-            // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
-            // will rerun the filter expression anyway.
-            .map(|expr| {
-                // This splits expressions into conjunctions and converts them to vortex expressions.
-                // Any inconvertible expressions are dropped since true /\ a == a.
-                let expr = split_conjunction(expr)
-                    .into_iter()
-                    .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .reduce(and)
-                    .unwrap_or_else(|| lit(true));
-
-                simplify_typed(expr, &dtype)
-            })
-            .transpose()?;
-
-        let projection = projection
-            .as_ref()
-            .map(|fields| select(fields.clone(), ident()))
-            .unwrap_or_else(|| ident());
-
         Ok(Self {
             ctx,
             object_store,
