@@ -6,6 +6,7 @@ use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
+use vortex_error::VortexUnwrap;
 use vortex_fastlanes::bitpack_to_best_bit_width;
 
 fn main() {
@@ -19,7 +20,7 @@ fn make_array<T: NativePType>(len: usize) -> Array {
         .collect::<BufferMut<T>>()
         .into_array()
         .into_primitive()
-        .unwrap();
+        .vortex_unwrap();
 
     bitpack_to_best_bit_width(values).unwrap().into_array()
 }
@@ -29,36 +30,36 @@ fn test() {
     let chunks = (0..10).map(|_| make_array::<i32>(100)).collect::<Vec<_>>();
     let arr = make_array::<i32>(1);
     let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone())
-        .unwrap()
+        .vortex_unwrap()
         .into_array();
 
     let into_ca = chunked
         .clone()
         .into_canonical()
-        .unwrap()
+        .vortex_unwrap()
         .into_primitive()
-        .unwrap();
+        .vortex_unwrap();
     let mut primitive_builder =
         PrimitiveBuilder::<i32>::with_capacity(arr.dtype().nullability(), 10 * 100);
     chunked
         .clone()
         .canonicalize_into(&mut primitive_builder)
-        .unwrap();
-    let ca_into = primitive_builder.finish().unwrap();
+        .vortex_unwrap();
+    let ca_into = primitive_builder.finish().vortex_unwrap();
 
     assert_eq!(
         into_ca.as_slice::<i32>(),
-        ca_into.into_primitive().unwrap().as_slice::<i32>()
+        ca_into.into_primitive().vortex_unwrap().as_slice::<i32>()
     );
 
     let mut primitive_builder =
         PrimitiveBuilder::<i32>::with_capacity(arr.dtype().nullability(), 10 * 100);
-    primitive_builder.extend_from_array(chunked).unwrap();
-    let ca_into = primitive_builder.finish().unwrap();
+    primitive_builder.extend_from_array(chunked).vortex_unwrap();
+    let ca_into = primitive_builder.finish().vortex_unwrap();
 
     assert_eq!(
         into_ca.as_slice::<i32>(),
-        ca_into.into_primitive().unwrap().as_slice::<i32>()
+        ca_into.into_primitive().vortex_unwrap().as_slice::<i32>()
     );
 }
 
@@ -77,10 +78,9 @@ fn into_canonical<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usi
         .map(|_| make_array::<T>(arr_len))
         .collect::<Vec<_>>();
     let arr = make_array::<T>(1);
-    let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone()).unwrap();
-    // println!("chunked: {}", chunked.tree_display());
+    let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone()).vortex_unwrap();
 
-    bencher.bench(|| chunked.clone().into_canonical().unwrap().len());
+    bencher.bench(|| chunked.clone().into_canonical().vortex_unwrap().len());
 }
 
 #[divan::bench(
@@ -99,10 +99,8 @@ fn canonical_into<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usi
         .collect::<Vec<_>>();
     let arr = make_array::<T>(1);
     let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone())
-        .unwrap()
+        .vortex_unwrap()
         .into_array();
-
-    // println!("chunked: {}", chunked.tree_display());
 
     bencher.bench(|| {
         let mut primitive_builder =
@@ -110,7 +108,7 @@ fn canonical_into<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usi
         chunked
             .clone()
             .canonicalize_into(&mut primitive_builder)
-            .unwrap();
-        primitive_builder.finish().unwrap().len()
+            .vortex_unwrap();
+        primitive_builder.finish().vortex_unwrap().len()
     });
 }

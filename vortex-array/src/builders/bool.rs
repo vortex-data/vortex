@@ -33,11 +33,7 @@ impl BoolBuilder {
 
         Self {
             inner: BooleanBufferBuilder::new(capacity),
-            nulls: if nullability == Nullable {
-                Some(LazyNullBufferBuilder::new(null_cap))
-            } else {
-                None
-            },
+            nulls: (nullability == Nullable).then(|| LazyNullBufferBuilder::new(null_cap)),
             nullability,
             dtype: DType::Bool(nullability),
         }

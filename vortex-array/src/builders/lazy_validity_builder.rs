@@ -1,4 +1,5 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use vortex_error::VortexExpect;
 
 /// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`
 /// method to append a boolean buffer directly.
@@ -40,14 +41,20 @@ impl LazyNullBufferBuilder {
     #[inline]
     pub fn append_n_nulls(&mut self, n: usize) {
         self.materialize_if_needed();
-        self.inner.as_mut().unwrap().append_n(n, false);
+        self.inner
+            .as_mut()
+            .vortex_expect("cannot append null to non-nullable builder")
+            .append_n(n, false);
     }
 
     #[allow(dead_code)]
     #[inline]
     pub fn append_null(&mut self) {
         self.materialize_if_needed();
-        self.inner.as_mut().unwrap().append(false);
+        self.inner
+            .as_mut()
+            .vortex_expect("cannot append null to non-nullable builder")
+            .append(false);
     }
 
     #[allow(dead_code)]
@@ -63,7 +70,10 @@ impl LazyNullBufferBuilder {
     #[inline]
     pub fn append_buffer(&mut self, bool_buffer: BooleanBuffer) {
         self.materialize_if_needed();
-        self.inner.as_mut().unwrap().append_buffer(&bool_buffer);
+        self.inner
+            .as_mut()
+            .vortex_expect("buffer just materialized")
+            .append_buffer(&bool_buffer);
     }
 
     pub fn finish(&mut self) -> Option<NullBuffer> {

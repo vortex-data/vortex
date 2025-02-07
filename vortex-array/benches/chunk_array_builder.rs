@@ -4,6 +4,7 @@ use rand::{Rng, SeedableRng};
 use vortex_array::array::{BoolArray, ChunkedArray};
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_error::VortexUnwrap;
 
 fn main() {
     divan::main();
@@ -66,8 +67,11 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
 
     bencher.bench(|| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
-        builder.finish().unwrap()
+        chunk
+            .clone()
+            .canonicalize_into(builder.as_mut())
+            .vortex_unwrap();
+        builder.finish().vortex_unwrap()
     })
 }
 
@@ -76,24 +80,35 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
     let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-    chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
+    chunk
+        .clone()
+        .canonicalize_into(builder.as_mut())
+        .vortex_unwrap();
     let res = builder
         .finish()
-        .unwrap()
+        .vortex_unwrap()
         .into_canonical()
-        .unwrap()
+        .vortex_unwrap()
         .into_bool()
-        .unwrap();
+        .vortex_unwrap();
 
-    let res2 = chunk.clone().into_canonical().unwrap().into_bool().unwrap();
+    let res2 = chunk
+        .clone()
+        .into_canonical()
+        .vortex_unwrap()
+        .into_bool()
+        .vortex_unwrap();
 
     assert_eq!(res.validity(), res2.validity());
     assert_eq!(res.boolean_buffer(), res2.boolean_buffer());
 
     bencher.bench(|| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
-        builder.finish().unwrap()
+        chunk
+            .clone()
+            .canonicalize_into(builder.as_mut())
+            .vortex_unwrap();
+        builder.finish().vortex_unwrap()
     })
 }
 
