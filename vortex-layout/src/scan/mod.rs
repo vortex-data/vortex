@@ -245,7 +245,7 @@ impl<D: ScanDriver> Scan<D> {
                 Err(canceled) => Some(Err(vortex_err!("Scan task canceled: {}", canceled))),
             }
         });
-        let driver_stream = self.driver.drive_stream(stream::iter(tasks.into_iter()));
+        let driver_stream = self.driver.drive_stream(stream::iter(tasks));
 
         let stream = UnifiedDriverStream {
             exec_stream: array_stream,
