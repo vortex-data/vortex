@@ -30,7 +30,6 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-sparse = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

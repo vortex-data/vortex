@@ -15,7 +15,6 @@ readme = "README.md"
 
 [dependencies]
 arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
@@ -39,10 +38,8 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
-vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-scan = { workspace = true }
 
 [dev-dependencies]

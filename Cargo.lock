@@ -5260,7 +5260,6 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "futures",
- "hashbrown 0.15.2",
  "itertools 0.14.0",
  "log",
  "moka",
@@ -5277,7 +5276,6 @@ dependencies = [
  "vortex-expr",
  "vortex-file",
  "vortex-io",
- "vortex-scalar",
 ]
 
 [[package]]
@@ -5342,7 +5340,6 @@ dependencies = [
  "serde_json",
  "serde_test",
  "static_assertions",
- "vortex-buffer",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
@@ -5405,7 +5402,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
- "vortex-sparse",
 ]
 
 [[package]]
@@ -5413,7 +5409,6 @@ name = "vortex-file"
 version = "0.24.0"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "arrow-schema",
  "async-trait",
  "bytes",
@@ -5437,10 +5432,8 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-io",
- "vortex-ipc",
  "vortex-layout",
  "vortex-mask",
- "vortex-scalar",
  "vortex-scan",
 ]
 
@@ -5665,7 +5658,6 @@ dependencies = [
 name = "vortex-tui"
 version = "0.24.0"
 dependencies = [
- "bytes",
  "clap",
  "crossterm",
  "ratatui",
@@ -5678,7 +5670,6 @@ dependencies = [
 name = "vortex-zigzag"
 version = "0.24.0"
 dependencies = [
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

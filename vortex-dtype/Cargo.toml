@@ -28,7 +28,6 @@ prost = { workspace = true, optional = true }
 rkyv = { workspace = true, optional = true, features = ["bytecheck"] }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
 static_assertions = { workspace = true }
-vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, optional = true }
