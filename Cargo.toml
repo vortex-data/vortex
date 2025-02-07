@@ -154,7 +154,7 @@ tikv-jemallocator = "0.6"
 thiserror = "2.0.3"
 tokio = "1.36"
 tracing = "0.1.37"
-url = "2.4"
+url = "2.5.4"
 uuid = "1.8.0"
 wasm-bindgen-futures = "0.4.39"
 
