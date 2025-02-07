@@ -15,9 +15,7 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         let mut idx = 0;
-        // let mut compare_chunks = Vec::with_capacity(lhs.nchunks());
 
-        // TODO(joe): bool builder her
         let mut bool_builder = BoolBuilder::with_capacity(
             // nullable <= non-nullable
             min(lhs.dtype().nullability(), rhs.dtype().nullability()),
@@ -40,6 +38,7 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
 mod tests {
     use super::*;
     use crate::array::PrimitiveArray;
+    use crate::IntoArray;
 
     #[test]
     fn empty_compare() {

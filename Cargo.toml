@@ -245,7 +245,7 @@ debug = true
 [profile.benchtest]
 inherits = "bench"
 debug-assertions = true
-lto = false
+lto = false # bench without lto (so it builds faster)
 
 [profile.samply]
 inherits = "release"

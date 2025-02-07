@@ -1,18 +1,20 @@
 use std::any::Any;
 
-use arrow_array::builder::{ArrayBuilder as _, BooleanBuilder as ArrowBooleanBuilder};
-use arrow_array::Array as ArrowArray;
-use itertools::Itertools;
+use arrow_buffer::BooleanBufferBuilder;
+use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::AllOr;
 
-use crate::arrow::FromArrowArray;
+use crate::array::BoolArray;
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoCanonical};
+use crate::validity::Validity;
+use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct BoolBuilder {
-    inner: ArrowBooleanBuilder,
+    inner: BooleanBufferBuilder,
+    nulls: Option<LazyNullBufferBuilder>,
     nullability: Nullability,
     dtype: DType,
 }
@@ -23,15 +25,29 @@ impl BoolBuilder {
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
+        let null_cap = if nullability == NonNullable {
+            0
+        } else {
+            capacity
+        };
+
         Self {
-            inner: ArrowBooleanBuilder::with_capacity(capacity),
+            inner: BooleanBufferBuilder::new(capacity),
+            nulls: if nullability == Nullable {
+                Some(LazyNullBufferBuilder::new(null_cap))
+            } else {
+                None
+            },
             nullability,
             dtype: DType::Bool(nullability),
         }
     }
 
     pub fn append_value(&mut self, value: bool) {
-        self.inner.append_value(value);
+        self.inner.append(value);
+        if let Some(nulls) = &mut self.nulls {
+            nulls.append_non_null()
+        }
     }
 
     pub fn append_values(&mut self, value: bool, n: usize) {
@@ -65,10 +81,17 @@ impl ArrayBuilder for BoolBuilder {
 
     fn append_zeros(&mut self, n: usize) {
         self.inner.append_n(n, false);
+        if let Some(nulls) = &mut self.nulls {
+            nulls.append_n_non_nulls(n)
+        }
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.inner.append_nulls(n);
+        if let Some(nulls) = &mut self.nulls {
+            nulls.append_n_nulls(n)
+        } else {
+            vortex_panic!("Cannot append nulls to non-nullable builder")
+        }
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
@@ -77,22 +100,25 @@ impl ArrayBuilder for BoolBuilder {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
         };
 
+        self.inner.append_buffer(&array.boolean_buffer());
+
         match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                // TODO(ngates): if the arrays align, we could just copy the bytes.
-                self.inner.extend(array.boolean_buffer().iter().map(Some));
+                if let Some(nulls) = &mut self.nulls {
+                    nulls.append_n_nulls(array.len())
+                }
+                // If the array is all valid and this builder is non-nullable,
+                // we don't need to do anything
             }
             AllOr::None => {
-                self.inner.append_nulls(array.len());
+                self.append_nulls(array.len());
             }
             AllOr::Some(validity) => {
-                self.inner.extend(
-                    array
-                        .boolean_buffer()
-                        .iter()
-                        .zip_eq(validity.iter())
-                        .map(|(value, valid)| valid.then_some(value)),
-                );
+                if let Some(nulls) = &mut self.nulls {
+                    nulls.append_buffer(validity.clone())
+                } else {
+                    vortex_bail!("Cannot append nulls to non-nullable builder")
+                }
             }
         }
 
@@ -100,12 +126,66 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
-        let arrow = self.inner.finish();
+        let bools = self.inner.finish();
 
-        if !self.dtype().is_nullable() && arrow.null_count() > 0 {
-            vortex_bail!("Non-nullable builder has null values");
-        }
+        let nulls = self.nulls.as_mut().take().and_then(|n| n.finish());
+        let validity = match (self.nullability, nulls) {
+            (NonNullable, None) => Validity::NonNullable,
+            (Nullable, None) => Validity::AllValid,
+            (Nullable, Some(arr)) => Validity::from(arr),
+            // TODO(joe): Handle all empty nulls as a offset.
+            _ => vortex_panic!("Invalid nullability/nulls combination"),
+        };
 
-        Ok(Array::from_arrow(&arrow, self.nullability.into()))
+        Ok(BoolArray::try_new(bools, validity)?.into_array())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
+
+    use crate::array::{BoolArray, ChunkedArray};
+    use crate::builders::builder_with_capacity;
+    use crate::{Array, IntoArray, IntoCanonical};
+
+    fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        (0..chunk_count)
+            .map(|_| {
+                BoolArray::from_iter((0..len).map(|_| match rng.gen_range::<u8, _>(0..=2) {
+                    0 => Some(false),
+                    1 => Some(true),
+                    2 => None,
+                    _ => unreachable!(),
+                }))
+                .into_array()
+            })
+            .collect::<ChunkedArray>()
+            .into_array()
+    }
+
+    #[test]
+    fn tests() {
+        let len = 1000;
+        let chunk_count = 10;
+        let chunk = make_opt_bool_chunks(len, chunk_count);
+
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
+        let canon_into = builder
+            .finish()
+            .unwrap()
+            .into_canonical()
+            .unwrap()
+            .into_bool()
+            .unwrap();
+
+        let into_canon = chunk.clone().into_canonical().unwrap().into_bool().unwrap();
+
+        assert_eq!(canon_into.validity(), into_canon.validity());
+        assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());
     }
 }

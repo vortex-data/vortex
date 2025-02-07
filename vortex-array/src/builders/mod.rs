@@ -1,6 +1,7 @@
 mod binary;
 mod bool;
 mod extension;
+mod lazy_validity_builder;
 mod list;
 mod null;
 mod primitive;
