@@ -25,29 +25,18 @@ jobs:
 
   codspeed_bench:
     needs: label_trigger
-    strategy:
-      matrix:
-        benchmark:
-          - id: dict_compare
-            name: dict compare
-          - id: dict_compress
-            name: dict compress
-          - id: bitpacking_take
-            name: fastlanes bitpacking take
-          - id: run_end_filter
-            name: runend filter
-          - id: run_end_null_count
-            name: runend null count
-          - id: search_sorted
-            name: vortex-array search sorted
-          - id: scalar_subtract
-            name: vortex-array scalar subtract
-          - id: compare
-            name: vortex-array compare
-          - id: take_strings
-            name: vortex-array take strings
-          - id: take_patches
-            name: vortex-array take patches
+    env:
+      BENCH_TARGETS: >
+        dict_compare
+        dict_compress
+        bitpacking_take
+        run_end_filter
+        run_end_null_count
+        search_sorted
+        scalar_subtract
+        compare
+        take_strings
+        take_patches
     name: Run benchmarks
     runs-on: ubuntu-latest
     steps:
@@ -68,14 +57,14 @@ jobs:
           cargo install --force cargo-codspeed --locked
 
       - name: Build benchmark targets
-        run: cargo codspeed build compare
-
-      - name: Run the benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
+        run: cargo codspeed build $BENCH_TARGETS
+
+      - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
         with:
-          run: cargo codspeed run compare
+          run: cargo codspeed run $BENCH_TARGETS
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   # bench:
