@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
