@@ -54,8 +54,7 @@ impl VortexExec {
 
         let predicate = make_vortex_predicate(predicate, dtype)?;
 
-        // We project our statistics to only the selected columns
-        // We must also take care to report in-exact statistics if we have any form of filter
+        // We must take care to report in-exact statistics if we have any form of filter
         // push-down.
         if predicate.is_some() {
             statistics = statistics.to_inexact();
