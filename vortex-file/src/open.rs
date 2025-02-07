@@ -72,7 +72,7 @@ impl<F: VortexFileOpener> VortexOpenOptions<F> {
     /// Configure a known file layout.
     ///
     /// If this is provided, then the Vortex file can be opened without performing any I/O.
-    /// Once open, the [`FileLayout`] can be accessed via [`GenericVortexFile::file_layout`].
+    /// Once open, the [`FileLayout`] can be accessed via [`VortexFile::file_layout`].
     pub fn with_file_layout(mut self, file_layout: FileLayout) -> Self {
         self.file_layout = Some(file_layout);
         self

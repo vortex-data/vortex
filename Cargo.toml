@@ -248,5 +248,4 @@ lto = false # bench without lto (so it builds faster)
 
 [profile.samply]
 inherits = "release"
-lto = false  # disable LTO for faster compilation, and slightly slower but at least consistent runtimes
 debug = true
