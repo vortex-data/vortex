@@ -21,21 +21,22 @@ jobs:
       - uses: actions-ecosystem/action-remove-labels@v1
         with:
           labels: benchmark
-  bench:
+      - uses: actions/checkout@v4
+
+  codspeed_bench:
     needs: label_trigger
-    strategy:
-      matrix:
-        benchmark:
-          - id: random_access
-            name: Random Access
-          - id: compress
-            name: Vortex Compression
-    runs-on: self-hosted
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    name: Run benchmarks
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
+
+      # - name: Install
+      #   shell: bash
+      #   run: |
+      #     set -Eeu -o pipefail -x
+      #     base_commit_sha=${{ github.event.pull_request.base.sha }}
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
@@ -44,186 +45,225 @@ jobs:
         with:
           version: v1.0.0
 
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
+      - name: Setup rust toolchain, cache and cargo-codspeed binary
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: nightly
+          cache-target: release
+          bins: cargo-codspeed
 
-      - name: Run benchmarks
+      - name: Build the benchmark target(s)
+        run: cargo codspeed build compress
+
+      - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
-        env:
-          BENCH_VORTEX_RATIOS: ".*"
-          RUSTFLAGS: "-C target-cpu=native"
-          HOME: /home/ci-runner
         with:
+          run: cargo codspeed run compress
           token: ${{ secrets.CODSPEED_TOKEN }}
-          shell: bash
-          run: |
-            rustup default nightly
-            cargo install --force cargo-codspeed --locked
-            cargo codspeed build ${{ matrix.benchmark.id }}
-            cargo codspeed run ${{ matrix.benchmark.id }}
 
-        # - name: Run benchmark
-        #   shell: bash
-        #   env:
-        #     BENCH_VORTEX_RATIOS: '.*'
-        #     RUSTFLAGS: '-C target-cpu=native'
-        #   run: |
-        #     cargo install cargo-criterion
-        #     sudo apt-get update && sudo apt-get install -y jq
+  # bench:
+  #   needs: label_trigger
+  #   strategy:
+  #     matrix:
+  #       benchmark:
+  #         - id: random_access
+  #           name: Random Access
+  #         - id: compress
+  #           name: Vortex Compression
+  #   runs-on: self-hosted
+  #   if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: ./.github/actions/setup-rust
 
-        #     cargo criterion \
-        #           --bench ${{ matrix.benchmark.id }} \
-        #           --features mimalloc \
-        #           --message-format=json \
-        #       > ${{ matrix.benchmark.id }}-raw.json
+  #     # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+  #     - name: Install DuckDB
+  #       uses: opt-nc/setup-duckdb-action@v1.0.10
+  #       if: runner.environment != 'self-hosted'
+  #       with:
+  #         version: v1.0.0
 
-        #     cat ${{ matrix.benchmark.id }}-raw.json \
-        #       | bash scripts/coerce-criterion-json.sh \
-        #       > ${{ matrix.benchmark.id }}.json
+  #     - name: Set tempdir
+  #       if: runner.environment == 'self-hosted'
+  #       run: |
+  #         # echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Compare results
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
+  #     - name: Run benchmarks
+  #       uses: CodSpeedHQ/action@v3
+  #       env:
+  #         BENCH_VORTEX_RATIOS: ".*"
+  #         RUSTFLAGS: "-C target-cpu=native"
+  #         HOME: /home/ci-runner
+  #       with:
+  #         token: ${{ secrets.CODSPEED_TOKEN }}
+  #         shell: bash
+  #         run: |
+  #           rustup default nightly
+  #           cargo install --force cargo-codspeed --locked
+  #           cargo codspeed build ${{ matrix.benchmark.id }}
+  #           cargo codspeed run ${{ matrix.benchmark.id }}
 
-          base_commit_sha=${{ github.event.pull_request.base.sha }}
+  # - name: Run benchmark
+  #   shell: bash
+  #   env:
+  #     BENCH_VORTEX_RATIOS: '.*'
+  #     RUSTFLAGS: '-C target-cpu=native'
+  #   run: |
+  #     cargo install cargo-criterion
+  #     sudo apt-get update && sudo apt-get install -y jq
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
-            | grep $base_commit_sha \
-            > base.json
+  #     cargo criterion \
+  #           --bench ${{ matrix.benchmark.id }} \
+  #           --features mimalloc \
+  #           --message-format=json \
+  #       > ${{ matrix.benchmark.id }}-raw.json
 
-          echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
-          echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
-            >> comment.md
-          echo '</details>' >> comment.md
-      - name: Comment PR
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: comment.md
-          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
-  tpch:
-    needs: label_trigger
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
+  #     cat ${{ matrix.benchmark.id }}-raw.json \
+  #       | bash scripts/coerce-criterion-json.sh \
+  #       > ${{ matrix.benchmark.id }}.json
 
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
+  # - name: Setup AWS CLI
+  #   uses: aws-actions/configure-aws-credentials@v4
+  #   with:
+  #     role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+  #     aws-region: us-east-1
+  # - name: Install uv
+  #   uses: astral-sh/setup-uv@v5
+  # - name: Compare results
+  #   shell: bash
+  #   run: |
+  #     set -Eeu -o pipefail -x
 
-      - name: Run TPC-H benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: ".*"
-          RUSTFLAGS: "-C target-cpu=native"
-        run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Compare results
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
+  #     base_commit_sha=${{ github.event.pull_request.base.sha }}
 
-          base_commit_sha=${{ github.event.pull_request.base.sha }}
+  #     aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+  #       | grep $base_commit_sha \
+  #       > base.json
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
-            | grep $base_commit_sha \
-            > base.json
+  #     echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
+  #     echo '<details>' >> comment.md
+  #     echo '<summary>Table of Results</summary>' >> comment.md
+  #     echo '' >> comment.md
+  #     uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+  #       >> comment.md
+  #     echo '</details>' >> comment.md
+  # - name: Comment PR
+  #   uses: thollander/actions-comment-pull-request@v3
+  #   with:
+  #     file-path: comment.md
+  #     comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+  # tpch:
+  #   needs: label_trigger
+  #   runs-on: self-hosted
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: ./.github/actions/setup-rust
+  #     # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+  #     - name: Install DuckDB
+  #       uses: opt-nc/setup-duckdb-action@v1.0.10
+  #       if: runner.environment != 'self-hosted'
+  #       with:
+  #         version: v1.0.0
 
-          echo '# Benchmarks: TPC-H' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
-          echo '' >> comment.md
-          uv run python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
-            >> comment.md
-          echo '</details>' >> comment.md
-      - name: Comment PR
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: comment.md
-          comment-tag: bench-pr-comment-tpch
-  clickbench:
-    needs: label_trigger
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
+  #     - name: Set tempdir
+  #       if: runner.environment == 'self-hosted'
+  #       run: |
+  #         echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
+  #     - name: Run TPC-H benchmark
+  #       shell: bash
+  #       env:
+  #         BENCH_VORTEX_RATIOS: ".*"
+  #         RUSTFLAGS: "-C target-cpu=native"
+  #       run: |
+  #         cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+  #     - name: Setup AWS CLI
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+  #         aws-region: us-east-1
+  #     - name: Install uv
+  #       uses: astral-sh/setup-uv@v5
+  #     - name: Compare results
+  #       shell: bash
+  #       run: |
+  #         set -Eeu -o pipefail -x
 
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
+  #         base_commit_sha=${{ github.event.pull_request.base.sha }}
 
-      - name: Run Clickbench benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: ".*"
-          RUSTFLAGS: "-C target-cpu=native"
-          HOME: /home/ci-runner
-        run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Compare results
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
+  #         aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+  #           | grep $base_commit_sha \
+  #           > base.json
 
-          base_commit_sha=${{ github.event.pull_request.base.sha }}
+  #         echo '# Benchmarks: TPC-H' > comment.md
+  #         echo '<details>' >> comment.md
+  #         echo '<summary>Table of Results</summary>' >> comment.md
+  #         echo '' >> comment.md
+  #         uv run python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
+  #           >> comment.md
+  #         echo '</details>' >> comment.md
+  #     - name: Comment PR
+  #       uses: thollander/actions-comment-pull-request@v3
+  #       with:
+  #         file-path: comment.md
+  #         comment-tag: bench-pr-comment-tpch
+  # clickbench:
+  #   needs: label_trigger
+  #   runs-on: self-hosted
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: ./.github/actions/setup-rust
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
-            | grep $base_commit_sha \
-            > base.json
+  #     # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+  #     - name: Install DuckDB
+  #       uses: opt-nc/setup-duckdb-action@v1.0.10
+  #       if: runner.environment != 'self-hosted'
+  #       with:
+  #         version: v1.0.0
 
-          echo '# Benchmarks: Clickbench' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
-          echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json clickbench.json \
-            >> comment.md
-          echo '</details>' >> comment.md
-      - name: Comment PR
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: comment.md
-          comment-tag: bench-pr-comment-clickbench
+  #     - name: Set tempdir
+  #       if: runner.environment == 'self-hosted'
+  #       run: |
+  #         echo "TMPDIR=/work" >> $GITHUB_ENV
+
+  #     - name: Run Clickbench benchmark
+  #       shell: bash
+  #       env:
+  #         BENCH_VORTEX_RATIOS: ".*"
+  #         RUSTFLAGS: "-C target-cpu=native"
+  #         HOME: /home/ci-runner
+  #       run: |
+  #         cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+  #     - name: Setup AWS CLI
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+  #         aws-region: us-east-1
+  #     - name: Install uv
+  #       uses: astral-sh/setup-uv@v5
+  #     - name: Compare results
+  #       shell: bash
+  #       run: |
+  #         set -Eeu -o pipefail -x
+
+  #         base_commit_sha=${{ github.event.pull_request.base.sha }}
+
+  #         aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+  #           | grep $base_commit_sha \
+  #           > base.json
+
+  #         echo '# Benchmarks: Clickbench' > comment.md
+  #         echo '<details>' >> comment.md
+  #         echo '<summary>Table of Results</summary>' >> comment.md
+  #         echo '' >> comment.md
+  #         uv run scripts/compare-benchmark-jsons.py base.json clickbench.json \
+  #           >> comment.md
+  #         echo '</details>' >> comment.md
+  #     - name: Comment PR
+  #       uses: thollander/actions-comment-pull-request@v3
+  #       with:
+  #         file-path: comment.md
+  #         comment-tag: bench-pr-comment-clickbench
