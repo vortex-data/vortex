@@ -22,7 +22,7 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
             lhs.len(),
         );
 
-        for chunk in lhs.chunks().filter(|c| !c.is_empty()) {
+        for chunk in lhs.non_empty_chunks() {
             let sliced = slice(rhs, idx, idx + chunk.len())?;
             let cmp_result = compare(&chunk, &sliced, operator)?;
 

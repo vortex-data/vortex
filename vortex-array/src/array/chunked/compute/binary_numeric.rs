@@ -17,7 +17,7 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
 
         let mut builder = BoolBuilder::with_capacity(array.dtype().nullability(), array.len());
 
-        for chunk in array.chunks().filter(|c| c.is_empty()) {
+        for chunk in array.non_empty_chunks() {
             let end = start + chunk.len();
             builder.extend_from_array(binary_numeric(&chunk, &slice(rhs, start, end)?, op)?)?;
             start = end;
