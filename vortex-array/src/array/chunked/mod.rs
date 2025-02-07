@@ -147,7 +147,7 @@ impl ChunkedArray {
     }
 
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = Array> + '_ {
-        self.chunks().filter(Array::is_empty)
+        self.chunks().filter(|c| !c.is_empty())
     }
 
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
