@@ -11,7 +11,7 @@ impl<T: ArrowNativeType> Buffer<T> {
         // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
         // arrow_buffer::Bytes is only pub(crate). Seems weird...
         // See: https://github.com/apache/arrow-rs/issues/6033
-        let buffer = arrow_buffer::Buffer::from_bytes(bytes.into());
+        let buffer = arrow_buffer::Buffer::from(bytes);
         arrow_buffer::ScalarBuffer::from(buffer)
     }
 
@@ -57,7 +57,7 @@ impl ByteBuffer {
         // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
         // arrow_buffer::Bytes is only pub(crate). Seems weird...
         // See: https://github.com/apache/arrow-rs/issues/6033
-        arrow_buffer::Buffer::from_bytes(bytes.into())
+        arrow_buffer::Buffer::from(bytes)
     }
 
     /// Convert an Arrow scalar buffer into a Vortex scalar buffer.

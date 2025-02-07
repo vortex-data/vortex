@@ -14,7 +14,7 @@ use crate::expr::PyExpr;
 use crate::{install_module, TOKIO_RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "io")?;
+    let m = PyModule::new(py, "io")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.io", &m)?;
 

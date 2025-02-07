@@ -7,7 +7,7 @@ use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyList};
+use pyo3::types::{PyDict, PyList};
 use pyo3::PyClass;
 use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
@@ -29,7 +29,7 @@ use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "arrays")?;
+    let m = PyModule::new(py, "arrays")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.arrays", &m)?;
 
@@ -263,11 +263,13 @@ impl PyArray {
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
                 .collect();
 
+            let sequence = &[("type", pa_data_type)].into_pyobject(py)?;
+
             // Combine into a chunked array
-            PyModule::import_bound(py, "pyarrow")?.call_method(
+            PyModule::import(py, "pyarrow")?.call_method(
                 "chunked_array",
-                (PyList::new_bound(py, chunks?),),
-                Some(&[("type", pa_data_type)].into_py_dict_bound(py)),
+                (PyList::new(py, chunks)?,),
+                Some(&PyDict::from_sequence(sequence)?),
             )
         } else {
             Ok(vortex

@@ -26,7 +26,7 @@ use crate::object_store_urls::vortex_read_at_from_url;
 use crate::{install_module, TOKIO_RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "dataset")?;
+    let m = PyModule::new(py, "dataset")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.dataset", &m)?;
 

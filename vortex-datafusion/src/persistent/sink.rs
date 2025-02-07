@@ -2,6 +2,7 @@ use std::any::Any;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::datasource::physical_plan::FileSinkConfig;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
@@ -20,11 +21,12 @@ use vortex_io::{ObjectStoreWriter, VortexWrite};
 
 pub struct VortexSink {
     config: FileSinkConfig,
+    schema: SchemaRef,
 }
 
 impl VortexSink {
-    pub fn new(config: FileSinkConfig) -> Self {
-        Self { config }
+    pub fn new(config: FileSinkConfig, schema: SchemaRef) -> Self {
+        Self { config, schema }
     }
 }
 
@@ -52,6 +54,11 @@ impl DataSink for VortexSink {
 
     fn metrics(&self) -> Option<MetricsSet> {
         None
+    }
+
+    /// Returns the sink schema
+    fn schema(&self) -> &SchemaRef {
+        &self.schema
     }
 
     async fn write_all(
