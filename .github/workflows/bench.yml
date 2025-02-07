@@ -31,7 +31,7 @@ jobs:
 
 
   codspeed_bench:
-    name: Run benchmarks
+    name: Run Criterion benchmarks with Codspeed
     env:
       BENCH_TARGETS: >
         dict_compare

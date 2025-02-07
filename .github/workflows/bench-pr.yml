@@ -23,7 +23,7 @@ jobs:
           labels: benchmark
 
   codspeed_bench:
-    name: Run benchmarks
+    name: Run Criterion benchmarks with Codspeed
     needs: label_trigger
     env:
       BENCH_TARGETS: >
