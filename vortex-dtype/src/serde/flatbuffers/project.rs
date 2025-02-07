@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::field::Field;
@@ -20,7 +20,7 @@ pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> Vorte
                 .position(|name| name == &**n)
                 .ok_or_else(|| vortex_err!("Unknown field name {n}"))
         }
-        Field::Index(i) => Ok(*i),
+        _ => vortex_bail!("Only field names are supported for now"),
     }
 }
 

@@ -116,6 +116,6 @@ fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_nullable()
         || dtype
             .as_struct()
-            .map(|sdt| sdt.dtypes().any(|dtype| has_nullable_struct(&dtype)))
+            .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
             .unwrap_or(false)
 }

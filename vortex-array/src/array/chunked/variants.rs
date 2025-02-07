@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use itertools::Itertools;
-use vortex_dtype::{DType, Field, FieldName};
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
@@ -65,17 +64,22 @@ impl Utf8ArrayTrait for ChunkedArray {}
 impl BinaryArrayTrait for ChunkedArray {}
 
 impl StructArrayTrait for ChunkedArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(
                 chunk
                     .as_struct_array()
-                    .and_then(|s| s.maybe_null_field_by_idx(idx))?,
+                    .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
+                    .maybe_null_field_by_idx(idx)?,
             );
         }
 
-        let projected_dtype = self.dtype().as_struct().map(|s| s.field_dtype(idx))?.ok()?;
+        let projected_dtype = self
+            .dtype()
+            .as_struct()
+            .ok_or_else(|| vortex_err!("Not a struct dtype"))?
+            .field_by_index(idx)?;
         let chunked = ChunkedArray::try_new(chunks, projected_dtype.clone())
             .unwrap_or_else(|err| {
                 vortex_panic!(
@@ -85,7 +89,7 @@ impl StructArrayTrait for ChunkedArray {
                 )
             })
             .into_array();
-        Some(chunked)
+        Ok(chunked)
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
@@ -103,13 +107,7 @@ impl StructArrayTrait for ChunkedArray {
             .dtype()
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?
-            .project(
-                projection
-                    .iter()
-                    .map(|f| Field::Name(f.clone()))
-                    .collect_vec()
-                    .as_slice(),
-            )?;
+            .project(projection)?;
         ChunkedArray::try_new(
             chunks,
             DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),

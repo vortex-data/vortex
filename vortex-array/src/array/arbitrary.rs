@@ -59,7 +59,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                 DType::Binary(n) => random_bytes(u, *n, chunk_len),
                 DType::Struct(sdt, n) => {
                     let first_array = sdt
-                        .dtypes()
+                        .fields()
                         .next()
                         .map(|d| random_array(u, &d, chunk_len))
                         .transpose()?;
@@ -73,7 +73,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                         .into_iter()
                         .map(Ok)
                         .chain(
-                            sdt.dtypes()
+                            sdt.fields()
                                 .skip(1)
                                 .map(|d| random_array(u, &d, Some(resolved_len))),
                         )

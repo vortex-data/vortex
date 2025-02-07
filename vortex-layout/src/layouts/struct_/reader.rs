@@ -76,14 +76,14 @@ impl StructReader {
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_dtype().find_name(name))
+            .or_else(|| self.struct_dtype().find(name).ok())
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
 
         // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
             let child_layout = self
                 .layout
-                .child(idx, self.struct_dtype().field_dtype(idx)?)?;
+                .child(idx, self.struct_dtype().field_by_index(idx)?)?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }

@@ -112,8 +112,8 @@ impl DType {
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
-                        .dtypes()
-                        .zip_eq(rhs_dtype.dtypes())
+                        .fields()
+                        .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
             (Struct(..), _) => false,
@@ -184,7 +184,7 @@ impl Display for DType {
                 "{{{}}}{}",
                 sdt.names()
                     .iter()
-                    .zip(sdt.dtypes())
+                    .zip(sdt.fields())
                     .map(|(n, dt)| format!("{}={}", n, dt))
                     .join(", "),
                 n

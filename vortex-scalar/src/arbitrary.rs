@@ -26,7 +26,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
             ByteBuffer::from(u.arbitrary::<Vec<u8>>()?),
         )))),
         DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
-            sdt.dtypes()
+            sdt.fields()
                 .map(|d| random_scalar_value(u, &d))
                 .collect::<Result<Vec<_>>>()?
                 .into(),

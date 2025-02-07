@@ -35,7 +35,7 @@ pub use operators::*;
 pub use pack::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{Array, Canonical, IntoArray as _};
+use vortex_array::Array;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
 
@@ -68,11 +68,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let empty = Canonical::empty(scope_dtype).into_array();
-        self.unchecked_evaluate(&empty)
-            .map(|array| array.dtype().clone())
-    }
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType>;
 }
 
 pub trait VortexExprExt {

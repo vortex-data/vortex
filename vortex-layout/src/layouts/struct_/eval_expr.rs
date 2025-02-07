@@ -61,7 +61,7 @@ mod tests {
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Field, Nullability, StructDType};
+    use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
     use vortex_scan::RowMask;
@@ -170,7 +170,7 @@ mod tests {
             result
                 .as_struct_array()
                 .unwrap()
-                .maybe_null_field(&Field::Name("a".into()))
+                .maybe_null_field_by_name("a")
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -182,7 +182,7 @@ mod tests {
             result
                 .as_struct_array()
                 .unwrap()
-                .maybe_null_field(&Field::Name("b".into()))
+                .maybe_null_field_by_name("b")
                 .unwrap()
                 .into_primitive()
                 .unwrap()

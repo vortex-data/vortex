@@ -55,7 +55,7 @@ impl Display for DTypePythonRepr<'_> {
                 "struct({{{}}}, nullable={})",
                 st.names()
                     .iter()
-                    .zip(st.dtypes())
+                    .zip(st.fields())
                     .map(|(n, dt)| format!("\"{}\": {}", n, dt.python_repr()))
                     .join(", "),
                 n.python_repr()

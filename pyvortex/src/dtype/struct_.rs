@@ -28,7 +28,7 @@ impl PyStructDType {
         };
 
         let mut fields = Vec::with_capacity(dtype.names().len());
-        for dtype in dtype.dtypes() {
+        for dtype in dtype.fields() {
             fields.push(PyDType::init(self_.py(), dtype)?);
         }
         Ok(fields)

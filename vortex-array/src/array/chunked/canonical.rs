@@ -175,12 +175,16 @@ fn swizzle_struct_chunks(
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
-    for (field_idx, field_dtype) in struct_dtype.dtypes().enumerate() {
-        let field_chunks = chunks.iter().map(|c| c.as_struct_array()
-                .vortex_expect("Chunk was not a StructArray")
-                .maybe_null_field_by_idx(field_idx)
-                .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype()))
-        ).collect::<VortexResult<Vec<_>>>()?;
+    for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
+        let field_chunks = chunks
+            .iter()
+            .map(|c| {
+                c.as_struct_array()
+                    .vortex_expect("Chunk was not a StructArray")
+                    .maybe_null_field_by_idx(field_idx)
+                    .vortex_expect("Invalid chunked array")
+            })
+            .collect::<Vec<_>>();
         let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
         field_arrays.push(field_array.into_array());
     }

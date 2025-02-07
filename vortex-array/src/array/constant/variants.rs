@@ -74,7 +74,7 @@ impl Utf8ArrayTrait for ConstantArray {}
 impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
         self.scalar()
             .as_struct()
             .field_by_idx(idx)

@@ -154,7 +154,7 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
             let mut values = Vec::with_capacity(v.values.len());
             match dtype {
                 DType::Struct(structdt, _) => {
-                    for (elem, dtype) in v.values.iter().zip(structdt.dtypes()) {
+                    for (elem, dtype) in v.values.iter().zip(structdt.fields()) {
                         values.push(deserialize_scalar_value(&dtype, elem)?);
                     }
                 }

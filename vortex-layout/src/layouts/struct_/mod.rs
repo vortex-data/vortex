@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, FieldMask};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, Field, FieldMask};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::data::Layout;
 use crate::reader::{LayoutReader, LayoutReaderExt};
@@ -47,7 +47,7 @@ impl LayoutVTable for StructLayout {
 
         // If the field mask contains an `All` fields, then register splits for all fields.
         if field_mask.iter().any(|mask| mask.matches_all()) {
-            for (idx, field_dtype) in dtype.dtypes().enumerate() {
+            for (idx, field_dtype) in dtype.fields().enumerate() {
                 let child = layout.child(idx, field_dtype)?;
                 child.register_splits(&[FieldMask::All], row_offset, splits)?;
             }
@@ -60,12 +60,12 @@ impl LayoutVTable for StructLayout {
                 // skip fields not in mask
                 continue;
             };
+            let Field::Name(field_name) = field else {
+                vortex_bail!("Expected field name, got {:?}", field);
+            };
 
-            let idx = dtype
-                .find(field)
-                .ok_or_else(|| vortex_err!("Field not found: {:?}", path))?;
-
-            let child = layout.child(idx, dtype.field_dtype(idx)?)?;
+            let idx = dtype.find(field_name)?;
+            let child = layout.child(idx, dtype.field_by_index(idx)?)?;
             child.register_splits(&[path.clone().step_into()?], row_offset, splits)?;
         }
 

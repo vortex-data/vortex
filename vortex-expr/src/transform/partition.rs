@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_dtype::{DType, Field, FieldName, StructDType};
+use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::transform::immediate_access::{immediate_scope_accesses, FieldAccesses};
@@ -95,10 +95,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             .sub_expressions
             .into_iter()
             .map(|(name, exprs)| {
-                let field_dtype = scope_dtype
-                    .field_info(&Field::Name(name.clone()))?
-                    .dtype
-                    .value()?;
+                let field_dtype = scope_dtype.field(&name)?;
                 // If there is a single expr then we don't need to `pack` this, and we must update
                 // the root expr removing this access.
                 let expr = if exprs.len() == 1 {

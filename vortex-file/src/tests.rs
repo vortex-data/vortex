@@ -247,7 +247,7 @@ async fn unequal_batches() {
             .unwrap()
             .maybe_null_field_by_name("numbers");
 
-        if let Some(numbers) = numbers {
+        if let Ok(numbers) = numbers {
             let numbers = numbers.into_primitive().unwrap();
             assert_eq!(numbers.ptype(), PType::U32);
         } else {
