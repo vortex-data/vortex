@@ -1,10 +1,10 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::{stream, FutureExt, Stream};
 use itertools::Itertools;
+use oneshot;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
@@ -38,7 +38,7 @@ pub trait ScanDriver: 'static + Sized {
         self,
         future: impl Future<Output = VortexResult<()>> + Send + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        self.drive_stream(stream::once(async move { future.boxed() }))
+        self.drive_stream(stream::iter([future.boxed()]))
     }
 
     fn drive_stream(
@@ -48,7 +48,7 @@ pub trait ScanDriver: 'static + Sized {
 }
 
 /// A struct for building a scan operation.
-pub struct Scan<D: ScanDriver> {
+pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
     driver_options: Option<D::Options>,
     layout: Layout,
@@ -59,7 +59,7 @@ pub struct Scan<D: ScanDriver> {
     split_by: SplitBy,
 }
 
-impl<D: ScanDriver> Scan<D> {
+impl<D: ScanDriver> ScanBuilder<D> {
     pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
         Self {
             driver,
@@ -136,7 +136,7 @@ impl<D: ScanDriver> Scan<D> {
     }
 }
 
-impl<D: ScanDriver> Scan<D> {
+impl<D: ScanDriver> ScanBuilder<D> {
     /// Perform the scan operation and return a stream of arrays.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         let field_mask = self.field_mask(self.layout.dtype())?;

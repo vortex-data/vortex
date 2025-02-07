@@ -2,23 +2,23 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures_util::FutureExt;
+use oneshot;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::scan::unified::UnifiedDriverFuture;
-use vortex_layout::scan::{Scan, ScanDriver};
+use vortex_layout::scan::{ScanBuilder, ScanDriver};
 
 use crate::footer::FileLayout;
-use crate::open::VortexFileOpener;
+use crate::open::FileType;
 use crate::segments::SegmentCache;
 
 /// Trait for a Vortex file.
 ///
 /// This exists so different Vortex file types can configure their scan operations differently.
-pub struct VortexFile<F: VortexFileOpener> {
+pub struct VortexFile<F: FileType> {
     pub(crate) read: F::Read,
     pub(crate) options: F::Options,
     pub(crate) ctx: ContextRef,
@@ -27,7 +27,7 @@ pub struct VortexFile<F: VortexFileOpener> {
     pub(crate) _marker: PhantomData<F>,
 }
 
-impl<F: VortexFileOpener> VortexFile<F> {
+impl<F: FileType> VortexFile<F> {
     pub fn row_count(&self) -> u64 {
         self.file_layout.row_count()
     }
@@ -87,14 +87,14 @@ impl<F: VortexFileOpener> VortexFile<F> {
         })
     }
 
-    pub fn scan(&self) -> Scan<F::ScanDriver> {
+    pub fn scan(&self) -> ScanBuilder<F::ScanDriver> {
         let driver = F::scan_driver(
             self.read.clone(),
             self.options.clone(),
             self.file_layout.clone(),
             self.segment_cache.clone(),
         );
-        Scan::new(
+        ScanBuilder::new(
             driver,
             self.file_layout.root_layout().clone(),
             self.ctx.clone(),

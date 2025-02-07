@@ -3,11 +3,11 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
+use oneshot;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -19,14 +19,14 @@ use crate::exec::ExecutionMode;
 use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
-use crate::{VortexFileOpener, VortexOpenOptions};
+use crate::{FileType, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: VortexReadAt> VortexFileOpener for GenericVortexFile<R> {
+impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
     type ScanDriver = GenericScanDriver<R>;

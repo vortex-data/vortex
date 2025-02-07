@@ -12,7 +12,7 @@ use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ident, ExprRef, Select};
-use vortex::file::{GenericVortexFile, VortexFile, VortexFileOpener, VortexOpenOptions};
+use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
 use vortex::{Array, IntoArray, IntoArrayVariant};
@@ -34,7 +34,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-pub async fn read_array_from_reader<F: VortexFileOpener>(
+pub async fn read_array_from_reader<F: FileType>(
     vortex_file: &VortexFile<F>,
     projection: ExprRef,
     filter: Option<ExprRef>,

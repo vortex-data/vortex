@@ -24,7 +24,7 @@ use crate::{
     VERSION,
 };
 
-pub trait VortexFileOpener: Sized {
+pub trait FileType: Sized {
     type Options: Clone;
     type Read: VortexReadAt;
     type ScanDriver: ScanDriver;
@@ -38,7 +38,7 @@ pub trait VortexFileOpener: Sized {
 }
 
 /// Open options for a Vortex file reader.
-pub struct VortexOpenOptions<F: VortexFileOpener> {
+pub struct VortexOpenOptions<F: FileType> {
     /// The underlying file reader.
     read: F::Read,
     /// File-specific options
@@ -56,7 +56,7 @@ pub struct VortexOpenOptions<F: VortexFileOpener> {
     initial_read_size: u64,
 }
 
-impl<F: VortexFileOpener> VortexOpenOptions<F> {
+impl<F: FileType> VortexOpenOptions<F> {
     /// Configure a Vortex Array context.
     pub fn with_ctx(mut self, ctx: ContextRef) -> Self {
         self.ctx = ctx;
@@ -145,7 +145,7 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     }
 }
 
-impl<F: VortexFileOpener> VortexOpenOptions<F> {
+impl<F: FileType> VortexOpenOptions<F> {
     /// Open the Vortex file using asynchronous IO.
     pub async fn open(mut self) -> VortexResult<VortexFile<F>> {
         // If we need to read the file layout, then do so.

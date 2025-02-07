@@ -10,7 +10,7 @@ use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::segments::SegmentCache;
-use crate::{FileLayout, Segment, VortexFileOpener};
+use crate::{FileLayout, FileType, Segment};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -22,7 +22,7 @@ pub struct InMemoryVortexFile {
     file_layout: FileLayout,
 }
 
-impl VortexFileOpener for InMemoryVortexFile {
+impl FileType for InMemoryVortexFile {
     type Options = ();
     type Read = ByteBuffer;
     type ScanDriver = Self;
