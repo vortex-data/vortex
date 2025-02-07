@@ -97,7 +97,7 @@ impl FileOpener for VortexFileOpener {
                 .scan()
                 .with_projection(this.projection.clone())
                 .with_some_filter(this.filter.clone())
-                .into_stream()?
+                .into_array_stream()?
                 .map_ok(move |array| {
                     let st = array.into_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())

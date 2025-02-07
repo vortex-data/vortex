@@ -128,7 +128,7 @@ impl<D: ScanDriver> Scan<D> {
 
 impl<D: ScanDriver> Scan<D> {
     /// Perform the scan operation and return a stream of arrays.
-    pub fn into_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         let field_mask = self.field_mask(self.layout.dtype())?;
         let splits: Arc<[Range<u64>]> = self
             .split_by
@@ -231,6 +231,6 @@ impl<D: ScanDriver> Scan<D> {
     }
 
     pub async fn into_array(self) -> VortexResult<Array> {
-        self.into_stream()?.into_array().await
+        self.into_array_stream()?.into_array().await
     }
 }

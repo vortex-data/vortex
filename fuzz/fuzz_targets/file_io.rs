@@ -41,7 +41,7 @@ fuzz_target!(|array_data: Array| -> Corpus {
             .await
             .unwrap()
             .scan()
-            .into_stream()
+            .into_array_stream()
             .unwrap()
             .try_collect::<Vec<_>>()
             .await

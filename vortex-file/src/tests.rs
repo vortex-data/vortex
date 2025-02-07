@@ -59,7 +59,7 @@ async fn test_read_simple() {
         .await
         .unwrap()
         .scan()
-        .into_stream()
+        .into_array_stream()
         .unwrap();
     pin_mut!(stream);
 
@@ -231,7 +231,7 @@ async fn unequal_batches() {
         .await
         .unwrap()
         .scan()
-        .into_stream()
+        .into_array_stream()
         .unwrap());
 
     let mut batch_count = 0;
@@ -295,7 +295,7 @@ async fn write_chunked() {
         .await
         .unwrap()
         .scan()
-        .into_stream()
+        .into_array_stream()
         .unwrap());
     let mut array_len: usize = 0;
     while let Some(array) = stream.next().await {
@@ -333,7 +333,7 @@ async fn filter_string() {
         .unwrap()
         .scan()
         .with_filter(eq(get_item("name", ident()), lit("Joseph")))
-        .into_stream()
+        .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -398,7 +398,7 @@ async fn filter_or() {
                 lt_eq(get_item("age", ident()), lit(30)),
             ),
         ))
-        .into_stream()
+        .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await
@@ -466,7 +466,7 @@ async fn filter_and() {
             gt(get_item("age", ident()), lit(21)),
             lt_eq(get_item("age", ident()), lit(33)),
         ))
-        .into_stream()
+        .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
         .await

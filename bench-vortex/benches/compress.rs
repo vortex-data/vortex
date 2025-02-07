@@ -129,7 +129,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
             .open()
             .await?
             .scan()
-            .into_stream()?
+            .into_array_stream()?
             // .open(buf)
             // .await?
             // .scan(Scan::all())?

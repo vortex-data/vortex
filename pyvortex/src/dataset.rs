@@ -51,7 +51,7 @@ pub async fn read_array_from_reader<F: VortexFileOpener>(
         scan = scan.with_row_indices(indices);
     }
 
-    let stream = scan.into_stream()?;
+    let stream = scan.into_array_stream()?;
     let dtype = stream.dtype().clone();
 
     let all_arrays = stream.try_collect::<Vec<_>>().await?;
@@ -138,7 +138,7 @@ impl TokioFileDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = scan.into_stream()?;
+        let stream = scan.into_array_stream()?;
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
@@ -228,7 +228,7 @@ impl ObjectStoreUrlDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = scan.into_stream()?;
+        let stream = scan.into_array_stream()?;
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
