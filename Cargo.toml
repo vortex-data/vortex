@@ -76,12 +76,12 @@ criterion = { package = "codspeed-criterion-compat", features = [
 ], version = "2.7.2" }
 croaring = "2.1.0"
 crossterm = "0.28"
-datafusion = { version = "44.0.0", default-features = false }
-datafusion-common = "44"
-datafusion-execution = "44"
-datafusion-expr = "44"
-datafusion-physical-expr = "44"
-datafusion-physical-plan = "44"
+datafusion = { version = "45.0.0", default-features = false }
+datafusion-common = "45"
+datafusion-execution = "45"
+datafusion-expr = "45"
+datafusion-physical-expr = "45"
+datafusion-physical-plan = "45"
 divan = "0.1.14"
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
