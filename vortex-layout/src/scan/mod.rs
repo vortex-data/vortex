@@ -28,12 +28,12 @@ pub trait ScanDriver: 'static + Sized {
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
-    fn drive<T: 'static>(
+    fn drive(
         self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<T>>> + Send + 'static,
-    ) -> VortexResult<impl Stream<Item = VortexResult<T>> + 'static> {
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
+    ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
         // The default driver implementation simply resolves the futures in the stream.
-        Ok(stream.then(|result| result))
+        Ok(stream.filter_map(|result| async { result.await.transpose() }))
     }
 }
 
@@ -211,6 +211,10 @@ impl<D: ScanDriver> Scan<D> {
                 Ok(range_scan) => {
                     let reader = reader.clone();
                     async move {
+                        // TODO(ngates): we may want to make entire layout readers generic over an
+                        //  AsyncSegmentReader. This way we can entirely inline the I/O, only paying
+                        //  the cost of dynamic dispatch once at the root of the layout tree, rather
+                        //  than for each I/O request.
                         range_scan
                             .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
                             .await
@@ -221,10 +225,7 @@ impl<D: ScanDriver> Scan<D> {
             }
         });
 
-        let stream = self
-            .driver
-            .drive(exec_stream)?
-            .filter_map(|result| async { result.transpose() });
+        let stream = self.driver.drive(exec_stream)?;
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }

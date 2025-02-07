@@ -8,6 +8,7 @@ use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
+use vortex_array::Array;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -83,10 +84,10 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         self.segment_channel.reader()
     }
 
-    fn drive<T>(
+    fn drive(
         self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<T>>> + Send + 'static,
-    ) -> VortexResult<impl Stream<Item = VortexResult<T>> + 'static> {
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
+    ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
         let exec_driver = self
             .options
             .execution_mode
