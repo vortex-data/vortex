@@ -264,8 +264,8 @@ impl PyArray {
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let sequence = PyList::new(py, vec![("type", pa_data_type)]).unwrap();
-            let kwargs = PyDict::from_sequence(&sequence)?;
+            let kwargs =
+                PyDict::from_sequence(&PyList::new(py, vec![("type", pa_data_type)])?.into_any())?;
 
             // Combine into a chunked array
             PyModule::import(py, "pyarrow")?.call_method(
