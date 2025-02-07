@@ -1,5 +1,3 @@
-use std::cmp::min;
-
 use vortex_error::VortexResult;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};

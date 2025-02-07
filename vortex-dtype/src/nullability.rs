@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
 /// Whether an instance of a DType can be `null or not
