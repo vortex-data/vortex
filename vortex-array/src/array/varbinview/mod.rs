@@ -115,6 +115,12 @@ assert_eq_align!(BinaryView, u128);
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;
 
+    pub fn empty_view() -> Self {
+        Self {
+            inlined: Inlined::new(&[]),
+        }
+    }
+
     pub fn new_inlined(value: &[u8]) -> Self {
         assert!(
             value.len() <= Self::MAX_INLINED_SIZE,

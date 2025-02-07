@@ -208,7 +208,7 @@ impl BytesDictBuilder {
     pub fn new(dtype: DType) -> Self {
         let mut views = BufferMut::<BinaryView>::empty();
         if dtype.is_nullable() {
-            views.push(BinaryView::new_inlined(&[]));
+            views.push(BinaryView::empty_view());
         }
 
         Self {
