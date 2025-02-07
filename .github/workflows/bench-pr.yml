@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
 
   codspeed_bench:
+    name: Run benchmarks
     needs: label_trigger
     env:
       BENCH_TARGETS: >
@@ -37,7 +38,6 @@ jobs:
         compare
         take_strings
         take_patches
-    name: Run benchmarks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +59,9 @@ jobs:
       - name: Build benchmark targets
         env:
           RUSTFLAGS: "-C target-cpu=native"
-        run: cargo codspeed build $BENCH_TARGETS
+        # The profile needs to be set explicitly to bench
+        # as codspeed by default compiles with the release profile.
+        run: cargo codspeed build --profile bench $BENCH_TARGETS
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
