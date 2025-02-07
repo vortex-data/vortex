@@ -19,7 +19,10 @@ use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
-use crate::{GenericVortexFile, InMemoryVortexFile, VortexFile, EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::{
+    GenericVortexFile, InMemoryVortexFile, VortexFile, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE,
+    VERSION,
+};
 
 pub trait VortexFileOpener: Sized {
     type Options: Clone;
@@ -168,7 +171,11 @@ impl<F: VortexFileOpener> VortexOpenOptions<F> {
             None => self.read.size().await?,
             Some(file_size) => file_size,
         };
-        let initial_read_size = self.initial_read_size.min(file_size);
+        let initial_read_size = self
+            .initial_read_size
+            // Make sure we read enough to cover the postscript
+            .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
+            .min(file_size);
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = self
             .read
