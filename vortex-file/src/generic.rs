@@ -48,7 +48,7 @@ impl<R: VortexReadAt> VortexFileOpener for GenericVortexFile<R> {
     }
 }
 
-impl<R> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
         self.options.execution_mode = execution_mode;
         self

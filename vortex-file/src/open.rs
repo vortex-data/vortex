@@ -158,7 +158,7 @@ impl<F: VortexFileOpener> VortexOpenOptions<F> {
             read: self.read,
             options: self.options,
             ctx: self.ctx.clone(),
-            file_layout: file_layout.clone(),
+            file_layout,
             segment_cache: self.segment_cache,
             _marker: PhantomData,
         })
