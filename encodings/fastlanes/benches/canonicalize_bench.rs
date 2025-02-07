@@ -22,7 +22,9 @@ fn make_array<T: NativePType>(len: usize) -> Array {
         .into_primitive()
         .vortex_unwrap();
 
-    bitpack_to_best_bit_width(values).unwrap().into_array()
+    bitpack_to_best_bit_width(values)
+        .vortex_unwrap()
+        .into_array()
 }
 
 #[divan::bench()]

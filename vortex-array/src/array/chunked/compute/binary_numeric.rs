@@ -22,7 +22,7 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
         }
 
         ChunkedArray::try_new(new_chunks, array.dtype().clone())
-            .map(ChunkedArray::into_array)
+            .map(IntoArray::into_array)
             .map(Some)
     }
 }

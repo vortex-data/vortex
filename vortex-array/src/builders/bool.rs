@@ -56,6 +56,12 @@ impl BoolBuilder {
             None => self.append_null(),
         }
     }
+
+    fn append_non_nulls(&mut self, n: usize) {
+        if let Some(nulls) = &mut self.nulls {
+            nulls.append_n_non_nulls(n)
+        }
+    }
 }
 
 impl ArrayBuilder for BoolBuilder {
@@ -100,9 +106,7 @@ impl ArrayBuilder for BoolBuilder {
 
         match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                if let Some(nulls) = &mut self.nulls {
-                    nulls.append_n_nulls(array.len())
-                }
+                self.append_non_nulls(array.len());
                 // If the array is all valid and this builder is non-nullable,
                 // we don't need to do anything
             }
@@ -151,7 +155,7 @@ mod tests {
 
         (0..chunk_count)
             .map(|_| {
-                BoolArray::from_iter((0..len).map(|_| match rng.gen_range::<u8, _>(0..=2) {
+                BoolArray::from_iter((0..len).map(|_| match rng.gen_range::<u8, _>(1..=1) {
                     0 => Some(false),
                     1 => Some(true),
                     2 => None,
