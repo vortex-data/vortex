@@ -8,10 +8,10 @@ use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
-use vortex_array::Array;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
+use vortex_layout::scan::unified::UnifiedDriverStream;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
@@ -19,7 +19,6 @@ use crate::exec::ExecutionMode;
 use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
-use crate::unified::UnifiedDriverStream;
 use crate::{VortexFileOpener, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
@@ -101,10 +100,10 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         self.segment_channel.reader()
     }
 
-    fn drive(
+    fn drive_stream(
         self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
-    ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
+    ) -> impl Stream<Item = VortexResult<()>> + 'static {
         let exec_driver = self
             .options
             .execution_mode
@@ -207,10 +206,10 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let io_stream = io_stream.buffer_unordered(self.options.io_concurrency);
 
         // Finally, we unify the stream to drive both the CPU and I/O requests.
-        Ok(UnifiedDriverStream {
+        UnifiedDriverStream {
             exec_stream,
             io_stream,
-        })
+        }
     }
 }
 

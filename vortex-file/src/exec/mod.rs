@@ -7,7 +7,6 @@ pub mod tokio;
 
 use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
-use vortex_array::Array;
 use vortex_error::VortexResult;
 
 /// An execution driver is used to drive the execution of the scan operation.
@@ -22,6 +21,6 @@ use vortex_error::VortexResult;
 pub trait ExecDriver: Send + Sync {
     fn drive(
         &self,
-        stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<Array>>>>,
-    ) -> BoxStream<'static, VortexResult<Array>>;
+        stream: BoxStream<'static, BoxFuture<'static, VortexResult<()>>>,
+    ) -> BoxStream<'static, VortexResult<()>>;
 }

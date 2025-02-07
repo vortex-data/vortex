@@ -100,7 +100,6 @@ mod open;
 pub mod segments;
 #[cfg(test)]
 mod tests;
-mod unified;
 mod writer;
 
 pub use file::*;

@@ -21,6 +21,7 @@ bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }

@@ -1,39 +1,52 @@
-use std::ops::Range;
+use std::future::Future;
 use std::sync::Arc;
 
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::{stream, FutureExt, Stream};
 use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
-mod arc_iter;
 mod split_by;
+pub mod unified;
+
 use futures::StreamExt;
 pub use split_by::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
 use vortex_scan::{RowMask, Scanner};
 
-use crate::scan::arc_iter::ArcIter;
+use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutReader};
+use crate::{ExprEvaluator, Layout, LayoutReader};
+
+pub trait ScanTask {
+    fn execute(&self, segments: &dyn AsyncSegmentReader) -> BoxFuture<()>;
+}
 
 pub trait ScanDriver: 'static + Sized {
     type Options: Default;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
-    fn drive(
+    fn drive_future(
         self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<Option<Array>>>> + Send + 'static,
-    ) -> VortexResult<impl Stream<Item = VortexResult<Array>> + 'static> {
-        // The default driver implementation simply resolves the futures in the stream.
-        Ok(stream.filter_map(|result| async { result.await.transpose() }))
+        future: impl Future<Output = VortexResult<()>> + Send + 'static,
+    ) -> impl Stream<Item = VortexResult<()>> + 'static {
+        stream::once(future)
+    }
+
+    fn drive_stream(
+        self,
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
+    ) -> impl Stream<Item = VortexResult<()>> + 'static {
+        // The default driver implementation simply collects the stream
+        stream.then(|r| r)
     }
 }
 
@@ -130,69 +143,65 @@ impl<D: ScanDriver> Scan<D> {
     /// Perform the scan operation and return a stream of arrays.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         let field_mask = self.field_mask(self.layout.dtype())?;
-        let splits: Arc<[Range<u64>]> = self
-            .split_by
-            .splits(&self.layout, &field_mask)?
-            .into_iter()
-            .collect_vec()
-            .into();
 
+        let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let row_indices = self.row_indices.clone();
 
-        let row_masks = ArcIter::new(splits).filter_map(move |row_range| {
-            let Some(row_indices) = &row_indices else {
-                // If there is no row indices filter, then take the whole range
-                return Some(RowMask::new_valid_between(row_range.start, row_range.end));
-            };
+        let row_masks = splits
+            .into_iter()
+            .filter_map(move |row_range| {
+                let Some(row_indices) = &row_indices else {
+                    // If there is no row indices filter, then take the whole range
+                    return Some(RowMask::new_valid_between(row_range.start, row_range.end));
+                };
 
-            // Otherwise, find the indices that are within the row range.
-            if row_indices
-                .first()
-                .is_some_and(|&first| first >= row_range.end)
-                || row_indices
-                    .last()
-                    .is_some_and(|&last| row_range.start >= last)
-            {
-                return None;
-            }
+                // Otherwise, find the indices that are within the row range.
+                if row_indices
+                    .first()
+                    .is_some_and(|&first| first >= row_range.end)
+                    || row_indices
+                        .last()
+                        .is_some_and(|&last| row_range.start >= last)
+                {
+                    return None;
+                }
 
-            // For the given row range, find the indices that are within the row_indices.
-            let start_idx = row_indices
-                .binary_search(&row_range.start)
-                .unwrap_or_else(|x| x);
-            let end_idx = row_indices
-                .binary_search(&row_range.end)
-                .unwrap_or_else(|x| x);
+                // For the given row range, find the indices that are within the row_indices.
+                let start_idx = row_indices
+                    .binary_search(&row_range.start)
+                    .unwrap_or_else(|x| x);
+                let end_idx = row_indices
+                    .binary_search(&row_range.end)
+                    .unwrap_or_else(|x| x);
 
-            if start_idx == end_idx {
-                // No rows in range
-                return None;
-            }
+                if start_idx == end_idx {
+                    // No rows in range
+                    return None;
+                }
 
-            // Construct a row mask for the range.
-            let filter_mask = Mask::from_indices(
-                usize::try_from(row_range.end - row_range.start)
-                    .vortex_expect("Split ranges are within usize"),
-                row_indices[start_idx..end_idx]
-                    .iter()
-                    .map(|&idx| {
-                        usize::try_from(idx - row_range.start).vortex_expect("index within range")
-                    })
-                    .collect(),
-            );
-            Some(RowMask::new(filter_mask, row_range.start))
-        });
+                // Construct a row mask for the range.
+                let filter_mask = Mask::from_indices(
+                    usize::try_from(row_range.end - row_range.start)
+                        .vortex_expect("Split ranges are within usize"),
+                    row_indices[start_idx..end_idx]
+                        .iter()
+                        .map(|&idx| {
+                            usize::try_from(idx - row_range.start)
+                                .vortex_expect("index within range")
+                        })
+                        .collect(),
+                );
+                Some(RowMask::new(filter_mask, row_range.start))
+            })
+            .collect_vec();
 
         self.into_stream_with_masks(row_masks)
     }
 
-    fn into_stream_with_masks<R>(
+    fn into_stream_with_masks(
         self,
-        row_masks: R,
-    ) -> VortexResult<impl ArrayStream + 'static + use<D, R>>
-    where
-        R: Iterator<Item = RowMask> + Send + 'static,
-    {
+        row_masks: Vec<RowMask>,
+    ) -> VortexResult<impl ArrayStream + 'static + use<D>> {
         let scanner = Arc::new(Scanner::new(
             self.layout.dtype().clone(),
             self.projection,
@@ -206,26 +215,42 @@ impl<D: ScanDriver> Scan<D> {
             .layout
             .reader(self.driver.segment_reader(), self.ctx.clone())?;
 
-        let exec_stream = stream::iter(row_masks).map(move |row_mask| {
-            match scanner.clone().range_scanner(row_mask) {
-                Ok(range_scan) => {
+        let mut results = Vec::with_capacity(row_masks.len());
+        let mut tasks = Vec::with_capacity(row_masks.len());
+
+        for row_mask in row_masks.into_iter() {
+            let (send_result, recv_result) = oneshot::channel::<VortexResult<Option<Array>>>();
+            results.push(recv_result);
+
+            let reader = reader.clone();
+            let task: BoxFuture<'static, VortexResult<()>> = scanner
+                .clone()
+                .range_scanner(row_mask)?
+                .evaluate_async(move |row_mask, expr| {
                     let reader = reader.clone();
-                    async move {
-                        // TODO(ngates): we may want to make entire layout readers generic over an
-                        //  AsyncSegmentReader. This way we can entirely inline the I/O, only paying
-                        //  the cost of dynamic dispatch once at the root of the layout tree, rather
-                        //  than for each I/O request.
-                        range_scan
-                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
-                            .await
-                    }
-                    .boxed()
-                }
-                Err(e) => futures::future::ready(Err(e)).boxed(),
+                    async move { reader.evaluate_expr(row_mask, expr).await }
+                })
+                .map(|result| {
+                    send_result
+                        .send(result)
+                        .map_err(|_| vortex_err!("Failed to send result, recv dead"))
+                })
+                .boxed();
+            tasks.push(task);
+        }
+
+        let array_stream = stream::iter(results).filter_map(|result| async move {
+            match result.await {
+                Ok(result) => result.transpose(),
+                Err(canceled) => Some(Err(vortex_err!("Scan task canceled: {}", canceled))),
             }
         });
+        let driver_stream = self.driver.drive_stream(stream::iter(tasks.into_iter()));
 
-        let stream = self.driver.drive(exec_stream)?;
+        let stream = UnifiedDriverStream {
+            exec_stream: array_stream,
+            io_stream: driver_stream,
+        };
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }

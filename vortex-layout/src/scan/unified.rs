@@ -2,8 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::Stream;
-use futures_util::{TryFutureExt, TryStreamExt};
+use futures::{Stream, TryFutureExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_error::{vortex_err, VortexResult};
 

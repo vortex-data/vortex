@@ -1,10 +1,13 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use futures::channel::oneshot;
+use futures_util::{FutureExt, TryFutureExt};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
+use vortex_layout::scan::unified::UnifiedDriverFuture;
 use vortex_layout::scan::{Scan, ScanDriver};
 
 use crate::footer::FileLayout;
@@ -54,8 +57,26 @@ impl<F: VortexFileOpener> VortexFile<F> {
             .root_layout()
             .reader(driver.segment_reader(), self.ctx.clone())?;
 
-        reader.evaluate_stats(field_paths, stats).await?;
-        todo!()
+        let (send, recv) = oneshot::channel::<VortexResult<Vec<StatsSet>>>();
+
+        let task_future = async move {
+            reader
+                .clone()
+                .evaluate_stats(field_paths, stats)
+                .map(move |result| match send.send(result) {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(vortex_err!("Failed to send result, recv dropped")),
+                })
+                .await
+        };
+
+        let driver_stream = driver.drive_future(task_future);
+
+        UnifiedDriverFuture {
+            exec_future: recv.map_err(|_| vortex_err!("Failed to receive result, send dropped")),
+            io_stream: driver_stream,
+        }
+        .await?
     }
 
     pub fn scan(&self) -> Scan<F::ScanDriver> {
