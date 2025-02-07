@@ -1,8 +1,9 @@
+use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use futures::channel::oneshot;
-use futures_util::{FutureExt, TryFutureExt};
+use futures_util::FutureExt;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldPath};
@@ -39,17 +40,21 @@ impl<F: VortexFileOpener> VortexFile<F> {
         &self.file_layout
     }
 
-    pub async fn statistics(
+    pub fn statistics(
         &self,
         field_paths: Arc<[FieldPath]>,
         stats: Arc<[Stat]>,
-    ) -> VortexResult<Vec<StatsSet>> {
+    ) -> VortexResult<impl Future<Output = VortexResult<Vec<StatsSet>>> + 'static + use<'_, F>>
+    {
         let driver = F::scan_driver(
             self.read.clone(),
             self.options.clone(),
             self.file_layout.clone(),
             self.segment_cache.clone(),
         );
+
+        // TODO(ngates): this section should disappear when we store file-level statistics.
+        //  That's why it's a little odd that we have to manually setup a driver here.
 
         // Create a single LayoutReader that is reused for the entire scan.
         let reader = self
@@ -59,24 +64,27 @@ impl<F: VortexFileOpener> VortexFile<F> {
 
         let (send, recv) = oneshot::channel::<VortexResult<Vec<StatsSet>>>();
 
-        let task_future = async move {
+        let result_future = recv.map(|result| match result {
+            Ok(result) => result,
+            Err(_) => Err(vortex_err!("Failed to receive result, send dropped")),
+        });
+        let driver_stream = driver.drive_future(async move {
+            let field_paths = field_paths.clone();
+            let stats = stats.clone();
             reader
                 .clone()
                 .evaluate_stats(field_paths, stats)
-                .map(move |result| match send.send(result) {
+                .map(|result| match send.send(result) {
                     Ok(()) => Ok(()),
                     Err(_) => Err(vortex_err!("Failed to send result, recv dropped")),
                 })
                 .await
-        };
+        });
 
-        let driver_stream = driver.drive_future(task_future);
-
-        UnifiedDriverFuture {
-            exec_future: recv.map_err(|_| vortex_err!("Failed to receive result, send dropped")),
+        Ok(UnifiedDriverFuture {
+            exec_future: result_future,
             io_stream: driver_stream,
-        }
-        .await?
+        })
     }
 
     pub fn scan(&self) -> Scan<F::ScanDriver> {
