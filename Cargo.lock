@@ -672,9 +672,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.11"
+version = "1.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4730490333d58093109dc02c23174c3f4d490998c3fed3cc8e82d57afedb9cf"
+checksum = "755717a7de9ec452bf7f3f1a3099085deabd7f2962b861dae91ecd7a365903d2"
 dependencies = [
  "jobserver",
  "libc",
@@ -4913,7 +4913,7 @@ checksum = "02a8b472d1a3d7c18e2d61a489aee3453fd9031c33e4f55bd533f4a7adca1bee"
 dependencies = [
  "indexmap",
  "toml_datetime",
- "winnow 0.7.0",
+ "winnow 0.7.1",
 ]
 
 [[package]]
@@ -5104,11 +5104,11 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.12.1"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
+checksum = "ced87ca4be083373936a67f8de945faa23b6b42384bd5b64434850802c6dccd0"
 dependencies = [
- "getrandom 0.2.15",
+ "getrandom 0.3.1",
 ]
 
 [[package]]
@@ -5260,7 +5260,6 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "futures",
- "hashbrown 0.15.2",
  "itertools 0.14.0",
  "log",
  "moka",
@@ -5277,7 +5276,6 @@ dependencies = [
  "vortex-expr",
  "vortex-file",
  "vortex-io",
- "vortex-scalar",
 ]
 
 [[package]]
@@ -5342,7 +5340,6 @@ dependencies = [
  "serde_json",
  "serde_test",
  "static_assertions",
- "vortex-buffer",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
@@ -5405,7 +5402,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
- "vortex-sparse",
 ]
 
 [[package]]
@@ -5413,7 +5409,6 @@ name = "vortex-file"
 version = "0.24.0"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "arrow-schema",
  "async-trait",
  "bytes",
@@ -5437,7 +5432,6 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-io",
- "vortex-ipc",
  "vortex-layout",
  "vortex-mask",
  "vortex-sampling-compressor",
@@ -5667,7 +5661,6 @@ dependencies = [
 name = "vortex-tui"
 version = "0.24.0"
 dependencies = [
- "bytes",
  "clap",
  "crossterm",
  "ratatui",
@@ -5680,7 +5673,6 @@ dependencies = [
 name = "vortex-zigzag"
 version = "0.24.0"
 dependencies = [
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6104,9 +6096,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e49d2d35d3fad69b39b94139037ecfb4f359f08958b9c11e7315ce770462419"
+checksum = "86e376c75f4f43f44db463cf729e0d3acbf954d13e22c51e26e4c264b4ab545f"
 dependencies = [
  "memchr",
 ]
