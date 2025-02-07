@@ -426,6 +426,7 @@ impl<T> Extend<T> for BufferMut<T> {
         let mut consumed = 0;
         while consumed < remaining {
             if let Some(item) = iterator.next() {
+                CAN WE MAKE THIS FASTER??
                 // SAFETY: We know we have enough capacity to write the item.
                 unsafe { dst.add(consumed).write(item) };
                 consumed += 1;

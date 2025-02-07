@@ -13,12 +13,13 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, Vortex
 use vortex_mask::Mask;
 
 use crate::arrow::FromArrowArray;
+use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, Array, Canonical, RkyvMetadata};
+use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 
 mod accessor;
 mod compute;
@@ -433,6 +434,14 @@ impl CanonicalVTable<VarBinViewArray> for VarBinViewEncoding {
         Ok(Canonical::VarBinView(VarBinViewArray::try_from(
             vortex_array,
         )?))
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: VarBinViewArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(array.into_array())
     }
 }
 

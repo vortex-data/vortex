@@ -76,6 +76,11 @@ impl LazyNullBufferBuilder {
             .append_buffer(&bool_buffer);
     }
 
+    pub fn len(&self) -> usize {
+        // self.len is the length of the builder if the inner buffer is not materialized
+        self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
+    }
+
     pub fn finish(&mut self) -> Option<NullBuffer> {
         self.len = 0;
         Some(NullBuffer::new(self.inner.take()?.finish()))

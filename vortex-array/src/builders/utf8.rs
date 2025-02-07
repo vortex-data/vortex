@@ -1,30 +1,21 @@
 use std::any::Any;
 use std::cmp::max;
 
-use arrow_buffer::{Buffer, NullBufferBuilder};
-use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
+use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::{BinaryView, VarBinViewArray};
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
-// pub struct GenericByteViewBuilder {
-//     views_builder: BufferBuilder<u128>,
-//     null_buffer_builder: NullBufferBuilder,
-//     completed: Vec<Buffer>,
-//     in_progress: Vec<u8>,
-// }
-
 pub struct Utf8Builder {
-    // views_builder: BufferBuilder<u128>,
     views_builder: BufferMut<BinaryView>,
-
-    null_buffer_builder: NullBufferBuilder,
-    completed: Vec<Buffer>,
+    null_buffer_builder: LazyNullBufferBuilder,
+    completed: Vec<ByteBuffer>,
     in_progress: Vec<u8>,
     nullability: Nullability,
     dtype: DType,
@@ -32,13 +23,12 @@ pub struct Utf8Builder {
 
 impl Utf8Builder {
     // TODO(joe): add a block growth strategy, from arrow
-    const BLOCK_SIZE: u32 = 8 * 1024;
+    const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
-            // views_builder: BufferBuilder::new(capacity),
-            views_builder: BufferMut::<BinaryView>::empty(),
-            null_buffer_builder: NullBufferBuilder::new(capacity),
+            views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
+            null_buffer_builder: LazyNullBufferBuilder::new(capacity),
             completed: vec![],
             in_progress: vec![],
             nullability,
@@ -74,11 +64,13 @@ impl Utf8Builder {
         self.views_builder.push(view.into());
     }
 
+    #[inline]
     pub fn append_value<S: AsRef<str>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
         self.null_buffer_builder.append_non_null();
     }
 
+    #[inline]
     pub fn append_option<S: AsRef<str>>(&mut self, value: Option<S>) {
         match value {
             Some(value) => self.append_value(value),
@@ -86,6 +78,7 @@ impl Utf8Builder {
         }
     }
 
+    #[inline]
     pub fn append_null(&mut self) {
         self.null_buffer_builder.append_null();
         self.views_builder.push(BinaryView::empty_view());
@@ -94,15 +87,38 @@ impl Utf8Builder {
     #[inline]
     fn flush_in_progress(&mut self) {
         if !self.in_progress.is_empty() {
-            let f = Buffer::from_vec(std::mem::take(&mut self.in_progress));
+            let f = ByteBuffer::from(std::mem::take(&mut self.in_progress));
             self.push_completed(f)
         }
     }
 
-    fn push_completed(&mut self, block: Buffer) {
+    fn push_completed(&mut self, block: ByteBuffer) {
         assert!(block.len() < u32::MAX as usize, "Block too large");
         assert!(self.completed.len() < u32::MAX as usize, "Too many blocks");
         self.completed.push(block);
+    }
+
+    pub fn finish2(mut self) -> VortexResult<Array> {
+        self.flush_in_progress();
+        let buffers = std::mem::take(&mut self.completed);
+
+        let nulls = self.null_buffer_builder.finish();
+        let validity = match (self.nullability, nulls) {
+            (NonNullable, None) => Validity::NonNullable,
+            (Nullable, None) => Validity::AllValid,
+            (Nullable, Some(arr)) => Validity::from(arr),
+            _ => vortex_panic!("Invalid nullability/nulls combination"),
+        };
+
+        Ok(VarBinViewArray::try_new(
+            // TODO(joe): remove clone.
+            self.views_builder.freeze(),
+            buffers,
+            // TODO(joe): remove clone.
+            self.dtype.clone(),
+            validity,
+        )?
+        .into_array())
     }
 }
 
@@ -119,20 +135,24 @@ impl ArrayBuilder for Utf8Builder {
         &self.dtype
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.null_buffer_builder.len()
     }
 
+    #[inline]
     fn append_zeros(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.null_buffer_builder.append_n_non_nulls(n);
     }
 
+    #[inline]
     fn append_nulls(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.null_buffer_builder.append_n_nulls(n);
     }
 
+    #[inline]
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
         let array = if let Some(array) = VarBinViewArray::maybe_from(&array) {
             array
@@ -143,85 +163,59 @@ impl ArrayBuilder for Utf8Builder {
             array
         };
 
-        let _ = array;
+        self.flush_in_progress();
 
-        todo!("array {}", array.tree_display());
-        // let mut first_offset = None;
-        // for buf in array.buffers() {
-        //     let offset = self.inner.append_block(buf.into_arrow_buffer());
-        //     if first_offset.is_none() {
-        //         first_offset = Some(offset);
-        //     }
-        // }
-        // let first_offset = first_offset.unwrap_or(0);
-        //
+        let buffers_offset = u32::try_from(self.completed.len())?;
+        self.completed.extend(array.buffers());
+
+        // array
+
+        self.views_builder
+            .extend(array.views().into_iter().map(|view| {
+                if view.is_inlined() {
+                    view
+                } else {
+                    // Referencing views must have their buffer_index adjusted with new offsets
+                    let view_ref = view.as_view();
+                    BinaryView::new_view(
+                        view.len(),
+                        *view_ref.prefix(),
+                        buffers_offset + view_ref.buffer_index(),
+                        view_ref.offset(),
+                    )
+                }
+            }));
+
         // for view in array.views().iter() {
         //     if view.is_inlined() {
-        //         self.inner.append_value(*view);
+        //         unsafe {
+        //             // Inlined views can be copied directly into the output
+        //             self.views_builder.push_unchecked(*view);
+        //         }
         //     } else {
+        //         // Referencing views must have their buffer_index adjusted with new offsets
         //         let view_ref = view.as_view();
-        //         self.inner.append_view_unchecked(
-        //             view.len(),
-        //             first_offset + view_ref.buffer_index(),
-        //             view_ref.offset(),
-        //         );
-        //         // self.inner.append_view(
-        //         //     view.len(),
-        //         //     first_offset + view_ref.buffer_index(),
-        //         //     view_ref.offset(),
-        //         // );
+        //         unsafe {
+        //             self.views_builder.push_unchecked(BinaryView::new_view(
+        //                 view.len(),
+        //                 *view_ref.prefix(),
+        //                 buffers_offset + view_ref.buffer_index(),
+        //                 view_ref.offset(),
+        //             ));
+        //         }
         //     }
+        // }
+
+        // match array.validity_mask()?.boolean_buffer() {
+        //     AllOr::All => {
+        //         self.null_buffer_builder.append_n_non_nulls(array.len());
+        //     }
+        //     AllOr::None => self.null_buffer_builder.append_n_nulls(array.len()),
+        //     AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
+        // }
+
+        Ok(())
     }
-
-    // array.buffer(0).into_arrow_buffer()
-
-    //         let buffers_offset = u32::try_from(buffers.len())?;
-    //         let canonical_chunk = chunk.clone().into_varbinview()?;
-    //         buffers.extend(canonical_chunk.buffers());
-    //
-    //         for view in canonical_chunk.views().iter() {
-    //             if view.is_inlined() {
-    //                 // Inlined views can be copied directly into the output
-    //                 views.push(*view);
-    //             } else {
-    //                 // Referencing views must have their buffer_index adjusted with new offsets
-    //                 let view_ref = view.as_view();
-    //                 views.push(BinaryView::new_view(
-    //                     view.len(),
-    //                     *view_ref.prefix(),
-    //                     buffers_offset + view_ref.buffer_index(),
-    //                     view_ref.offset(),
-    //                 ));
-    //             }
-    //         }
-
-    // let array = array.into_canonical()?;
-    //         let Canonical::Bool(array) = array else {
-    //             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
-    //         };
-    //
-    //         self.inner.append_buffer(&array.boolean_buffer());
-    //
-    //         match array.validity_mask()?.boolean_buffer() {
-    //             AllOr::All => {
-    //                 self.append_non_nulls(array.len());
-    //                 // If the array is all valid and this builder is non-nullable,
-    //                 // we don't need to do anything
-    //             }
-    //             AllOr::None => {
-    //                 self.append_nulls(array.len());
-    //             }
-    //             AllOr::Some(validity) => {
-    //                 if let Some(nulls) = &mut self.nulls {
-    //                     nulls.append_buffer(validity.clone())
-    //                 } else {
-    //                     vortex_bail!("Cannot append nulls to non-nullable builder")
-    //                 }
-    //             }
-    //         }
-    //
-    //         Ok(())
-    // }
 
     fn finish(&mut self) -> VortexResult<Array> {
         self.flush_in_progress();
@@ -238,10 +232,7 @@ impl ArrayBuilder for Utf8Builder {
         Ok(VarBinViewArray::try_new(
             // TODO(joe): remove clone.
             self.views_builder.clone().freeze(),
-            buffers
-                .iter()
-                .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                .collect::<Vec<_>>(),
+            buffers,
             // TODO(joe): remove clone.
             self.dtype.clone(),
             validity,
@@ -294,6 +285,42 @@ mod tests {
                 Some("".to_string()),
                 Some("".to_string()),
                 Some("test".to_string()),
+            ]
+        );
+    }
+    #[test]
+    fn test_utf8_builder_with_extend() {
+        let array = {
+            let mut builder = Utf8Builder::with_capacity(Nullability::Nullable, 10);
+            builder.append_null();
+            builder.append_value("Hello2");
+            builder.finish().unwrap()
+        };
+        let mut builder = Utf8Builder::with_capacity(Nullability::Nullable, 10);
+
+        builder.append_option(Some("Hello1"));
+        builder.extend_from_array(array).unwrap();
+        builder.append_nulls(2);
+        builder.append_value("Hello3");
+
+        let arr = VarBinViewArray::try_from(builder.finish().unwrap()).unwrap();
+
+        let arr = arr
+            .with_iterator(|iter| {
+                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
+                    .collect_vec()
+            })
+            .unwrap();
+        assert_eq!(arr.len(), 6);
+        assert_eq!(
+            arr,
+            vec![
+                Some("Hello1".to_string()),
+                None,
+                Some("Hello2".to_string()),
+                None,
+                None,
+                Some("Hello3".to_string()),
             ]
         );
     }
