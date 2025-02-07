@@ -54,7 +54,7 @@ fn test() {
     let mut primitive_builder =
         PrimitiveBuilder::<i32>::with_capacity(arr.dtype().nullability(), 10 * 100);
     primitive_builder
-        .extend_from_array(chunked.clone())
+        .extend_from_array(chunked)
         .unwrap();
     let ca_into = primitive_builder.finish().unwrap();
 

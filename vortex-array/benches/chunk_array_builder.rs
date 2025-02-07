@@ -26,8 +26,7 @@ fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
                         _ => unreachable!(),
                     })
                     // To get a sized iterator
-                    .collect::<Vec<Option<bool>>>()
-                    .into_iter(),
+                    .collect::<Vec<Option<bool>>>(),
             )
             .into_array()
         })

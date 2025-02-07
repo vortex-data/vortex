@@ -13,18 +13,18 @@ pub enum Nullability {
 
 impl PartialOrd for Nullability {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (Self::NonNullable, Self::NonNullable) => Some(Ordering::Equal),
-            (Self::NonNullable, Self::Nullable) => Some(Ordering::Greater),
-            (Self::Nullable, Self::NonNullable) => Some(Ordering::Less),
-            (Self::Nullable, Self::Nullable) => Some(Ordering::Equal),
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Nullability {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        match (self, other) {
+            (Self::NonNullable, Self::NonNullable) => Ordering::Equal,
+            (Self::NonNullable, Self::Nullable) => Ordering::Greater,
+            (Self::Nullable, Self::NonNullable) => Ordering::Less,
+            (Self::Nullable, Self::Nullable) => Ordering::Equal,
+        }
     }
 }
 
