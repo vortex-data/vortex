@@ -124,15 +124,11 @@ fn vortex_compress_write(
 #[inline(never)]
 fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
     runtime.block_on(async {
-        // use vortex::file::Scan;
         VortexOpenOptions::in_memory(buf)
             .open()
             .await?
             .scan()
             .into_array_stream()?
-            // .open(buf)
-            // .await?
-            // .scan(Scan::all())?
             .try_collect::<Vec<_>>()
             .await?
             .into_iter()
