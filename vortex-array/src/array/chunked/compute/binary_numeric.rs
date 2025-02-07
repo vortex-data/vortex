@@ -2,8 +2,9 @@ use vortex_error::VortexResult;
 use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::builders::{ArrayBuilder, BoolBuilder};
 use crate::compute::{binary_numeric, slice, BinaryNumericFn};
-use crate::{Array, IntoArray};
+use crate::Array;
 
 impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
     fn binary_numeric(
@@ -14,15 +15,14 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
     ) -> VortexResult<Option<Array>> {
         let mut start = 0;
 
-        let mut new_chunks = Vec::with_capacity(array.nchunks());
-        for chunk in array.chunks() {
+        let mut builder = BoolBuilder::with_capacity(array.dtype().nullability(), array.len());
+
+        for chunk in array.chunks().filter(|c| c.is_empty()) {
             let end = start + chunk.len();
-            new_chunks.push(binary_numeric(&chunk, &slice(rhs, start, end)?, op)?);
+            builder.extend_from_array(binary_numeric(&chunk, &slice(rhs, start, end)?, op)?)?;
             start = end;
         }
 
-        ChunkedArray::try_new(new_chunks, array.dtype().clone())
-            .map(IntoArray::into_array)
-            .map(Some)
+        builder.finish().map(Some)
     }
 }

@@ -1,5 +1,7 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 
+/// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`
+/// method to append a boolean buffer directly.
 pub struct LazyNullBufferBuilder {
     inner: Option<BooleanBufferBuilder>,
     len: usize,
@@ -69,13 +71,16 @@ impl LazyNullBufferBuilder {
         Some(NullBuffer::new(self.inner.take()?.finish()))
     }
 
+    #[inline]
     fn materialize_if_needed(&mut self) {
         if self.inner.is_none() {
             self.materialize()
         }
     }
 
+    // This only happens once per builder
     #[cold]
+    #[inline(never)]
     fn materialize(&mut self) {
         if self.inner.is_none() {
             let mut b = BooleanBufferBuilder::new(self.len.max(self.capacity));
