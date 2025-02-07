@@ -44,6 +44,12 @@ impl TryFromArrowType<&DataType> for PType {
 
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
+        Self::from_arrow(value.as_ref())
+    }
+}
+
+impl FromArrowType<&Schema> for DType {
+    fn from_arrow(value: &Schema) -> Self {
         Self::Struct(
             Arc::new(StructDType::from_arrow(value.fields())),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array

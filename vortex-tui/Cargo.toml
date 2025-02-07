@@ -1,20 +1,19 @@
 [package]
 name = "vortex-tui"
 description = "a small but might tool for working with Vortex files"
-version.workspace = true
-homepage.workspace = true
-repository.workspace = true
-authors.workspace = true
-license.workspace = true
-keywords.workspace = true
-include.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-readme.workspace = true
-categories.workspace = true
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
 
 [dependencies]
-bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
 ratatui = { workspace = true }

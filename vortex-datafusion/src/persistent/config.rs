@@ -1,13 +1,48 @@
-use datafusion::datasource::listing::PartitionedFile;
-use object_store::ObjectMeta;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
-pub(crate) struct VortexFile {
-    pub(crate) object_meta: ObjectMeta,
+use arrow_schema::SchemaRef;
+use datafusion::datasource::physical_plan::FileScanConfig;
+use datafusion_common::Statistics;
+use datafusion_physical_expr::LexOrdering;
+use vortex_dtype::FieldName;
+use vortex_expr::{ident, select, VortexExpr};
+
+/// Vortex specific methods for [`FileScanConfig`]
+pub trait FileScanConfigExt {
+    fn project_for_vortex(&self) -> ConfigProjection;
 }
 
-impl From<VortexFile> for PartitionedFile {
-    fn from(value: VortexFile) -> Self {
-        PartitionedFile::new(value.object_meta.location, value.object_meta.size as u64)
+impl FileScanConfigExt for FileScanConfig {
+    /// Apply the projection to the original schema and statistics, and create a [`VortexExpr`] to represent it.
+    fn project_for_vortex(&self) -> ConfigProjection {
+        let (arrow_schema, statistics, orderings) = self.project();
+        let projection_expr = match self.projection {
+            None => ident(),
+            Some(_) => projection_expr(&arrow_schema),
+        };
+
+        ConfigProjection {
+            arrow_schema,
+            statistics,
+            orderings,
+            projection_expr,
+        }
     }
+}
+
+pub struct ConfigProjection {
+    pub arrow_schema: SchemaRef,
+    pub statistics: Statistics,
+    pub orderings: Vec<LexOrdering>,
+    pub projection_expr: Arc<dyn VortexExpr>,
+}
+
+fn projection_expr(projected_arrow_schema: &SchemaRef) -> Arc<dyn VortexExpr> {
+    let fields = projected_arrow_schema
+        .fields()
+        .iter()
+        .map(|field| FieldName::from(field.name().clone()))
+        .collect::<Vec<_>>();
+
+    select(fields, ident())
 }

@@ -481,7 +481,7 @@ dependencies = [
  "bzip2",
  "cfg-if",
  "clap",
- "criterion",
+ "codspeed-criterion-compat",
  "datafusion",
  "datafusion-common",
  "datafusion-physical-plan",
@@ -798,10 +798,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
+name = "codspeed"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "450a0e9df9df1c154156f4344f99d8f6f6e69d0fc4de96ef6e2e68b2ec3bce97"
+dependencies = [
+ "colored",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
+name = "codspeed-criterion-compat"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eb1a6cb9c20e177fde58cdef97c1c7c9264eb1424fe45c4fccedc2fb078a569"
+dependencies = [
+ "codspeed",
+ "colored",
+ "criterion",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
+
+[[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "comfy-table"
@@ -2120,9 +2154,9 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
 name = "goldenfile"
-version = "1.7.3"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "672ff1c2f0537cf3f92065ce8aa77e2fc3f2abae2c805eb67f40ceecfbdee428"
+checksum = "cf39e208efa110ca273f7255aea02485103ffcb7e5dfa5e4196b05a02411618e"
 dependencies = [
  "scopeguard",
  "similar-asserts",
@@ -3196,9 +3230,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.20.2"
+version = "1.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
+checksum = "945462a4b81e43c4e3ba96bd7b49d834c6f61198356aa858733bc4acf3cbe62e"
 
 [[package]]
 name = "oorandom"
@@ -3239,9 +3273,9 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "papergrid"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2b0f8def1f117e13c895f3eda65a7b5650688da29d6ad04635f61bc7b92eebd"
+checksum = "b915f831b85d984193fdc3d3611505871dc139b2534530fa01c1a6a6707b6723"
 dependencies = [
  "bytecount",
  "fnv",
@@ -4615,9 +4649,9 @@ dependencies = [
 
 [[package]]
 name = "tabled"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6709222f3973137427ce50559cd564dc187a95b9cfe01613d2f4e93610e510a"
+checksum = "121d8171ee5687a4978d1b244f7d99c43e7385a272185a2f1e1fa4dc0979d444"
 dependencies = [
  "papergrid",
 ]
@@ -5187,7 +5221,7 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "backtrace",
- "criterion",
+ "codspeed-criterion-compat",
  "divan",
  "enum-iterator",
  "flatbuffers 25.1.24",
@@ -5261,7 +5295,6 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "futures",
- "hashbrown 0.15.2",
  "itertools 0.14.0",
  "log",
  "moka",
@@ -5278,7 +5311,6 @@ dependencies = [
  "vortex-expr",
  "vortex-file",
  "vortex-io",
- "vortex-scalar",
 ]
 
 [[package]]
@@ -5313,7 +5345,7 @@ name = "vortex-dict"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "criterion",
+ "codspeed-criterion-compat",
  "divan",
  "num-traits",
  "rand",
@@ -5343,7 +5375,6 @@ dependencies = [
  "serde_json",
  "serde_test",
  "static_assertions",
- "vortex-buffer",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
@@ -5392,7 +5423,7 @@ version = "0.24.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
- "criterion",
+ "codspeed-criterion-compat",
  "divan",
  "fastlanes",
  "itertools 0.14.0",
@@ -5406,7 +5437,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
- "vortex-sparse",
 ]
 
 [[package]]
@@ -5414,7 +5444,6 @@ name = "vortex-file"
 version = "0.24.0"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "arrow-schema",
  "async-trait",
  "bytes",
@@ -5438,10 +5467,8 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-io",
- "vortex-ipc",
  "vortex-layout",
  "vortex-mask",
- "vortex-scalar",
  "vortex-scan",
 ]
 
@@ -5569,7 +5596,7 @@ name = "vortex-runend"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "criterion",
+ "codspeed-criterion-compat",
  "itertools 0.14.0",
  "num-traits",
  "rand",
@@ -5666,7 +5693,6 @@ dependencies = [
 name = "vortex-tui"
 version = "0.24.0"
 dependencies = [
- "bytes",
  "clap",
  "crossterm",
  "ratatui",
@@ -5679,7 +5705,6 @@ dependencies = [
 name = "vortex-zigzag"
 version = "0.24.0"
 dependencies = [
- "serde",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

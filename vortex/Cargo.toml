@@ -38,6 +38,7 @@ vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
+vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-runend = { workspace = true }
@@ -46,7 +47,6 @@ vortex-scalar = { workspace = true, default-features = true }
 vortex-scan = { workspace = true, default-features = true }
 vortex-sparse = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
-vortex-layout = { workspace = true }
 
 [features]
 tokio = ["vortex-io/tokio", "vortex-file/tokio"]

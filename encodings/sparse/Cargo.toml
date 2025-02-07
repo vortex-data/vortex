@@ -28,5 +28,5 @@ vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
-vortex-array = { workspace = true, features = ["test-harness"] }
 rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }

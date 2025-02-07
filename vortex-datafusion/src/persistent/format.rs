@@ -46,18 +46,13 @@ pub struct VortexFormat {
 /// Options to configure the [`VortexFormat`].
 #[derive(Debug)]
 pub struct VortexFormatOptions {
-    /// The number of concurrency tasks used to infer the schema of multiple Vortex files.
-    pub concurrent_infer_schema_ops: usize,
     /// The size of the in-memory [`vortex_file::FileLayout`] cache.
     pub cache_size_mb: usize,
 }
 
 impl Default for VortexFormatOptions {
     fn default() -> Self {
-        Self {
-            concurrent_infer_schema_ops: 64,
-            cache_size_mb: 256,
-        }
+        Self { cache_size_mb: 256 }
     }
 }
 
@@ -127,6 +122,11 @@ impl VortexFormat {
             opts,
         }
     }
+
+    /// Return the format specific configuration
+    pub fn options(&self) -> &VortexFormatOptions {
+        &self.opts
+    }
 }
 
 #[async_trait]
@@ -153,23 +153,30 @@ impl FileFormat for VortexFormat {
 
     async fn infer_schema(
         &self,
-        _state: &SessionState,
+        state: &SessionState,
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
-        let file_schemas = stream::iter(objects.iter().cloned())
+        let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_layout_cache.clone();
                 async move {
                     let file_layout = cache.try_get(&o, store).await?;
                     let inferred_schema = infer_schema(file_layout.dtype())?;
-                    VortexResult::Ok(inferred_schema)
+                    VortexResult::Ok((o.location, inferred_schema))
                 }
             })
-            .buffered(self.opts.concurrent_infer_schema_ops)
+            .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
             .try_collect::<Vec<_>>()
             .await?;
+
+        // Get consistent order of schemas for `Schema::try_merge`, as some filesystems don't have deterministic listing orders
+        file_schemas.sort_by(|(l1, _), (l2, _)| l1.cmp(l2));
+        let file_schemas = file_schemas
+            .into_iter()
+            .map(|(_, schema)| schema)
+            .collect::<Vec<_>>();
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
 
@@ -272,6 +279,23 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         let metrics = ExecutionPlanMetricsSet::new();
 
+        if file_scan_config
+            .file_groups
+            .iter()
+            .flatten()
+            .any(|f| f.range.is_some())
+        {
+            return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
+        }
+
+        if file_scan_config.limit.is_some() {
+            return not_impl_err!("Limit isn't implemented yet for Vortex");
+        }
+
+        if !file_scan_config.table_partition_cols.is_empty() {
+            return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
+        }
+
         let exec = VortexExec::try_new(
             file_scan_config,
             metrics,
@@ -292,7 +316,11 @@ impl FileFormat for VortexFormat {
         order_requirements: Option<LexRequirement>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if conf.insert_op != InsertOp::Append {
-            return not_impl_err!("Overwrites are not implemented yet for Parquet");
+            return not_impl_err!("Overwrites are not implemented yet for Vortex");
+        }
+
+        if !conf.table_partition_cols.is_empty() {
+            return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
         let sink_schema = conf.output_schema().clone();
