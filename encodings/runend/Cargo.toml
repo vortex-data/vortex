@@ -29,9 +29,9 @@ vortex-scalar = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-vortex-array = { workspace = true, features = ["test-harness"] }
 criterion = { workspace = true }
 rand = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
 name = "run_end_filter"

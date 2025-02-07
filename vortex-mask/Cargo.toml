@@ -1,17 +1,17 @@
 [package]
 name = "vortex-mask"
 description = "Vortex Mask - sorted, unique, non-negative integers"
-version.workspace = true
-homepage.workspace = true
-repository.workspace = true
-authors.workspace = true
-license.workspace = true
-keywords.workspace = true
-include.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-readme.workspace = true
-categories.workspace = true
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
 
 [dependencies]
 arrow-buffer = { workspace = true }
