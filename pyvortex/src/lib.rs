@@ -14,6 +14,7 @@ mod expr;
 mod io;
 mod object_store_urls;
 mod python_repr;
+mod record_batch_reader;
 pub(crate) mod scalar;
 
 use log::LevelFilter;

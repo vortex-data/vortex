@@ -2,13 +2,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use arrow_array::{RecordBatch, RecordBatchReader};
-use arrow_schema::{ArrowError, SchemaRef};
+use arrow::array::{RecordBatch, RecordBatchReader};
+use arrow::datatypes::SchemaRef;
+use arrow::error::ArrowError;
 use futures::StreamExt;
-use vortex_array::arrow::infer_schema;
-use vortex_array::stream::ArrayStream;
-use vortex_array::Array;
-use vortex_error::{VortexError, VortexResult};
+use vortex::arrow::infer_schema;
+use vortex::error::{VortexError, VortexResult};
+use vortex::stream::ArrayStream;
+use vortex::Array;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))
@@ -24,7 +25,6 @@ pub trait AsyncRuntime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output;
 }
 
-#[cfg(feature = "tokio")]
 impl AsyncRuntime for tokio::runtime::Runtime {
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
         self.block_on(fut)

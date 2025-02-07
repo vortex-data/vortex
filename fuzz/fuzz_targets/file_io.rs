@@ -11,8 +11,7 @@ use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::DType;
-use vortex_file::{Scan, VortexOpenOptions, VortexWriteOptions};
-use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
+use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
 fuzz_target!(|array_data: Array| -> Corpus {
     if !array_data.dtype().is_struct() {
@@ -37,11 +36,12 @@ fuzz_target!(|array_data: Array| -> Corpus {
 
         let written = Bytes::from(full_buff);
 
-        let output = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-            .open(written)
+        let output = VortexOpenOptions::in_memory(written)
+            .open()
             .await
             .unwrap()
-            .scan(Scan::all())
+            .scan()
+            .into_array_stream()
             .unwrap()
             .try_collect::<Vec<_>>()
             .await

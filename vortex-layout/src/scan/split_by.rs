@@ -4,13 +4,15 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
-use vortex_layout::Layout;
+
+use crate::Layout;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
 /// Note that each split must fit into the platform's maximum usize.
-#[derive(Copy, Clone)]
+#[derive(Default, Copy, Clone)]
 pub enum SplitBy {
+    #[default]
     /// Splits any time there is a chunk boundary in the file.
     Layout,
     /// Splits every n rows.
@@ -60,15 +62,15 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath};
-    use vortex_layout::layouts::flat::writer::FlatLayoutWriter;
-    use vortex_layout::strategies::LayoutWriterExt;
 
     use super::*;
-    use crate::segments::writer::BufferedSegmentWriter;
+    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::segments::test::TestSegments;
+    use crate::strategies::LayoutWriterExt;
 
     #[test]
     fn test_layout_splits_flat() {
-        let mut segments = BufferedSegmentWriter::default();
+        let mut segments = TestSegments::default();
         let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
@@ -80,7 +82,7 @@ mod test {
 
     #[test]
     fn test_row_count_splits() {
-        let mut segments = BufferedSegmentWriter::default();
+        let mut segments = TestSegments::default();
         let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();

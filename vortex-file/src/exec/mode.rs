@@ -7,6 +7,7 @@ use crate::exec::ExecDriver;
 
 /// The [`ExecutionMode`] describes how the CPU-bound layout evaluation tasks are executed.
 /// Typically, there is one task per file split (row-group).
+#[derive(Debug, Clone)]
 pub enum ExecutionMode {
     /// Executes the tasks inline as part of polling the returned
     /// [`vortex_array::stream::ArrayStream`]. In other words, uses the same runtime.

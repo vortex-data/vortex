@@ -1,33 +1,215 @@
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::Stream;
+use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
-use vortex_layout::segments::SegmentId;
+use vortex_layout::scan::unified::UnifiedDriverStream;
+use vortex_layout::scan::ScanDriver;
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
+use crate::exec::ExecutionMode;
 use crate::footer::{FileLayout, Segment};
-use crate::io::IoDriver;
-use crate::segments::{SegmentCache, SegmentRequest};
+use crate::segments::channel::SegmentChannel;
+use crate::segments::SegmentCache;
+use crate::{FileType, VortexOpenOptions};
 
-/// An I/O driver for reading segments from a file.
+/// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
-/// This driver includes functionality for coalescing requests to minimize the number of I/O
-/// operations, as well as executing multiple I/O operations concurrently.
-pub struct FileIoDriver<R: VortexReadAt> {
-    /// The file to read from.
-    pub read: R,
-    /// The file layout
-    pub file_layout: FileLayout,
-    /// The number of concurrent I/O requests to submit.
-    pub concurrency: usize,
-    /// A segment cache to store segments in memory.
-    pub segment_cache: Arc<dyn SegmentCache>,
+/// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
+pub struct GenericVortexFile<R>(PhantomData<R>);
+
+impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
+    type Options = GenericScanOptions;
+    type Read = R;
+    type ScanDriver = GenericScanDriver<R>;
+
+    fn scan_driver(
+        read: Self::Read,
+        options: Self::Options,
+        file_layout: FileLayout,
+        segment_cache: Arc<dyn SegmentCache>,
+    ) -> Self::ScanDriver {
+        GenericScanDriver {
+            read,
+            options,
+            file_layout,
+            segment_cache,
+            segment_channel: SegmentChannel::new(),
+        }
+    }
+}
+
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
+        self.options.execution_mode = execution_mode;
+        self
+    }
+
+    pub fn with_execution_concurrency(mut self, execution_concurrency: usize) -> Self {
+        self.options.execution_concurrency = execution_concurrency;
+        self
+    }
+
+    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
+        self.options.io_concurrency = io_concurrency;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GenericScanOptions {
+    /// The number of concurrent splits to process.
+    execution_concurrency: usize,
+    execution_mode: ExecutionMode,
+    /// The number of concurrent I/O requests to spawn.
+    io_concurrency: usize,
+}
+
+impl Default for GenericScanOptions {
+    fn default() -> Self {
+        Self {
+            execution_concurrency: 10,
+            execution_mode: ExecutionMode::Inline,
+            io_concurrency: 10,
+        }
+    }
+}
+
+pub struct GenericScanDriver<R> {
+    read: R,
+    options: GenericScanOptions,
+    file_layout: FileLayout,
+    segment_cache: Arc<dyn SegmentCache>,
+    segment_channel: SegmentChannel,
+}
+
+impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
+    type Options = GenericScanOptions;
+
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
+        // This reader simply enqueues segment requests into the channel.
+        // Our driver polls the other end of this channel to drive the I/O requests.
+        self.segment_channel.reader()
+    }
+
+    fn drive_stream(
+        self,
+        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
+    ) -> impl Stream<Item = VortexResult<()>> + 'static {
+        let exec_driver = self
+            .options
+            .execution_mode
+            .into_driver(self.options.execution_concurrency);
+        let exec_stream = exec_driver.drive(stream.boxed());
+
+        // Now we set up the I/O stream to poll the other end of the segment channel.
+        let io_stream = self.segment_channel.into_stream();
+
+        // We map the segment requests to their respective locations within the file.
+        let coalescing_window = self.read.performance_hint().coalescing_window();
+        let segment_map = self.file_layout.segment_map().clone();
+        let io_stream = io_stream.filter_map(move |request| {
+            let segment_map = segment_map.clone();
+            async move {
+                let Some(location) = segment_map.get(*request.id as usize) else {
+                    request
+                        .callback
+                        .send(Err(vortex_err!("segment not found")))
+                        .map_err(|_| vortex_err!("send failed"))
+                        .vortex_expect("send failed");
+                    return None;
+                };
+                Some(FileSegmentRequest {
+                    id: request.id,
+                    location: location.clone(),
+                    callback: request.callback,
+                })
+            }
+        });
+
+        // We support zero-length segments (so layouts don't have to store this information)
+        // If we encounter a zero-length segment, we can just resolve it now.
+        let io_stream = io_stream.filter_map(|request| async move {
+            if request.location.length == 0 {
+                let alignment = request.location.alignment;
+                request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
+                None
+            } else {
+                Some(request)
+            }
+        });
+
+        // Check if the segment exists in the cache
+        let segment_cache = self.segment_cache.clone();
+        let io_stream = io_stream.filter_map(move |request| {
+            let segment_cache = segment_cache.clone();
+            async move {
+                match segment_cache
+                    .get(request.id, request.location.alignment)
+                    .await
+                {
+                    Ok(None) => Some(request),
+                    Ok(Some(buffer)) => {
+                        request.resolve(Ok(buffer));
+                        None
+                    }
+                    Err(e) => {
+                        request.resolve(Err(e));
+                        None
+                    }
+                }
+            }
+        });
+
+        // Grab all available segment requests from the I/O queue so we get maximal visibility into
+        // the requests for coalescing.
+        // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
+        // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
+        // file and therefore be reasonably bounded.
+        let io_stream = io_stream
+            .ready_chunks(1024)
+            .inspect(|requests| log::debug!("Processing {} segment requests", requests.len()));
+
+        // Coalesce the segment requests to minimize the number of I/O operations.
+        let io_stream = io_stream
+            .map(move |r| coalesce(r, coalescing_window))
+            .flat_map(stream::iter);
+
+        // Submit the coalesced requests to the I/O.
+        let read = self.read.clone();
+        let segment_map = self.file_layout.segment_map().clone();
+        let segment_cache = self.segment_cache.clone();
+        let io_stream = io_stream.map(move |request| {
+            let read = read.clone();
+            let segment_map = segment_map.clone();
+            let segment_cache = segment_cache.clone();
+            async move {
+                evaluate(
+                    read.clone(),
+                    request,
+                    segment_map.clone(),
+                    segment_cache.clone(),
+                )
+                .await
+            }
+        });
+
+        // Buffer some number of concurrent I/O operations.
+        let io_stream = io_stream.buffer_unordered(self.options.io_concurrency);
+
+        // Finally, we unify the stream to drive both the CPU and I/O requests.
+        UnifiedDriverStream {
+            exec_stream,
+            io_stream,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -55,97 +237,6 @@ struct CoalescedSegmentRequest {
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests, ordered by segment ID.
     pub(crate) requests: Vec<FileSegmentRequest>,
-}
-
-impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
-    fn drive(
-        &self,
-        stream: impl Stream<Item = SegmentRequest> + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        // We map the segment requests to their respective locations within the file.
-        let coalescing_window = self.read.performance_hint().coalescing_window();
-        let segment_map = self.file_layout.segment_map().clone();
-        let stream = stream.filter_map(move |request| {
-            let segment_map = segment_map.clone();
-            async move {
-                let Some(location) = segment_map.get(*request.id as usize) else {
-                    request
-                        .callback
-                        .send(Err(vortex_err!("segment not found")))
-                        .map_err(|_| vortex_err!("send failed"))
-                        .vortex_expect("send failed");
-                    return None;
-                };
-                Some(FileSegmentRequest {
-                    id: request.id,
-                    location: location.clone(),
-                    callback: request.callback,
-                })
-            }
-        });
-
-        // We support zero-length segments (so layouts don't have to store this information)
-        // If we encounter a zero-length segment, we can just resolve it now.
-        let stream = stream.filter_map(|request| async move {
-            if request.location.length == 0 {
-                let alignment = request.location.alignment;
-                request.resolve(Ok(ByteBuffer::empty_aligned(alignment)));
-                None
-            } else {
-                Some(request)
-            }
-        });
-
-        // Check if the segment exists in the cache
-        let segment_cache = self.segment_cache.clone();
-        let stream = stream.filter_map(move |request| {
-            let segment_cache = segment_cache.clone();
-            async move {
-                match segment_cache
-                    .get(request.id, request.location.alignment)
-                    .await
-                {
-                    Ok(None) => Some(request),
-                    Ok(Some(buffer)) => {
-                        request.resolve(Ok(buffer));
-                        None
-                    }
-                    Err(e) => {
-                        request.resolve(Err(e));
-                        None
-                    }
-                }
-            }
-        });
-
-        // Grab all available segment requests from the I/O queue so we get maximal visibility into
-        // the requests for coalescing.
-        // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
-        // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
-        // file and therefore be reasonably bounded.
-        let stream = stream
-            .ready_chunks(1024)
-            .inspect(|requests| log::debug!("Processing {} segment requests", requests.len()));
-
-        // Coalesce the segment requests to minimize the number of I/O operations.
-        let stream = stream
-            .map(move |r| coalesce(r, coalescing_window))
-            .flat_map(stream::iter);
-
-        // Submit the coalesced requests to the I/O.
-        let read = self.read.clone();
-        let segment_map = self.file_layout.segment_map().clone();
-        let segment_cache = self.segment_cache.clone();
-        let stream = stream.map(move |request| {
-            let read = read.clone();
-            let segment_map = segment_map.clone();
-            let segment_cache = segment_cache.clone();
-            async move { evaluate(read, request, segment_map, segment_cache).await }
-        });
-
-        // Buffer some number of concurrent I/O operations.
-        stream.buffer_unordered(self.concurrency)
-    }
 }
 
 async fn evaluate<R: VortexReadAt>(

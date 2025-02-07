@@ -190,22 +190,24 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-        let vxf = VortexOpenOptions::new(self.context.clone())
-            .with_file_layout(
-                self.file_layout_cache
-                    .try_get(object, store.clone())
-                    .await?,
-            )
-            .open(read_at)
-            .await?;
-
         // Evaluate the statistics for each column that we are able to return to DataFusion.
         let field_paths = table_schema
             .fields()
             .iter()
             .map(|field| FieldPath::from_name(field.name().to_owned()))
             .collect();
+
+        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+
+        let vxf = VortexOpenOptions::file(read_at)
+            .with_file_layout(
+                self.file_layout_cache
+                    .try_get(object, store.clone())
+                    .await?,
+            )
+            .open()
+            .await?;
+
         let stats = vxf
             .statistics(
                 field_paths,

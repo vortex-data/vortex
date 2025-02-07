@@ -1,33 +1,48 @@
-mod exec;
-mod split_by;
-
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub use exec::*;
 use flatbuffers::root;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
-pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
+use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{Layout, LayoutContextRef, LayoutId};
+use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{FileLayout, Postscript, Segment};
-use crate::io::file::FileIoDriver;
 use crate::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
-use crate::{VortexFile, EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::{
+    GenericVortexFile, InMemoryVortexFile, VortexFile, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE,
+    VERSION,
+};
 
-const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
+pub trait FileType: Sized {
+    type Options: Clone;
+    type Read: VortexReadAt;
+    type ScanDriver: ScanDriver;
+
+    fn scan_driver(
+        read: Self::Read,
+        options: Self::Options,
+        file_layout: FileLayout,
+        segment_cache: Arc<dyn SegmentCache>,
+    ) -> Self::ScanDriver;
+}
 
 /// Open options for a Vortex file reader.
-pub struct VortexOpenOptions {
+pub struct VortexOpenOptions<F: FileType> {
+    /// The underlying file reader.
+    read: F::Read,
+    /// File-specific options
+    pub(crate) options: F::Options,
     /// The Vortex Array encoding context.
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
@@ -35,34 +50,17 @@ pub struct VortexOpenOptions {
     /// An optional, externally provided, file size.
     file_size: Option<u64>,
     /// An optional, externally provided, file layout.
+    // TODO(ngates): add an optional DType so we only read the layout segment.
     file_layout: Option<FileLayout>,
-    // TODO(ngates): also support a messages_middleware that can wrap a message cache to provide
-    //  additional caching, metrics, or other intercepts, etc. It should support synchronous
-    //  read + write of Map<MessageId, ByteBuffer> or similar.
+    segment_cache: Arc<dyn SegmentCache>,
     initial_read_size: u64,
-    split_by: SplitBy,
-    segment_cache: Option<Arc<dyn SegmentCache>>,
-    execution_mode: Option<ExecutionMode>,
-    // TODO(ngates): allow fully configurable I/O driver.
-    io_concurrency: usize,
-    exec_concurrency: Option<usize>,
 }
 
-impl VortexOpenOptions {
-    pub fn new(ctx: ContextRef) -> Self {
-        Self {
-            ctx,
-            layout_ctx: LayoutContextRef::default(),
-            file_size: None,
-            file_layout: None,
-            initial_read_size: INITIAL_READ_SIZE,
-            split_by: SplitBy::Layout,
-            segment_cache: None,
-            execution_mode: None,
-            // TODO(ngates): pick some numbers...
-            io_concurrency: 10,
-            exec_concurrency: None,
-        }
+impl<F: FileType> VortexOpenOptions<F> {
+    /// Configure a Vortex Array context.
+    pub fn with_ctx(mut self, ctx: ContextRef) -> Self {
+        self.ctx = ctx;
+        self
     }
 
     /// Configure a layout context.
@@ -98,17 +96,9 @@ impl VortexOpenOptions {
         Ok(self)
     }
 
-    /// Configure how to split the file into batches for reading.
-    ///
-    /// Defaults to [`SplitBy::Layout`].
-    pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
-        self.split_by = split_by;
-        self
-    }
-
     /// Configure a custom [`SegmentCache`].
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
-        self.segment_cache = Some(segment_cache);
+        self.segment_cache = segment_cache;
         self
     }
 
@@ -116,87 +106,79 @@ impl VortexOpenOptions {
     pub fn without_segment_cache(self) -> Self {
         self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
+}
 
-    /// Configure the execution mode
-    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
-        self.execution_mode = Some(execution_mode);
-        self
-    }
-
-    /// Configure the number of concurrent I/O requests.
-    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
-        self.io_concurrency = io_concurrency;
-        self
-    }
-
-    /// Override the default split-by concurrency.
-    ///
-    /// It is recommended to use more split-by concurrency than I/O concurrency to ensure there
-    /// are always I/O operations enqueued.
-    pub fn with_exec_concurrency(mut self, exec_concurrency: usize) -> Self {
-        self.exec_concurrency = Some(exec_concurrency);
-        self
+impl VortexOpenOptions<InMemoryVortexFile> {
+    /// Open an in-memory file contained in the provided buffer.
+    pub fn in_memory<B: Into<ByteBuffer>>(buffer: B) -> Self {
+        Self {
+            read: buffer.into(),
+            options: (),
+            ctx: ALL_ENCODINGS_CONTEXT.clone(),
+            layout_ctx: Arc::new(Default::default()),
+            file_size: None,
+            file_layout: None,
+            segment_cache: Arc::new(NoOpSegmentCache),
+            initial_read_size: 0,
+        }
     }
 }
 
-impl VortexOpenOptions {
-    /// Open the Vortex file using asynchronous IO.
-    pub async fn open<R: VortexReadAt>(
-        mut self,
-        read: R,
-    ) -> VortexResult<VortexFile<FileIoDriver<R>>> {
-        // Set up our segment cache.
-        let segment_cache = self.segment_cache.as_ref().cloned().unwrap_or_else(|| {
-            Arc::new(InMemorySegmentCache::new(
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+    const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
+
+    pub fn file(read: R) -> Self {
+        Self {
+            read,
+            // TODO(ngates): move this context into the vortex-file crate
+            options: Default::default(),
+            ctx: ALL_ENCODINGS_CONTEXT.clone(),
+            layout_ctx: LayoutContextRef::default(),
+            file_size: None,
+            file_layout: None,
+            segment_cache: Arc::new(InMemorySegmentCache::new(
                 // For now, use a fixed 1GB overhead.
                 CacheBuilder::new(1 << 30),
-            ))
-        });
+            )),
+            initial_read_size: Self::INITIAL_READ_SIZE,
+        }
+    }
+}
 
+impl<F: FileType> VortexOpenOptions<F> {
+    /// Open the Vortex file using asynchronous IO.
+    pub async fn open(mut self) -> VortexResult<VortexFile<F>> {
         // If we need to read the file layout, then do so.
         let file_layout = match self.file_layout.take() {
-            None => self.read_file_layout(&read, segment_cache.as_ref()).await?,
+            None => self.read_file_layout().await?,
             Some(file_layout) => file_layout,
         };
 
-        // Set up the I/O driver.
-        let io_driver = FileIoDriver {
-            read,
-            file_layout: file_layout.clone(),
-            concurrency: self.io_concurrency,
-            segment_cache,
-        };
-
-        // Set up the execution driver.
-        let exec_driver = self
-            .execution_mode
-            .unwrap_or_default()
-            .into_driver(self.exec_concurrency.unwrap_or(self.io_concurrency * 2));
-
-        // Finally, create the VortexFile.
         Ok(VortexFile {
+            read: self.read,
+            options: self.options,
             ctx: self.ctx.clone(),
             file_layout,
-            io_driver,
-            exec_driver,
-            split_by: self.split_by,
+            segment_cache: self.segment_cache,
+            _marker: PhantomData,
         })
     }
 
     /// Read the [`FileLayout`] from the file.
-    async fn read_file_layout<R: VortexReadAt>(
-        &self,
-        read: &R,
-        segment_cache: &dyn SegmentCache,
-    ) -> VortexResult<FileLayout> {
+    async fn read_file_layout(&self) -> VortexResult<FileLayout> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
-            None => read.size().await?,
+            None => self.read.size().await?,
             Some(file_size) => file_size,
         };
-        let initial_read_size = self.initial_read_size.min(file_size);
+        let initial_read_size = self
+            .initial_read_size
+            // Make sure we read enough to cover the postscript
+            .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
+            .min(file_size);
         let initial_offset = file_size - initial_read_size;
-        let initial_read: ByteBuffer = read
+        let initial_read: ByteBuffer = self
+            .read
             .read_byte_range(initial_offset, initial_read_size)
             .await?
             .into();
@@ -213,7 +195,8 @@ impl VortexOpenOptions {
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - offset)?);
             new_initial_read.extend_from_slice(
-                &read
+                &self
+                    .read
                     .read_byte_range(offset, initial_offset - offset)
                     .await?,
             );
@@ -239,7 +222,7 @@ impl VortexOpenOptions {
 
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
-        self.populate_segments(initial_offset, &initial_read, &file_layout, segment_cache)
+        self.populate_segments(initial_offset, &initial_read, &file_layout)
             .await?;
 
         Ok(file_layout)
@@ -339,7 +322,6 @@ impl VortexOpenOptions {
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &dyn SegmentCache,
     ) -> VortexResult<()> {
         stream::iter(
             file_layout
@@ -354,7 +336,7 @@ impl VortexOpenOptions {
                         .slice(offset..offset + (segment.length as usize))
                         .aligned(segment.alignment);
 
-                    segments.put(segment_id, buffer).await
+                    self.segment_cache.put(segment_id, buffer).await
                 }),
         )
         .collect::<FuturesUnordered<_>>()

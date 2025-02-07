@@ -3,7 +3,7 @@ pub(crate) mod channel;
 pub(crate) mod writer;
 
 pub use cache::*;
-use futures::channel::oneshot;
+use oneshot;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::segments::SegmentId;

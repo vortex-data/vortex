@@ -12,17 +12,15 @@ use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ident, ExprRef, Select};
-use vortex::file::io::file::FileIoDriver;
-use vortex::file::read::VortexRecordBatchReader;
-use vortex::file::{Scan, VortexFile, VortexOpenOptions};
-use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
+use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
+use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::arrays::PyArray;
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
+use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{install_module, TOKIO_RUNTIME};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -36,13 +34,13 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
-    vortex_file: &VortexFile<FileIoDriver<T>>,
+pub async fn read_array_from_reader<F: FileType>(
+    vortex_file: &VortexFile<F>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     indices: Option<Array>,
 ) -> VortexResult<Array> {
-    let mut scan = Scan::new(projection);
+    let mut scan = vortex_file.scan().with_projection(projection);
 
     if let Some(filter) = filter {
         scan = scan.with_filter(filter);
@@ -53,7 +51,7 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
         scan = scan.with_row_indices(indices);
     }
 
-    let stream = vortex_file.scan(scan)?;
+    let stream = scan.into_array_stream()?;
     let dtype = stream.dtype().clone();
 
     let all_arrays = stream.try_collect::<Vec<_>>().await?;
@@ -95,16 +93,14 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
 
 #[pyclass(name = "TokioFileDataset", module = "io")]
 pub struct TokioFileDataset {
-    vxf: VortexFile<FileIoDriver<TokioFile>>,
+    vxf: VortexFile<GenericVortexFile<TokioFile>>,
     schema: SchemaRef,
 }
 
 impl TokioFileDataset {
     pub async fn try_new(path: String) -> VortexResult<Self> {
         let file = TokioFile::open(path)?;
-        let vxf = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-            .open(file)
-            .await?;
+        let vxf = VortexOpenOptions::file(file).open().await?;
         let schema = Arc::new(infer_schema(vxf.dtype())?);
 
         Ok(Self { vxf, schema })
@@ -131,18 +127,18 @@ impl TokioFileDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
     ) -> PyResult<PyObject> {
-        let mut scan = Scan::new(projection_from_python(columns)?);
-
-        if let Some(filter) = filter_from_python(row_filter) {
-            scan = scan.with_filter(filter);
-        }
+        let mut scan = self_
+            .vxf
+            .scan()
+            .with_projection(projection_from_python(columns)?)
+            .with_some_filter(filter_from_python(row_filter));
 
         if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
             let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = self_.vxf.scan(scan)?;
+        let stream = scan.into_array_stream()?;
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);
@@ -186,7 +182,7 @@ impl TokioFileDataset {
 
 #[pyclass(name = "ObjectStoreUrlDataset", module = "io")]
 pub struct ObjectStoreUrlDataset {
-    vxf: VortexFile<FileIoDriver<ObjectStoreReadAt>>,
+    vxf: VortexFile<GenericVortexFile<ObjectStoreReadAt>>,
     schema: SchemaRef,
 }
 
@@ -194,9 +190,7 @@ impl ObjectStoreUrlDataset {
     pub async fn try_new(url: String) -> VortexResult<Self> {
         let reader = vortex_read_at_from_url(&url).await?;
 
-        let vxf = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-            .open(reader)
-            .await?;
+        let vxf = VortexOpenOptions::file(reader).open().await?;
         let schema = Arc::new(infer_schema(vxf.dtype())?);
 
         Ok(Self { vxf, schema })
@@ -223,18 +217,18 @@ impl ObjectStoreUrlDataset {
         filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
     ) -> PyResult<PyObject> {
-        let mut scan = Scan::new(projection_from_python(columns)?);
-
-        if let Some(filter) = filter_from_python(filter) {
-            scan = scan.with_filter(filter);
-        }
+        let mut scan = self_
+            .vxf
+            .scan()
+            .with_projection(projection_from_python(columns)?)
+            .with_some_filter(filter_from_python(filter));
 
         if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
             let indices = indices.into_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 
-        let stream = self_.vxf.scan(scan)?;
+        let stream = scan.into_array_stream()?;
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(stream, &*TOKIO_RUNTIME)?);

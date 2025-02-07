@@ -1,395 +1,102 @@
 use std::future::Future;
-use std::ops::Range;
-use std::pin::Pin;
+use std::marker::PhantomData;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
-use futures::Stream;
-use futures_util::{stream, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
-use itertools::Itertools;
-use pin_project_lite::pin_project;
+use futures_util::FutureExt;
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
-use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::transform::immediate_access::immediate_scope_access;
-use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ident, ExprRef};
-use vortex_layout::{ExprEvaluator, LayoutReader};
-use vortex_mask::Mask;
-use vortex_scan::{RowMask, Scanner};
+use vortex_dtype::{DType, FieldPath};
+use vortex_error::{vortex_err, VortexResult};
+use vortex_layout::scan::unified::UnifiedDriverFuture;
+use vortex_layout::scan::{ScanBuilder, ScanDriver};
 
-use crate::exec::ExecDriver;
-use crate::io::IoDriver;
-use crate::segments::channel::SegmentChannel;
-use crate::{FileLayout, SplitBy};
+use crate::footer::FileLayout;
+use crate::open::FileType;
+use crate::segments::SegmentCache;
 
-/// A Vortex file ready for reading.
+/// Trait for a Vortex file.
 ///
-/// It is generic over the `IoDriver` implementation enabling us to swap out the I/O subsystem for
-/// particular environments. For example, memory mapped files vs object-store. By remaining generic,
-/// it allows us to support both `Send` and `?Send` I/O drivers.
-pub struct VortexFile<I> {
+/// This exists so different Vortex file types can configure their scan operations differently.
+pub struct VortexFile<F: FileType> {
+    pub(crate) read: F::Read,
+    pub(crate) options: F::Options,
     pub(crate) ctx: ContextRef,
     pub(crate) file_layout: FileLayout,
-    pub(crate) io_driver: I,
-    pub(crate) exec_driver: Arc<dyn ExecDriver>,
-    pub(crate) split_by: SplitBy,
+    pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    pub(crate) _marker: PhantomData<F>,
 }
 
-pub struct Scan {
-    projection: ExprRef,
-    filter: Option<ExprRef>,
-    row_indices: Option<Buffer<u64>>,
-}
-
-impl Scan {
-    pub fn all() -> Self {
-        Self {
-            projection: ident(),
-            filter: None,
-            row_indices: None,
-        }
-    }
-
-    pub fn new(projection: ExprRef) -> Self {
-        Self {
-            projection,
-            filter: None,
-            row_indices: None,
-        }
-    }
-
-    pub fn filtered(filter: ExprRef) -> Self {
-        Self {
-            projection: ident(),
-            filter: Some(filter),
-            row_indices: None,
-        }
-    }
-
-    pub fn with_filter(mut self, filter: ExprRef) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-
-    pub fn with_some_filter(mut self, filter: Option<ExprRef>) -> Self {
-        self.filter = filter;
-        self
-    }
-
-    pub fn with_projection(mut self, projection: ExprRef) -> Self {
-        self.projection = projection;
-        self
-    }
-
-    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
-        self.row_indices = Some(row_indices);
-        self
-    }
-
-    /// Compute a mask of field paths referenced by this scan.
-    pub fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldMask>> {
-        // TODO(joe): simplify this expr once
-        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
-        let filter = self
-            .filter
-            .clone()
-            .map(|f| simplify_typed(f, scope_dtype))
-            .transpose()?;
-
-        let Some(struct_dtype) = scope_dtype.as_struct() else {
-            return Ok(vec![FieldMask::All]);
-        };
-
-        let projection_mask = immediate_scope_access(&projection, struct_dtype)?;
-        let filter_mask = filter
-            .map(|f| immediate_scope_access(&f, struct_dtype))
-            .transpose()?
-            .unwrap_or_default();
-
-        Ok(projection_mask
-            .union(&filter_mask)
-            .cloned()
-            .map(|c| FieldMask::Prefix(FieldPath::from(Field::Name(c))))
-            .collect_vec())
-    }
-}
-
-/// Async implementation of Vortex File.
-impl<I: IoDriver> VortexFile<I> {
-    /// Returns the number of rows in the file.
+impl<F: FileType> VortexFile<F> {
     pub fn row_count(&self) -> u64 {
         self.file_layout.row_count()
     }
 
-    /// Returns the DType of the file.
     pub fn dtype(&self) -> &DType {
         self.file_layout.dtype()
     }
 
-    /// Returns the [`FileLayout`] of the file.
     pub fn file_layout(&self) -> &FileLayout {
         &self.file_layout
     }
 
-    /// Performs a scan operation over the file.
-    pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
-        let field_mask = scan.field_mask(self.dtype())?;
-        let splits: Arc<[Range<u64>]> = self
-            .split_by
-            .splits(self.file_layout().root_layout(), &field_mask)?
-            .into_iter()
-            .collect_vec()
-            .into();
-
-        let row_masks = ArcIter::new(splits).filter_map(move |row_range| {
-            let Some(row_indices) = &scan.row_indices else {
-                // If there is no row indices filter, then take the whole range
-                return Some(RowMask::new_valid_between(row_range.start, row_range.end));
-            };
-
-            // Otherwise, find the indices that are within the row range.
-            if row_indices
-                .first()
-                .is_some_and(|&first| first >= row_range.end)
-                || row_indices
-                    .last()
-                    .is_some_and(|&last| row_range.start >= last)
-            {
-                return None;
-            }
-
-            // For the given row range, find the indices that are within the row_indices.
-            let start_idx = row_indices
-                .binary_search(&row_range.start)
-                .unwrap_or_else(|x| x);
-            let end_idx = row_indices
-                .binary_search(&row_range.end)
-                .unwrap_or_else(|x| x);
-
-            if start_idx == end_idx {
-                // No rows in range
-                return None;
-            }
-
-            // Construct a row mask for the range.
-            let filter_mask = Mask::from_indices(
-                usize::try_from(row_range.end - row_range.start)
-                    .vortex_expect("Split ranges are within usize"),
-                row_indices[start_idx..end_idx]
-                    .iter()
-                    .map(|&idx| {
-                        usize::try_from(idx - row_range.start).vortex_expect("index within range")
-                    })
-                    .collect(),
-            );
-            Some(RowMask::new(filter_mask, row_range.start))
-        });
-
-        self.scan_with_masks(row_masks, scan.projection, scan.filter)
-    }
-
-    fn scan_with_masks<R>(
-        &self,
-        row_masks: R,
-        projection: ExprRef,
-        filter: Option<ExprRef>,
-    ) -> VortexResult<impl ArrayStream + 'static + use<'_, I, R>>
-    where
-        R: Iterator<Item = RowMask> + Send + 'static,
-    {
-        let scanner = Arc::new(Scanner::new(self.dtype().clone(), projection, filter)?);
-
-        let result_dtype = scanner.result_dtype().clone();
-
-        // Set up a segment channel to collect segment requests from the execution stream.
-        let segment_channel = SegmentChannel::new();
-
-        // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self
-            .file_layout
-            .root_layout()
-            .reader(segment_channel.reader(), self.ctx.clone())?;
-
-        // Now we give one end of the channel to the layout reader...
-        let exec_stream = stream::iter(row_masks)
-            .map(
-                move |row_mask| match scanner.clone().range_scanner(row_mask) {
-                    Ok(range_scan) => {
-                        let reader = reader.clone();
-                        async move {
-                            range_scan
-                                .evaluate_async(|row_mask, expr| {
-                                    reader.evaluate_expr(row_mask, expr)
-                                })
-                                .await
-                        }
-                        .boxed()
-                    }
-                    Err(e) => futures::future::ready(Err(e)).boxed(),
-                },
-            )
-            .boxed();
-        let exec_stream = self.exec_driver.drive(exec_stream);
-
-        // ...and the other end to the segment driver.
-        let io_stream = self.io_driver.drive(segment_channel.into_stream());
-
-        Ok(ArrayStreamAdapter::new(
-            result_dtype,
-            UnifiedDriverStream {
-                exec_stream,
-                io_stream,
-            },
-        ))
-    }
-
-    /// Resolves the requested statistics for the file.
     pub fn statistics(
         &self,
         field_paths: Arc<[FieldPath]>,
         stats: Arc<[Stat]>,
-    ) -> VortexResult<impl Future<Output = VortexResult<Vec<StatsSet>>> + 'static + use<'_, I>>
+    ) -> VortexResult<impl Future<Output = VortexResult<Vec<StatsSet>>> + 'static + use<'_, F>>
     {
-        // Set up a segment channel to collect segment requests from the execution stream.
-        let segment_channel = SegmentChannel::new();
+        let driver = F::scan_driver(
+            self.read.clone(),
+            self.options.clone(),
+            self.file_layout.clone(),
+            self.segment_cache.clone(),
+        );
+
+        // TODO(ngates): this section should disappear when we store file-level statistics.
+        //  That's why it's a little odd that we have to manually setup a driver here.
 
         // Create a single LayoutReader that is reused for the entire scan.
         let reader = self
             .file_layout
             .root_layout()
-            .reader(segment_channel.reader(), self.ctx.clone())?;
+            .reader(driver.segment_reader(), self.ctx.clone())?;
 
-        let exec_future = async move { reader.evaluate_stats(field_paths, stats).await }.boxed();
-        let io_stream = self.io_driver.drive(segment_channel.into_stream());
+        let (send, recv) = oneshot::channel::<VortexResult<Vec<StatsSet>>>();
+
+        let result_future = recv.map(|result| match result {
+            Ok(result) => result,
+            Err(_) => Err(vortex_err!("Failed to receive result, send dropped")),
+        });
+        let driver_stream = driver.drive_future(async move {
+            let field_paths = field_paths.clone();
+            let stats = stats.clone();
+            reader
+                .clone()
+                .evaluate_stats(field_paths, stats)
+                .map(|result| match send.send(result) {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(vortex_err!("Failed to send result, recv dropped")),
+                })
+                .await
+        });
 
         Ok(UnifiedDriverFuture {
-            exec_future,
-            io_stream,
+            exec_future: result_future,
+            io_stream: driver_stream,
         })
     }
-}
 
-/// There is no `IntoIterator` for `Arc<[T]>` so to avoid copying into a Vec<T>, we define our own.
-/// See <https://users.rust-lang.org/t/arc-to-owning-iterator/115190/11>.
-struct ArcIter<T> {
-    inner: Arc<[T]>,
-    pos: usize,
-}
-
-impl<T> ArcIter<T> {
-    fn new(inner: Arc<[T]>) -> Self {
-        Self { inner, pos: 0 }
-    }
-}
-
-impl<T: Clone> Iterator for ArcIter<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.pos < self.inner.len()).then(|| {
-            let item = self.inner[self.pos].clone();
-            self.pos += 1;
-            item
-        })
-    }
-}
-
-pin_project! {
-    /// A [`Stream`] that drives the both the I/O stream and the execution stream concurrently.
-    ///
-    /// This is sort of like a `select!` implementation, but not quite.
-    ///
-    /// We can't use `futures::stream::select` because it requires both streams to terminate, and
-    /// our I/O stream will never terminate.
-    ///
-    /// We can't use `futures::stream::zip` because it waits for boths streams to emit an item,
-    /// but our execution stream may require multiple I/O operations to complete before it can
-    /// return an item.
-    struct UnifiedDriverStream<R, S> {
-        #[pin]
-        exec_stream: R,
-        #[pin]
-        io_stream: S,
-    }
-}
-
-impl<T, R, S> Stream for UnifiedDriverStream<R, S>
-where
-    R: Stream<Item = VortexResult<T>>,
-    S: Stream<Item = VortexResult<()>>,
-{
-    type Item = VortexResult<T>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-        loop {
-            // If the exec stream is ready, then we can return the result.
-            // If it's pending, then we try polling the I/O stream.
-            if let Poll::Ready(r) = this.exec_stream.try_poll_next_unpin(cx) {
-                return Poll::Ready(r);
-            }
-
-            match this.io_stream.as_mut().try_poll_next_unpin(cx) {
-                // If the I/O stream made progress, it returns Ok.
-                Poll::Ready(Some(Ok(()))) => {}
-                // If the I/O stream failed, then propagate the error.
-                Poll::Ready(Some(Err(result))) => {
-                    return Poll::Ready(Some(Err(result)));
-                }
-                // Unexpected end of stream.
-                Poll::Ready(None) => {
-                    return Poll::Ready(Some(Err(vortex_err!("unexpected end of I/O stream"))));
-                }
-                // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-    }
-}
-
-pin_project! {
-    struct UnifiedDriverFuture<R, S> {
-        #[pin]
-        exec_future: R,
-        #[pin]
-        io_stream: S,
-    }
-}
-
-impl<T, R, S> Future for UnifiedDriverFuture<R, S>
-where
-    R: Future<Output = VortexResult<T>>,
-    S: Stream<Item = VortexResult<()>>,
-{
-    type Output = VortexResult<T>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
-        loop {
-            // If the exec stream is ready, then we can return the result.
-            // If it's pending, then we try polling the I/O stream.
-            if let Poll::Ready(r) = this.exec_future.try_poll_unpin(cx) {
-                return Poll::Ready(r);
-            }
-
-            match this.io_stream.as_mut().try_poll_next_unpin(cx) {
-                // If the I/O stream made progress, it returns Ok.
-                Poll::Ready(Some(Ok(()))) => {}
-                // If the I/O stream failed, then propagate the error.
-                Poll::Ready(Some(Err(result))) => {
-                    return Poll::Ready(Err(result));
-                }
-                // Unexpected end of stream.
-                Poll::Ready(None) => {
-                    return Poll::Ready(Err(vortex_err!("unexpected end of I/O stream")));
-                }
-                // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
-                Poll::Pending => return Poll::Pending,
-            }
-        }
+    pub fn scan(&self) -> ScanBuilder<F::ScanDriver> {
+        let driver = F::scan_driver(
+            self.read.clone(),
+            self.options.clone(),
+            self.file_layout.clone(),
+            self.segment_cache.clone(),
+        );
+        ScanBuilder::new(
+            driver,
+            self.file_layout.root_layout().clone(),
+            self.ctx.clone(),
+        )
     }
 }

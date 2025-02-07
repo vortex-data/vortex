@@ -11,6 +11,7 @@ use std::fmt::{Display, Formatter};
 
 pub use reader::*;
 
+pub mod scan;
 pub mod segments;
 pub mod strategies;
 pub mod vtable;

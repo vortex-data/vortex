@@ -5,11 +5,10 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use tokio::runtime::Handle;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::{ExecutionMode, Scan, VortexOpenOptions};
+use vortex_file::VortexOpenOptions;
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
@@ -57,18 +56,21 @@ impl FileOpener for VortexFileOpener {
         let projected_arrow_schema = self.projected_arrow_schema.clone();
 
         Ok(async move {
-            let vxf = VortexOpenOptions::new(ctx)
+            let vxf = VortexOpenOptions::file(read_at)
+                .with_ctx(ctx.clone())
                 .with_file_layout(
                     file_layout_cache
                         .try_get(&file_meta.object_meta, object_store)
                         .await?,
                 )
-                .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
-                .open(read_at)
+                .open()
                 .await?;
 
             Ok(vxf
-                .scan(Scan::new(projection).with_some_filter(filter))?
+                .scan()
+                .with_projection(projection.clone())
+                .with_some_filter(filter.clone())
+                .into_array_stream()?
                 .map_ok(move |array| {
                     let st = array.into_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())

@@ -19,8 +19,10 @@ async-once-cell = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
 itertools = { workspace = true }
+oneshot = { workspace = true, features = ["async"] }
+pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
