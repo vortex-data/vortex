@@ -51,7 +51,7 @@ impl FromArrowType<SchemaRef> for DType {
 impl FromArrowType<&Schema> for DType {
     fn from_arrow(value: &Schema) -> Self {
         Self::Struct(
-            Arc::new(StructDType::from_arrow(&value.fields)),
+            Arc::new(StructDType::from_arrow(value.fields())),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array)
         )
     }
