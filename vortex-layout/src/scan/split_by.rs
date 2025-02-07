@@ -58,37 +58,37 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
-    // use vortex_array::IntoArray;
-    // use vortex_buffer::buffer;
-    // use vortex_dtype::Nullability::NonNullable;
-    // use vortex_dtype::{DType, FieldPath};
+    use vortex_array::IntoArray;
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, FieldPath};
 
-    // use super::*;
-    // use crate::layouts::flat::writer::FlatLayoutWriter;
-    // use crate::segments::writer::BufferedSegmentWriter;
-    // use crate::strategies::LayoutWriterExt;
-    //
-    // #[test]
-    // fn test_layout_splits_flat() {
-    //     let mut segments = BufferedSegmentWriter::default();
-    //     let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
-    //         .push_one(&mut segments, buffer![1; 10].into_array())
-    //         .unwrap();
-    //     let splits = SplitBy::Layout
-    //         .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
-    //         .unwrap();
-    //     assert_eq!(splits, vec![0..10]);
-    // }
-    //
-    // #[test]
-    // fn test_row_count_splits() {
-    //     let mut segments = BufferedSegmentWriter::default();
-    //     let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
-    //         .push_one(&mut segments, buffer![1; 10].into_array())
-    //         .unwrap();
-    //     let splits = SplitBy::RowCount(3)
-    //         .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
-    //         .unwrap();
-    //     assert_eq!(splits, vec![0..3, 3..6, 6..9, 9..10]);
-    // }
+    use super::*;
+    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::segments::test::TestSegments;
+    use crate::strategies::LayoutWriterExt;
+
+    #[test]
+    fn test_layout_splits_flat() {
+        let mut segments = TestSegments::default();
+        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
+            .push_one(&mut segments, buffer![1; 10].into_array())
+            .unwrap();
+        let splits = SplitBy::Layout
+            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
+            .unwrap();
+        assert_eq!(splits, vec![0..10]);
+    }
+
+    #[test]
+    fn test_row_count_splits() {
+        let mut segments = TestSegments::default();
+        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
+            .push_one(&mut segments, buffer![1; 10].into_array())
+            .unwrap();
+        let splits = SplitBy::RowCount(3)
+            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
+            .unwrap();
+        assert_eq!(splits, vec![0..3, 3..6, 6..9, 9..10]);
+    }
 }
