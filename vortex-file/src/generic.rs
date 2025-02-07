@@ -20,7 +20,7 @@ use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
 use crate::unified::UnifiedDriverStream;
-use crate::VortexFileOpener;
+use crate::{VortexFileOpener, VortexOpenOptions};
 
 /// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
@@ -45,6 +45,23 @@ impl<R: VortexReadAt> VortexFileOpener for GenericVortexFile<R> {
             segment_cache,
             segment_channel: SegmentChannel::new(),
         }
+    }
+}
+
+impl<R> VortexOpenOptions<GenericVortexFile<R>> {
+    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
+        self.options.execution_mode = execution_mode;
+        self
+    }
+
+    pub fn with_execution_concurrency(mut self, execution_concurrency: usize) -> Self {
+        self.options.execution_concurrency = execution_concurrency;
+        self
+    }
+
+    pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
+        self.options.io_concurrency = io_concurrency;
+        self
     }
 }
 

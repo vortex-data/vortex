@@ -42,7 +42,7 @@ pub struct VortexOpenOptions<F: VortexFileOpener> {
     /// The underlying file reader.
     read: F::Read,
     /// File-specific options
-    options: F::Options,
+    pub(crate) options: F::Options,
     /// The Vortex Array encoding context.
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
