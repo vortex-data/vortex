@@ -250,26 +250,28 @@ impl PyArray {
             // the preferred type of each chunk may be different.
             let arrow_dtype = infer_data_type(chunked_array.dtype())?;
 
-            let chunks: Vec<ArrayRef> = chunked_array
+            let chunks = chunked_array
                 .chunks()
-                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow(&arrow_dtype)?) })
+                .map(|chunk| PyResult::Ok(chunk.into_arrow(&arrow_dtype)?))
                 .collect::<PyResult<Vec<ArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
             }
+
             let pa_data_type = chunks[0].data_type().clone().to_pyarrow(py)?;
-            let chunks: PyResult<Vec<PyObject>> = chunks
+            let chunks = chunks
                 .iter()
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
 
-            let sequence = &[("type", pa_data_type)].into_pyobject(py)?;
+            let sequence = PyList::new(py, vec![("type", pa_data_type)]).unwrap();
+            let kwargs = PyDict::from_sequence(&sequence)?;
 
             // Combine into a chunked array
             PyModule::import(py, "pyarrow")?.call_method(
                 "chunked_array",
                 (PyList::new(py, chunks)?,),
-                Some(&PyDict::from_sequence(sequence)?),
+                Some(&kwargs),
             )
         } else {
             Ok(vortex
