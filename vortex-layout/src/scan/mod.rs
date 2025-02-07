@@ -38,16 +38,13 @@ pub trait ScanDriver: 'static + Sized {
         self,
         future: impl Future<Output = VortexResult<()>> + Send + 'static,
     ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        stream::once(future)
+        self.drive_stream(stream::once(async move { future.boxed() }))
     }
 
     fn drive_stream(
         self,
         stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        // The default driver implementation simply collects the stream
-        stream.then(|r| r)
-    }
+    ) -> impl Stream<Item = VortexResult<()>> + 'static;
 }
 
 /// A struct for building a scan operation.

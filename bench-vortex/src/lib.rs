@@ -267,7 +267,7 @@ pub struct CompressionRunResults {
     pub total_compressed_size: Option<u64>,
 }
 
-pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
+pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;

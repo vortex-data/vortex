@@ -31,7 +31,6 @@ pub async fn run_tpch_query(
         let q = &queries[0];
         execute_query(ctx, q)
             .await
-            .map_err(|e| println!("Failed to execute {q} {format}: {e}"))
             .unwrap()
             .iter()
             .map(|r| r.num_rows())
