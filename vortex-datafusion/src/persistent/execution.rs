@@ -13,21 +13,24 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
 use vortex_array::ContextRef;
-use vortex_dtype::FieldName;
+use vortex_expr::datafusion::convert_expr_to_vortex;
+use vortex_expr::{and, VortexExpr};
 
 use super::cache::FileLayoutCache;
+use super::config::{ConfigProjection, FileScanConfigExt};
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
 pub(crate) struct VortexExec {
     file_scan_config: FileScanConfig,
     metrics: ExecutionPlanMetricsSet,
-    predicate: Option<Arc<dyn PhysicalExpr>>,
+    predicate: Option<Arc<dyn VortexExpr>>,
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
     ctx: ContextRef,
     initial_read_cache: FileLayoutCache,
     projected_arrow_schema: SchemaRef,
+    projection: Arc<dyn VortexExpr>,
 }
 
 impl VortexExec {
@@ -38,18 +41,23 @@ impl VortexExec {
         ctx: ContextRef,
         initial_read_cache: FileLayoutCache,
     ) -> DFResult<Self> {
-        let (projected_arrow_schema, mut projected_statistics, orderings) =
-            file_scan_config.project();
+        let ConfigProjection {
+            arrow_schema,
+            mut statistics,
+            orderings,
+            projection_expr,
+        } = file_scan_config.project_for_vortex();
 
-        // We project our statistics to only the selected columns
-        // We must also take care to report in-exact statistics if we have any form of filter
+        let predicate = make_vortex_predicate(predicate);
+
+        // We must take care to report in-exact statistics if we have any form of filter
         // push-down.
         if predicate.is_some() {
-            projected_statistics = projected_statistics.to_inexact();
+            statistics = statistics.to_inexact();
         }
 
         let plan_properties = PlanProperties::new(
-            EquivalenceProperties::new_with_orderings(projected_arrow_schema.clone(), &orderings),
+            EquivalenceProperties::new_with_orderings(arrow_schema.clone(), &orderings),
             Partitioning::UnknownPartitioning(file_scan_config.file_groups.len()),
             EmissionType::Incremental,
             Boundedness::Bounded,
@@ -60,10 +68,11 @@ impl VortexExec {
             metrics,
             predicate,
             plan_properties,
-            projected_statistics,
             ctx,
             initial_read_cache,
-            projected_arrow_schema,
+            projected_statistics: statistics,
+            projected_arrow_schema: arrow_schema,
+            projection: projection_expr,
         })
     }
 
@@ -114,22 +123,13 @@ impl ExecutionPlan for VortexExec {
         let object_store = context
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
-        let file_schema = self.file_scan_config.file_schema.clone();
-        let projection = self.file_scan_config.projection.as_ref().map(|projection| {
-            projection
-                .iter()
-                .map(|i| FieldName::from(file_schema.fields[*i].name().clone()))
-                .collect()
-        });
 
-        // TODO(joe): apply the predicate/filter mapping to vortex-expr once.
         let opener = VortexFileOpener::new(
             self.ctx.clone(),
             object_store,
-            projection,
+            self.projection.clone(),
             self.predicate.clone(),
             self.initial_read_cache.clone(),
-            file_schema,
             self.projected_arrow_schema.clone(),
         )?;
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
@@ -160,6 +160,21 @@ impl ExecutionPlan for VortexExec {
 
         Ok(Some(Arc::new(new_plan)))
     }
+}
+
+fn make_vortex_predicate(predicate: Option<Arc<dyn PhysicalExpr>>) -> Option<Arc<dyn VortexExpr>> {
+    predicate
+        .as_ref()
+        // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+        // will rerun the filter expression anyway.
+        .and_then(|expr| {
+            // This splits expressions into conjunctions and converts them to vortex expressions.
+            // Any inconvertible expressions are dropped since true /\ a == a.
+            datafusion_physical_expr::split_conjunction(expr)
+                .into_iter()
+                .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
+                .reduce(and)
+        })
 }
 
 fn repartition_by_size(

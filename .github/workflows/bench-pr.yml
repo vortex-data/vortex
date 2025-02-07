@@ -21,6 +21,45 @@ jobs:
       - uses: actions-ecosystem/action-remove-labels@v1
         with:
           labels: benchmark
+
+  codspeed_bench:
+    name: Run Criterion benchmarks with Codspeed
+    needs: label_trigger
+    env:
+      BENCH_TARGETS: >
+        dict_compare
+        dict_compress
+        bitpacking_take
+        run_end_filter
+        run_end_null_count
+        search_sorted
+        scalar_subtract
+        compare
+        take_strings
+        take_patches
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+
+      - name: Install Codspeed
+        shell: bash
+        run: cargo install --force cargo-codspeed --locked
+
+      - name: Build benchmark targets
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        # The profile needs to be set explicitly to bench
+        # as codspeed by default compiles with the release profile.
+        run: cargo codspeed build --profile bench $BENCH_TARGETS
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@v3
+        with:
+          run: cargo codspeed run $BENCH_TARGETS
+          token: ${{ secrets.CODSPEED_TOKEN }}
+
   bench:
     needs: label_trigger
     strategy:
