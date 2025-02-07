@@ -263,6 +263,7 @@ impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
         array: BitPackedArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
+        // TODO(joe): add specialised impl
         builder.extend_from_array(array.into_array())
     }
 }

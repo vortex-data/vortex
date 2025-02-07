@@ -9,15 +9,11 @@ use crate::{Array, Canonical};
 pub trait CanonicalVTable<Array> {
     fn into_canonical(&self, array: Array) -> VortexResult<Canonical>;
 
-    fn canonicalize_into(&self, array: Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        // builder.extend_from_array(self.into_canonical(array)?.into_array())
-        let _ = array;
-        let _ = builder;
-        println!(
+    fn canonicalize_into(&self, array: Array, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        todo!(
             "canonicalize_into {}",
             self.into_canonical(array)?.tree_display()
         );
-        todo!()
     }
 }
 

@@ -18,7 +18,7 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
 
         let mut bool_builder = BoolBuilder::with_capacity(
             // nullable <= non-nullable
-            min(lhs.dtype().nullability(), rhs.dtype().nullability()),
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
             lhs.len(),
         );
 
