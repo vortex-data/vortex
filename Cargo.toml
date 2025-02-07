@@ -71,7 +71,9 @@ cfg-if = "1"
 chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
-criterion = { package = "codspeed-criterion-compat", features = ["html_reports"], version = "2.7.2" }
+criterion = { package = "codspeed-criterion-compat", features = [
+    "html_reports",
+], version = "2.7.2" }
 croaring = "2.1.0"
 crossterm = "0.28"
 datafusion = { version = "44.0.0", default-features = false }
@@ -239,14 +241,10 @@ codegen-units = 1
 lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
 
 [profile.bench]
-codegen-units = 16 # default for "release", which "bench" inherits
-debug = true
+codegen-units = 16
+debug = "full"
+lto = false
 
-[profile.benchtest]
+[profile.bench_assert]
 inherits = "bench"
 debug-assertions = true
-lto = false # bench without lto (so it builds faster)
-
-[profile.samply]
-inherits = "release"
-debug = true

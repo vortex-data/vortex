@@ -32,12 +32,6 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
-      # - name: Install
-      #   shell: bash
-      #   run: |
-      #     set -Eeu -o pipefail -x
-      #     base_commit_sha=${{ github.event.pull_request.base.sha }}
-
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.10
@@ -45,20 +39,22 @@ jobs:
         with:
           version: v1.0.0
 
-      - name: Setup rust toolchain, cache and cargo-codspeed binary
-        uses: moonrepo/setup-rust@v1
-        with:
-          channel: nightly
-          cache-target: release
-          bins: cargo-codspeed
+      - name: Install Codspeed
+        shell: bash
+        run: |
+          cargo install --force cargo-codspeed --locked
 
-      - name: Build the benchmark target(s)
-        run: cargo codspeed build compress
+      - name: Build benchmark targets
+        run: cargo codspeed build compare
 
       - name: Run the benchmarks
+        env:
+          BENCH_VORTEX_RATIOS: ".*"
+          RUSTFLAGS: "-C target-cpu=native"
+          HOME: /home/ci-runner
         uses: CodSpeedHQ/action@v3
         with:
-          run: cargo codspeed run compress
+          run: cargo codspeed run compare
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   # bench:
