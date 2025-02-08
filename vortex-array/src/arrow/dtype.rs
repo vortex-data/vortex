@@ -114,7 +114,7 @@ pub fn infer_schema(dtype: &DType) -> VortexResult<Schema> {
     }
 
     let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
-    for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.dtypes()) {
+    for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
         builder.push(FieldRef::from(Field::new(
             field_name.to_string(),
             infer_data_type(&field_dtype)?,
@@ -149,7 +149,7 @@ pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
         DType::Binary(_) => DataType::BinaryView,
         DType::Struct(struct_dtype, _) => {
             let mut fields = Vec::with_capacity(struct_dtype.names().len());
-            for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.dtypes()) {
+            for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
                 fields.push(FieldRef::from(Field::new(
                     field_name.to_string(),
                     infer_data_type(&field_dt)?,

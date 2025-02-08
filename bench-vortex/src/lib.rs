@@ -241,7 +241,7 @@ impl CompressionRunStats {
 
         self.compressed_sizes
             .iter()
-            .zip_eq(st.names().iter().zip_eq(st.dtypes()))
+            .zip_eq(st.names().iter().zip_eq(st.fields()))
             .map(
                 |(&size, (column_name, column_type))| CompressionRunResults {
                     dataset_name: dataset_name.clone(),

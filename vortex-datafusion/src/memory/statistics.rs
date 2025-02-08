@@ -5,7 +5,7 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::variants::StructArrayTrait;
 use vortex_dtype::FieldNames;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::converter::directional_bound_to_df_precision;
 
@@ -16,11 +16,7 @@ pub(crate) fn chunked_array_df_stats(
     let mut nbytes: usize = 0;
     let column_statistics = projection
         .iter()
-        .map(|name| {
-            array
-                .maybe_null_field_by_name(name)
-                .ok_or_else(|| vortex_err!("Projection references unknown field {name}"))
-        })
+        .map(|name| array.maybe_null_field_by_name(name))
         .map_ok(|arr| {
             nbytes += arr.nbytes();
             ColumnStatistics {

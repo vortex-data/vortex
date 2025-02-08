@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata};
 use vortex_dtype::DType;
-use vortex_error::vortex_panic;
+use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
@@ -50,9 +50,9 @@ impl Display for Scalar {
                         .names()
                         .iter()
                         .enumerate()
-                        .map(|(idx, name)| match v.field_by_idx(idx) {
-                            None => format!("{name}:null"),
-                            Some(val) => format!("{name}:{val}"),
+                        .map(|(idx, name)| {
+                            let val = v.field_by_idx(idx).vortex_expect("not out of bounds");
+                            format!("{name}:{val}")
                         })
                         .format(",");
                     write!(f, "{}", formatted_fields)?;

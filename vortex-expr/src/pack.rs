@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
-use vortex_dtype::{FieldName, FieldNames};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
@@ -122,6 +122,18 @@ impl VortexExpr for Pack {
         Self::try_new_expr(self.names.clone(), children)
             .vortex_expect("children are known to have the same length as names")
     }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let value_dtypes = self
+            .values
+            .iter()
+            .map(|value_expr| value_expr.return_dtype(scope_dtype))
+            .process_results(|it| it.collect())?;
+        Ok(DType::Struct(
+            Arc::new(StructDType::new(self.names.clone(), value_dtypes)),
+            Nullability::NonNullable,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -154,15 +166,13 @@ mod tests {
         let mut array = array
             .as_struct_array()
             .ok_or_else(|| vortex_err!("expected a struct"))?
-            .maybe_null_field_by_name(field)
-            .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
+            .maybe_null_field_by_name(field)?;
 
         for field in field_path {
             array = array
                 .as_struct_array()
                 .ok_or_else(|| vortex_err!("expected a struct"))?
-                .maybe_null_field_by_name(field)
-                .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
+                .maybe_null_field_by_name(field)?;
         }
         Ok(array.into_primitive().unwrap())
     }

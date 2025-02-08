@@ -107,39 +107,18 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self.driver_options = Some(options);
         self
     }
-
-    /// Compute a mask of field paths referenced by this scan.
-    fn field_mask(&self, scope_dtype: &DType) -> VortexResult<Vec<FieldMask>> {
-        // TODO(joe): simplify this expr once
-        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
-        let filter = self
-            .filter
-            .clone()
-            .map(|f| simplify_typed(f, scope_dtype))
-            .transpose()?;
-
-        let Some(struct_dtype) = scope_dtype.as_struct() else {
-            return Ok(vec![FieldMask::All]);
-        };
-
-        let projection_mask = immediate_scope_access(&projection, struct_dtype)?;
-        let filter_mask = filter
-            .map(|f| immediate_scope_access(&f, struct_dtype))
-            .transpose()?
-            .unwrap_or_default();
-
-        Ok(projection_mask
-            .union(&filter_mask)
-            .cloned()
-            .map(|c| FieldMask::Prefix(FieldPath::from(Field::Name(c))))
-            .collect_vec())
-    }
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
     /// Perform the scan operation and return a stream of arrays.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        let field_mask = self.field_mask(self.layout.dtype())?;
+        let projection = simplify_typed(self.projection, self.layout.dtype())?;
+        let filter = self
+            .filter
+            .map(|f| simplify_typed(f, self.layout.dtype()))
+            .transpose()?;
+
+        let field_mask = field_mask(&projection, filter.as_ref(), self.layout.dtype())?;
 
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let row_indices = self.row_indices.clone();
@@ -192,17 +171,10 @@ impl<D: ScanDriver> ScanBuilder<D> {
             })
             .collect_vec();
 
-        self.into_stream_with_masks(row_masks)
-    }
-
-    fn into_stream_with_masks(
-        self,
-        row_masks: Vec<RowMask>,
-    ) -> VortexResult<impl ArrayStream + 'static + use<D>> {
         let scanner = Arc::new(Scanner::new(
             self.layout.dtype().clone(),
-            self.projection,
-            self.filter,
+            projection,
+            filter,
         )?);
 
         let result_dtype = scanner.result_dtype().clone();
@@ -255,4 +227,29 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub async fn into_array(self) -> VortexResult<Array> {
         self.into_array_stream()?.into_array().await
     }
+}
+
+/// Compute a mask of field paths referenced by this scan.
+///
+/// Projection and filter must be pre-simplified.
+fn field_mask(
+    projection: &ExprRef,
+    filter: Option<&ExprRef>,
+    scope_dtype: &DType,
+) -> VortexResult<Vec<FieldMask>> {
+    let Some(struct_dtype) = scope_dtype.as_struct() else {
+        return Ok(vec![FieldMask::All]);
+    };
+
+    let projection_mask = immediate_scope_access(projection, struct_dtype)?;
+    let filter_mask = filter
+        .map(|f| immediate_scope_access(f, struct_dtype))
+        .transpose()?
+        .unwrap_or_default();
+
+    Ok(projection_mask
+        .union(&filter_mask)
+        .cloned()
+        .map(|c| FieldMask::Prefix(FieldPath::from(Field::Name(c))))
+        .collect_vec())
 }

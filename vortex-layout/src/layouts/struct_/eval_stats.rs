@@ -24,11 +24,8 @@ impl StatsEvaluator for StructReader {
                 futures.push(ready(Ok(vec![StatsSet::default()])).boxed());
             } else {
                 // Otherwise, strip off the first path element and delegate to the child layout
-                let Field::Name(field) = path.path()[0]
-                    .clone()
-                    .into_named_field(self.struct_dtype().names())?
-                else {
-                    vortex_bail!("Field not found: {}", path);
+                let Field::Name(field) = path.path()[0].clone() else {
+                    vortex_bail!("Expected Field::Name")
                 };
                 let child_path = path
                     .clone()

@@ -117,7 +117,8 @@ impl StatsTable {
             .array
             .as_struct_array()
             .vortex_expect("Stats table must be a struct array")
-            .maybe_null_field_by_name(stat.name()))
+            .maybe_null_field_by_name(stat.name())
+            .ok())
     }
 }
 

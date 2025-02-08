@@ -6,8 +6,8 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldName, FieldNames, PType};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
+use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::Array;
 
@@ -92,19 +92,11 @@ pub trait StructArrayTrait: Deref<Target = Array> {
         st.names()
     }
 
-    fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
-        let DType::Struct(st, _) = self.dtype() else {
-            unreachable!()
-        };
-
-        st.field_info(field)
-    }
-
     fn dtypes(&self) -> Vec<DType> {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
-        st.dtypes().collect()
+        st.fields().collect()
     }
 
     fn nfields(&self) -> usize {
@@ -112,23 +104,16 @@ pub trait StructArrayTrait: Deref<Target = Array> {
     }
 
     /// Return a field's array by index, ignoring struct nullability
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array>;
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array>;
 
     /// Return a field's array by name, ignoring struct nullability
-    fn maybe_null_field_by_name(&self, name: &str) -> Option<Array> {
+    fn maybe_null_field_by_name(&self, name: &str) -> VortexResult<Array> {
         let field_idx = self
             .names()
             .iter()
-            .position(|field_name| field_name.as_ref() == name);
-
-        field_idx.and_then(|field_idx| self.maybe_null_field_by_idx(field_idx))
-    }
-
-    fn maybe_null_field(&self, field: &Field) -> Option<Array> {
-        match field {
-            Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
-            Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
-        }
+            .position(|field_name| field_name.as_ref() == name)
+            .ok_or_else(|| vortex_err!("Field not found: {}", name))?;
+        self.maybe_null_field_by_idx(field_idx)
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<Array>;

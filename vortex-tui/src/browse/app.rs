@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex::dtype::{DType, Field};
+use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{
     FileLayout, Segment, VortexOpenOptions, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID,
@@ -93,11 +93,8 @@ impl LayoutCursor {
                 COLUMNAR_LAYOUT_ID => dtype
                     .as_struct()
                     .expect("struct dtype")
-                    .field_info(&Field::Index(component))
-                    .expect("struct dtype component access")
-                    .dtype
-                    .value()
-                    .expect("dtype value"),
+                    .field_by_index(component)
+                    .expect("struct dtype component access"),
                 // Flat layouts have no children
                 FLAT_LAYOUT_ID => unreachable!("flat layouts have no children"),
                 _ => todo!("unknown DType"),

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_error::{vortex_err, VortexError, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
@@ -79,7 +79,7 @@ impl From<&DType> for pb::DType {
                 }),
                 DType::Struct(s, n) => DtypeType::Struct(pb::Struct {
                     names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
-                    dtypes: s.dtypes().map(|d| Self::from(&d)).collect(),
+                    dtypes: s.fields().map(|d| Self::from(&d)).collect(),
                     nullable: (*n).into(),
                 }),
                 DType::List(l, n) => DtypeType::List(Box::new(pb::List {
@@ -146,9 +146,6 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "FieldPath part missing type"))?
             {
                 FieldType::Name(name) => path.push(Field::from(name.as_str())),
-                FieldType::Index(idx) => {
-                    path.push(Field::from(usize::try_from(*idx).vortex_unwrap()))
-                }
             }
         }
         Ok(FieldPath::from(path))

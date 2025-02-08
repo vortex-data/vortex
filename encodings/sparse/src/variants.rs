@@ -61,29 +61,22 @@ impl Utf8ArrayTrait for SparseArray {}
 impl BinaryArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
-        let new_patches = self
-            .patches()
-            .map_values_opt(|values| {
-                values
-                    .as_struct_array()
-                    .and_then(|s| s.maybe_null_field_by_idx(idx))
-            })
-            .vortex_expect("field array length should equal struct array length")?;
-        let scalar = StructScalar::try_from(&self.fill_scalar())
-            .ok()?
-            .field_by_idx(idx)?;
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
+        let new_patches = self.patches().map_values(|values| {
+            values
+                .as_struct_array()
+                .vortex_expect("Expected struct array")
+                .maybe_null_field_by_idx(idx)
+        })?;
+        let scalar = StructScalar::try_from(&self.fill_scalar())?.field_by_idx(idx)?;
 
-        Some(
-            SparseArray::try_new_from_patches(
-                new_patches,
-                self.len(),
-                self.indices_offset(),
-                scalar,
-            )
-            .ok()?
-            .into_array(),
-        )
+        Ok(SparseArray::try_new_from_patches(
+            new_patches,
+            self.len(),
+            self.indices_offset(),
+            scalar,
+        )?
+        .into_array())
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
