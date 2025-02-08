@@ -56,11 +56,10 @@ impl<F: FileType> VortexFile<F> {
         //  That's why it's a little odd that we have to manually setup a driver here.
 
         // Create a single LayoutReader that is reused for the entire scan.
-        let reader = self.file_layout.root_layout().reader(
-            "$stats".to_string(),
-            driver.segment_reader(),
-            self.ctx.clone(),
-        )?;
+        let reader = self
+            .file_layout
+            .root_layout()
+            .reader(driver.segment_reader(), self.ctx.clone())?;
 
         let (send, recv) = oneshot::channel::<VortexResult<Vec<StatsSet>>>();
 

@@ -189,10 +189,6 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let segment_map = self.file_layout.segment_map().clone();
         let segment_cache = self.segment_cache.clone();
         let io_stream = io_stream.map(move |request| {
-            log::info!(
-                "Evaluating coalesced request with {} parts",
-                request.requests.len()
-            );
             let read = read.clone();
             let segment_map = segment_map.clone();
             let segment_cache = segment_cache.clone();

@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use vortex_array::ContextRef;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_array::{Array, ContextRef};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutVTable};
+use crate::{Layout, LayoutReaderExt, LayoutVTable};
 
 pub struct FlatReader {
-    identifier: String,
     layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
@@ -17,7 +16,6 @@ pub struct FlatReader {
 
 impl FlatReader {
     pub(crate) fn try_new(
-        identifier: String,
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
@@ -27,15 +25,10 @@ impl FlatReader {
         }
 
         Ok(Self {
-            identifier,
             layout,
             ctx,
             segments,
         })
-    }
-
-    pub(crate) fn identifier(&self) -> &str {
-        &self.identifier
     }
 
     pub(crate) fn ctx(&self) -> ContextRef {
@@ -44,6 +37,22 @@ impl FlatReader {
 
     pub(crate) fn segments(&self) -> &dyn AsyncSegmentReader {
         self.segments.as_ref()
+    }
+
+    pub(crate) async fn array(&self) -> VortexResult<Array> {
+        log::debug!("Fetching segment for FlatLayout {}", self.layout().name());
+        let buffer = self
+            .segments()
+            .get(
+                self.layout()
+                    .segment_id(0)
+                    .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?,
+            )
+            .await?;
+        let row_count = usize::try_from(self.layout().row_count())
+            .vortex_expect("FlatLayout row count does not fit within usize");
+
+        Array::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)
     }
 }
 

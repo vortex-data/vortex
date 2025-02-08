@@ -189,13 +189,9 @@ impl<D: ScanDriver> ScanBuilder<D> {
         let result_dtype = scanner.result_dtype().clone();
 
         // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self.layout.reader(
-            self.identifier
-                .map(|id| format!("$scan.{}", id))
-                .unwrap_or("$scan".to_string()),
-            self.driver.segment_reader(),
-            self.ctx.clone(),
-        )?;
+        let reader: Arc<dyn LayoutReader> = self
+            .layout
+            .reader(self.driver.segment_reader(), self.ctx.clone())?;
 
         let mut results = Vec::with_capacity(row_masks.len());
         let mut tasks = Vec::with_capacity(row_masks.len());
