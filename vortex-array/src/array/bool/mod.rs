@@ -129,7 +129,7 @@ impl BoolArray {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
         let first_byte_bit_offset = buffer_offset % 8;
-        let buffer_byte_offset = buffer_offset - (first_byte_bit_offset as usize);
+        let buffer_byte_offset = buffer_offset - first_byte_bit_offset;
 
         debug_assert_eq!(
             buffer_byte_offset % 8,
