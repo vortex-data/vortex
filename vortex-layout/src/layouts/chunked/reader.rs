@@ -108,7 +108,7 @@ impl ChunkedReader {
             .write()
             .map_err(|_| vortex_err!("poisoned lock"))?
             .entry(expr.clone())
-            .or_insert(Arc::new(OnceCell::new()))
+            .or_insert_with(|| Arc::new(OnceCell::new()))
             .clone();
 
         cell.get_or_try_init(async {
