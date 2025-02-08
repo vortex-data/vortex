@@ -17,9 +17,9 @@ impl ExprEvaluator for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;
         let field_readers: Vec<_> = partitioned
-            .partitions
+            .partition_names
             .iter()
-            .map(|partition| self.child(&partition.name.clone()))
+            .map(|name| self.child(name))
             .try_collect()?;
 
         let arrays = try_join_all(
@@ -27,7 +27,7 @@ impl ExprEvaluator for StructReader {
                 .iter()
                 .zip_eq(partitioned.partitions.iter())
                 .map(|(reader, partition)| {
-                    reader.evaluate_expr(row_mask.clone(), partition.expr.clone())
+                    reader.evaluate_expr(row_mask.clone(), partition.clone())
                 }),
         )
         .await?;
@@ -36,12 +36,7 @@ impl ExprEvaluator for StructReader {
         debug_assert!(arrays.iter().all(|a| a.len() == row_count));
 
         let root_scope = StructArray::try_new(
-            partitioned
-                .partitions
-                .iter()
-                .map(|p| p.name.clone())
-                .collect::<Vec<_>>()
-                .into(),
+            partitioned.partition_names.clone(),
             arrays,
             row_count,
             Validity::NonNullable,
