@@ -251,10 +251,7 @@ async fn evaluate<R: VortexReadAt>(
         request.byte_range.end - request.byte_range.start,
     );
     let buffer: ByteBuffer = read
-        .read_byte_range(
-            request.byte_range.start,
-            request.byte_range.end - request.byte_range.start,
-        )
+        .read_byte_range(request.byte_range.clone())
         .await?
         .into();
 

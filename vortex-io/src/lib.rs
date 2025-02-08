@@ -7,7 +7,6 @@
 //! This crate provides core traits for positioned and streaming IO, and via feature
 //! flags implements the core traits for several common async runtimes and backing stores.
 
-pub use buf::*;
 pub use dispatcher::*;
 pub use io_buf::*;
 pub use limit::*;
@@ -19,7 +18,6 @@ pub use read_ranges::*;
 pub use tokio::*;
 pub use write::*;
 
-mod buf;
 #[cfg(feature = "compio")]
 mod compio;
 mod dispatcher;
@@ -27,7 +25,6 @@ mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
-pub mod offset;
 mod read;
 mod read_ranges;
 #[cfg(feature = "tokio")]

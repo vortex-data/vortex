@@ -179,7 +179,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = self
             .read
-            .read_byte_range(initial_offset, initial_read_size)
+            .read_byte_range(initial_offset..file_size)
             .await?
             .into();
 
@@ -194,12 +194,8 @@ impl<F: FileType> VortexOpenOptions<F> {
             let offset = postscript.dtype.offset.min(postscript.file_layout.offset);
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - offset)?);
-            new_initial_read.extend_from_slice(
-                &self
-                    .read
-                    .read_byte_range(offset, initial_offset - offset)
-                    .await?,
-            );
+            new_initial_read
+                .extend_from_slice(&self.read.read_byte_range(offset..initial_offset).await?);
             new_initial_read.extend_from_slice(&initial_read);
             (offset, new_initial_read.freeze())
         } else {
