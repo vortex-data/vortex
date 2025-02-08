@@ -6,10 +6,10 @@ use std::sync::Arc;
 use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
-use futures_util::{stream, StreamExt, TryStreamExt};
+use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_io::VortexReadAt;
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::scan::unified::UnifiedDriverStream;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -25,7 +25,7 @@ use crate::{FileType, VortexOpenOptions};
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
+impl<R: VortexReadAt + Send + Sync> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
     type ScanDriver = GenericScanDriver<R>;
@@ -46,7 +46,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     }
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt + Send + Sync> VortexOpenOptions<GenericVortexFile<R>> {
     pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
         self.options.execution_mode = execution_mode;
         self
@@ -54,6 +54,11 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
 
     pub fn with_execution_concurrency(mut self, execution_concurrency: usize) -> Self {
         self.options.execution_concurrency = execution_concurrency;
+        self
+    }
+
+    pub fn with_io_dispatcher(mut self, dispatcher: IoDispatcher) -> Self {
+        self.options.io_dispatcher = dispatcher;
         self
     }
 
@@ -68,6 +73,8 @@ pub struct GenericScanOptions {
     /// The number of concurrent splits to process.
     execution_concurrency: usize,
     execution_mode: ExecutionMode,
+    /// A dedicated I/O dispatcher for this scan.
+    io_dispatcher: IoDispatcher,
     /// The number of concurrent I/O requests to spawn.
     io_concurrency: usize,
 }
@@ -75,9 +82,10 @@ pub struct GenericScanOptions {
 impl Default for GenericScanOptions {
     fn default() -> Self {
         Self {
-            execution_concurrency: 10,
+            execution_concurrency: 2,
             execution_mode: ExecutionMode::Inline,
-            io_concurrency: 10,
+            io_dispatcher: IoDispatcher::default(),
+            io_concurrency: 8,
         }
     }
 }
@@ -90,7 +98,7 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
-impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
+impl<R: VortexReadAt + Send + Sync> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
@@ -190,15 +198,19 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
             let read = read.clone();
             let segment_map = segment_map.clone();
             let segment_cache = segment_cache.clone();
-            async move {
-                evaluate(
-                    read.clone(),
-                    request,
-                    segment_map.clone(),
-                    segment_cache.clone(),
-                )
-                .await
-            }
+
+            self.options
+                .io_dispatcher
+                .dispatch(move || {
+                    evaluate(
+                        read.clone(),
+                        request,
+                        segment_map.clone(),
+                        segment_cache.clone(),
+                    )
+                })
+                .vortex_expect("Failed to dispatch I/O request")
+                .map(|r| r.and_then(|r| r))
         });
 
         // Buffer some number of concurrent I/O operations.

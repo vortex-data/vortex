@@ -125,7 +125,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     }
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt + Send + Sync> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     pub fn file(read: R) -> Self {

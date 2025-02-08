@@ -103,7 +103,7 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
     Ok(())
 }
 
-async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
+async fn take_vortex<T: VortexReadAt + Send + Sync + Unpin + 'static>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
