@@ -5322,6 +5322,7 @@ dependencies = [
  "rand",
  "tempfile",
  "tokio",
+ "tracing",
  "url",
  "vortex-array",
  "vortex-buffer",

@@ -18,7 +18,7 @@ use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
@@ -80,7 +80,7 @@ impl ChunkedReader {
                         let layout_dtype = self.layout.dtype();
                         let stats_dtype =
                             StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype, "stats")?;
+                        let stats_layout = self.layout.child(nchunks, stats_dtype)?;
 
                         let stats_array = stats_layout
                             .reader(self.segments.clone(), self.ctx.clone())?
@@ -139,9 +139,7 @@ impl ChunkedReader {
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.chunk_readers[idx].get_or_try_init(|| {
-            let child_layout =
-                self.layout
-                    .child(idx, self.layout.dtype().clone(), &format!("[{}]", idx))?;
+            let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }

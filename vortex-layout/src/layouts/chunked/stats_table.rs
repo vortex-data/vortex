@@ -15,7 +15,7 @@ use vortex_scalar::Scalar;
 /// Each row of the stats table corresponds to a chunk of the column.
 ///
 /// Note that it's possible for the stats table to have no statistics.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StatsTable {
     // The DType of the column for which these stats are computed.
     column_dtype: DType,

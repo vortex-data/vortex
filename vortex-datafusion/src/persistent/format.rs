@@ -183,6 +183,7 @@ impl FileFormat for VortexFormat {
         Ok(schema)
     }
 
+    #[tracing::instrument]
     async fn infer_stats(
         &self,
         _state: &SessionState,

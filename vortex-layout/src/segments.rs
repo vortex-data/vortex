@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Display;
 use std::ops::Deref;
 
 use async_trait::async_trait;
@@ -25,7 +25,7 @@ impl Deref for SegmentId {
 }
 
 impl Display for SegmentId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SegmentId({})", self.0)
     }
 }
@@ -34,12 +34,6 @@ impl Display for SegmentId {
 pub trait AsyncSegmentReader: 'static + Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
-}
-
-impl Debug for dyn AsyncSegmentReader + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AsyncSegmentReader")
-    }
 }
 
 pub trait SegmentWriter {

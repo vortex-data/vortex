@@ -12,7 +12,7 @@ use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
     ctx: ContextRef,
@@ -81,9 +81,9 @@ impl StructReader {
 
         // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
-            let child_layout =
-                self.layout
-                    .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
+            let child_layout = self
+                .layout
+                .child(idx, self.struct_dtype().field_by_index(idx)?)?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }
@@ -114,7 +114,7 @@ impl LayoutReader for StructReader {
 
 /// An expression wrapper that performs pointer equality.
 /// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct ExactExpr(ExprRef);
 
 impl PartialEq for ExactExpr {

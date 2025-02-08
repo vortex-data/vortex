@@ -58,7 +58,6 @@ impl LayoutWriter for FlatLayoutWriter {
         let segment_id = segments.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
-            "flat".into(),
             LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,

@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -16,7 +15,7 @@ use crate::Layout;
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: Send + Sync + Debug + ExprEvaluator + StatsEvaluator {
+pub trait LayoutReader: Send + Sync + ExprEvaluator + StatsEvaluator {
     /// Returns the [`Layout`] of this reader.
     fn layout(&self) -> &Layout;
 }

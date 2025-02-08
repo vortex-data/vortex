@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 
 use futures::{Stream, TryFutureExt, TryStreamExt};
 use pin_project_lite::pin_project;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 
 pin_project! {
     /// A [`Stream`] that drives the both the I/O stream and the execution stream concurrently.
@@ -48,8 +48,10 @@ where
                 Poll::Ready(Some(Err(result))) => {
                     return Poll::Ready(Some(Err(result)));
                 }
-                // End of I/O stream, this means the result stream is about to complete.
-                Poll::Ready(None) => {}
+                // Unexpected end of stream.
+                Poll::Ready(None) => {
+                    return Poll::Ready(Some(Err(vortex_err!("unexpected end of I/O stream"))));
+                }
                 // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
                 Poll::Pending => return Poll::Pending,
             }
@@ -89,8 +91,10 @@ where
                 Poll::Ready(Some(Err(result))) => {
                     return Poll::Ready(Err(result));
                 }
-                // End of I/O stream, this means the result stream is about to complete.
-                Poll::Ready(None) => {}
+                // Unexpected end of stream.
+                Poll::Ready(None) => {
+                    return Poll::Ready(Err(vortex_err!("unexpected end of I/O stream")));
+                }
                 // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
                 Poll::Pending => return Poll::Pending,
             }

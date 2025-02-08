@@ -81,7 +81,6 @@ impl LayoutWriter for StructLayoutWriter {
             column_layouts.push(writer.finish(segments)?);
         }
         Ok(Layout::new_owned(
-            "struct".into(),
             LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
             self.row_count,

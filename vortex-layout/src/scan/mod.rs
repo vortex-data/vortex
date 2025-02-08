@@ -49,7 +49,6 @@ pub trait ScanDriver: 'static + Sized {
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<D: ScanDriver> {
-    identifier: Option<String>,
     driver: D,
     driver_options: Option<D::Options>,
     layout: Layout,
@@ -63,7 +62,6 @@ pub struct ScanBuilder<D: ScanDriver> {
 impl<D: ScanDriver> ScanBuilder<D> {
     pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
         Self {
-            identifier: None,
             driver,
             driver_options: None,
             layout,
@@ -73,11 +71,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_indices: None,
             split_by: SplitBy::Layout,
         }
-    }
-
-    pub fn with_identifier(mut self, identifier: impl Into<String>) -> Self {
-        self.identifier = Some(identifier.into());
-        self
     }
 
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
@@ -177,8 +170,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
                 Some(RowMask::new(filter_mask, row_range.start))
             })
             .collect_vec();
-
-        log::debug!("Scanning row masks: {:?}", row_masks);
 
         let scanner = Arc::new(Scanner::new(
             self.layout.dtype().clone(),
