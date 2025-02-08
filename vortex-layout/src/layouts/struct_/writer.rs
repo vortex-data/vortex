@@ -6,7 +6,8 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexRe
 use crate::data::Layout;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::strategy::LayoutStrategy;
+use crate::writer::LayoutWriter;
 use crate::LayoutVTableRef;
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
@@ -19,7 +20,7 @@ pub struct StructLayoutWriter {
 impl StructLayoutWriter {
     pub fn new(dtype: DType, column_layout_writers: Vec<Box<dyn LayoutWriter>>) -> Self {
         let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
-        if struct_dtype.dtypes().len() != column_layout_writers.len() {
+        if struct_dtype.fields().len() != column_layout_writers.len() {
             vortex_panic!(
                 "number of fields in struct dtype does not match number of column layout writers"
             );
@@ -39,7 +40,7 @@ impl StructLayoutWriter {
         Ok(Self::new(
             dtype.clone(),
             struct_dtype
-                .dtypes()
+                .fields()
                 .map(|dtype| factory.new_writer(&dtype))
                 .try_collect()?,
         ))

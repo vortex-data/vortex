@@ -1,9 +1,6 @@
-use std::future::ready;
-
 use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
-use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::exec::ExecDriver;
@@ -22,11 +19,8 @@ impl InlineDriver {
 impl ExecDriver for InlineDriver {
     fn drive(
         &self,
-        stream: BoxStream<'static, BoxFuture<'static, VortexResult<Option<Array>>>>,
-    ) -> BoxStream<'static, VortexResult<Array>> {
-        stream
-            .buffered(self.concurrency)
-            .filter_map(|result| ready(result.transpose()))
-            .boxed()
+        stream: BoxStream<'static, BoxFuture<'static, VortexResult<()>>>,
+    ) -> BoxStream<'static, VortexResult<()>> {
+        stream.buffered(self.concurrency).boxed()
     }
 }

@@ -209,12 +209,7 @@ mod test {
             .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader
-            .into_array_data()
-            .await
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let result = reader.into_array().await.unwrap().into_primitive().unwrap();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::channel::{mpsc, oneshot};
+use futures::channel::mpsc;
 use futures::Stream;
 use futures_util::SinkExt;
+use oneshot;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};

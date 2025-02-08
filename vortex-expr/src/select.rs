@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::Array;
-use vortex_dtype::FieldNames;
+use vortex_dtype::{DType, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::field::DisplayFieldNames;
@@ -152,6 +152,29 @@ impl VortexExpr for Select {
         assert_eq!(children.len(), 1);
         Self::new_expr(self.fields.clone(), children[0].clone())
     }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let child_dtype = self.child.return_dtype(scope_dtype)?;
+        let child_struct_dtype = child_dtype
+            .as_struct()
+            .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
+
+        let projected = match &self.fields {
+            SelectField::Include(fields) => child_struct_dtype.project(fields)?,
+            SelectField::Exclude(fields) => child_struct_dtype
+                .names()
+                .iter()
+                .cloned()
+                .zip_eq(child_struct_dtype.fields())
+                .filter(|(name, _)| !fields.contains(name))
+                .collect(),
+        };
+
+        Ok(DType::Struct(
+            Arc::new(projected),
+            child_dtype.nullability(),
+        ))
+    }
 }
 
 impl PartialEq for Select {
@@ -167,7 +190,7 @@ mod tests {
     use vortex_array::array::StructArray;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Field, FieldName, Nullability};
+    use vortex_dtype::{DType, FieldName, Nullability};
 
     use crate::{ident, select, select_exclude, test_harness};
 
@@ -203,13 +226,7 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], ident());
         let expected_dtype = DType::Struct(
-            Arc::new(
-                dtype
-                    .as_struct()
-                    .unwrap()
-                    .project(&[Field::from("a")])
-                    .unwrap(),
-            ),
+            Arc::new(dtype.as_struct().unwrap().project(&["a".into()]).unwrap()),
             Nullability::NonNullable,
         );
         assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
@@ -239,7 +256,7 @@ mod tests {
                     dtype
                         .as_struct()
                         .unwrap()
-                        .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
+                        .project(&["a".into(), "bool1".into(), "bool2".into()])
                         .unwrap()
                 ),
                 Nullability::NonNullable

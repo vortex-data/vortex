@@ -184,7 +184,7 @@ pub async fn register_vortex_files(
                     for st in sts.into_iter() {
                         let struct_dtype = st.dtype().as_struct().unwrap();
                         let names = struct_dtype.names().iter();
-                        let types = struct_dtype.dtypes();
+                        let types = struct_dtype.fields();
 
                         for (field_name, field_type) in names.zip(types) {
                             let val = arrays_map.entry(field_name.clone()).or_default();

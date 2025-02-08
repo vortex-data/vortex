@@ -5,19 +5,16 @@ use std::sync::Arc;
 
 use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex::dtype::{DType, Field};
+use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{
-    ExecutionMode, FileLayout, Segment, SplitBy, VortexOpenOptions, CHUNKED_LAYOUT_ID,
-    COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID,
+    FileLayout, Segment, VortexOpenOptions, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID,
 };
 use vortex::io::TokioFile;
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex_layout::layouts::chunked::stats_table::StatsTable;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{Layout, LayoutVTableRef};
-// Add a shared Tokio Runtime for use in the app.
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
@@ -96,11 +93,8 @@ impl LayoutCursor {
                 COLUMNAR_LAYOUT_ID => dtype
                     .as_struct()
                     .expect("struct dtype")
-                    .field_info(&Field::Index(component))
-                    .expect("struct dtype component access")
-                    .dtype
-                    .value()
-                    .expect("dtype value"),
+                    .field_by_index(component)
+                    .expect("struct dtype component access"),
                 // Flat layouts have no children
                 FLAT_LAYOUT_ID => unreachable!("flat layouts have no children"),
                 _ => todo!("unknown DType"),
@@ -241,11 +235,7 @@ impl AppState {
 /// Create an app backed from a file path.
 pub async fn create_file_app(path: impl AsRef<Path>) -> VortexResult<AppState> {
     let reader = TokioFile::open(path)?;
-    let file = VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-        .with_execution_mode(ExecutionMode::Inline)
-        .with_split_by(SplitBy::Layout)
-        .open(reader.clone())
-        .await?;
+    let file = VortexOpenOptions::file(reader.clone()).open().await?;
 
     let cursor = LayoutCursor::new(file.file_layout().clone());
 

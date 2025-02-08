@@ -3235,6 +3235,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "945462a4b81e43c4e3ba96bd7b49d834c6f61198356aa858733bc4acf3cbe62e"
 
 [[package]]
+name = "oneshot"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79d72a7c0f743d2ebb0a2ad1d219db75fdc799092ed3a884c9144c42a31225bd"
+
+[[package]]
 name = "oorandom"
 version = "11.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5443,8 +5449,6 @@ dependencies = [
 name = "vortex-file"
 version = "0.24.0"
 dependencies = [
- "arrow-array",
- "arrow-schema",
  "async-trait",
  "bytes",
  "flatbuffers 25.1.24",
@@ -5454,9 +5458,8 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "moka",
- "pin-project-lite",
+ "oneshot",
  "rayon",
- "rstest",
  "rustc-hash",
  "tokio",
  "tracing",
@@ -5468,8 +5471,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-layout",
- "vortex-mask",
- "vortex-scan",
+ "vortex-sampling-compressor",
 ]
 
 [[package]]
@@ -5485,7 +5487,9 @@ name = "vortex-fsst"
 version = "0.24.0"
 dependencies = [
  "arrow-array",
+ "divan",
  "fsst-rs",
+ "rand",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -5563,6 +5567,9 @@ dependencies = [
  "flatbuffers 25.1.24",
  "futures",
  "itertools 0.14.0",
+ "log",
+ "oneshot",
+ "pin-project-lite",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

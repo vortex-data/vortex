@@ -184,7 +184,11 @@ impl Layout {
             Inner::Owned(o) => {
                 let child = o.children[i].clone();
                 if child.dtype() != &dtype {
-                    vortex_bail!("child dtype mismatch");
+                    vortex_bail!(
+                        "child dtype mismatch. requested {:?}, actual {:?}",
+                        dtype,
+                        child.dtype(),
+                    );
                 }
                 Ok(child)
             }

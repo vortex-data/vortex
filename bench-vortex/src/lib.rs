@@ -241,7 +241,7 @@ impl CompressionRunStats {
 
         self.compressed_sizes
             .iter()
-            .zip_eq(st.names().iter().zip_eq(st.dtypes()))
+            .zip_eq(st.names().iter().zip_eq(st.fields()))
             .map(
                 |(&size, (column_name, column_type))| CompressionRunResults {
                     dataset_name: dataset_name.clone(),
@@ -267,7 +267,7 @@ pub struct CompressionRunResults {
     pub total_compressed_size: Option<u64>,
 }
 
-pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
+pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;

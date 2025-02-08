@@ -210,7 +210,7 @@ impl WriteFlatBuffer for DType {
                 let names = Some(fbb.create_vector(&names));
 
                 let dtypes = st
-                    .dtypes()
+                    .fields()
                     .map(|dtype| dtype.write_flatbuffer(fbb))
                     .collect_vec();
                 let dtypes = Some(fbb.create_vector(&dtypes));

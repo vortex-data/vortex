@@ -30,20 +30,19 @@ impl StatsTable {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
-
-        Ok(Self::try_new_unchecked(column_dtype, array, stats))
-    }
-
-    pub fn try_new_unchecked(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> Self {
-        Self {
+        Ok(Self {
             column_dtype,
             array,
             stats,
-        }
+        })
     }
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
+        assert!(
+            present_stats.is_sorted_by_key(|s| u8::from(*s)),
+            "Stats must be sorted"
+        );
         DType::Struct(
             Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
                 (stat.name(), stat.dtype(column_dtype).as_nullable())
@@ -117,7 +116,8 @@ impl StatsTable {
             .array
             .as_struct_array()
             .vortex_expect("Stats table must be a struct array")
-            .maybe_null_field_by_name(stat.name()))
+            .maybe_null_field_by_name(stat.name())
+            .ok())
     }
 }
 
@@ -129,15 +129,13 @@ impl StatsTable {
 ///  See: <https://github.com/spiraldb/vortex/issues/1835>
 pub struct StatsAccumulator {
     column_dtype: DType,
-    stats: Vec<Stat>,
+    stats: Arc<[Stat]>,
     builders: Vec<Box<dyn ArrayBuilder>>,
     length: usize,
 }
 
 impl StatsAccumulator {
-    pub fn new(dtype: DType, mut stats: Vec<Stat>) -> Self {
-        // Sort stats by their ordinal so we can recreate their dtype from bitset
-        stats.sort_by_key(|s| u8::from(*s));
+    pub fn new(dtype: DType, stats: Arc<[Stat]>) -> Self {
         let builders = stats
             .iter()
             .map(|s| builder_with_capacity(&s.dtype(&dtype).as_nullable(), 1024))
@@ -148,6 +146,10 @@ impl StatsAccumulator {
             builders,
             length: 0,
         }
+    }
+
+    pub fn stats(&self) -> &[Stat] {
+        &self.stats
     }
 
     pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
@@ -166,18 +168,28 @@ impl StatsAccumulator {
     ///
     /// Returns `None` if none of the requested statistics can be computed, for example they are
     /// not applicable to the column's data type.
-    pub fn as_stats_table(&mut self) -> VortexResult<Option<StatsTable>> {
+    pub fn as_stats_table(&mut self) -> Option<StatsTable> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
         let mut stats = Vec::new();
 
-        for (stat, builder) in self.stats.iter().zip(self.builders.iter_mut()) {
+        for (stat, builder) in self
+            .stats
+            .iter()
+            .zip(self.builders.iter_mut())
+            // We sort the stats so the DType is deterministic based on which stats are present.
+            .sorted_unstable_by_key(|(&s, _builder)| u8::from(s))
+        {
             let values = builder
                 .finish()
-                .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
+                .vortex_expect("Failed to finish stat builder");
 
             // We drop any all-null stats columns
-            if values.invalid_count()? == values.len() {
+            if values
+                .invalid_count()
+                .vortex_expect("failed to get invalid count")
+                == values.len()
+            {
                 continue;
             }
 
@@ -187,14 +199,15 @@ impl StatsAccumulator {
         }
 
         if names.is_empty() {
-            return Ok(None);
+            return None;
         }
 
-        Ok(Some(StatsTable {
+        Some(StatsTable {
             column_dtype: self.column_dtype.clone(),
-            array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?
+            array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
+                .vortex_expect("Failed to create stats table")
                 .into_array(),
             stats: stats.into(),
-        }))
+        })
     }
 }

@@ -14,8 +14,6 @@ categories = { workspace = true }
 readme = "README.md"
 
 [dependencies]
-arrow-array = { workspace = true }
-arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -26,7 +24,7 @@ futures-util = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future", "quanta"] }
-pin-project-lite = { workspace = true }
+oneshot = { workspace = true, features = ["async"] }
 rayon = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
@@ -39,12 +37,9 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
-vortex-mask = { workspace = true }
-vortex-scan = { workspace = true }
+vortex-sampling-compressor = { workspace = true }
 
 [dev-dependencies]
-arrow-schema = { workspace = true }
-rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }

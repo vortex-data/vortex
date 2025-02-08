@@ -8,18 +8,15 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexResult};
-
-use crate::FieldNames;
 
 /// A selector for a field in a struct
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
-    /// A field selector by name
+    /// Address a field of a [`crate::DType::Struct`].
     Name(Arc<str>),
-    /// A field selector by index (position)
-    Index(usize),
+    /// Address the element type of a [`crate::DType::List`].
+    ElementType,
 }
 
 impl From<&str> for Field {
@@ -34,17 +31,11 @@ impl From<String> for Field {
     }
 }
 
-impl From<usize> for Field {
-    fn from(value: usize) -> Self {
-        Field::Index(value)
-    }
-}
-
 impl Display for Field {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Field::Name(name) => write!(f, "${name}"),
-            Field::Index(idx) => write!(f, "[{idx}]"),
+            Field::ElementType => write!(f, "[]"),
         }
     }
 }
@@ -53,47 +44,6 @@ impl Field {
     /// Returns true if the field is defined by Name
     pub fn is_named(&self) -> bool {
         matches!(self, Field::Name(_))
-    }
-
-    /// Returns true if the field is defined by Index
-    pub fn is_indexed(&self) -> bool {
-        matches!(self, Field::Index(_))
-    }
-
-    /// Convert a field to a named field
-    pub fn into_named_field(self, field_names: &FieldNames) -> VortexResult<Self> {
-        match self {
-            Field::Index(idx) => field_names
-                .get(idx)
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Field index {} out of bounds, it has names {:?}",
-                        idx,
-                        field_names
-                    )
-                })
-                .cloned()
-                .map(Field::Name),
-            Field::Name(_) => Ok(self),
-        }
-    }
-
-    /// Convert a field to an indexed field
-    pub fn into_index_field(self, field_names: &FieldNames) -> VortexResult<Self> {
-        match self {
-            Field::Name(name) => field_names
-                .iter()
-                .position(|n| *n == name)
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Field name {} not found, it has names {:?}",
-                        name,
-                        field_names
-                    )
-                })
-                .map(Field::Index),
-            Field::Index(_) => Ok(self),
-        }
     }
 }
 

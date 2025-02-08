@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::compute::invert;
 use vortex_array::Array;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
@@ -50,6 +51,10 @@ impl VortexExpr for Not {
     fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         Self::new_expr(children.remove(0))
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        self.child.return_dtype(scope_dtype)
     }
 }
 

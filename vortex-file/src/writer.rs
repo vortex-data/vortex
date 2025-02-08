@@ -1,9 +1,11 @@
 use futures_util::StreamExt;
+use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
-use vortex_layout::strategies::{LayoutStrategy, VortexLayoutStrategy};
+use vortex_layout::stats::StatsLayoutWriter;
+use vortex_layout::{LayoutStrategy, LayoutWriter, VortexLayoutStrategy};
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::writer::BufferedSegmentWriter;
@@ -37,7 +39,11 @@ impl VortexWriteOptions {
         mut stream: S,
     ) -> VortexResult<W> {
         // Set up the root layout
-        let mut layout_writer = self.strategy.new_writer(stream.dtype())?;
+        let mut layout_writer = StatsLayoutWriter::new(
+            self.strategy.new_writer(stream.dtype())?,
+            stream.dtype(),
+            PRUNING_STATS.into(),
+        )?;
 
         // First we write the magic number
         let mut write = futures_util::io::Cursor::new(write);
@@ -66,7 +72,14 @@ impl VortexWriteOptions {
         // Write the DType + FileLayout segments
         let dtype_segment = self.write_flatbuffer(&mut write, stream.dtype()).await?;
         let file_layout_segment = self
-            .write_flatbuffer(&mut write, &FileLayout::new(root_layout, segments.into()))
+            .write_flatbuffer(
+                &mut write,
+                &FileLayout::new(
+                    root_layout,
+                    segments.into(),
+                    layout_writer.into_stats_sets().into(),
+                ),
+            )
             .await?;
 
         // Assemble the postscript, and write it manually to avoid any framing.

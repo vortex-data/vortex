@@ -51,16 +51,16 @@ impl FileLayoutCache {
         self.inner
             .try_get_with(Key::from(object), async {
                 let os_read_at = ObjectStoreReadAt::new(object_store, object.location.clone());
-                let vxf = VortexOpenOptions::new(self.context.clone())
+                let vxf = VortexOpenOptions::file(os_read_at)
+                    .with_ctx(self.context.clone())
                     .with_file_size(object.size as u64)
-                    .open(os_read_at)
+                    .open()
                     .await?;
                 VortexResult::Ok(vxf.file_layout().clone())
             })
             .await
-            .map_err(|e: Arc<VortexError>| match Arc::try_unwrap(e) {
-                Ok(e) => e,
-                Err(e) => vortex_err!("{}", e.to_string()),
+            .map_err(|e: Arc<VortexError>| {
+                Arc::try_unwrap(e).unwrap_or_else(|e| vortex_err!("{}", e.to_string()))
             })
     }
 }

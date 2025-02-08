@@ -88,7 +88,7 @@ mod test {
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::test::TestSegments;
-    use crate::strategies::LayoutWriterExt;
+    use crate::writer::LayoutWriterExt;
     use crate::Layout;
 
     /// Create a chunked layout with three chunks of primitive arrays.

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use vortex_array::array::ConstantArray;
 use vortex_array::{Array, IntoArray};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -48,6 +49,10 @@ impl VortexExpr for Literal {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
+    }
+
+    fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
+        Ok(self.value.dtype().clone())
     }
 }
 

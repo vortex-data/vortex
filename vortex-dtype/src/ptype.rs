@@ -381,7 +381,9 @@ macro_rules! try_from_bytes {
 
         impl TryFromBytes for $T {
             fn try_from_le_bytes(bytes: &[u8]) -> VortexResult<Self> {
-                Ok(<$T>::from_le_bytes(bytes.try_into()?))
+                Ok(<$T>::from_le_bytes(bytes.try_into().map_err(|_| {
+                    vortex_err!("Failed to convert bytes into {}", stringify!($T))
+                })?))
             }
         }
     };

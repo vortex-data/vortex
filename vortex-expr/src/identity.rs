@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
 use vortex_array::Array;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
@@ -40,6 +41,10 @@ impl VortexExpr for Identity {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        Ok(scope_dtype.clone())
     }
 }
 
