@@ -1,10 +1,11 @@
-use std::future::{ready, Future};
+use std::future::Future;
 use std::io;
+use std::ops::Range;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexUnwrap};
+use vortex_error::{vortex_err, VortexExpect};
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -12,7 +13,7 @@ use vortex_error::{vortex_err, VortexUnwrap};
 /// futures may be `!Send` to support thread-per-core implementations.
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
-pub trait VortexReadAt: Send + Sync + Clone + 'static {
+pub trait VortexReadAt: Clone + 'static {
     /// Request an asynchronous positional read. Results will be returned as a [`Bytes`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
@@ -22,11 +23,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     ///
     /// The resultant Future need not be [`Send`], allowing implementations that use thread-per-core
     /// executors.
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static;
+    fn read_byte_range(&self, range: Range<u64>) -> impl Future<Output = io::Result<Bytes>>;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -38,7 +35,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     ///
     /// For a file it will be the size in bytes, for an object in an
     /// `ObjectStore` it will be the `ObjectMeta::size`.
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static;
+    fn size(&self) -> impl Future<Output = io::Result<u64>>;
 }
 
 pub struct PerformanceHint {
@@ -70,42 +67,34 @@ impl PerformanceHint {
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        T::read_byte_range(self, pos, len)
+    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+        T::read_byte_range(self, range).await
     }
 
     fn performance_hint(&self) -> PerformanceHint {
         T::performance_hint(self)
     }
 
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        T::size(self)
+    async fn size(&self) -> io::Result<u64> {
+        T::size(self).await
     }
 }
 
 impl VortexReadAt for Bytes {
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        let read_start: usize = pos.try_into().vortex_unwrap();
-        let read_end: usize = (len + pos).try_into().vortex_unwrap();
-        if read_end > self.len() {
-            return ready(Err(io::Error::new(
+    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+        let start = usize::try_from(range.start).vortex_expect("start too big for usize");
+        let end = usize::try_from(range.end).vortex_expect("end too big for usize");
+        if end > self.len() {
+            return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
-            )));
+            ));
         }
-        ready(Ok(self.slice(read_start..read_end)))
+        Ok(self.slice(start..end))
     }
 
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        ready(Ok(self.len() as u64))
+    async fn size(&self) -> io::Result<u64> {
+        Ok(self.len() as u64)
     }
 
     fn performance_hint(&self) -> PerformanceHint {
@@ -114,27 +103,15 @@ impl VortexReadAt for Bytes {
 }
 
 impl VortexReadAt for ByteBuffer {
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        let read_start: usize = pos.try_into().vortex_unwrap();
-        let read_end: usize = (len + pos).try_into().vortex_unwrap();
-        if read_end > self.len() {
-            return ready(Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            )));
-        }
-        ready(Ok(self.slice(read_start..read_end).into_inner()))
+    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+        self.inner().read_byte_range(range).await
     }
 
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
     }
 
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        ready(Ok(self.len() as u64))
+    async fn size(&self) -> io::Result<u64> {
+        Ok(self.len() as u64)
     }
 }

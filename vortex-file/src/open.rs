@@ -7,11 +7,11 @@ use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_array::ContextRef;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
-use vortex_io::GenericRead;
+use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{Layout, LayoutContextRef, LayoutId};
@@ -26,7 +26,7 @@ use crate::{
 
 pub trait FileType: Sized {
     type Options: Clone;
-    type Read: GenericRead;
+    type Read: VortexReadAt;
     type ScanDriver: ScanDriver;
 
     fn scan_driver(
@@ -127,7 +127,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
     }
 }
 
-impl<R: GenericRead> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     pub fn file(read: R) -> Self {
@@ -183,7 +183,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = self
             .read
-            .read_range(initial_offset..file_size, Alignment::none())
+            .read_byte_range(initial_offset..file_size)
             .await?
             .into();
 
@@ -198,12 +198,8 @@ impl<F: FileType> VortexOpenOptions<F> {
             let offset = postscript.dtype.offset.min(postscript.file_layout.offset);
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - offset)?);
-            new_initial_read.extend_from_slice(
-                &self
-                    .read
-                    .read_range(offset..initial_offset, Alignment::none())
-                    .await?,
-            );
+            new_initial_read
+                .extend_from_slice(&self.read.read_byte_range(offset..initial_offset).await?);
             new_initial_read.extend_from_slice(&initial_read);
             (offset, new_initial_read.freeze())
         } else {

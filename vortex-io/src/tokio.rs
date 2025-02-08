@@ -1,14 +1,14 @@
 use std::fs::File;
-use std::future::{self, Future};
 use std::io;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use vortex_error::VortexUnwrap;
+use tokio::task::spawn_blocking;
+use vortex_error::VortexExpect;
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
@@ -61,29 +61,25 @@ impl Deref for TokioFile {
 
 impl VortexReadAt for TokioFile {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        let len_u = len.try_into().vortex_unwrap();
-        let mut buffer = BytesMut::with_capacity(len_u);
-        unsafe { buffer.set_len(len_u) }
-        match self.read_exact_at(&mut buffer, pos) {
-            Ok(()) => future::ready(Ok(buffer.freeze())),
-            Err(e) => future::ready(Err(e)),
-        }
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
+    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+        let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
         let this = self.clone();
-
-        async move { this.metadata().map(|metadata| metadata.len()) }
+        spawn_blocking(move || {
+            let mut buffer = BytesMut::with_capacity(len);
+            unsafe { buffer.set_len(len) }
+            this.read_exact_at(&mut buffer, range.start)?;
+            Ok(buffer.freeze())
+        })
+        .await?
     }
 
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    async fn size(&self) -> io::Result<u64> {
+        self.metadata().map(|metadata| metadata.len())
     }
 }
 
@@ -120,9 +116,9 @@ mod tests {
 
         let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
-        let first_half = shared_file.read_byte_range(0, 5).await.unwrap();
+        let first_half = shared_file.read_byte_range(0..5).await.unwrap();
 
-        let second_half = shared_file.read_byte_range(5, 5).await.unwrap();
+        let second_half = shared_file.read_byte_range(5..10).await.unwrap();
 
         assert_eq!(first_half.as_ref(), "01234".as_bytes());
         assert_eq!(second_half.as_ref(), "56789".as_bytes());

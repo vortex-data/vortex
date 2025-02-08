@@ -254,7 +254,7 @@ async fn evaluate<R: GenericRead>(
         request.byte_range.end - request.byte_range.start,
     );
     let buffer: ByteBuffer = read
-        .read_range(request.byte_range.clone(), Alignment::none())
+        .read_byte_range(request.byte_range.clone())
         .await?
         .into();
 
