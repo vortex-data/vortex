@@ -5566,6 +5566,7 @@ dependencies = [
  "flatbuffers 25.1.24",
  "futures",
  "itertools 0.14.0",
+ "log",
  "oneshot",
  "pin-project-lite",
  "vortex-array",
