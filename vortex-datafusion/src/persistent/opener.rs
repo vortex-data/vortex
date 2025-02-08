@@ -8,7 +8,7 @@ use object_store::ObjectStore;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::VortexOpenOptions;
+use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
@@ -63,13 +63,17 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, object_store)
                         .await?,
                 )
+                .with_execution_concurrency(1)
+                .with_io_concurrency(1)
                 .open()
                 .await?;
 
             Ok(vxf
                 .scan()
+                .with_identifier(file_meta.object_meta.location)
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
+                .with_split_by(SplitBy::None)
                 .into_array_stream()?
                 .map_ok(move |array| {
                     let st = array.into_struct()?;

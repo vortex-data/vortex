@@ -27,11 +27,12 @@ impl LayoutVTable for StructLayout {
 
     fn reader(
         &self,
+        identifier: String,
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(StructReader::try_new(layout, segments, ctx)?.into_arc())
+        Ok(StructReader::try_new(identifier, layout, segments, ctx)?.into_arc())
     }
 
     fn register_splits(

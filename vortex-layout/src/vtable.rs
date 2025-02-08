@@ -50,6 +50,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
     /// May panic if the provided `Layout` is not the same encoding as this `LayoutEncoding`.
     fn reader(
         &self,
+        identifier: String,
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,

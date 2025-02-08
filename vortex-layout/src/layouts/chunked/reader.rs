@@ -18,6 +18,7 @@ use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
+    identifier: String,
     layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
@@ -31,6 +32,7 @@ pub struct ChunkedReader {
 
 impl ChunkedReader {
     pub(super) fn try_new(
+        identifier: String,
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
@@ -50,6 +52,7 @@ impl ChunkedReader {
         let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
+            identifier,
             layout,
             ctx,
             segments,
@@ -80,8 +83,13 @@ impl ChunkedReader {
                             StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
                         let stats_layout = self.layout.child(nchunks, stats_dtype)?;
 
+                        println!("Evaluating stats table");
                         let stats_array = stats_layout
-                            .reader(self.segments.clone(), self.ctx.clone())?
+                            .reader(
+                                format!("{}.stats", self.identifier),
+                                self.segments.clone(),
+                                self.ctx.clone(),
+                            )?
                             .evaluate_expr(
                                 RowMask::new_valid_between(0, nchunks as u64),
                                 Identity::new_expr(),
@@ -141,7 +149,11 @@ impl ChunkedReader {
     pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.chunk_readers[idx].get_or_try_init(|| {
             let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
+            child_layout.reader(
+                format!("{}.[{}]", self.identifier, idx),
+                self.segments.clone(),
+                self.ctx.clone(),
+            )
         })
     }
 }

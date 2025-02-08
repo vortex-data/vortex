@@ -9,6 +9,7 @@ use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutVTable};
 
 pub struct FlatReader {
+    identifier: String,
     layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
@@ -16,6 +17,7 @@ pub struct FlatReader {
 
 impl FlatReader {
     pub(crate) fn try_new(
+        identifier: String,
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
@@ -25,10 +27,15 @@ impl FlatReader {
         }
 
         Ok(Self {
+            identifier,
             layout,
             ctx,
             segments,
         })
+    }
+
+    pub(crate) fn identifier(&self) -> &str {
+        &self.identifier
     }
 
     pub(crate) fn ctx(&self) -> ContextRef {

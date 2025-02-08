@@ -14,6 +14,7 @@ use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 #[derive(Clone)]
 pub struct StructReader {
+    identifier: String,
     layout: Layout,
     ctx: ContextRef,
 
@@ -26,6 +27,7 @@ pub struct StructReader {
 
 impl StructReader {
     pub(super) fn try_new(
+        identifier: String,
         layout: Layout,
         segments: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
@@ -54,6 +56,7 @@ impl StructReader {
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
         Ok(Self {
+            identifier,
             layout,
             ctx,
             segments,
@@ -84,7 +87,11 @@ impl StructReader {
             let child_layout = self
                 .layout
                 .child(idx, self.struct_dtype().field_by_index(idx)?)?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
+            child_layout.reader(
+                format!("{}.{}", self.identifier, name),
+                self.segments.clone(),
+                self.ctx.clone(),
+            )
         })
     }
 

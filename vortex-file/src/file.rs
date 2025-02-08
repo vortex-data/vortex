@@ -8,7 +8,7 @@ use vortex_array::ContextRef;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::scan::unified::UnifiedDriverFuture;
-use vortex_layout::scan::{ScanBuilder, ScanDriver};
+pub use vortex_layout::scan::*;
 
 use crate::footer::FileLayout;
 use crate::open::FileType;
@@ -56,10 +56,11 @@ impl<F: FileType> VortexFile<F> {
         //  That's why it's a little odd that we have to manually setup a driver here.
 
         // Create a single LayoutReader that is reused for the entire scan.
-        let reader = self
-            .file_layout
-            .root_layout()
-            .reader(driver.segment_reader(), self.ctx.clone())?;
+        let reader = self.file_layout.root_layout().reader(
+            "$stats".to_string(),
+            driver.segment_reader(),
+            self.ctx.clone(),
+        )?;
 
         let (send, recv) = oneshot::channel::<VortexResult<Vec<StatsSet>>>();
 

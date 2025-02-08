@@ -17,6 +17,8 @@ pub enum SplitBy {
     Layout,
     /// Splits every n rows.
     RowCount(usize),
+    /// Returns everything in a single batch.
+    None,
     // UncompressedSize(u64),
 }
 
@@ -52,6 +54,7 @@ impl SplitBy {
                 }
                 splits
             }
+            SplitBy::None => vec![0..layout.row_count()],
         })
     }
 }

@@ -32,11 +32,12 @@ impl LayoutVTable for ChunkedLayout {
 
     fn reader(
         &self,
+        identifier: String,
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(ChunkedReader::try_new(layout, ctx, segments)?.into_arc())
+        Ok(ChunkedReader::try_new(identifier, layout, ctx, segments)?.into_arc())
     }
 
     fn register_splits(

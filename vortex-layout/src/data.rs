@@ -274,10 +274,12 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
+        identifier: String,
         segments: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx, segments)
+        self.encoding()
+            .reader(identifier, self.clone(), ctx, segments)
     }
 
     /// Register splits for this layout.
