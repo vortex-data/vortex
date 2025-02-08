@@ -30,20 +30,19 @@ impl StatsTable {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
-
-        Ok(Self::try_new_unchecked(column_dtype, array, stats))
-    }
-
-    pub fn try_new_unchecked(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> Self {
-        Self {
+        Ok(Self {
             column_dtype,
             array,
             stats,
-        }
+        })
     }
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
+        assert!(
+            present_stats.is_sorted_by_key(|s| u8::from(*s)),
+            "Stats must be sorted"
+        );
         DType::Struct(
             Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
                 (stat.name(), stat.dtype(column_dtype).as_nullable())
@@ -174,7 +173,13 @@ impl StatsAccumulator {
         let mut fields = Vec::new();
         let mut stats = Vec::new();
 
-        for (stat, builder) in self.stats.iter().zip(self.builders.iter_mut()) {
+        for (stat, builder) in self
+            .stats
+            .iter()
+            .zip(self.builders.iter_mut())
+            // We sort the stats so the DType is deterministic based on which stats are present.
+            .sorted_unstable_by_key(|(&s, _builder)| u8::from(s))
+        {
             let values = builder
                 .finish()
                 .vortex_expect("Failed to finish stat builder");

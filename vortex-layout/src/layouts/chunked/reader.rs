@@ -90,11 +90,11 @@ impl ChunkedReader {
                             )
                             .await?;
 
-                        Some(StatsTable::try_new_unchecked(
+                        Some(StatsTable::try_new(
                             layout_dtype.clone(),
                             stats_array,
                             present_stats.into(),
-                        ))
+                        )?)
                     }
                 })
             })

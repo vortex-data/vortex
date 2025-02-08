@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::layouts::chunked::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
@@ -25,14 +25,13 @@ impl StatsLayoutWriter {
         dtype: &DType,
         stats: Arc<[Stat]>,
     ) -> VortexResult<Self> {
-        let struct_dtype = dtype
-            .as_struct()
-            .ok_or_else(|| vortex_err!("dtype is not a struct"))?;
-
-        let stats_accumulators = struct_dtype
-            .fields()
-            .map(|field_dtype| StatsAccumulator::new(field_dtype, stats.clone()))
-            .collect();
+        let stats_accumulators = match dtype.as_struct() {
+            Some(dtype) => dtype
+                .fields()
+                .map(|field_dtype| StatsAccumulator::new(field_dtype, stats.clone()))
+                .collect(),
+            None => [StatsAccumulator::new(dtype.clone(), stats.clone())].into(),
+        };
 
         Ok(Self {
             inner,
@@ -60,15 +59,15 @@ impl StatsLayoutWriter {
 
 impl LayoutWriter for StatsLayoutWriter {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
-        let struct_array = chunk
-            .as_struct_array()
-            .ok_or_else(|| vortex_err!("expected struct array"))?;
-        for (acc, field) in self
-            .stats_accumulators
-            .iter_mut()
-            .zip_eq(struct_array.fields())
-        {
-            acc.push_chunk(&field)?;
+        match chunk.as_struct_array() {
+            None => {
+                self.stats_accumulators[0].push_chunk(&chunk)?;
+            }
+            Some(array) => {
+                for (acc, field) in self.stats_accumulators.iter_mut().zip_eq(array.fields()) {
+                    acc.push_chunk(&field)?;
+                }
+            }
         }
         self.inner.push_chunk(segments, chunk)
     }
