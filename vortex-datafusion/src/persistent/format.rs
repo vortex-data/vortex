@@ -27,7 +27,7 @@ use vortex_array::{stats, ContextRef};
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
-use vortex_io::ObjectStoreRead;
+use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
@@ -197,7 +197,7 @@ impl FileFormat for VortexFormat {
             .map(|field| FieldPath::from_name(field.name().to_owned()))
             .collect();
 
-        let read_at = ObjectStoreRead::new(store.clone(), object.location.clone());
+        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
 
         let vxf = VortexOpenOptions::file(read_at)
             .with_file_layout(

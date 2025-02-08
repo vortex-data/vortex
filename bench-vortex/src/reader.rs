@@ -29,7 +29,7 @@ use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::io::{GenericRead, ObjectStoreRead, TokioFile, VortexWrite};
+use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, IntoArray, IntoCanonical};
 
@@ -103,7 +103,7 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
     Ok(())
 }
 
-async fn take_vortex<T: GenericRead + Unpin + 'static>(
+async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
@@ -124,7 +124,7 @@ pub async fn take_vortex_object_store(
     path: object_store::path::Path,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
-    take_vortex(ObjectStoreRead::new(fs.clone(), path), indices).await
+    take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
 }
 
 pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<Array> {

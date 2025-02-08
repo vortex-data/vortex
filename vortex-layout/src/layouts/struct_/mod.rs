@@ -65,7 +65,7 @@ impl LayoutVTable for StructLayout {
             };
 
             let idx = dtype.find(field_name)?;
-            let child = layout.child(idx, dtype.field_by_index(idx)?, &field_name)?;
+            let child = layout.child(idx, dtype.field_by_index(idx)?, field_name)?;
             child.register_splits(&[path.clone().step_into()?], row_offset, splits)?;
         }
 

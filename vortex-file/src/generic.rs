@@ -7,9 +7,9 @@ use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_io::GenericRead;
+use vortex_io::VortexReadAt;
 use vortex_layout::scan::unified::UnifiedDriverStream;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -20,12 +20,12 @@ use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
 use crate::{FileType, VortexOpenOptions};
 
-/// A type of Vortex file that supports any [`GenericRead`] implementation.
+/// A type of Vortex file that supports any [`VortexReadAt`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: GenericRead> FileType for GenericVortexFile<R> {
+impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
     type ScanDriver = GenericScanDriver<R>;
@@ -46,7 +46,7 @@ impl<R: GenericRead> FileType for GenericVortexFile<R> {
     }
 }
 
-impl<R: GenericRead> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
         self.options.execution_mode = execution_mode;
         self
@@ -91,7 +91,7 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
-impl<R: GenericRead> ScanDriver for GenericScanDriver<R> {
+impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
@@ -241,7 +241,7 @@ struct CoalescedSegmentRequest {
     pub(crate) requests: Vec<FileSegmentRequest>,
 }
 
-async fn evaluate<R: GenericRead>(
+async fn evaluate<R: VortexReadAt>(
     read: R,
     request: CoalescedSegmentRequest,
     segment_map: Arc<[Segment]>,
