@@ -508,6 +508,7 @@ dependencies = [
  "tar",
  "tikv-jemallocator",
  "tokio",
+ "tracing",
  "tracing-chrome",
  "tracing-subscriber",
  "uuid",

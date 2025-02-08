@@ -60,6 +60,7 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true, features = ["release_max_level_trace"] }
 tracing-chrome = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

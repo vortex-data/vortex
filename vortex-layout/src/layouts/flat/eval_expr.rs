@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tracing::{info_span, Instrument};
 use vortex_array::compute::{filter, slice};
 use vortex_array::Array;
 use vortex_error::{VortexExpect, VortexResult};
@@ -6,26 +7,32 @@ use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, LayoutReader};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
-    #[tracing::instrument]
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
-        assert!(row_mask.true_count() > 0);
+        async {
+            assert!(row_mask.true_count() > 0);
 
-        // Fetch all the array segment.
-        let array = self.array().await?;
+            // Fetch all the array segment.
+            let array = self.array().await?;
 
-        // TODO(ngates): what's the best order to apply the filter mask / expression?
+            // TODO(ngates): what's the best order to apply the filter mask / expression?
 
-        // Filter the array based on the row mask.
-        let begin = usize::try_from(row_mask.begin())
-            .vortex_expect("RowMask begin must fit within FlatLayout size");
-        let array = slice(array, begin, begin + row_mask.len())?;
-        let array = filter(&array, row_mask.filter_mask())?;
-        // Then apply the expression
-        expr.evaluate(&array)
+            // Filter the array based on the row mask.
+            let begin = usize::try_from(row_mask.begin())
+                .vortex_expect("RowMask begin must fit within FlatLayout size");
+            let array = slice(array, begin, begin + row_mask.len())?;
+            let array = filter(&array, row_mask.filter_mask())?;
+            // Then apply the expression
+            expr.evaluate(&array)
+        }
+        .instrument(info_span!(
+            "FlatReader::evaluate_expr",
+            layout = self.layout().name()
+        ))
+        .await
     }
 }
 

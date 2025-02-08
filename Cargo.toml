@@ -153,7 +153,7 @@ tempfile = "3"
 tikv-jemallocator = "0.6"
 thiserror = "2.0.3"
 tokio = "1.36"
-tracing = { version = "0.1.37", features = ["release_max_level_off"] }
+tracing = { version = "0.1.37" }
 tracing-chrome = "0.7.2"
 tracing-subscriber = "0.3.19"
 url = "2.4"
