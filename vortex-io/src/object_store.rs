@@ -13,52 +13,6 @@ use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{IoBuf, VortexReadAt, VortexWrite};
-// use bytes::Bytes;
-// use futures_util::StreamExt;
-// use object_store::path::Path;
-// use object_store::{GetOptions, GetRange, ObjectStore, WriteMultipart};
-// use vortex_buffer::io_buf::IoBuf;
-// use vortex_buffer::Buffer;
-// use vortex_error::{vortex_panic, VortexError, VortexResult};
-
-// use crate::{VortexBufReader, VortexReadAt, VortexWrite, BUFFER_ALIGNMENT};
-
-// pub trait ObjectStoreExt {
-//     fn vortex_read(
-//         &self,
-//         location: &Path,
-//         range: Range<usize>,
-//     ) -> impl Future<Output = VortexResult<VortexBufReader<impl VortexReadAt>>>;
-
-//     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt;
-
-//     fn vortex_writer(
-//         &self,
-//         location: &Path,
-//     ) -> impl Future<Output = VortexResult<impl VortexWrite>>;
-// }
-
-// impl ObjectStoreExt for Arc<dyn ObjectStore> {
-//     async fn vortex_read(
-//         &self,
-//         location: &Path,
-//         range: Range<usize>,
-//     ) -> VortexResult<VortexBufReader<impl VortexReadAt>> {
-//         let bytes = self.get_range(location, range).await?;
-//         Ok(VortexBufReader::new(Buffer::from(bytes)))
-//     }
-
-//     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt {
-//         ObjectStoreReadAt::new(self.clone(), location.clone())
-//     }
-
-//     async fn vortex_writer(&self, location: &Path) -> VortexResult<impl VortexWrite> {
-//         Ok(ObjectStoreWriter::new(WriteMultipart::new_with_chunk_size(
-//             self.put_multipart(location).await?,
-//             10 * 1024 * 1024,
-//         )))
-//     }
-// }
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {

@@ -68,23 +68,6 @@ backtrace = "0.3.74"
 bytes = "1.9"
 bzip2 = "0.5.0"
 cfg-if = "1"
-# =======
-# anyhow = "1.0"
-# arbitrary = "1.3.2"
-# arrayref = "0.3.7"
-# arrow = { version = "53.0.0" }
-# arrow-arith = "53.0.0"
-# arrow-array = "53.0.0"
-# arrow-buffer = "53.0.0"
-# arrow-cast = "53.0.0"
-# arrow-ipc = "53.0.0"
-# arrow-ord = "53.0.0"
-# arrow-schema = "53.0.0"
-# arrow-select = "53.0.0"
-# async-trait = "0.1"
-# bytes = "1.6.0"
-# bzip2 = "0.4.4"
-# >>>>>>> 8e8ac02e0 (save)
 chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
@@ -102,18 +85,7 @@ datafusion-physical-plan = "45"
 divan = "0.1.14"
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
-# =======
-# datafusion = { version = "43.0.0", default-features = false }
-# datafusion-common = "43.0.0"
-# datafusion-execution = "43.0.0"
-# datafusion-expr = "43.0.0"
-# datafusion-physical-expr = "43.0.0"
-# datafusion-physical-plan = "43.0.0"
-# divan = "0.1.14"
 dotenv = "0.15"
-# enum-iterator = "2.0.0"
-# enum-map = "2.7.3"
-# >>>>>>> 8e8ac02e0 (save)
 fastlanes = "0.1.5"
 flatbuffers = "25"
 flexbuffers = "25"
@@ -122,12 +94,6 @@ fsst-rs = "0.5.0"
 futures = { version = "0.3.31", default-features = false }
 futures-executor = "0.3.31"
 futures-util = "0.3.31"
-# =======
-# fsst-rs = "0.4.1"
-# futures = { version = "0.3", default-features = false }
-# futures-executor = "0.3"
-# futures-util = "0.3"
-# >>>>>>> 8e8ac02e0 (save)
 getrandom = "0.2.14"
 goldenfile = "1"
 half = { version = "2.2.1", features = ["std", "num-traits"] }
@@ -143,9 +109,6 @@ mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 governor = "0.8"
 num-traits = "0.2.19"
-# =======
-# num-traits = "0.2.18"
-# >>>>>>> 8e8ac02e0 (save)
 num_enum = "0.7.2"
 object_store = "0.11.0"
 oneshot = "0.1.10"
@@ -181,11 +144,6 @@ rkyv = { version = "0.8.10", features = [
 rstest = "0.24"
 rustc-hash = "2"
 serde = "1.0.203"
-# =======
-# reqwest = { version = "0.12.0", features = ["blocking"] }
-# rstest = "0.23"
-# serde = "1.0.197"
-# >>>>>>> 8e8ac02e0 (save)
 serde_json = "1.0.116"
 serde_test = "1.0.176"
 simplelog = { version = "0.12.2", features = ["paris"] }
@@ -198,13 +156,7 @@ thiserror = "2.0.3"
 tokio = "1.36"
 tracing = "0.1.37"
 url = "2.5.4"
-# # =======
-# # thiserror = "2.0.0"
-# # tokio = "1.37.0"
-# tracing-subscriber = "0.3"
-# # url = "2"
-# # >>>>>>> 8e8ac02e0 (save)
-# >>>>>>> cda0da89a (save)
+tracing-subscriber = "0.3"
 uuid = "1.8.0"
 wasm-bindgen-futures = "0.4.39"
 
@@ -236,33 +188,6 @@ vortex-scalar = { version = "0.24.0", path = "./vortex-scalar", default-features
 vortex-scan = { version = "0.24.0", path = "./vortex-scan", default-features = false }
 vortex-sparse = { version = "0.24.0", path = "./encodings/sparse" }
 vortex-zigzag = { version = "0.24.0", path = "./encodings/zigzag" }
-# =======
-# vortex = { version = "0.19.0", path = "./vortex" }
-# vortex-alp = { version = "0.19.0", path = "./encodings/alp" }
-# vortex-array = { version = "0.19.0", path = "./vortex-array" }
-# vortex-buffer = { version = "0.19.0", path = "./vortex-buffer" }
-# vortex-bytebool = { version = "0.19.0", path = "./encodings/bytebool" }
-# vortex-datafusion = { version = "0.19.0", path = "./vortex-datafusion" }
-# vortex-datetime-dtype = { version = "0.19.0", path = "./vortex-datetime-dtype" }
-# vortex-datetime-parts = { version = "0.19.0", path = "./encodings/datetime-parts" }
-# vortex-dict = { version = "0.19.0", path = "./encodings/dict" }
-# vortex-dtype = { version = "0.19.0", path = "./vortex-dtype", default-features = false }
-# vortex-error = { version = "0.19.0", path = "./vortex-error" }
-# vortex-expr = { version = "0.19.0", path = "./vortex-expr" }
-# vortex-fastlanes = { version = "0.19.0", path = "./encodings/fastlanes" }
-# vortex-file = { version = "0.19.0", path = "./vortex-file", default-features = false }
-# vortex-flatbuffers = { version = "0.19.0", path = "./vortex-flatbuffers" }
-# vortex-fsst = { version = "0.19.0", path = "./encodings/fsst" }
-# vortex-io = { version = "0.19.0", path = "./vortex-io" }
-# vortex-ipc = { version = "0.19.0", path = "./vortex-ipc" }
-# vortex-proto = { version = "0.19.0", path = "./vortex-proto" }
-# vortex-roaring = { version = "0.19.0", path = "./encodings/roaring" }
-# vortex-runend = { version = "0.19.0", path = "./encodings/runend" }
-# vortex-runend-bool = { version = "0.19.0", path = "./encodings/runend-bool" }
-# vortex-scalar = { version = "0.19.0", path = "./vortex-scalar", default-features = false }
-# vortex-sampling-compressor = { version = "0.19.0", path = "./vortex-sampling-compressor" }
-# vortex-zigzag = { version = "0.19.0", path = "./encodings/zigzag" }
-# >>>>>>> 8e8ac02e0 (save)
 # END crates published by this project
 
 worker = "0.5.0"

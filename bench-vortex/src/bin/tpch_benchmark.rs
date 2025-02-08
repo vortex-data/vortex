@@ -12,7 +12,9 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
 use tokio::runtime::Builder;
+use url::Url;
 use vortex::aliases::hash_map::HashMap;
+use vortex::error::VortexExpect as _;
 
 feature_flagged_allocator!();
 
@@ -59,6 +61,16 @@ fn main() -> ExitCode {
     }
     .expect("Failed building the Runtime");
 
+    let url = if false {
+        let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
+        Url::parse(
+            ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
+                .as_ref(),
+        )
+        .unwrap()
+    } else {
+        Url::parse("s3://vortex-bench-dev/parquet/").unwrap()
+    };
     runtime.block_on(bench_main(
         args.queries,
         args.exclude_queries,
@@ -67,6 +79,7 @@ fn main() -> ExitCode {
         args.only_vortex,
         args.display_format,
         args.emulate_object_store,
+        url,
     ))
 }
 
@@ -78,25 +91,32 @@ async fn bench_main(
     only_vortex: bool,
     display_format: DisplayFormat,
     emulate_object_store: bool,
+    url: Url,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
     // setup_logger(LevelFilter::Trace);
 
     // Run TPC-H data gen.
-    let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
     // The formats to run against (vs the baseline)
     let formats = if only_vortex {
-        vec![Format::Arrow, Format::OnDiskVortex]
+        vec![
+            // Format::Arrow,
+            Format::OnDiskVortex,
+        ]
     } else {
-        vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex]
+        vec![
+            // Format::Arrow,
+            Format::Parquet,
+            Format::OnDiskVortex,
+        ]
     };
 
     // Load datasets
     let ctxs = try_join_all(
         formats
             .iter()
-            .map(|format| load_datasets(&data_dir, *format, emulate_object_store)),
+            .map(|format| load_datasets(&url, *format, emulate_object_store)),
     )
     .await
     .unwrap();

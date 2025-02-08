@@ -76,11 +76,6 @@ criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
 
-[[bin]]
-name = "tpch_vortex"
-test = false
-bench = false
-
 [[bench]]
 name = "compress"
 test = false
