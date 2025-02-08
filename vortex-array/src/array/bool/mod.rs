@@ -301,6 +301,7 @@ mod tests {
             BoolArray::from(builder.finish())
         };
         let sliced = slice(arr.clone(), 4, 12).unwrap();
+        let sliced_len = sliced.len();
         let (values, offset) = sliced.clone().into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[254, 15]);
@@ -312,16 +313,28 @@ mod tests {
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(patches).unwrap();
+        let arr_len = arr.len();
         let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
-        assert_eq!(values.len(), 12);
+        assert_eq!(values.len(), arr_len + offset);
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
         let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
-        assert_eq!(values.len(), 12);
+        assert_eq!(values.len(), sliced_len + offset);
         assert_eq!(values.as_slice(), &[254, 15]); // unchanged
+    }
+
+    #[test]
+    fn slice_array_in_middle() {
+        let arr = BoolArray::from(BooleanBuffer::new_set(16));
+        let sliced = slice(arr, 4, 12).unwrap();
+        let sliced_len = sliced.len();
+        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.len(), sliced_len + offset);
+        assert_eq!(values.as_slice(), &[255, 15]);
     }
 
     #[test]
