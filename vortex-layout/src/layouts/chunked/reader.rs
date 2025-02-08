@@ -16,13 +16,15 @@ use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
+type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
+
 #[derive(Clone, Debug)]
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
-    pruning_result: Arc<RwLock<HashMap<ExprRef, Option<BooleanBuffer>>>>,
+    pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
     /// Shared stats table
     stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
@@ -101,35 +103,32 @@ impl ChunkedReader {
     }
 
     pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<BooleanBuffer>> {
-        if let Some(mask) = self
+        let cell = self
             .pruning_result
-            .read()
-            .map_err(|_| vortex_err!("poisoned lock"))?
-            .get(expr)
-        {
-            return Ok(mask.clone());
-        }
-        let pruning_predicate = PruningPredicate::try_new(expr);
-        let res = if let Some(stats_table) = self.stats_table().await? {
-            if let Some(predicate) = pruning_predicate {
-                predicate
-                    .evaluate(stats_table.array())?
-                    .map(|mask| mask.into_bool())
-                    .transpose()?
-                    .map(|mask| mask.boolean_buffer())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        self.pruning_result
             .write()
             .map_err(|_| vortex_err!("poisoned lock"))?
-            .insert(expr.clone(), res.clone());
+            .entry(expr.clone())
+            .or_insert_with(|| Arc::new(OnceCell::new()))
+            .clone();
 
-        Ok(res)
+        cell.get_or_try_init(async {
+            let pruning_predicate = PruningPredicate::try_new(expr);
+            Ok(if let Some(stats_table) = self.stats_table().await? {
+                if let Some(predicate) = pruning_predicate {
+                    predicate
+                        .evaluate(stats_table.array())?
+                        .map(|mask| mask.into_bool())
+                        .transpose()?
+                        .map(|mask| mask.boolean_buffer())
+                } else {
+                    None
+                }
+            } else {
+                None
+            })
+        })
+        .await
+        .cloned()
     }
 
     /// Return the number of chunks
