@@ -16,7 +16,7 @@ use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,

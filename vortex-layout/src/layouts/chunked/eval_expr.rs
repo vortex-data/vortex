@@ -15,6 +15,7 @@ use crate::ExprEvaluator;
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
+    #[tracing::instrument]
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;

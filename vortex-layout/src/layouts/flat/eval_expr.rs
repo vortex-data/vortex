@@ -10,6 +10,7 @@ use crate::ExprEvaluator;
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
+    #[tracing::instrument]
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 

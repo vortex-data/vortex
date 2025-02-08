@@ -12,7 +12,7 @@ use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StructReader {
     layout: Layout,
     ctx: ContextRef,
@@ -114,7 +114,7 @@ impl LayoutReader for StructReader {
 
 /// An expression wrapper that performs pointer equality.
 /// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ExactExpr(ExprRef);
 
 impl PartialEq for ExactExpr {

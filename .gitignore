@@ -208,3 +208,4 @@ benchmarks/.out
 
 # Default samply profile
 profile.json.gz
+*.trace.json

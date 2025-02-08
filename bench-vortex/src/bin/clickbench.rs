@@ -17,6 +17,8 @@ use itertools::Itertools;
 use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
+use tracing_chrome::ChromeLayerBuilder;
+use tracing_subscriber::prelude::*;
 use vortex::error::{vortex_panic, VortexExpect};
 
 feature_flagged_allocator!();
@@ -40,16 +42,30 @@ struct Args {
     emit_plan: bool,
     #[arg(long, default_value = "false")]
     emulate_object_store: bool,
+    #[arg(short, long, default_value = "false")]
+    trace: bool,
 }
 
 fn main() {
     let args = Args::parse();
 
-    setup_logger(if args.verbose {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
+    // We need the guard to live to the end of the function, so can't create it in the if-block
+    let _trace_guard = args.trace.then(|| {
+        let (chrome_layer, _guard) = ChromeLayerBuilder::new()
+            .file("clickbench.trace.json")
+            .build();
+        tracing_subscriber::registry().with(chrome_layer).init();
+        _guard
     });
+
+    if !args.trace {
+        // TODO(ngates): i think tracing also collects logs?
+        setup_logger(if args.verbose {
+            LevelFilter::Debug
+        } else {
+            LevelFilter::Info
+        });
+    }
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),

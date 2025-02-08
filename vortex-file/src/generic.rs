@@ -7,9 +7,9 @@ use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_io::VortexReadAt;
+use vortex_io::GenericRead;
 use vortex_layout::scan::unified::UnifiedDriverStream;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -20,12 +20,12 @@ use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
 use crate::{FileType, VortexOpenOptions};
 
-/// A type of Vortex file that supports any [`VortexReadAt`] implementation.
+/// A type of Vortex file that supports any [`GenericRead`] implementation.
 ///
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
+impl<R: GenericRead> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
     type ScanDriver = GenericScanDriver<R>;
@@ -46,7 +46,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     }
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: GenericRead> VortexOpenOptions<GenericVortexFile<R>> {
     pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
         self.options.execution_mode = execution_mode;
         self
@@ -77,8 +77,7 @@ impl Default for GenericScanOptions {
     fn default() -> Self {
         Self {
             execution_concurrency: 10,
-            // FIXME(ngates): make this use Default
-            execution_mode: ExecutionMode::Inline,
+            execution_mode: ExecutionMode::default(),
             io_concurrency: 10,
         }
     }
@@ -92,7 +91,7 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
-impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
+impl<R: GenericRead> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
@@ -115,7 +114,8 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let io_stream = self.segment_channel.into_stream();
 
         // We map the segment requests to their respective locations within the file.
-        let coalescing_window = self.read.performance_hint().coalescing_window();
+        // let coalescing_window = self.read.performance_hint().coalescing_window();
+        let coalescing_window = 1 << 20; // 1MB
         let segment_map = self.file_layout.segment_map().clone();
         let io_stream = io_stream.filter_map(move |request| {
             let segment_map = segment_map.clone();
@@ -241,7 +241,7 @@ struct CoalescedSegmentRequest {
     pub(crate) requests: Vec<FileSegmentRequest>,
 }
 
-async fn evaluate<R: VortexReadAt>(
+async fn evaluate<R: GenericRead>(
     read: R,
     request: CoalescedSegmentRequest,
     segment_map: Arc<[Segment]>,
@@ -254,10 +254,7 @@ async fn evaluate<R: VortexReadAt>(
         request.byte_range.end - request.byte_range.start,
     );
     let buffer: ByteBuffer = read
-        .read_byte_range(
-            request.byte_range.start,
-            request.byte_range.end - request.byte_range.start,
-        )
+        .read_range(request.byte_range.clone(), Alignment::none())
         .await?
         .into();
 

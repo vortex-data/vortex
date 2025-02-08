@@ -9,7 +9,7 @@ use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::VortexOpenOptions;
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::ObjectStoreRead;
 
 use super::cache::FileLayoutCache;
 
@@ -45,8 +45,7 @@ impl VortexFileOpener {
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let read_at =
-            ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
+        let read_at = ObjectStoreRead::new(self.object_store.clone(), file_meta.location().clone());
 
         let filter = self.filter.clone();
         let projection = self.projection.clone();

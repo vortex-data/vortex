@@ -13,6 +13,7 @@ use crate::ExprEvaluator;
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
+    #[tracing::instrument]
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;

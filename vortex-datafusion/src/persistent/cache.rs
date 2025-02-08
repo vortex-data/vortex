@@ -8,7 +8,7 @@ use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_file::{FileLayout, VortexOpenOptions};
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::ObjectStoreRead;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
@@ -50,7 +50,7 @@ impl FileLayoutCache {
     ) -> VortexResult<FileLayout> {
         self.inner
             .try_get_with(Key::from(object), async {
-                let os_read_at = ObjectStoreReadAt::new(object_store, object.location.clone());
+                let os_read_at = ObjectStoreRead::new(object_store, object.location.clone());
                 let vxf = VortexOpenOptions::file(os_read_at)
                     .with_ctx(self.context.clone())
                     .with_file_size(object.size as u64)

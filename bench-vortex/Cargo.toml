@@ -60,6 +60,8 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
+tracing-chrome = { workspace = true }
+tracing-subscriber = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }

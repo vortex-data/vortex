@@ -8,6 +8,7 @@ use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReaderExt, LayoutVTable};
 
+#[derive(Debug)]
 pub struct FlatReader {
     layout: Layout,
     ctx: ContextRef,
