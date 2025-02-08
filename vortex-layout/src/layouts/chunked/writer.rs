@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
@@ -16,7 +18,7 @@ use crate::LayoutVTableRef;
 
 pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
-    pub chunk_stats: Vec<Stat>,
+    pub chunk_stats: Arc<[Stat]>,
     /// The layout strategy for each chunk.
     pub chunk_strategy: Box<dyn LayoutStrategy>,
 }
@@ -24,7 +26,7 @@ pub struct ChunkedLayoutOptions {
 impl Default for ChunkedLayoutOptions {
     fn default() -> Self {
         Self {
-            chunk_stats: PRUNING_STATS.to_vec(),
+            chunk_stats: PRUNING_STATS.into(),
             chunk_strategy: Box::new(FlatLayout),
         }
     }
@@ -76,7 +78,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         }
 
         // Collect together the statistics
-        let stats_table = self.stats_accumulator.as_stats_table()?;
+        let stats_table = self.stats_accumulator.as_stats_table();
         let metadata: Option<Bytes> = match stats_table {
             Some(stats_table) => {
                 // Write the stats array as the final layout.

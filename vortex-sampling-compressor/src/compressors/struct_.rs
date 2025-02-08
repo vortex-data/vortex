@@ -43,7 +43,7 @@ impl EncodingCompressor for StructCompressor {
         };
 
         let (arrays, trees) = array
-            .children()
+            .fields()
             .zip_eq(children_trees)
             .map(|(array, like)| {
                 // these are extremely valuable when reading/writing, but are potentially much more expensive

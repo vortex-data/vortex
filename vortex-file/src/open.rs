@@ -6,6 +6,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
+use vortex_array::stats::StatsSet;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -309,7 +310,14 @@ impl<F: FileType> VortexOpenOptions<F> {
             .ok_or_else(|| vortex_err!("FileLayout missing segments"))?;
         let segments = fb_segments.iter().map(Segment::try_from).try_collect()?;
 
-        Ok(FileLayout::new(root_layout, segments))
+        let statistics = fb
+            .statistics()
+            .iter()
+            .flat_map(|stats| stats.iter())
+            .map(|s| StatsSet::read_flatbuffer(&s))
+            .try_collect()?;
+
+        Ok(FileLayout::new(root_layout, segments, statistics))
     }
 
     /// Populate segments in the cache that were covered by the initial read.

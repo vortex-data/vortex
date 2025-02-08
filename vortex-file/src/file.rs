@@ -14,9 +14,6 @@ use crate::footer::FileLayout;
 use crate::open::FileType;
 use crate::segments::SegmentCache;
 
-/// Trait for a Vortex file.
-///
-/// This exists so different Vortex file types can configure their scan operations differently.
 pub struct VortexFile<F: FileType> {
     pub(crate) read: F::Read,
     pub(crate) options: F::Options,
@@ -37,6 +34,10 @@ impl<F: FileType> VortexFile<F> {
 
     pub fn file_layout(&self) -> &FileLayout {
         &self.file_layout
+    }
+
+    pub fn file_stats(&self) -> &[StatsSet] {
+        self.file_layout.statistics()
     }
 
     pub fn statistics(

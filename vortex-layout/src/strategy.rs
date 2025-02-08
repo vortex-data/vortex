@@ -6,9 +6,6 @@
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
-mod strategy;
-
-pub use strategy::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -16,9 +13,7 @@ use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter}
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::writer::StructLayoutWriter;
-use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
-use crate::Layout;
 
 /// A trait for creating new layout writers given a DType.
 pub trait LayoutStrategy: Send + Sync {

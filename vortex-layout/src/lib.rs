@@ -15,6 +15,7 @@ pub use writer::*;
 
 pub mod scan;
 pub mod segments;
+pub mod stats;
 mod strategy;
 pub mod vtable;
 mod writer;

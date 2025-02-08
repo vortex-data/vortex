@@ -9,6 +9,7 @@ use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
+use crate::stats::Statistics;
 use crate::{Array, ContextRef};
 
 /// Options for serializing an array.
@@ -190,7 +191,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
+        let stats = Some(self.array.stats_set().write_flatbuffer(fbb));
 
         fba::ArrayNode::create(
             fbb,
