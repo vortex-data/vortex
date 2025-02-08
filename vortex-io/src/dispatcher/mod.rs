@@ -14,7 +14,7 @@ use futures::channel::oneshot;
 use futures::FutureExt;
 use vortex_error::{vortex_err, VortexResult};
 
-static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(|| IoDispatcher::new());
+static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
 #[cfg(feature = "compio")]
 use self::compio::*;
