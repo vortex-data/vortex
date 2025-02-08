@@ -116,9 +116,9 @@ mod tests {
 
         let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
-        let first_half = shared_file.read_byte_range(0, 5).await.unwrap();
+        let first_half = shared_file.read_byte_range(0..5).await.unwrap();
 
-        let second_half = shared_file.read_byte_range(5, 5).await.unwrap();
+        let second_half = shared_file.read_byte_range(5..10).await.unwrap();
 
         assert_eq!(first_half.as_ref(), "01234".as_bytes());
         assert_eq!(second_half.as_ref(), "56789".as_bytes());
