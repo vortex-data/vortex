@@ -10,7 +10,8 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::strategy::LayoutStrategy;
+use crate::writer::{LayoutWriter, LayoutWriterExt};
 use crate::LayoutVTableRef;
 
 pub struct ChunkedLayoutOptions {
