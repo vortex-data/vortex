@@ -15,7 +15,7 @@ impl ExprEvaluator for FlatReader {
         assert!(row_mask.true_count() > 0);
 
         // Fetch all the array segment.
-        log::debug!("Fetching segment for FlatLayout {}", self.identifier());
+        log::info!("Fetching segment for FlatLayout {}", self.identifier());
         let buffer = self
             .segments()
             .get(

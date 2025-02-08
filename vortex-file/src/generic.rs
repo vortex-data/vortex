@@ -77,7 +77,7 @@ impl Default for GenericScanOptions {
     fn default() -> Self {
         Self {
             execution_concurrency: 10,
-            // FIXME(ngates): make this Default
+            // FIXME(ngates): make this use Default
             execution_mode: ExecutionMode::Inline,
             io_concurrency: 10,
         }
