@@ -24,6 +24,12 @@ impl<T, const A: usize> ConstBuffer<T, A> {
         Self(Buffer::<T>::copy_from_aligned(buf, Self::alignment()))
     }
 
+    /// Returns a slice over the buffer of elements of type T.
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
     /// Unwrap the inner buffer.
     pub fn into_inner(self) -> Buffer<T> {
         self.0

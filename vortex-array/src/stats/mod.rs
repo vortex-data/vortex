@@ -14,7 +14,7 @@ pub use stats_set::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::Array;
 
@@ -253,29 +253,31 @@ impl Display for Stat {
 
 pub trait Statistics {
     /// Returns the value of the statistic only if it's present
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
+    fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
 
     /// Get all existing statistics
-    fn to_set(&self) -> StatsSet;
+    fn stats_set(&self) -> StatsSet;
 
     /// Set the value of the statistic
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>);
+    fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>);
 
     /// Clear the value of the statistic
-    fn clear(&self, stat: Stat);
+    fn clear_stat(&self, stat: Stat);
 
     /// Computes the value of the stat if it's not present and inexact.
     ///
     /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
     /// for this array.
-    fn compute(&self, stat: Stat) -> Option<ScalarValue>;
+    fn compute_stat(&self, stat: Stat) -> Option<ScalarValue>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
+    // [deprecated]
+    // TODO(joe): replace with `compute_statistics`
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for stat in stats {
-            if let Some(s) = self.compute(*stat) {
+            if let Some(s) = self.compute_stat(*stat) {
                 stats_set.set(*stat, Precision::exact(s))
             }
         }
@@ -293,9 +295,9 @@ impl Array {
     // FIXME(ngates): this is really slow...
     pub fn inherit_statistics(&self, parent: &dyn Statistics) {
         let stats = self.statistics();
-        // The to_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.to_set() {
-            stats.set(stat, scalar);
+        // The stats_set call performs a slow clone of the stats
+        for (stat, scalar) in parent.stats_set() {
+            stats.set_stat(stat, scalar);
         }
     }
 }
@@ -311,7 +313,7 @@ impl dyn Statistics + '_ {
         &self,
         stat: Stat,
     ) -> Option<Precision<U>> {
-        self.get(stat)
+        self.get_stat(stat)
             .map(|s| s.try_map(|s| U::try_from(&s)))
             .transpose()
             .unwrap_or_else(|err| {
@@ -332,6 +334,10 @@ impl dyn Statistics + '_ {
         self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
     }
 
+    pub fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
+        self.get_stat(stat).map(|s| s.into_scalar(dtype.clone()))
+    }
+
     /// Get or calculate the provided stat, converting the `ScalarValue` into a typed value.
     /// If the stored `ScalarValue` is of different type then the primitive typed value this function will perform a cast.
     ///
@@ -342,7 +348,7 @@ impl dyn Statistics + '_ {
         &self,
         stat: Stat,
     ) -> Option<U> {
-        self.compute(stat)
+        self.compute_stat(stat)
             .map(|s| U::try_from(&s))
             .transpose()
             .unwrap_or_else(|err| {

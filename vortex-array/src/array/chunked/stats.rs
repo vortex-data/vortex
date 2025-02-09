@@ -14,11 +14,12 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
             .map(|c| {
                 let s = c.statistics();
                 match stat {
+                    // We need to know min and max to merge_ordered these stats.
                     Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {
                         s.compute_all(&[stat, Stat::Min, Stat::Max]).ok()
                     }
                     _ => s
-                        .compute(stat)
+                        .compute_stat(stat)
                         .map(|s| StatsSet::of(stat, Precision::exact(s))),
                 }
                 .unwrap_or_default()

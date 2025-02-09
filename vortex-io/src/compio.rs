@@ -1,32 +1,25 @@
-use std::future::Future;
 use std::io;
+use std::ops::Range;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
-use vortex_error::VortexUnwrap;
+use vortex_error::VortexExpect;
 
 use crate::VortexReadAt;
 
 impl VortexReadAt for File {
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        let this = self.clone();
-        let buffer = Vec::with_capacity(len.try_into().vortex_unwrap());
-        async move {
-            // Turn the buffer into a static slice.
-            let BufResult(res, buffer) = this.read_exact_at(buffer, pos).await;
-            res.map(|_| Bytes::from(buffer))
-        }
+    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+        let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
+        let buffer = BytesMut::with_capacity(len);
+        let BufResult(result, buffer) = self.read_exact_at(buffer, range.start).await;
+        result?;
+        Ok(buffer.freeze())
     }
 
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        let this = self.clone();
-        async move { this.metadata().await.map(|metadata| metadata.len()) }
+    async fn size(&self) -> io::Result<u64> {
+        self.metadata().await.map(|metadata| metadata.len())
     }
 }
 
@@ -49,7 +42,7 @@ mod tests {
         let file = File::open(tmpfile.path()).await.unwrap();
 
         // Use the file as a VortexReadAt instance.
-        let read = file.read_byte_range(2, 4).await.unwrap();
+        let read = file.read_byte_range(2..6).await.unwrap();
         assert_eq!(read.as_ref(), "2345".as_bytes());
     }
 }

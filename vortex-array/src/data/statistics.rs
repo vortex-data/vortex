@@ -8,7 +8,7 @@ use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::Array;
 
 impl Statistics for Array {
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+    fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
         match &self.0 {
             InnerArray::Owned(o) => o
                 .stats_set
@@ -61,7 +61,7 @@ impl Statistics for Array {
         }
     }
 
-    fn to_set(&self) -> StatsSet {
+    fn stats_set(&self) -> StatsSet {
         match &self.0 {
             InnerArray::Owned(o) => o
                 .stats_set
@@ -69,12 +69,12 @@ impl Statistics for Array {
                 .unwrap_or_else(|_| vortex_panic!("Failed to acquire read lock on stats map"))
                 .clone(),
             InnerArray::Viewed(_) => StatsSet::from_iter(
-                all::<Stat>().filter_map(|stat| self.get(stat).map(|v| (stat, v.map(|v| v)))),
+                all::<Stat>().filter_map(|stat| self.get_stat(stat).map(|v| (stat, v.map(|v| v)))),
             ),
         }
     }
 
-    fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
+    fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>) {
         match &self.0 {
             InnerArray::Owned(o) => o
                 .stats_set
@@ -93,7 +93,7 @@ impl Statistics for Array {
         }
     }
 
-    fn clear(&self, stat: Stat) {
+    fn clear_stat(&self, stat: Stat) {
         match &self.0 {
             InnerArray::Owned(o) => {
                 o.stats_set
@@ -107,19 +107,11 @@ impl Statistics for Array {
         }
     }
 
-    fn compute(&self, stat: Stat) -> Option<ScalarValue> {
-        if let Some(s) = self.get(stat).and_then(|v| v.some_exact()) {
-            return Some(s);
-        }
-        let s = self
-            .vtable()
-            .compute_statistics(self, stat)
+    fn compute_stat(&self, stat: Stat) -> Option<ScalarValue> {
+        self.compute_statistics(stat)
             .vortex_expect("compute_statistics must not fail")
-            .get(stat)?;
-
-        self.set(stat, s.clone());
-
-        s.some_exact()
+            .get(stat)?
+            .some_exact()
     }
 
     fn retain_only(&self, stats: &[Stat]) {

@@ -30,3 +30,9 @@ vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 vortex-array = { workspace = true, features = ["test-harness"] }
+divan = { workspace = true }
+rand = { workspace = true }
+
+[[bench]]
+name = "fsst_compress"
+harness = false

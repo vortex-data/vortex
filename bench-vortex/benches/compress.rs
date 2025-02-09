@@ -16,7 +16,9 @@ use bench_vortex::public_bi_data::BenchmarkDatasets;
 use bench_vortex::public_bi_data::PBIDataset::*;
 use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::{fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch};
+use bench_vortex::{
+    feature_flagged_allocator, fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch,
+};
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
@@ -27,17 +29,19 @@ use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use simplelog::*;
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::file::{ExecutionMode, Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
-use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
+
+feature_flagged_allocator!();
 
 #[derive(serde::Serialize)]
 struct GenericBenchmarkResults<'a> {
@@ -124,11 +128,11 @@ fn vortex_compress_write(
 #[inline(never)]
 fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
     runtime.block_on(async {
-        VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-            .with_execution_mode(ExecutionMode::TokioRuntime(Handle::current()))
-            .open(buf)
+        VortexOpenOptions::in_memory(buf)
+            .open()
             .await?
-            .scan(Scan::all())?
+            .scan()
+            .into_array_stream()?
             .try_collect::<Vec<_>>()
             .await?
             .into_iter()

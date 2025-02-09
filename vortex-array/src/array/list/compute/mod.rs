@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::compute::{scalar_at, slice, ScalarAtFn, SliceFn, ToArrowFn};
+use crate::compute::{scalar_at, slice, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray};
 
@@ -21,6 +21,10 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }
@@ -46,5 +50,12 @@ impl SliceFn<ListArray> for ListEncoding {
             array.validity().slice(start, stop)?,
         )?
         .into_array())
+    }
+}
+
+impl MinMaxFn<ListArray> for ListEncoding {
+    fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
+        // TODO(joe): Implement list min max
+        Ok(None)
     }
 }

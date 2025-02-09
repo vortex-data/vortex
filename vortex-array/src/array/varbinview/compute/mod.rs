@@ -1,3 +1,4 @@
+mod min_max;
 mod to_arrow;
 
 use std::ops::Deref;
@@ -12,7 +13,7 @@ use super::BinaryView;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -31,6 +32,10 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 
     fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+        Some(self)
+    }
+
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
     }
 }
@@ -61,10 +66,14 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<Array> {
         // Compute the new validity
+
+        // This is valid since all elements (of all arrays) even null values are inside must be the
+        // min-max valid range.
         let validity = array.validity().take(indices)?;
         let indices = indices.clone().into_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
+        // This is valid since all elements even null values are inside the min-max valid range.
             take_views(array.views(), indices.as_slice::<$I>())
         });
 

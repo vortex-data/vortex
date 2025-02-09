@@ -2,8 +2,8 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::encoding_ids;
@@ -49,17 +49,16 @@ impl StructArray {
         })
     }
 
-    pub fn children(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn fields(&self) -> impl Iterator<Item = Array> + '_ {
         (0..self.nfields()).map(move |idx| {
-            self.maybe_null_field_by_idx(idx).unwrap_or_else(|| {
-                vortex_panic!("Field {} not found, nfields: {}", idx, self.nfields())
-            })
+            self.maybe_null_field_by_idx(idx)
+                .vortex_expect("never out of bounds")
         })
     }
 
     pub fn try_new(
         names: FieldNames,
-        fields: Vec<Array>,
+        mut fields: Vec<Array>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -82,10 +81,8 @@ impl StructArray {
 
         let validity_metadata = validity.to_metadata(length)?;
 
-        let mut children = Vec::with_capacity(fields.len() + 1);
-        children.extend(fields);
         if let Some(v) = validity.into_array() {
-            children.push(v);
+            fields.push(v);
         }
 
         Self::try_from_parts(
@@ -95,7 +92,7 @@ impl StructArray {
                 validity: validity_metadata,
             }),
             None,
-            Some(children.into()),
+            Some(fields.into()),
             StatsSet::default(),
         )
     }
@@ -138,7 +135,7 @@ impl StructArray {
             names.push(self.names()[idx].clone());
             children.push(
                 self.maybe_null_field_by_idx(idx)
-                    .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.nfields()))?,
+                    .vortex_expect("never out of bounds"),
             );
         }
 
@@ -160,25 +157,13 @@ impl VariantsVTable<StructArray> for StructEncoding {
 }
 
 impl StructArrayTrait for StructArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Array> {
-        Some(
-            self.field_info(&Field::Index(idx))
-                .map(|field_info| {
-                    self.as_ref()
-                        .child(
-                            idx,
-                            &field_info
-                                .dtype
-                                .value()
-                                .vortex_expect("FieldInfo could not access dtype"),
-                            self.len(),
-                        )
-                        .unwrap_or_else(|e| {
-                            vortex_panic!(e, "StructArray: field {} not found", idx)
-                        })
-                })
-                .unwrap_or_else(|e| vortex_panic!(e, "StructArray: field {} not found", idx)),
-        )
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
+        let dtype = self
+            .dtype()
+            .as_struct()
+            .vortex_expect("Not a struct dtype")
+            .field_by_index(idx)?;
+        self.child(idx, &dtype, self.len())
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
@@ -210,9 +195,7 @@ impl ValidityVTable<StructArray> for StructEncoding {
 impl VisitorVTable<StructArray> for StructEncoding {
     fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         for (idx, name) in array.names().iter().enumerate() {
-            let child = array
-                .maybe_null_field_by_idx(idx)
-                .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
+            let child = array.maybe_null_field_by_idx(idx)?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
 
@@ -226,7 +209,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
             Stat::UncompressedSizeInBytes => array
-                .children()
+                .fields()
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()

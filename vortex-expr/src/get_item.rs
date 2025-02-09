@@ -64,7 +64,6 @@ impl VortexExpr for GetItem {
             .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
             // TODO(joe): apply struct validity
             .maybe_null_field_by_name(self.field())
-            .ok_or_else(|| vortex_err!("Field {} not found", self.field))
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -77,14 +76,11 @@ impl VortexExpr for GetItem {
     }
 
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let child_dtype = self.child().return_dtype(scope_dtype)?;
-        let dtype = child_dtype
+        let input = self.child.return_dtype(scope_dtype)?;
+        input
             .as_struct()
-            .ok_or_else(|| vortex_err!("GetItem: scope dtype is not a struct"))?;
-        let idx = dtype
-            .find_name(self.field())
-            .ok_or_else(|| vortex_err!("GetItem: field {} not found", self.field))?;
-        dtype.field_dtype(idx)
+            .ok_or_else(|| vortex_err!("GetItem: child dtype is not a struct"))?
+            .field(self.field())
     }
 }
 

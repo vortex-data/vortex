@@ -16,7 +16,7 @@ use arrow_schema::{DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, Sch
 use vortex_datetime_dtype::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use vortex_datetime_dtype::is_temporal_ext_type;
 use vortex_dtype::{DType, FieldName, Nullability, PType, StructDType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowType, TryFromArrowType};
 
@@ -44,6 +44,12 @@ impl TryFromArrowType<&DataType> for PType {
 
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
+        Self::from_arrow(value.as_ref())
+    }
+}
+
+impl FromArrowType<&Schema> for DType {
+    fn from_arrow(value: &Schema) -> Self {
         Self::Struct(
             Arc::new(StructDType::from_arrow(value.fields())),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
@@ -68,8 +74,12 @@ impl FromArrowType<&Field> for DType {
 
         let nullability: Nullability = field.is_nullable().into();
 
-        if let Ok(ptype) = PType::try_from_arrow(field.data_type()) {
-            return Primitive(ptype, nullability);
+        if field.data_type().is_integer() || field.data_type().is_floating() {
+            return Primitive(
+                PType::try_from_arrow(field.data_type())
+                    .vortex_expect("arrow float/integer to ptype"),
+                nullability,
+            );
         }
 
         match field.data_type() {
@@ -104,7 +114,7 @@ pub fn infer_schema(dtype: &DType) -> VortexResult<Schema> {
     }
 
     let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
-    for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.dtypes()) {
+    for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
         builder.push(FieldRef::from(Field::new(
             field_name.to_string(),
             infer_data_type(&field_dtype)?,
@@ -139,7 +149,7 @@ pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
         DType::Binary(_) => DataType::BinaryView,
         DType::Struct(struct_dtype, _) => {
             let mut fields = Vec::with_capacity(struct_dtype.names().len());
-            for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.dtypes()) {
+            for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
                 fields.push(FieldRef::from(Field::new(
                     field_name.to_string(),
                     infer_data_type(&field_dt)?,

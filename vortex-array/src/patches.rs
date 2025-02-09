@@ -362,23 +362,6 @@ impl Patches {
         }
         Ok(Self::new(self.array_len, self.indices, values))
     }
-
-    pub fn map_values_opt<F>(self, f: F) -> VortexResult<Option<Self>>
-    where
-        F: FnOnce(Array) -> Option<Array>,
-    {
-        let Some(values) = f(self.values) else {
-            return Ok(None);
-        };
-        if self.indices.len() == values.len() {
-            vortex_bail!(
-                "map_values must preserve length: expected {} received {}",
-                self.indices.len(),
-                values.len()
-            )
-        }
-        Ok(Some(Self::new(self.array_len, self.indices, values)))
-    }
 }
 
 /// Filter patches with the provided mask (in flattened space).

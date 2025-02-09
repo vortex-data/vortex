@@ -30,7 +30,7 @@ impl<R> VortexReadRanges<R> {
     }
 }
 
-impl<R: VortexReadAt> VortexReadRanges<R> {
+impl<R: VortexReadAt + Send + Sync> VortexReadRanges<R> {
     pub fn read_byte_ranges(
         &self,
         ranges: Vec<Range<usize>>,
@@ -46,9 +46,7 @@ impl<R: VortexReadAt> VortexReadRanges<R> {
                         .dispatch({
                             let reader = reader.clone();
                             move || async move {
-                                reader
-                                    .read_byte_range(r.start as u64, (r.end - r.start) as u64)
-                                    .await
+                                reader.read_byte_range(r.start as u64..r.end as u64).await
                             }
                         })
                         .vortex_expect("dispatch async")

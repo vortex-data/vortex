@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display};
-use std::ptr;
+use std::{iter, ptr};
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -18,7 +18,7 @@ use crate::visitor::ArrayVisitor;
 use crate::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
+use crate::{impl_encoding, Array, Canonical, IntoArray, IntoCanonical, RkyvMetadata};
 
 mod compute;
 mod patch;
@@ -196,6 +196,35 @@ impl PrimitiveArray {
             Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
+    }
+
+    /// Map each element in the array to a new value.
+    ///
+    /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
+    /// valid and false otherwise.
+    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<PrimitiveArray>
+    where
+        T: NativePType,
+        R: NativePType,
+        F: FnMut((T, bool)) -> R,
+    {
+        let validity = self.validity();
+
+        let buf_iter = self.buffer::<T>().into_iter();
+
+        let buffer = match &validity {
+            Validity::NonNullable | Validity::AllValid => {
+                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
+            }
+            Validity::AllInvalid => {
+                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
+            }
+            Validity::Array(val) => {
+                let val_bb = val.clone().into_canonical()?.into_bool()?.boolean_buffer();
+                BufferMut::<R>::from_iter(buf_iter.zip(&val_bb).map(f))
+            }
+        };
+        Ok(PrimitiveArray::new(buffer.freeze(), validity))
     }
 
     /// Return a slice of the array's buffer.

@@ -33,7 +33,7 @@ use crate::scalar::utf8::PyUtf8Scalar;
 use crate::{install_module, PyVortex};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "scalar")?;
+    let m = PyModule::new(py, "scalar")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.scalar", &m)?;
 
@@ -137,7 +137,7 @@ impl PyScalar {
     }
 
     /// Return the scalar value as a Python object.
-    pub fn as_py(&self, py: Python) -> PyObject {
-        PyVortex(&self.0).into_py(py)
+    pub fn as_py(&self, py: Python) -> PyResult<PyObject> {
+        PyVortex(&self.0).into_pyobject(py).map(|v| v.into())
     }
 }

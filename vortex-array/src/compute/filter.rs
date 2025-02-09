@@ -1,5 +1,7 @@
+use std::ops::BitAnd;
+
 use arrow_array::BooleanArray;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
@@ -7,7 +9,6 @@ use crate::array::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::stats::Stat;
 use crate::{Array, Canonical, IntoArray, IntoArrayVariant};
 
 pub trait FilterFn<A> {
@@ -112,27 +113,32 @@ fn filter_impl(array: &Array, mask: &Mask) -> VortexResult<Array> {
 impl TryFrom<Array> for Mask {
     type Error = VortexError;
 
+    /// Converts from a possible nullable boolean array. Null values are treated as false.
     fn try_from(array: Array) -> Result<Self, Self::Error> {
-        if array.dtype() != &DType::Bool(Nullability::NonNullable) {
-            vortex_bail!(
-                "mask must be non-nullable bool, has dtype {}",
-                array.dtype(),
-            );
+        if !matches!(array.dtype(), DType::Bool(_)) {
+            vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
         }
 
-        if let Some(true_count) = array.statistics().get_as::<u64>(Stat::TrueCount) {
-            let len = array.len();
-            if true_count == 0 {
-                return Ok(Self::new_false(len));
-            }
-            if true_count == len as u64 {
-                return Ok(Self::new_true(len));
+        if let Some(constant) = array.as_constant() {
+            let bool_constant = constant.as_bool();
+            if bool_constant.value().unwrap_or(false) {
+                return Ok(Self::new_true(array.len()));
+            } else {
+                return Ok(Self::new_false(array.len()));
             }
         }
 
-        // TODO(ngates): should we have a `to_filter_mask` compute function where encodings
-        //  pick the best possible conversion? E.g. SparseArray may want from_indices.
-        Ok(Self::from_buffer(array.into_bool()?.boolean_buffer()))
+        // Otherwise, we canonicalize
+        let array = array.into_bool()?;
+
+        // Extract a boolean buffer, treating null values to false
+        let buffer = match array.validity_mask()? {
+            Mask::AllTrue(_) => array.boolean_buffer(),
+            Mask::AllFalse(_) => return Ok(Self::new_false(array.len())),
+            Mask::Values(validity) => validity.boolean_buffer().bitand(&array.boolean_buffer()),
+        };
+
+        Ok(Self::from_buffer(buffer))
     }
 }
 

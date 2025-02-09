@@ -1,12 +1,15 @@
 use arrow_array::{BinaryArray, StringArray};
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use itertools::Itertools;
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
-use crate::array::{VarBinArray, VarBinEncoding};
+use crate::array::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
-use crate::compute::{CompareFn, Operator};
-use crate::{Array, IntoArray};
+use crate::compute::{compare_lengths_to_empty, CompareFn, Operator};
+use crate::variants::PrimitiveArrayTrait as _;
+use crate::{Array, IntoArray, IntoCanonical};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {
@@ -19,6 +22,37 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
+
+            let rhs_is_empty = match rhs_const.dtype() {
+                DType::Binary(_) => rhs_const
+                    .as_binary()
+                    .is_empty()
+                    .vortex_expect("RHS should not be null"),
+                DType::Utf8(_) => rhs_const
+                    .as_utf8()
+                    .is_empty()
+                    .vortex_expect("RHS should not be null"),
+                _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+            };
+
+            if rhs_is_empty {
+                let buffer = match operator {
+                    // Every possible value is gte ""
+                    Operator::Gte => BooleanBuffer::new_set(len),
+                    // No value is lt ""
+                    Operator::Lt => BooleanBuffer::new_unset(len),
+                    _ => {
+                        let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
+                        match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
+                            compare_offsets_to_empty::<$P>(lhs_offsets, operator)
+                        })
+                    }
+                };
+
+                return Ok(Some(
+                    BoolArray::try_new(buffer, lhs.validity())?.into_array(),
+                ));
+            }
 
             let lhs = Datum::try_new(lhs.clone().into_array())?;
 
@@ -55,4 +89,16 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
             Ok(None)
         }
     }
+}
+
+fn compare_offsets_to_empty<P: NativePType>(
+    offsets: PrimitiveArray,
+    operator: Operator,
+) -> BooleanBuffer {
+    let lengths_iter = offsets
+        .as_slice::<P>()
+        .iter()
+        .tuple_windows()
+        .map(|(&s, &e)| e - s);
+    compare_lengths_to_empty(lengths_iter, operator)
 }

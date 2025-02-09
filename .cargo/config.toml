@@ -1,3 +1,5 @@
+[target.'(target_familiy="unix")']
+rustflags = ["-C", "force-frame-pointers=yes"]
 # For pyo3 to successfully link on Macos
 # See https://stackoverflow.com/a/77382609
 [target.aarch64-apple-darwin]

@@ -5,7 +5,7 @@ use crate::arrays::PyArray;
 use crate::install_module;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "compress")?;
+    let m = PyModule::new(py, "compress")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.compress", &m)?;
 

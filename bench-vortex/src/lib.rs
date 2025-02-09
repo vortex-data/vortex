@@ -48,6 +48,25 @@ pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
 
+// Sizes match default compressor configuration
+const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
+const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
+
+#[macro_export]
+macro_rules! feature_flagged_allocator {
+    () => {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "mimalloc")] {
+                #[global_allocator]
+                static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+            } else if #[cfg(feature = "jemalloc")] {
+                #[global_allocator]
+                static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+            }
+        }
+    };
+}
+
 pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         (*(ALL_ENCODINGS_CONTEXT.clone()))
@@ -217,7 +236,7 @@ impl CompressionRunStats {
 
         self.compressed_sizes
             .iter()
-            .zip_eq(st.names().iter().zip_eq(st.dtypes()))
+            .zip_eq(st.names().iter().zip_eq(st.fields()))
             .map(
                 |(&size, (column_name, column_type))| CompressionRunResults {
                     dataset_name: dataset_name.clone(),
@@ -243,7 +262,7 @@ pub struct CompressionRunResults {
     pub total_compressed_size: Option<u64>,
 }
 
-pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
+pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;

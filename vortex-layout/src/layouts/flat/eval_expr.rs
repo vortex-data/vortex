@@ -1,12 +1,8 @@
 use async_trait::async_trait;
-use flatbuffers::root;
-use futures::future::try_join_all;
 use vortex_array::compute::{filter, slice};
-use vortex_array::parts::ArrayParts;
 use vortex_array::Array;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_flatbuffers::{array as fba, FlatBuffer};
 use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
@@ -18,40 +14,19 @@ impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
-        // Fetch all the array buffers.
-        let mut buffers = try_join_all(
-            self.layout()
-                .segments()
-                .map(|segment_id| self.segments().get(segment_id)),
-        )
-        .await?;
-
-        // Pop the array flatbuffer.
-        let flatbuffer = FlatBuffer::try_from(
-            buffers
-                .pop()
-                .ok_or_else(|| vortex_err!("Flat message missing"))?,
-        )?;
-
+        // Fetch all the array segment.
+        let buffer = self
+            .segments()
+            .get(
+                self.layout()
+                    .segment_id(0)
+                    .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?,
+            )
+            .await?;
         let row_count = usize::try_from(self.layout().row_count())
             .vortex_expect("FlatLayout row count does not fit within usize");
 
-        let array_parts = ArrayParts::new(
-            row_count,
-            root::<fba::Array>(flatbuffer.as_ref()).vortex_expect("Invalid fba::Array flatbuffer"),
-            flatbuffer.clone(),
-            buffers,
-        );
-
-        // Decode into an Array.
-        let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
-        assert_eq!(
-            array.len() as u64,
-            self.row_count(),
-            "FlatLayout array length mismatch {} != {}",
-            array.len(),
-            self.row_count()
-        );
+        let array = Array::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)?;
 
         // TODO(ngates): what's the best order to apply the filter mask / expression?
 

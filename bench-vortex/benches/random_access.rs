@@ -1,20 +1,19 @@
 use std::env;
 use std::sync::Arc;
 
+use bench_vortex::feature_flagged_allocator;
 use bench_vortex::reader::{
     take_parquet, take_parquet_object_store, take_vortex_object_store, take_vortex_tokio,
 };
 use bench_vortex::taxi_data::{taxi_data_parquet, taxi_data_vortex};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use mimalloc::MiMalloc;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
 use tokio::runtime::Runtime;
 use vortex::buffer::buffer;
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+feature_flagged_allocator!();
 
 /// Benchmarks against object stores require setting
 /// * AWS_ACCESS_KEY_ID

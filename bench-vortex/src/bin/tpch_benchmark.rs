@@ -5,7 +5,7 @@ use std::time::Instant;
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
-use bench_vortex::{setup_logger, Format, Measurement};
+use bench_vortex::{feature_flagged_allocator, setup_logger, Format, Measurement};
 use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
@@ -13,6 +13,8 @@ use itertools::Itertools;
 use log::LevelFilter;
 use tokio::runtime::Builder;
 use vortex::aliases::hash_map::HashMap;
+
+feature_flagged_allocator!();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

@@ -1,6 +1,6 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::stats::Stat;
+use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
@@ -12,14 +12,13 @@ use crate::FoRArray;
 
 pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
     let min = array
-        .statistics()
-        .compute(Stat::Min)
+        .compute_stat(Stat::Min)
         .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
     let dtype = array.dtype().clone();
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         let unsigned_ptype = array.ptype().to_unsigned();
-        compress_primitive::<$T>(array, $T::try_from(&min)?)
+        compress_primitive::<$T>(array, $T::try_from(&min)?)?
             .reinterpret_cast(unsigned_ptype)
             .into_array()
     });
@@ -30,8 +29,16 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
-) -> PrimitiveArray {
-    parray.map_each::<T, _, _>(|v| v.wrapping_sub(&min))
+) -> VortexResult<PrimitiveArray> {
+    // Set null values to the min value, ensuring that decompress into a value in the primitive
+    // range (and stop them wrapping around)
+    parray.map_each_with_validity::<T, _, _>(|(v, bool)| {
+        if bool {
+            v.wrapping_sub(&min)
+        } else {
+            T::zero()
+        }
+    })
 }
 
 pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
@@ -91,7 +98,7 @@ mod test {
     #[test]
     fn test_zeros() {
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
-        assert!(array.statistics().to_set().into_iter().next().is_none());
+        assert!(array.statistics().stats_set().into_iter().next().is_none());
 
         let compressed = for_compress(array.clone()).unwrap();
         assert_eq!(compressed.dtype(), array.dtype());

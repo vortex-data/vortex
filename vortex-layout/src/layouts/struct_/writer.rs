@@ -20,7 +20,7 @@ pub struct StructLayoutWriter {
 impl StructLayoutWriter {
     pub fn new(dtype: DType, column_layout_writers: Vec<Box<dyn LayoutWriter>>) -> Self {
         let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
-        if struct_dtype.dtypes().len() != column_layout_writers.len() {
+        if struct_dtype.fields().len() != column_layout_writers.len() {
             vortex_panic!(
                 "number of fields in struct dtype does not match number of column layout writers"
             );
@@ -40,7 +40,7 @@ impl StructLayoutWriter {
         Ok(Self::new(
             dtype.clone(),
             struct_dtype
-                .dtypes()
+                .fields()
                 .map(|dtype| factory.new_writer(&dtype))
                 .try_collect()?,
         ))
@@ -85,8 +85,8 @@ impl LayoutWriter for StructLayoutWriter {
             LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
             self.row_count,
-            None,
-            Some(column_layouts),
+            vec![],
+            column_layouts,
             None,
         ))
     }

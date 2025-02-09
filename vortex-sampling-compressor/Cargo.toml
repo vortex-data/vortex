@@ -31,8 +31,8 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-runend = { workspace = true }
-vortex-sparse = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]

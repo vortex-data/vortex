@@ -191,8 +191,8 @@ impl Serialize for PValue {
             Self::I64(v) => serializer.serialize_i64(*v),
             // NOTE(ngates): f16's are serialized bit-wise as u16.
             Self::F16(v) => serializer.serialize_u16(v.to_bits()),
-            Self::F32(v) => serializer.serialize_f32(*v),
-            Self::F64(v) => serializer.serialize_f64(*v),
+            Self::F32(v) => serializer.serialize_u32(v.to_bits()),
+            Self::F64(v) => serializer.serialize_u64(v.to_bits()),
         }
     }
 }
@@ -226,6 +226,7 @@ mod tests {
     #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable).into_value())]
     #[case(Scalar::utf8("hello", Nullability::NonNullable).into_value())]
     #[case(Scalar::primitive(1u8, Nullability::NonNullable).into_value())]
+    #[case(Scalar::primitive(f32::from_bits(u32::from_le_bytes([0xFFu8, 0x8A, 0xF9, 0xFF])), Nullability::NonNullable).into_value())]
     #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable).into_value())]
     fn test_scalar_value_serde_roundtrip(#[case] scalar_value: ScalarValue) {
         let mut serializer = FlexbufferSerializer::new();

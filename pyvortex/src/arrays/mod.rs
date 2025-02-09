@@ -7,7 +7,7 @@ use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyList};
+use pyo3::types::{PyDict, PyList};
 use pyo3::PyClass;
 use vortex::array::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
@@ -29,7 +29,7 @@ use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "arrays")?;
+    let m = PyModule::new(py, "arrays")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.arrays", &m)?;
 
@@ -250,24 +250,28 @@ impl PyArray {
             // the preferred type of each chunk may be different.
             let arrow_dtype = infer_data_type(chunked_array.dtype())?;
 
-            let chunks: Vec<ArrayRef> = chunked_array
+            let chunks = chunked_array
                 .chunks()
-                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow(&arrow_dtype)?) })
+                .map(|chunk| PyResult::Ok(chunk.into_arrow(&arrow_dtype)?))
                 .collect::<PyResult<Vec<ArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
             }
+
             let pa_data_type = chunks[0].data_type().clone().to_pyarrow(py)?;
-            let chunks: PyResult<Vec<PyObject>> = chunks
+            let chunks = chunks
                 .iter()
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let kwargs =
+                PyDict::from_sequence(&PyList::new(py, vec![("type", pa_data_type)])?.into_any())?;
 
             // Combine into a chunked array
-            PyModule::import_bound(py, "pyarrow")?.call_method(
+            PyModule::import(py, "pyarrow")?.call_method(
                 "chunked_array",
-                (PyList::new_bound(py, chunks?),),
-                Some(&[("type", pa_data_type)].into_py_dict_bound(py)),
+                (PyList::new(py, chunks)?,),
+                Some(&kwargs),
             )
         } else {
             Ok(vortex

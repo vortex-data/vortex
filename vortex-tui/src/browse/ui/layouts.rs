@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -7,19 +5,12 @@ use ratatui::text::Text;
 use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget,
 };
-use vortex::buffer::ByteBuffer;
 use vortex::compute::scalar_at;
-use vortex::dtype::{DType, Field};
 use vortex::error::VortexExpect;
 use vortex::file::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID};
-use vortex::flatbuffers::array::root_as_array;
-use vortex::flatbuffers::FlatBuffer;
-use vortex::parts::ArrayParts;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex::{Array, Context};
-use vortex_layout::segments::SegmentId;
-use vortex_layout::Layout as VortexLayout;
+use vortex::Array;
 
 use crate::browse::app::{AppState, LayoutCursor};
 
@@ -106,18 +97,22 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 
 // Render the inner Array for a FlatLayout
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
-    let segment_ids: Vec<SegmentId> = app.cursor.layout().segments().collect();
-    let buffers: Vec<ByteBuffer> = segment_ids
-        .into_iter()
-        .map(|id| app.read_segment(id))
-        .collect();
+    let segment_id = app
+        .cursor
+        .layout()
+        .segments()
+        .next()
+        .vortex_expect("FlatLayout missing segment");
+    let buffer = app.read_segment(segment_id);
 
-    let array = read_array(
-        buffers,
-        app.cursor.layout(),
+    let array = Array::deserialize(
+        buffer,
         ALL_ENCODINGS_CONTEXT.clone(),
-        app.cursor.layout().dtype(),
-    );
+        app.cursor.layout().dtype().clone(),
+        usize::try_from(app.cursor.layout().row_count())
+            .vortex_expect("FlatLayout row count too big for usize"),
+    )
+    .vortex_expect("Failed to deserialize Array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
@@ -185,9 +180,9 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let state = &mut app.layouts_list_state;
 
     if layout.nchildren() > 0 {
-        let list_items: Vec<String> = (0..layout.nchildren())
+        let filter: Vec<bool> = (0..layout.nchildren())
             .map(|idx| child_name(cursor, idx))
-            .filter(|name| {
+            .map(|name| {
                 if app.search_filter.is_empty() {
                     true
                 } else {
@@ -195,6 +190,16 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
                 }
             })
             .collect();
+
+        let list_items: Vec<String> = (0..layout.nchildren())
+            .zip(filter.iter())
+            .filter(|&(_, keep)| *keep)
+            .map(|(idx, _)| child_name(cursor, idx))
+            .collect();
+
+        if !app.search_filter.is_empty() {
+            app.filter = Some(filter);
+        }
 
         let container = Block::new()
             .title("Child Layouts")
@@ -220,14 +225,9 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
     match cursor.encoding().id() {
         COLUMNAR_LAYOUT_ID => {
-            let field_info = cursor
-                .dtype()
-                .as_struct()
-                .expect("struct dtype")
-                .field_info(&Field::Index(nth))
-                .expect("struct dtype component");
-            let field_name = field_info.name;
-            let field_dtype = field_info.dtype.value().expect("dtype value");
+            let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
+            let field_name = struct_dtype.field_name(nth).expect("field name");
+            let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
             format!("Column {nth} - {field_name} ({field_dtype})")
         }
         CHUNKED_LAYOUT_ID => {
@@ -244,29 +244,4 @@ fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
         FLAT_LAYOUT_ID => format!("Page {nth}"),
         _ => format!("Unknown {nth}"),
     }
-}
-
-fn read_array(
-    mut buffers: Vec<ByteBuffer>,
-    layout: &VortexLayout,
-    ctx: Arc<Context>,
-    dtype: &DType,
-) -> Array {
-    let flatbuffer = FlatBuffer::try_from(buffers.pop().vortex_expect("buffers pop"))
-        .vortex_expect("flatbuffers");
-
-    let fb_array =
-        root_as_array(flatbuffer.as_ref()).vortex_expect("Invalid fba::Array flatbuffer");
-
-    let array_parts = ArrayParts::new(
-        layout.row_count().try_into().vortex_expect("row_count"),
-        fb_array,
-        flatbuffer.clone(),
-        buffers,
-    );
-
-    // Decode into an Array.
-    array_parts
-        .decode(ctx, dtype.clone())
-        .vortex_expect("decoding ArrayParts")
 }

@@ -1,11 +1,13 @@
 use core::fmt;
 use std::fmt::{Display, Formatter};
 
+use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, Canonical, IntoArray};
@@ -58,7 +60,7 @@ impl Operator {
         }
     }
 
-    pub fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
+    pub const fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
         match self {
             Operator::Eq => |l, r| l == r,
             Operator::NotEq => |l, r| l != r,
@@ -99,12 +101,16 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same length");
     }
     if !left.dtype().eq_ignore_nullability(right.dtype()) {
-        vortex_bail!("Compare operations only support arrays of the same type");
+        vortex_bail!(
+            "Compare operations only support arrays of the same type: {} != {}",
+            left.dtype(),
+            right.dtype()
+        );
     }
 
     if left.dtype().is_struct() {
         vortex_bail!(
-            "Compare does not support arrays with Strcut DType, got: {} and {}",
+            "Compare does not support arrays with Struct DType, got: {} and {}",
             left.dtype(),
             right.dtype()
         )
@@ -115,6 +121,12 @@ pub fn compare(
 
     if left.is_empty() {
         return Ok(Canonical::empty(&result_dtype).into_array());
+    }
+
+    let left_constant_null = left.as_constant().map(|l| l.is_null()).unwrap_or(false);
+    let right_constant_null = right.as_constant().map(|r| r.is_null()).unwrap_or(false);
+    if left_constant_null || right_constant_null {
+        return Ok(ConstantArray::new(Scalar::null(result_dtype), left.len()).into_array());
     }
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
@@ -157,6 +169,24 @@ pub fn compare(
     let result = arrow_compare(left, right, operator)?;
     check_compare_result(&result, left, right);
     Ok(result)
+}
+
+/// Helper function to compare empty values with arrays that have external value length information
+/// like `VarBin`.
+pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
+where
+    P: NativePType,
+    I: Iterator<Item = P>,
+{
+    // All comparison can be expressed in terms of equality. "" is the absolute min of possible value.
+    let cmp_fn = match op {
+        Operator::Eq | Operator::Lte => |v| v == P::zero(),
+        Operator::NotEq | Operator::Gt => |v| v != P::zero(),
+        Operator::Gte => |_| true,
+        Operator::Lt => |_| false,
+    };
+
+    lengths.map(cmp_fn).collect::<BooleanBuffer>()
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
@@ -316,5 +346,19 @@ mod tests {
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
+    }
+
+    #[rstest::rstest]
+    #[case(Operator::Eq, vec![false, false, false, true])]
+    #[case(Operator::NotEq, vec![true, true, true, false])]
+    #[case(Operator::Gt, vec![true, true, true, false])]
+    #[case(Operator::Gte, vec![true, true, true, true])]
+    #[case(Operator::Lt, vec![false, false, false, false])]
+    #[case(Operator::Lte, vec![false, false, false, true])]
+    fn test_cmp_to_empty(#[case] op: Operator, #[case] expected: Vec<bool>) {
+        let lengths: Vec<i32> = vec![1, 5, 7, 0];
+
+        let output = compare_lengths_to_empty(lengths.iter().copied(), op);
+        assert_eq!(Vec::from_iter(output.iter()), expected);
     }
 }

@@ -14,6 +14,8 @@ pub use writer::*;
 
 mod reader;
 pub mod segments;
+pub use writer::*;
+pub mod scan;
 mod strategy;
 pub mod vtable;
 mod writer;

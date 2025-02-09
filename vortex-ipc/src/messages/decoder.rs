@@ -2,15 +2,12 @@ use std::fmt::Debug;
 
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked};
-use itertools::Itertools;
-use vortex_array::parts::ArrayParts;
+use vortex_array::serde::ArrayParts;
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
-use vortex_flatbuffers::{message as fb, FlatBuffer};
-
-use crate::ALIGNMENT;
+use vortex_flatbuffers::{dtype as fbd, message as fb, FlatBuffer};
 
 /// A message decoded from an IPC stream.
 ///
@@ -19,7 +16,7 @@ use crate::ALIGNMENT;
 /// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array(ArrayParts),
+    Array((ArrayParts, usize)),
     Buffer(ByteBuffer),
     DType(DType),
 }
@@ -29,19 +26,7 @@ enum State {
     #[default]
     Length,
     Header(usize),
-    Array(ReadingArray),
-    Buffer(ReadingBuffer),
-}
-
-struct ReadingArray {
-    header: FlatBuffer,
-    buffers_length: usize,
-}
-
-struct ReadingBuffer {
-    length: usize,
-    length_with_padding: usize,
-    alignment: Alignment,
+    Reading(FlatBuffer),
 }
 
 #[derive(Debug)]
@@ -57,20 +42,10 @@ pub enum PollRead {
 //  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
 //  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
+#[derive(Default)]
 pub struct MessageDecoder {
-    /// The minimum alignment to use when reading a data `Buffer`.
-    alignment: Alignment,
     /// The current state of the decoder.
     state: State,
-}
-
-impl Default for MessageDecoder {
-    fn default() -> Self {
-        Self {
-            alignment: ALIGNMENT.into(),
-            state: Default::default(),
-        }
-    }
 }
 
 impl MessageDecoder {
@@ -101,119 +76,59 @@ impl MessageDecoder {
                         vortex_bail!("Unsupported message version {:?}", msg.version());
                     }
 
+                    self.state = State::Reading(msg_bytes);
+                }
+                State::Reading(msg_bytes) => {
+                    // SAFETY: we've already validated the header in the previous state
+                    let msg = unsafe { root_unchecked::<fb::Message>(msg_bytes.as_ref()) };
+
+                    // Now we read the body
+                    let body_length = usize::try_from(msg.body_size()).map_err(|_| {
+                        vortex_err!("body size {} is too large for usize", msg.body_size())
+                    })?;
+                    if bytes.remaining() < body_length {
+                        return Ok(PollRead::NeedMore(body_length));
+                    }
+
                     match msg.header_type() {
                         MessageHeader::ArrayMessage => {
-                            let array_msg = msg
+                            // We don't care about alignment here since ArrayParts will handle it.
+                            let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
+                            let parts = ArrayParts::try_from(body)?;
+
+                            let row_count = msg
                                 .header_as_array_message()
-                                .vortex_expect("array message header");
-                            let buffers_length: u64 = array_msg
-                                .buffers()
-                                .unwrap_or_default()
-                                .iter()
-                                .map(|buffer| buffer.length() + (buffer.padding() as u64))
-                                .sum();
+                                .vortex_expect("header is array")
+                                .row_count() as usize;
 
-                            let buffers_length = usize::try_from(buffers_length).map_err(|_| {
-                                vortex_err!("buffers length is too large for usize")
-                            })?;
-
-                            self.state = State::Array(ReadingArray {
-                                header: msg_bytes,
-                                buffers_length,
-                            });
+                            self.state = Default::default();
+                            return Ok(PollRead::Some(DecoderMessage::Array((parts, row_count))));
                         }
-                        MessageHeader::Buffer => {
-                            let buffer = msg.header_as_buffer().vortex_expect("buffer header");
-                            let length = usize::try_from(buffer.length())
-                                .vortex_expect("Buffer length is too large for usize");
-                            let length_with_padding = length + buffer.padding() as usize;
+                        MessageHeader::BufferMessage => {
+                            let body = bytes.copy_to_aligned(
+                                body_length,
+                                Alignment::from_exponent(
+                                    msg.header_as_buffer_message()
+                                        .vortex_expect("header is buffer")
+                                        .alignment_exponent(),
+                                ),
+                            );
 
-                            self.state = State::Buffer(ReadingBuffer {
-                                length,
-                                length_with_padding,
-                                alignment: buffer.alignment().max(1).into(),
-                            });
+                            self.state = Default::default();
+                            return Ok(PollRead::Some(DecoderMessage::Buffer(body)));
                         }
-                        MessageHeader::DType => {
-                            let msg_dtype = msg.header_as_dtype().vortex_expect("dtype header");
-                            let dtype = DType::try_from_view(msg_dtype, msg_bytes.clone())?;
+                        MessageHeader::DTypeMessage => {
+                            let body: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
+                            let fb_dtype = root::<fbd::DType>(body.as_ref())?;
+                            let dtype = DType::try_from_view(fb_dtype, body.clone())?;
 
-                            // Nothing else to read, so we reset the state to Length
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));
                         }
                         _ => {
-                            vortex_bail!("Unsupported message header type {:?}", msg.header_type());
+                            vortex_bail!("Unsupported message header {:?}", msg.header_type());
                         }
                     }
-                }
-                State::Buffer(ReadingBuffer {
-                    length,
-                    length_with_padding,
-                    alignment,
-                }) => {
-                    // Ensure the buffer is read with maximum of reader and message alignment.
-                    let read_alignment = self.alignment.max(*alignment);
-                    if bytes.remaining() < *length_with_padding {
-                        return Ok(PollRead::NeedMore(*length_with_padding));
-                    }
-                    let buffer = bytes.copy_to_aligned(*length, read_alignment);
-
-                    // Then use the buffer-requested alignment for the result.
-                    let msg = DecoderMessage::Buffer(buffer.aligned(*alignment));
-                    bytes.advance(length_with_padding - length);
-
-                    // Nothing else to read, so we reset the state to Length
-                    self.state = Default::default();
-                    return Ok(PollRead::Some(msg));
-                }
-                State::Array(ReadingArray {
-                    header,
-                    buffers_length,
-                }) => {
-                    if bytes.remaining() < *buffers_length {
-                        return Ok(PollRead::NeedMore(*buffers_length));
-                    }
-
-                    // SAFETY: we've already validated the header
-                    let msg = unsafe { root_unchecked::<fb::Message>(header.as_ref()) };
-                    let array_msg = msg
-                        .header_as_array_message()
-                        .vortex_expect("array message header");
-                    let array = array_msg
-                        .array()
-                        .ok_or_else(|| vortex_err!("array data message missing array"))?;
-
-                    let buffers = array_msg
-                        .buffers()
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|buffer_msg| {
-                            let buffer_len = usize::try_from(buffer_msg.length())
-                                .vortex_expect("buffer length is too large for usize");
-                            let buffer_alignment = Alignment::from(buffer_msg.alignment().max(1));
-
-                            // Ensure the buffer is read with maximum of reader and message alignment.
-                            let read_alignment = self.alignment.max(buffer_alignment);
-                            let buffer = bytes.copy_to_aligned(buffer_len, read_alignment);
-                            bytes.advance(buffer_msg.padding() as usize);
-                            // But use the buffer-requested alignment for the result.
-                            buffer.aligned(buffer_alignment)
-                        })
-                        .collect_vec();
-
-                    let row_count = usize::try_from(array_msg.row_count())
-                        .map_err(|_| vortex_err!("row count is too large for usize"))?;
-
-                    let msg = DecoderMessage::Array(ArrayParts::new(
-                        row_count,
-                        array,
-                        header.clone(),
-                        buffers,
-                    ));
-
-                    self.state = Default::default();
-                    return Ok(PollRead::Some(msg));
                 }
             }
         }
@@ -242,14 +157,14 @@ mod test {
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
-        let array_parts = match decoder.read_next(&mut buffer).unwrap() {
+        let (array_parts, row_count) = match decoder.read_next(&mut buffer).unwrap() {
             PollRead::Some(DecoderMessage::Array(array_parts)) => array_parts,
             otherwise => vortex_panic!("Expected an array, got {:?}", otherwise),
         };
 
         // Decode the array parts with the context
         let actual = array_parts
-            .decode(Default::default(), expected.dtype().clone())
+            .decode(Default::default(), expected.dtype().clone(), row_count)
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

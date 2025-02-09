@@ -45,11 +45,11 @@ pub struct VortexFooter {
 pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
     let file = TokioFile::open(path).unwrap();
 
-    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-        .open(file)
+    VortexOpenOptions::file(file)
+        .open()
         .await?
-        .scan(Scan::all())?
-        .into_array_data()
+        .scan()
+        .into_array()
         .await
 }
 
@@ -101,11 +101,12 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
-    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-        .open(reader)
+    VortexOpenOptions::file(reader)
+        .open()
         .await?
-        .scan(Scan::all().with_row_indices(indices))?
-        .into_array_data()
+        .scan()
+        .with_row_indices(indices)
+        .into_array()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .into_canonical()
