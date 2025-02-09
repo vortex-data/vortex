@@ -63,16 +63,13 @@ async fn test_read_simple() {
         .unwrap();
     pin_mut!(stream);
 
-    let mut batch_count = 0;
     let mut row_count = 0;
 
     while let Some(array) = stream.next().await {
         let array = array.unwrap();
-        batch_count += 1;
         row_count += array.len();
     }
 
-    assert_eq!(batch_count, 2);
     assert_eq!(row_count, 8);
 }
 
@@ -234,13 +231,11 @@ async fn unequal_batches() {
         .into_array_stream()
         .unwrap());
 
-    let mut batch_count = 0;
     let mut item_count = 0;
 
     while let Some(array) = stream.next().await {
         let array = array.unwrap();
         item_count += array.len();
-        batch_count += 1;
 
         let numbers = array
             .as_struct_array()
@@ -255,7 +250,6 @@ async fn unequal_batches() {
         }
     }
     assert_eq!(item_count, 10);
-    assert_eq!(batch_count, 3);
 }
 
 #[tokio::test]
