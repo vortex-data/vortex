@@ -35,15 +35,21 @@ impl<T> BufferMut<T> {
             );
         }
 
-        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment);
+        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment - 1);
         bytes.align_empty(alignment);
 
-        Self {
+        let this = Self {
             bytes,
             length: 0,
             alignment,
             _marker: Default::default(),
-        }
+        };
+        debug_assert_eq!(
+            this.capacity(),
+            capacity,
+            "Capacity should match requested capacity"
+        );
+        this
     }
 
     /// Create a new zeroed `BufferMut`.
@@ -53,7 +59,7 @@ impl<T> BufferMut<T> {
 
     /// Create a new zeroed `BufferMut`.
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment - 1);
         bytes.advance(bytes.as_ptr().align_offset(*alignment));
         unsafe { bytes.set_len(len * size_of::<T>()) };
         Self {

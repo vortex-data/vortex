@@ -13,7 +13,7 @@ use vortex_error::{vortex_err, VortexExpect};
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
 pub trait VortexReadAt: Clone + 'static {
-    /// Request an asynchronous positional read. Results will be returned as a [`Bytes`].
+    /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
