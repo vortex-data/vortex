@@ -262,7 +262,7 @@ async fn evaluate<R: VortexReadAt>(
     // Note that we may have multiple requests for the same segment.
     let mut requests_iter = request.requests.into_iter().peekable();
 
-    let mut cache_futures = Vec::with_capacity(end - start);
+    let cache_futures = FuturesUnordered::new();
     for (i, segment) in segment_map[start..end].iter().enumerate() {
         let segment_id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
         let offset = usize::try_from(segment.offset - request.byte_range.start)?;
@@ -296,9 +296,7 @@ async fn evaluate<R: VortexReadAt>(
     }
 
     // Populate the cache
-    FuturesUnordered::from_iter(cache_futures)
-        .try_collect::<()>()
-        .await?;
+    cache_futures.try_collect::<()>().await?;
 
     Ok(())
 }
