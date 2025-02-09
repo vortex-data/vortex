@@ -181,8 +181,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         let initial_read: ByteBuffer = self
             .read
             .read_byte_range(initial_offset..file_size, Alignment::none())
-            .await?
-            .into();
+            .await?;
 
         // We know the initial read _must_ contain at least the Postscript.
         let postscript = self.parse_postscript(&initial_read)?;

@@ -1,7 +1,6 @@
 use std::io;
 use std::ops::Range;
 
-use bytes::{Bytes, BytesMut};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
