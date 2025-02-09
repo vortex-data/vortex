@@ -7,7 +7,7 @@ use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::unified::UnifiedDriverStream;
@@ -233,6 +233,9 @@ impl FileSegmentRequest {
 
 #[derive(Debug)]
 struct CoalescedSegmentRequest {
+    /// The alignment of the first segment.
+    // TODO(ngates): is this the best alignment to use?
+    pub(crate) alignment: Alignment,
     /// The range of the file to read.
     pub(crate) byte_range: Range<u64>,
     /// The original segment requests, ordered by segment ID.
@@ -251,9 +254,9 @@ async fn evaluate<R: VortexReadAt>(
         request.byte_range.end - request.byte_range.start,
     );
     let buffer: ByteBuffer = read
-        .read_byte_range(request.byte_range.clone())
+        .read_byte_range(request.byte_range.clone(), request.alignment)
         .await?
-        .into();
+        .aligned(Alignment::none());
 
     // Figure out the segments covered by the read.
     let start = segment_map.partition_point(|s| s.offset < request.byte_range.start);
@@ -315,6 +318,13 @@ fn coalesce(
     let mut coalesced = fetch_ranges
         .iter()
         .map(|range| CoalescedSegmentRequest {
+            // We use the alignment of the first segment as the alignment for the entire request.
+            // TODO(ngates): if we had a VortexReadRanges trait, we could use pread where possible
+            //  to ensure correct alignment for all coalesced buffers.
+            alignment: requests
+                .first()
+                .map(|r| r.location.alignment)
+                .unwrap_or(Alignment::none()),
             byte_range: range.clone(),
             requests: vec![],
         })

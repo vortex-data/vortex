@@ -362,6 +362,11 @@ impl<T> Buffer<T> {
             })
     }
 
+    /// Returns whether a `Buffer<T>` is aligned to the given alignment.
+    pub fn is_aligned(&self, alignment: Alignment) -> bool {
+        self.bytes.as_ptr().align_offset(*alignment) == 0
+    }
+
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
     pub fn aligned(mut self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {

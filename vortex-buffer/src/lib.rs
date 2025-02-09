@@ -56,6 +56,8 @@ mod arrow;
 mod buffer;
 mod buffer_mut;
 mod bytes;
+#[cfg(feature = "compio")]
+mod compio;
 mod r#const;
 mod debug;
 mod macros;

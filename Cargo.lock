@@ -5287,6 +5287,7 @@ version = "0.24.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
+ "compio",
  "divan",
  "log",
  "rkyv",

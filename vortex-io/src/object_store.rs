@@ -5,6 +5,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use object_store::path::Path;
 use object_store::{MultipartUpload, ObjectStore, PutPayload};
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{IoBuf, VortexReadAt, VortexWrite};
@@ -26,15 +27,19 @@ impl ObjectStoreReadAt {
 
 impl VortexReadAt for ObjectStoreReadAt {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
         let start = usize::try_from(range.start).vortex_expect("range.start");
         let end = usize::try_from(range.end).vortex_expect("range.end");
-        object_store
-            .get_range(&location, start..end)
-            .await
-            .map_err(Into::into)
+
+        let bytes = object_store.get_range(&location, start..end).await?;
+
+        Ok(ByteBuffer::from(bytes).aligned(alignment))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
