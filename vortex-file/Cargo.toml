@@ -37,10 +37,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
-vortex-mask = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
-vortex-scalar = { workspace = true, features = ["flatbuffers"] }
-vortex-scan = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

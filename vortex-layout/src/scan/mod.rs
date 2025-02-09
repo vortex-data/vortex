@@ -107,22 +107,17 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self.driver_options = Some(options);
         self
     }
-}
 
-impl<D: ScanDriver> ScanBuilder<D> {
-    /// Perform the scan operation and return a stream of arrays.
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+    pub fn build(self) -> VortexResult<Scan<D>> {
         let projection = simplify_typed(self.projection, self.layout.dtype())?;
         let filter = self
             .filter
             .map(|f| simplify_typed(f, self.layout.dtype()))
             .transpose()?;
-
         let field_mask = field_mask(&projection, filter.as_ref(), self.layout.dtype())?;
 
-        let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let row_indices = self.row_indices.clone();
-
+        let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let row_masks = splits
             .into_iter()
             .filter_map(move |row_range| {
@@ -171,10 +166,44 @@ impl<D: ScanDriver> ScanBuilder<D> {
             })
             .collect_vec();
 
-        let scanner = Arc::new(Scanner::new(
-            self.layout.dtype().clone(),
+        Ok(Scan {
+            driver: self.driver,
+            layout: self.layout,
+            ctx: self.ctx,
             projection,
             filter,
+            row_masks,
+        })
+    }
+
+    /// Perform the scan operation and return a stream of arrays.
+    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+        self.build()?.into_array_stream()
+    }
+
+    pub async fn into_array(self) -> VortexResult<Array> {
+        self.into_array_stream()?.into_array().await
+    }
+}
+
+pub struct Scan<D> {
+    driver: D,
+    layout: Layout,
+    ctx: ContextRef,
+    // Guaranteed to be simplified
+    projection: ExprRef,
+    // Guaranteed to be simplified
+    filter: Option<ExprRef>,
+    row_masks: Vec<RowMask>,
+}
+
+impl<D: ScanDriver> Scan<D> {
+    /// Perform the scan operation and return a stream of arrays.
+    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
+        let scanner = Arc::new(Scanner::new(
+            self.layout.dtype().clone(),
+            self.projection,
+            self.filter,
         )?);
 
         let result_dtype = scanner.result_dtype().clone();
@@ -184,10 +213,10 @@ impl<D: ScanDriver> ScanBuilder<D> {
             .layout
             .reader(self.driver.segment_reader(), self.ctx.clone())?;
 
-        let mut results = Vec::with_capacity(row_masks.len());
-        let mut tasks = Vec::with_capacity(row_masks.len());
+        let mut results = Vec::with_capacity(self.row_masks.len());
+        let mut tasks = Vec::with_capacity(self.row_masks.len());
 
-        for row_mask in row_masks.into_iter() {
+        for row_mask in self.row_masks.into_iter() {
             let (send_result, recv_result) = oneshot::channel::<VortexResult<Option<Array>>>();
             results.push(recv_result);
 
