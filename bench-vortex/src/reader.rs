@@ -26,11 +26,9 @@ use vortex::arrow::FromArrowType;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::file::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
-use vortex::stream::ArrayStreamExt;
 use vortex::{Array, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;

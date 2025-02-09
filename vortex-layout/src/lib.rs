@@ -11,11 +11,10 @@ pub use reader::*;
 pub use strategy::*;
 pub use vtable::*;
 pub use writer::*;
-
 mod reader;
-pub mod segments;
-pub use writer::*;
 pub mod scan;
+pub mod segments;
+pub mod stats;
 mod strategy;
 pub mod vtable;
 mod writer;

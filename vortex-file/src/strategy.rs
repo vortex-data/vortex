@@ -21,13 +21,29 @@ static COMPRESSOR: LazyLock<Arc<SamplingCompressor<'static>>> =
     LazyLock::new(|| Arc::new(SamplingCompressor::new(DEFAULT_COMPRESSORS)));
 
 /// The default Vortex file layout strategy.
-pub struct VortexLayoutStrategy;
+#[derive(Clone)]
+pub struct VortexLayoutStrategy {
+    /// The minimum size of a block in bytes. The block will be cut at the next multiple
+    /// of the `block_len` larger than this size.
+    pub minimum_block_size: usize,
+    /// The divisor for the number of rows in a block.
+    pub block_len_multiple: usize,
+}
+
+impl Default for VortexLayoutStrategy {
+    fn default() -> Self {
+        Self {
+            minimum_block_size: 8 * (1 << 20), // 8MB
+            block_len_multiple: 8 * 1024,      // 8192 rows
+        }
+    }
+}
 
 impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            return StructLayoutWriter::try_new_with_factory(dtype, VortexLayoutStrategy)
+            return StructLayoutWriter::try_new_with_factory(dtype, self.clone())
                 .map(|w| w.boxed());
         }
 
@@ -49,6 +65,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 .boxed(),
             }
             .boxed(),
+            self.clone(),
         )
         .boxed())
     }
@@ -61,25 +78,24 @@ struct ColumnChunker {
     row_count: usize,
     nbytes: usize,
     writer: Box<dyn LayoutWriter>,
+    options: VortexLayoutStrategy,
 }
 
 impl ColumnChunker {
-    const BLOCK_LEN: usize = 8192;
-    const BLOCK_SIZE: usize = 1 << 20; // 1MB
-
-    pub fn new(dtype: DType, writer: Box<dyn LayoutWriter>) -> Self {
+    pub fn new(dtype: DType, writer: Box<dyn LayoutWriter>, options: VortexLayoutStrategy) -> Self {
         Self {
             dtype,
             chunks: VecDeque::new(),
             row_count: 0,
             nbytes: 0,
             writer,
+            options,
         }
     }
 
     fn flush(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
-        if self.nbytes >= Self::BLOCK_SIZE {
-            let nblocks = self.row_count / Self::BLOCK_LEN;
+        if self.nbytes >= self.options.minimum_block_size {
+            let nblocks = self.row_count / self.options.block_len_multiple;
 
             // If we don't have a full block, then continue anyway.
             if nblocks == 0 {
@@ -94,7 +110,7 @@ impl ColumnChunker {
             }
 
             let mut chunks = Vec::with_capacity(self.chunks.len());
-            let mut remaining = nblocks * Self::BLOCK_LEN;
+            let mut remaining = nblocks * self.options.block_len_multiple;
 
             while remaining > 0 {
                 let chunk = self.chunks.pop_front().vortex_expect("chunk is missing");
@@ -140,7 +156,7 @@ impl LayoutWriter for ColumnChunker {
         // Split chunks into 8192 blocks to make sure we don't over-size them.
         let mut offset = 0;
         while offset < chunk.len() {
-            let end = (offset + Self::BLOCK_LEN).min(chunk.len());
+            let end = (offset + self.options.block_len_multiple).min(chunk.len());
             let c = slice(&chunk, offset, end)?;
             self.row_count += c.len();
             self.nbytes += c.nbytes();

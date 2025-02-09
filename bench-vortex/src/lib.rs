@@ -48,10 +48,6 @@ pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
 
-// Sizes match default compressor configuration
-const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
-const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
-
 #[macro_export]
 macro_rules! feature_flagged_allocator {
     () => {

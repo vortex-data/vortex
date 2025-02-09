@@ -19,7 +19,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy),
+            strategy: Box::new(VortexLayoutStrategy::default()),
         }
     }
 }
