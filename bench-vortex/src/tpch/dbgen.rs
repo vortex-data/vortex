@@ -208,9 +208,6 @@ fn get_or_cache_toolchain(
         }
     }
 
-    // Cleanup the original tarball now that we've unpacked it
-    fs::remove_file(&zip_path)?;
-
     Ok(dbgen_binary(cache_dir, version, platform))
 }
 
