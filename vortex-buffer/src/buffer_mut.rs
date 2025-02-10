@@ -25,7 +25,7 @@ impl<T> BufferMut<T> {
         Self::with_capacity_aligned(capacity, Alignment::of::<T>())
     }
 
-    /// Create a new `BufferMut` with the requested alignment and _at least_ the requested capacity.
+    /// Create a new `BufferMut` with the requested alignment and capacity.
     pub fn with_capacity_aligned(capacity: usize, alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
@@ -35,7 +35,7 @@ impl<T> BufferMut<T> {
             );
         }
 
-        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment - 1);
+        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment);
         bytes.align_empty(alignment);
 
         Self {
@@ -53,10 +53,9 @@ impl<T> BufferMut<T> {
 
     /// Create a new zeroed `BufferMut`.
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment - 1);
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
         bytes.advance(bytes.as_ptr().align_offset(*alignment));
         unsafe { bytes.set_len(len * size_of::<T>()) };
-
         Self {
             bytes,
             length: len,
