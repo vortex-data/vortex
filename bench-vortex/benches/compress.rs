@@ -35,8 +35,6 @@ use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
-use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
@@ -109,17 +107,11 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 }
 
 #[inline(never)]
-fn vortex_compress_write(
-    runtime: &Runtime,
-    compressor: &SamplingCompressor<'_>,
-    array: &Array,
-    buf: &mut Vec<u8>,
-) -> VortexResult<u64> {
-    let compressed = compressor.compress(array, None)?.into_array();
+fn vortex_compress_write(runtime: &Runtime, array: &Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
     runtime
         .block_on(async {
             VortexWriteOptions::default()
-                .write(Cursor::new(buf), compressed.into_array_stream())
+                .write(Cursor::new(buf), array.clone().into_array_stream())
                 .await
         })
         .map(|c| c.position())
@@ -141,17 +133,12 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
     })
 }
 
-fn vortex_compressed_written_size(
-    runtime: &Runtime,
-    compressor: &SamplingCompressor<'_>,
-    array: &Array,
-) -> VortexResult<u64> {
-    vortex_compress_write(runtime, compressor, array, &mut Vec::new())
+fn vortex_compressed_written_size(runtime: &Runtime, array: &Array) -> VortexResult<u64> {
+    vortex_compress_write(runtime, array, &mut Vec::new())
 }
 
 fn benchmark_compress<F, U>(
     c: &mut Criterion,
-    compressor: &SamplingCompressor<'_>,
     make_uncompressed: F,
     sample_size: usize,
     measurement_time: Option<Duration>,
@@ -188,8 +175,7 @@ fn benchmark_compress<F, U>(
         group.bench_function(bench_name, |b| {
             b.iter_with_large_drop(|| {
                 compressed_size =
-                    vortex_compressed_written_size(runtime, compressor, uncompressed.as_ref())
-                        .unwrap();
+                    vortex_compressed_written_size(runtime, uncompressed.as_ref()).unwrap();
             });
         });
         group.finish();
@@ -227,7 +213,7 @@ fn benchmark_compress<F, U>(
 
         let buffer = LazyCell::new(|| {
             let mut buf = Vec::new();
-            vortex_compress_write(runtime, compressor, uncompressed.as_ref(), &mut buf).unwrap();
+            vortex_compress_write(runtime, uncompressed.as_ref(), &mut buf).unwrap();
             Bytes::from(buf)
         });
 
@@ -308,14 +294,7 @@ fn benchmark_compress<F, U>(
 
 fn yellow_taxi_trip_data(c: &mut Criterion) {
     taxi_data_parquet();
-    benchmark_compress(
-        c,
-        &SamplingCompressor::default(),
-        fetch_taxi_data,
-        10,
-        None,
-        "taxi",
-    );
+    benchmark_compress(c, fetch_taxi_data, 10, None, "taxi");
 }
 
 fn public_bi_benchmark(c: &mut Criterion) {
@@ -337,7 +316,6 @@ fn public_bi_benchmark(c: &mut Criterion) {
 
         benchmark_compress(
             c,
-            &SamplingCompressor::default(),
             || dataset.to_vortex_array().unwrap(),
             10,
             None,
@@ -355,9 +333,6 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         &tpch::schema::LINEITEM,
     ));
 
-    let compressor = SamplingCompressor::default().excluding(&FSSTCompressor);
-    let compressor_fsst = SamplingCompressor::default();
-
     let comment_chunks = ChunkedArray::try_from(lineitem_vortex)
         .unwrap()
         .chunks()
@@ -374,23 +349,7 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         .unwrap()
         .into_array();
 
-    benchmark_compress(
-        c,
-        &compressor,
-        || &comments,
-        10,
-        None,
-        "TPC-H l_comment chunked without fsst",
-    );
-
-    benchmark_compress(
-        c,
-        &compressor_fsst,
-        || &comments,
-        10,
-        None,
-        "TPC-H l_comment chunked",
-    );
+    benchmark_compress(c, || &comments, 10, None, "TPC-H l_comment chunked");
 
     let comments_canonical = comments.into_struct().unwrap().into_array();
     let dtype = comments_canonical.dtype().clone();
@@ -399,7 +358,6 @@ fn tpc_h_l_comment(c: &mut Criterion) {
 
     benchmark_compress(
         c,
-        &compressor_fsst,
         || &comments_canonical_chunked,
         10,
         Some(Duration::new(15, 0)),
@@ -409,13 +367,11 @@ fn tpc_h_l_comment(c: &mut Criterion) {
 
 fn wide_table(c: &mut Criterion) {
     let row_count = 1000;
-    let compressor = SamplingCompressor::default();
     for chunks in [1, 50] {
         for num_columns in [10, 100, 1000] {
             let name = format!("wide table cols={num_columns} chunks={chunks} rows={row_count}");
             benchmark_compress(
                 c,
-                &compressor,
                 || generate_struct_of_list_of_ints_array(num_columns, row_count, chunks).unwrap(),
                 10,
                 None,
