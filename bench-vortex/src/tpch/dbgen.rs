@@ -4,7 +4,6 @@
 ///
 /// For more information, see the [dbgen](https://github.com/spiraldb/tpch-dbgen) project.
 use std::fmt::{Display, Formatter};
-use std::fs;
 use std::fs::File;
 use std::io::copy;
 use std::path::{Path, PathBuf};
