@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{Max, Stat, Statistics, StatsSet};
+use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
 use crate::{Array, IntoArray, IntoCanonical};
 
 pub trait TakeFn<A> {
@@ -90,15 +90,20 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 fn derive_take_stats(arr: &Array) -> StatsSet {
     let stats = arr.stats_set();
 
-    stats.keep_exact_inexact_stats(
+    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+
+    let mut stats = stats.keep_inexact_stats(&[
+        // Cannot create values smaller than min or larger than max
+        Stat::Min,
+        Stat::Max,
+    ]);
+
+    if is_constant == Some(Precision::Exact(true)) {
         // Any combination of elements from a constant array is still const
-        &[Stat::IsConstant],
-        &[
-            // Cannot create values smaller than min or larger than max
-            Stat::Min,
-            Stat::Max,
-        ],
-    )
+        stats.set(Stat::IsConstant, Precision::exact(true));
+    }
+
+    stats
 }
 
 fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {

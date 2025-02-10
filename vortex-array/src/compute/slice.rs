@@ -93,25 +93,27 @@ fn derive_sliced_stats(arr: &Array) -> StatsSet {
 
     // an array that is not constant can become constant after slicing
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+    let is_sorted = stats.get_as::<bool>(Stat::IsConstant);
+    let is_strict_sorted = stats.get_as::<bool>(Stat::IsConstant);
 
-    let mut stats = stats.keep_exact_inexact_stats(
-        &[Stat::IsSorted, Stat::IsStrictSorted],
-        &[
-            Stat::Max,
-            Stat::Min,
-            Stat::RunCount,
-            Stat::TrueCount,
-            Stat::NullCount,
-            Stat::UncompressedSizeInBytes,
-        ],
-    );
+    let mut stats = stats.keep_inexact_stats(&[
+        Stat::Max,
+        Stat::Min,
+        Stat::RunCount,
+        Stat::TrueCount,
+        Stat::NullCount,
+        Stat::UncompressedSizeInBytes,
+    ]);
 
-    if is_constant
-        .as_ref()
-        .is_some_and(|is_constant| is_constant == &Precision::exact(true))
-    {
+    if is_constant == Some(Precision::Exact(true)) {
         stats.set(Stat::IsConstant, Precision::exact(true));
-    };
+    }
+    if is_sorted == Some(Precision::Exact(true)) {
+        stats.set(Stat::IsSorted, Precision::exact(true));
+    }
+    if is_strict_sorted == Some(Precision::Exact(true)) {
+        stats.set(Stat::IsStrictSorted, Precision::exact(true));
+    }
 
     stats
 }
