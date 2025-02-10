@@ -307,7 +307,6 @@ async fn register_vortex_file(
     let vtx_file = &vortex_dir.join(
         file.path_segments()
             .vortex_expect("url path not empty")
-            .collect::<Vec<_>>()
             .last()
             .unwrap()
             .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref())
