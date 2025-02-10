@@ -2,6 +2,7 @@ use datafusion::prelude::SessionContext;
 
 use crate::{execute_query, Format};
 
+#[tracing::instrument(skip(ctx, queries))]
 pub async fn run_tpch_query(
     ctx: &SessionContext,
     queries: &[String],

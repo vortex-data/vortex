@@ -134,6 +134,7 @@ fn main() -> ExitCode {
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
     exclude_queries: Option<Vec<usize>>,
