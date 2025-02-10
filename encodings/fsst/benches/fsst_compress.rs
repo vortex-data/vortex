@@ -89,7 +89,7 @@ fn main() {
 }
 
 // [(string_count, avg_len, unique_chars)]
-const BENCH_ARGS: [(usize, usize, u8); 12] = [
+const BENCH_ARGS: &[(usize, usize, u8)] = &[
     (10_000, 4, 4),
     (10_000, 16, 4),
     (10_000, 64, 4),

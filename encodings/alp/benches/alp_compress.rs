@@ -82,7 +82,7 @@ fn main() {
     divan::main();
 }
 
-const BENCH_ARGS: [(usize, f64, f64); 18] = [
+const BENCH_ARGS: &[(usize, f64, f64)] = &[
     (100_000, 0.0, 0.25),
     (100_000, 0.01, 0.25),
     (100_000, 0.1, 0.25),
