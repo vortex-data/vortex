@@ -105,7 +105,7 @@ pub unsafe fn bitpack_unchecked(
 ) -> VortexResult<ByteBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
-        bitpack_primitive(parray.as_slice::<$P>(), bit_width)
+        bitpack_primitive(parray.as_slice::<$P>(), bit_width).into_byte_buffer()
     });
     Ok(packed)
 }
@@ -116,9 +116,9 @@ pub unsafe fn bitpack_unchecked(
 pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &[T],
     bit_width: u8,
-) -> ByteBuffer {
+) -> Buffer<T> {
     if bit_width == 0 {
-        return ByteBuffer::empty();
+        return Buffer::<T>::empty();
     }
     let bit_width = bit_width as usize;
 
@@ -164,7 +164,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         };
     }
 
-    output.freeze().into_byte_buffer()
+    output.freeze()
 }
 
 pub fn gather_patches(

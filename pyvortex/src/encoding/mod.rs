@@ -18,7 +18,7 @@ use fastlanes::{PyFastLanesBitPackedEncoding, PyFastLanesDeltaEncoding, PyFastLa
 use crate::install_module;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new_bound(py, "encoding")?;
+    let m = PyModule::new(py, "encoding")?;
     parent.add_submodule(&m)?;
     install_module("vortex._lib.encoding", &m)?;
 

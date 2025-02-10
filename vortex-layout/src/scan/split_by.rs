@@ -66,7 +66,7 @@ mod test {
     use super::*;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
-    use crate::strategies::LayoutWriterExt;
+    use crate::writer::LayoutWriterExt;
 
     #[test]
     fn test_layout_splits_flat() {

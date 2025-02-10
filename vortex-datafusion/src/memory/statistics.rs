@@ -36,6 +36,7 @@ pub(crate) fn chunked_array_df_stats(
                     })
                 })),
                 distinct_count: Precision::Absent,
+                sum_value: Precision::Absent,
             }
         })
         .collect::<VortexResult<Vec<_>>>()?;

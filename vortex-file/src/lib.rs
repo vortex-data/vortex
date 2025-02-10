@@ -93,6 +93,7 @@ mod generic;
 mod memory;
 mod open;
 pub mod segments;
+mod strategy;
 #[cfg(test)]
 mod tests;
 mod writer;

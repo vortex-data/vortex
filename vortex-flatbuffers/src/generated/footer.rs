@@ -4,6 +4,9 @@
 // @generated
 
 use crate::layout::*;
+use crate::scalar::*;
+use crate::dtype::*;
+use crate::array::*;
 use core::mem;
 use core::cmp::Ordering;
 
@@ -254,6 +257,7 @@ impl<'a> flatbuffers::Follow<'a> for FileLayout<'a> {
 impl<'a> FileLayout<'a> {
   pub const VT_ROOT_LAYOUT: flatbuffers::VOffsetT = 4;
   pub const VT_SEGMENTS: flatbuffers::VOffsetT = 6;
+  pub const VT_STATISTICS: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -265,6 +269,7 @@ impl<'a> FileLayout<'a> {
     args: &'args FileLayoutArgs<'args>
   ) -> flatbuffers::WIPOffset<FileLayout<'bldr>> {
     let mut builder = FileLayoutBuilder::new(_fbb);
+    if let Some(x) = args.statistics { builder.add_statistics(x); }
     if let Some(x) = args.segments { builder.add_segments(x); }
     if let Some(x) = args.root_layout { builder.add_root_layout(x); }
     builder.finish()
@@ -285,6 +290,13 @@ impl<'a> FileLayout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, Segment>>>(FileLayout::VT_SEGMENTS, None)}
   }
+  #[inline]
+  pub fn statistics(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats>>>>(FileLayout::VT_STATISTICS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for FileLayout<'_> {
@@ -296,6 +308,7 @@ impl flatbuffers::Verifiable for FileLayout<'_> {
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("root_layout", Self::VT_ROOT_LAYOUT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Segment>>>("segments", Self::VT_SEGMENTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ArrayStats>>>>("statistics", Self::VT_STATISTICS, false)?
      .finish();
     Ok(())
   }
@@ -303,6 +316,7 @@ impl flatbuffers::Verifiable for FileLayout<'_> {
 pub struct FileLayoutArgs<'a> {
     pub root_layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
     pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Segment>>>,
+    pub statistics: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
 }
 impl<'a> Default for FileLayoutArgs<'a> {
   #[inline]
@@ -310,6 +324,7 @@ impl<'a> Default for FileLayoutArgs<'a> {
     FileLayoutArgs {
       root_layout: None,
       segments: None,
+      statistics: None,
     }
   }
 }
@@ -326,6 +341,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileLayoutBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_segments(&mut self, segments: flatbuffers::WIPOffset<flatbuffers::Vector<'b , Segment>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_SEGMENTS, segments);
+  }
+  #[inline]
+  pub fn add_statistics(&mut self, statistics: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ArrayStats<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_STATISTICS, statistics);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FileLayoutBuilder<'a, 'b, A> {
@@ -347,6 +366,7 @@ impl core::fmt::Debug for FileLayout<'_> {
     let mut ds = f.debug_struct("FileLayout");
       ds.field("root_layout", &self.root_layout());
       ds.field("segments", &self.segments());
+      ds.field("statistics", &self.statistics());
       ds.finish()
   }
 }

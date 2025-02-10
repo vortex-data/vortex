@@ -1,6 +1,5 @@
-use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_dtype::{DType, FieldName, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::transform::immediate_access::{immediate_scope_accesses, FieldAccesses};
@@ -36,24 +35,19 @@ pub struct PartitionedExpr {
     /// The root expression used to re-assemble the results.
     pub root: ExprRef,
     /// The partitions of the expression.
-    pub partitions: Box<[Partition]>,
+    pub partitions: Box<[ExprRef]>,
+    /// The field names for the partitions
+    pub partition_names: FieldNames,
 }
 
 impl PartitionedExpr {
     /// Return the partition for a given field, if it exists.
-    pub fn find_partition(&self, field: &FieldName) -> Option<&Partition> {
-        self.partitions.iter().find(|p| &p.name == field)
+    pub fn find_partition(&self, field: &FieldName) -> Option<&ExprRef> {
+        self.partition_names
+            .iter()
+            .position(|name| name == field)
+            .map(|idx| &self.partitions[idx])
     }
-}
-
-/// A single partition of an expression.
-#[derive(Debug)]
-pub struct Partition {
-    /// The name of the partition, to be used when re-assembling the results.
-    // TODO(ngates): we wouldn't need this if we had a MergeExpr.
-    pub name: FieldName,
-    /// The expression that defines the partition.
-    pub expr: ExprRef,
 }
 
 #[derive(Debug)]
@@ -91,30 +85,27 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         let mut remove_accesses: Vec<FieldName> = Vec::new();
 
         // Create partitions which can be passed to layout fields
-        let partitions: Vec<Partition> = splitter
-            .sub_expressions
-            .into_iter()
-            .map(|(name, exprs)| {
-                let field_dtype = scope_dtype.field(&name)?;
-                // If there is a single expr then we don't need to `pack` this, and we must update
-                // the root expr removing this access.
-                let expr = if exprs.len() == 1 {
-                    remove_accesses.push(Self::field_idx_name(&name, 0));
-                    exprs.first().vortex_expect("exprs is non-empty").clone()
-                } else {
-                    pack(
-                        exprs
-                            .into_iter()
-                            .enumerate()
-                            .map(|(idx, expr)| (Self::field_idx_name(&name, idx), expr)),
-                    )
-                };
-                VortexResult::Ok(Partition {
-                    name,
-                    expr: simplify_typed(expr, &field_dtype)?,
-                })
-            })
-            .try_collect()?;
+        let mut partitions = Vec::with_capacity(splitter.sub_expressions.len());
+        let mut partition_names = Vec::with_capacity(splitter.sub_expressions.len());
+        for (name, exprs) in splitter.sub_expressions.into_iter() {
+            let field_dtype = scope_dtype.field(&name)?;
+            // If there is a single expr then we don't need to `pack` this, and we must update
+            // the root expr removing this access.
+            let expr = if exprs.len() == 1 {
+                remove_accesses.push(Self::field_idx_name(&name, 0));
+                exprs.first().vortex_expect("exprs is non-empty").clone()
+            } else {
+                pack(
+                    exprs
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, expr)| (Self::field_idx_name(&name, idx), expr)),
+                )
+            };
+
+            partitions.push(simplify_typed(expr, &field_dtype)?);
+            partition_names.push(name);
+        }
 
         let expression_access_counts = field_accesses.get(&expr).map(|ac| ac.len());
         // Ensure that there are not more accesses than partitions, we missed something
@@ -130,6 +121,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         Ok(PartitionedExpr {
             root: simplify_typed(split.result, dtype)?,
             partitions: partitions.into_boxed_slice(),
+            partition_names: partition_names.into(),
         })
     }
 }
@@ -308,11 +300,8 @@ mod tests {
         assert!(split_a.is_some());
         let split_a = split_a.unwrap();
 
-        assert_eq!(&partitioned.root, &get_item(split_a.name.clone(), ident()));
-        assert_eq!(
-            &simplify(split_a.expr.clone()).unwrap(),
-            &get_item("b", ident())
-        );
+        assert_eq!(&partitioned.root, &get_item("a", ident()));
+        assert_eq!(&simplify(split_a.clone()).unwrap(), &get_item("b", ident()));
     }
 
     #[test]
@@ -328,7 +317,7 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &simplify(split_a.expr.clone()).unwrap(),
+            &simplify(split_a.clone()).unwrap(),
             &pack([
                 (
                     StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
@@ -341,7 +330,7 @@ mod tests {
             ])
         );
         let split_c = partitioned.find_partition(&"c".into()).unwrap();
-        assert_eq!(&simplify(split_c.expr.clone()).unwrap(), &ident())
+        assert_eq!(&simplify(split_c.clone()).unwrap(), &ident())
     }
 
     #[test]

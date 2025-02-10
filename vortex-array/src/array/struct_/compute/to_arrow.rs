@@ -22,7 +22,7 @@ impl ToArrowFn<StructArray> for StructEncoding {
 
         let field_arrays = target_fields
             .iter()
-            .zip_eq(array.children())
+            .zip_eq(array.fields())
             .map(|(field, arr)| {
                 // We check that the Vortex array nullability is compatible with the field
                 // nullability. In other words, make sure we don't return any nulls for a

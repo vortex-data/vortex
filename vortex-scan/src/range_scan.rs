@@ -2,7 +2,6 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use vortex_array::compute::fill_null;
 use vortex_array::Array;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
@@ -111,8 +110,6 @@ impl RangeScanner {
             State::FilterEval((eval_mask, mut conjuncts_rev)) => {
                 // conjuncts are non-empty here
                 conjuncts_rev.pop();
-
-                let result = fill_null(result, false.into())?;
 
                 // Intersect the result of the filter expression with our initial row mask.
                 let mask = Mask::try_from(result)?;

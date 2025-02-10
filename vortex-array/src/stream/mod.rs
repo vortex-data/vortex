@@ -1,3 +1,5 @@
+use std::pin::Pin;
+
 pub use adapter::*;
 pub use ext::*;
 use futures_util::Stream;
@@ -17,3 +19,6 @@ mod take_rows;
 pub trait ArrayStream: Stream<Item = VortexResult<Array>> {
     fn dtype(&self) -> &DType;
 }
+
+/// Trait for a [`Stream`] of [`Array`]s that can be passed between threads.
+pub type SendableArrayStream = Pin<Box<dyn ArrayStream + Send>>;

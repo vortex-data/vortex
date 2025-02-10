@@ -7,7 +7,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::Array;
 
@@ -117,6 +117,15 @@ pub trait StructArrayTrait: Deref<Target = Array> {
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<Array>;
+}
+
+impl dyn StructArrayTrait + '_ {
+    pub fn fields(&self) -> impl Iterator<Item = Array> + '_ {
+        (0..self.nfields()).map(|i| {
+            self.maybe_null_field_by_idx(i)
+                .vortex_expect("never out of bounds")
+        })
+    }
 }
 
 pub trait ListArrayTrait {}

@@ -49,7 +49,7 @@ impl StructArray {
         })
     }
 
-    pub fn children(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn fields(&self) -> impl Iterator<Item = Array> + '_ {
         (0..self.nfields()).map(move |idx| {
             self.maybe_null_field_by_idx(idx)
                 .vortex_expect("never out of bounds")
@@ -58,7 +58,7 @@ impl StructArray {
 
     pub fn try_new(
         names: FieldNames,
-        fields: Vec<Array>,
+        mut fields: Vec<Array>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -81,10 +81,8 @@ impl StructArray {
 
         let validity_metadata = validity.to_metadata(length)?;
 
-        let mut children = Vec::with_capacity(fields.len() + 1);
-        children.extend(fields);
         if let Some(v) = validity.into_array() {
-            children.push(v);
+            fields.push(v);
         }
 
         Self::try_from_parts(
@@ -94,7 +92,7 @@ impl StructArray {
                 validity: validity_metadata,
             }),
             None,
-            Some(children.into()),
+            Some(fields.into()),
             StatsSet::default(),
         )
     }
@@ -211,7 +209,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
             Stat::UncompressedSizeInBytes => array
-                .children()
+                .fields()
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()

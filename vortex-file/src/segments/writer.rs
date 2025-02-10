@@ -29,17 +29,24 @@ impl BufferedSegmentWriter {
         segments: &mut Vec<Segment>,
     ) -> VortexResult<()> {
         for buffers in self.segments.drain(..) {
+            // The API requires us to write these buffers contiguously. Therefore, we can only
+            // respect the alignment of the first one.
+            // Don't worry, in most cases the caller knows what they're doing and will align the
+            // buffers themselves, inserting padding buffers where necessary.
             let alignment = buffers
                 .first()
                 .map(|buffer| buffer.alignment())
                 .unwrap_or_else(Alignment::none);
 
+            // Add any padding required to align the segment.
             let offset = write.position();
-
-            // TODO(ngates): add an option to include zero-copy padding in the file.
-            // let padding = offset.next_multiple_of(*alignment as u64) - offset;
-            // write.write_all(&vec![0u8; padding as usize]).await?;
-            // let offset = offset + padding;
+            let padding = offset.next_multiple_of(*alignment as u64) - offset;
+            if padding > 0 {
+                write
+                    .write_all(ByteBuffer::zeroed(padding as usize))
+                    .await?;
+            }
+            let offset = write.position();
 
             for buffer in buffers {
                 write.write_all(buffer).await?;

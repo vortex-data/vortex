@@ -20,11 +20,12 @@ use datafusion_physical_plan::insert::DataSinkExec;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
+use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
-use vortex_array::stats::Stat;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{stats, ContextRef};
-use vortex_dtype::{DType, FieldPath};
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
@@ -191,12 +192,6 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        // Evaluate the statistics for each column that we are able to return to DataFusion.
-        let field_paths = table_schema
-            .fields()
-            .iter()
-            .map(|field| FieldPath::from_name(field.name().to_owned()))
-            .collect();
         let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let file_layout = self
             .file_layout_cache
@@ -208,18 +203,20 @@ impl FileFormat for VortexFormat {
             .open()
             .await?;
 
-        let stats = vxf
-            .statistics(
-                field_paths,
-                [
-                    Stat::Min,
-                    Stat::Max,
-                    Stat::NullCount,
-                    Stat::UncompressedSizeInBytes,
-                ]
-                .into(),
-            )?
-            .await?;
+        // Evaluate the statistics for each column that we are able to return to DataFusion.
+        let struct_dtype = vxf
+            .dtype()
+            .as_struct()
+            .vortex_expect("dtype is not a struct");
+        let stats = table_schema
+            .fields()
+            .iter()
+            .map(|field| struct_dtype.find(field.name()).ok())
+            .map(|idx| match idx {
+                None => StatsSet::default(),
+                Some(id) => vxf.file_stats()[id].clone(),
+            })
+            .collect_vec();
 
         let total_byte_size = stats
             .iter()
@@ -252,6 +249,7 @@ impl FileFormat for VortexFormat {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),
                     min_value: directional_bound_to_df_precision(min),
+                    sum_value: Precision::default(),
                     distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
                         .and_then(|is_constant| {
@@ -325,15 +323,10 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
-        let sink_schema = conf.output_schema().clone();
-        let sink = Arc::new(VortexSink::new(conf));
+        let schema = conf.output_schema().clone();
+        let sink = Arc::new(VortexSink::new(conf, schema));
 
-        Ok(Arc::new(DataSinkExec::new(
-            input,
-            sink,
-            sink_schema,
-            order_requirements,
-        )) as _)
+        Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }
 
     fn supports_filters_pushdown(

@@ -9,6 +9,7 @@ use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
+use crate::stats::Statistics;
 use crate::{Array, ContextRef};
 
 /// Options for serializing an array.
@@ -51,7 +52,7 @@ impl Array {
             .map(|buf| buf.alignment())
             .chain(iter::once(FlatBuffer::alignment()))
             .max()
-            .vortex_expect("There is at least one alignment, the flatbuffer one");
+            .unwrap_or_else(FlatBuffer::alignment);
 
         // Create a shared buffer of zeros we can use for padding
         let zeros = ByteBuffer::zeroed(*max_alignment);
@@ -82,6 +83,7 @@ impl Array {
                 Compression::None,
                 u32::try_from(buffer.len()).vortex_expect("buffers fit into u32"),
             ));
+
             pos += buffer.len();
             buffers.push(buffer.aligned(Alignment::none()));
         }
@@ -105,7 +107,7 @@ impl Array {
         let fb_length = fb_buffer.len();
 
         if options.include_padding {
-            let padding = pos.next_multiple_of(*fb_buffer.alignment()) - pos;
+            let padding = pos.next_multiple_of(*FlatBuffer::alignment()) - pos;
             if padding > 0 {
                 buffers.push(zeros.slice(0..padding));
             }
@@ -190,7 +192,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
+        let stats = Some(self.array.stats_set().write_flatbuffer(fbb));
 
         fba::ArrayNode::create(
             fbb,
@@ -256,7 +258,8 @@ impl TryFrom<ByteBuffer> for ArrayParts {
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
         let fb_offset = value.len() - 4 - fb_length;
-        let fb_buffer = FlatBuffer::align_from(value.slice(fb_offset..fb_offset + fb_length));
+        let fb_buffer = value.slice(fb_offset..fb_offset + fb_length);
+        let fb_buffer = FlatBuffer::align_from(fb_buffer);
 
         let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");

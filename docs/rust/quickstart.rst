@@ -45,9 +45,9 @@ Use :func:`~vortex.compress` to compress the Vortex array and check the relative
 
    >>> cvtx = vx.compress(vtx)
    >>> cvtx.nbytes
-   15768
+   15369
    >>> cvtx.nbytes / vtx.nbytes
-   0.11...
+   0.10...
 
 Vortex uses nearly ten times fewer bytes than Arrow. Fewer bytes means more of your data fits in
 cache and RAM.

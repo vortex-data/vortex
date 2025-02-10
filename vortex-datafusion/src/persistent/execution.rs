@@ -43,6 +43,7 @@ impl VortexExec {
     ) -> DFResult<Self> {
         let ConfigProjection {
             arrow_schema,
+            constraints: _constraints,
             mut statistics,
             orderings,
             projection_expr,

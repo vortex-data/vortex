@@ -1,3 +1,4 @@
+include "vortex-array/array.fbs";
 include "vortex-layout/layout.fbs";
 
 // [file layout]
@@ -5,6 +6,7 @@ include "vortex-layout/layout.fbs";
 table FileLayout {
     root_layout: Layout;
     segments: [Segment];
+    statistics: [ArrayStats];
 }
 
 /// A `Segment` acts as the locator for a buffer within the file.
