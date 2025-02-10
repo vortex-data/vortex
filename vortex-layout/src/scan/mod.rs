@@ -5,6 +5,8 @@ use futures::future::BoxFuture;
 use futures::{stream, FutureExt, Stream};
 use itertools::Itertools;
 use oneshot;
+use tracing::info_span;
+use tracing_futures::Instrument;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
@@ -245,23 +247,11 @@ impl<D: ScanDriver> Scan<D> {
         });
         let driver_stream = self.driver.drive_stream(stream::iter(tasks));
 
-        let stream = {
-            #[cfg(feature = "tracing")]
-            {
-                use tracing::info_span;
-                use tracing_futures::Instrument as _;
-                UnifiedDriverStream {
-                    exec_stream: array_stream,
-                    io_stream: driver_stream,
-                }
-                .instrument(info_span!("scan_stream"))
-            }
-            #[cfg(not(feature = "tracing"))]
-            UnifiedDriverStream {
-                exec_stream: array_stream,
-                io_stream: driver_stream,
-            }
-        };
+        let stream = UnifiedDriverStream {
+            exec_stream: array_stream,
+            io_stream: driver_stream,
+        }
+        .instrument(info_span!("scan_stream"));
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }

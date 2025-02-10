@@ -44,7 +44,6 @@ pub struct VortexOpenOptions<F: FileType> {
     read: F::Read,
     /// File-specific options
     pub(crate) options: F::Options,
-    /// A human-readable name for debugging and logging,
     /// The Vortex Array encoding context.
     ctx: ContextRef,
     /// The Vortex Layout encoding context.

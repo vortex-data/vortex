@@ -60,7 +60,7 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    #[tracing::instrument(skip(self))]
     async fn read_byte_range(
         &self,
         range: Range<u64>,
@@ -82,7 +82,7 @@ impl VortexReadAt for TokioFile {
         PerformanceHint::local()
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    #[tracing::instrument(skip(self))]
     async fn size(&self) -> io::Result<u64> {
         self.metadata().map(|metadata| metadata.len())
     }

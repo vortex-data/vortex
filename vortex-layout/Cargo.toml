@@ -23,8 +23,8 @@ futures = { workspace = true, features = ["alloc"] }
 itertools = { workspace = true }
 log = { workspace = true }
 oneshot = { workspace = true, features = ["async"] }
-tracing = { workspace = true, optional = true }
-tracing-futures = { workspace = true, optional = true }
+tracing = { workspace = true }
+tracing-futures = { workspace = true }
 pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -38,9 +38,6 @@ vortex-scan = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
-
-[features]
-tracing = ["dep:tracing", "dep:tracing-futures"]
 
 [lints]
 workspace = true

@@ -184,7 +184,7 @@ impl FileFormat for VortexFormat {
         Ok(schema)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
+    #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]
     async fn infer_stats(
         &self,
         _state: &SessionState,
