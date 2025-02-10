@@ -75,10 +75,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = array.into_canonical()?;
-        let Canonical::Primitive(array) = array else {
-            vortex_bail!("Cannot extend from non-primitive array");
-        };
+        let array = array.into_canonical()?.into_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");
         }

@@ -49,10 +49,7 @@ impl ArrayBuilder for NullBuilder {
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = array.into_canonical()?;
-        if !matches!(array, Canonical::Null(_)) {
-            vortex_bail!("Expected Null array, got {:?}", array);
-        }
+        let array = array.into_canonical()?.into_null()?;
         self.append_nulls(array.len());
         Ok(())
     }

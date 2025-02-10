@@ -1,19 +1,22 @@
+use log::{debug, info};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::{Array, Canonical};
+use crate::{Array, Canonical, IntoArray};
 
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
 pub trait CanonicalVTable<Array> {
     fn into_canonical(&self, array: Array) -> VortexResult<Canonical>;
 
-    fn canonicalize_into(&self, array: Array, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        todo!(
-            "canonicalize_into {}",
-            self.into_canonical(array)?.tree_display()
+    fn canonicalize_into(&self, array: Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let canonical = self.into_canonical(array)?;
+        debug!(
+            "default impl canonicalize_into {}",
+            canonical.tree_display()
         );
+        builder.extend_from_array(canonical.into_array())
     }
 }
 

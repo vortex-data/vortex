@@ -217,13 +217,14 @@ impl IntoCanonical for Array {
         // should canonicalize_into?
         let canonical = self.vtable().into_canonical(self.clone())?;
         canonical.as_ref().inherit_statistics(self.statistics());
-
         Ok(canonical)
     }
 
     /// Canonicalize an [`Array`] into an existing [`ArrayBuilder`].
     fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        self.vtable().canonicalize_into(self.clone(), builder)
+        let canonical = self.vtable().canonicalize_into(self.clone(), builder);
+        canonical.as_ref().inherit_statistics(self.statistics());
+        Ok(canonical)
     }
 }
 
