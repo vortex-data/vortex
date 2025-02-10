@@ -245,9 +245,22 @@ impl<D: ScanDriver> Scan<D> {
         });
         let driver_stream = self.driver.drive_stream(stream::iter(tasks));
 
-        let stream = UnifiedDriverStream {
-            exec_stream: array_stream,
-            io_stream: driver_stream,
+        let stream = {
+            #[cfg(feature = "tracing")]
+            {
+                use tracing::info_span;
+                use tracing_futures::Instrument as _;
+                UnifiedDriverStream {
+                    exec_stream: array_stream,
+                    io_stream: driver_stream,
+                }
+                .instrument(info_span!("scan_stream"))
+            }
+            #[cfg(not(feature = "tracing"))]
+            UnifiedDriverStream {
+                exec_stream: array_stream,
+                io_stream: driver_stream,
+            }
         };
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))

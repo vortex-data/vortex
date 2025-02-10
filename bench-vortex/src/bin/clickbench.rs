@@ -16,8 +16,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
-use tracing::{info_span, Instrument};
-use tracing_subscriber::prelude::*;
 use vortex::error::{vortex_panic, VortexExpect};
 
 feature_flagged_allocator!();
@@ -49,6 +47,8 @@ fn main() {
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
+        use tracing_subscriber::prelude::*;
+
         // Capture `RUST_LOG` configuration
         let filter = tracing_subscriber::EnvFilter::from_default_env();
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
@@ -184,7 +184,7 @@ fn main() {
             }
 
             let mut fastest_result = Duration::from_millis(u64::MAX);
-            for iteration in 0..args.iterations {
+            for _iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
                     let context = context.clone();
@@ -193,7 +193,13 @@ fn main() {
                         let f = {
                             #[cfg(feature = "tracing")]
                             {
-                                let info_span = info_span!("execute_query", query_idx, iteration);
+                                use tracing::Instrument;
+
+                                let info_span = tracing::info_span!(
+                                    "execute_query",
+                                    query_idx,
+                                    iteration = _iteration
+                                );
                                 execute_query(&context, &query).instrument(info_span)
                             }
                             #[cfg(not(feature = "tracing"))]

@@ -5624,6 +5624,8 @@ dependencies = [
  "log",
  "oneshot",
  "pin-project-lite",
+ "tracing",
+ "tracing-futures",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

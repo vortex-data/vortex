@@ -50,4 +50,4 @@ workspace = true
 [features]
 futures = ["futures-util/io", "vortex-io/futures"]
 object_store = ["vortex-error/object_store", "vortex-io/object_store"]
-tracing = ["dep:tracing", "vortex-io/tracing"]
+tracing = ["dep:tracing", "vortex-io/tracing", "vortex-layout/tracing"]
