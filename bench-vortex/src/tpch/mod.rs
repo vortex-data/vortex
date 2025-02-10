@@ -181,13 +181,9 @@ mod named_locks {
     where
         F: Future<Output = Result<T, E>>,
     {
-        println!("getting lock {}", name);
-        let lock = get(name.clone()).await;
+        let lock = get(name).await;
         let _guard = lock.lock().await;
-        println!("have lock {}", name);
-        let t = f().await;
-        println!("done with lock {}", name);
-        t
+        f().await
     }
 }
 
