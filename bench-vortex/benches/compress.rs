@@ -1,11 +1,9 @@
-mod tokio_runtime;
-
 use core::cell::LazyCell;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::{env, fs};
 
@@ -29,19 +27,25 @@ use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use simplelog::*;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
-use vortex::error::VortexResult;
+use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, IntoArray, IntoArrayVariant};
 
-use crate::tokio_runtime::TOKIO_RUNTIME;
-
 feature_flagged_allocator!();
+
+pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(VortexError::IOError)
+        .vortex_expect("tokio runtime must not fail to start")
+});
 
 #[derive(serde::Serialize)]
 struct GenericBenchmarkResults<'a> {

@@ -5647,6 +5647,7 @@ version = "0.24.0"
 dependencies = [
  "arbitrary",
  "chrono",
+ "codspeed-criterion-compat",
  "fsst-rs",
  "itertools 0.14.0",
  "log",
@@ -5662,6 +5663,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
+ "vortex-mask",
  "vortex-runend",
  "vortex-scalar",
  "vortex-sparse",
