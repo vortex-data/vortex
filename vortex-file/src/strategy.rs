@@ -41,6 +41,13 @@ impl Default for VortexLayoutStrategy {
     }
 }
 
+impl VortexLayoutStrategy {
+    pub fn with_compress(mut self, compress: bool) -> Self {
+        self.compress = compress;
+        self
+    }
+}
+
 impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.

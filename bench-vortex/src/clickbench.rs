@@ -12,6 +12,7 @@ use tokio::fs::{create_dir_all, OpenOptions};
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexError};
+use vortex::file::strategy::VortexLayoutStrategy;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::stream::ArrayStreamAdapter;
 use vortex::Array;
@@ -184,7 +185,10 @@ pub async fn register_vortex_files(
                         .open(&vtx_file)
                         .await?;
 
-                    VortexWriteOptions::default().write(f, array_stream).await?;
+                    VortexWriteOptions::default()
+                        .with_strategy(VortexLayoutStrategy::default().with_compress(true))
+                        .write(f, array_stream)
+                        .await?;
 
                     anyhow::Ok(())
                 })
