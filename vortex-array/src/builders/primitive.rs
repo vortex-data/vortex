@@ -1,6 +1,5 @@
 use std::any::Any;
 
-use arrow_buffer::NullBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
@@ -15,9 +14,7 @@ use crate::{Array, IntoArray, IntoCanonical};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     values: BufferMut<T>,
-    // validity: NullBufferBuilder,
     nulls: LazyNullBufferBuilder,
-
     dtype: DType,
 }
 
