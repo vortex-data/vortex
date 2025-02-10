@@ -9,13 +9,19 @@ use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, LayoutReader};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;
+        log::debug!(
+            "Evaluating partitioned expression {}: {:?}",
+            self.layout().name(),
+            partitioned
+        );
+
         let field_readers: Vec<_> = partitioned
             .partition_names
             .iter()

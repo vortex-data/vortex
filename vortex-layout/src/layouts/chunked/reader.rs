@@ -80,7 +80,7 @@ impl ChunkedReader {
                         let layout_dtype = self.layout.dtype();
                         let stats_dtype =
                             StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone())?;
+                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone(), "stats")?;
 
                         let stats_array = stats_layout
                             .reader(self.segments.clone(), self.ctx.clone())?
@@ -116,6 +116,7 @@ impl ChunkedReader {
             .clone();
 
         cell.get_or_try_init(async {
+            log::debug!("Constructing pruning mask for expr: {:?}", expr);
             let pruning_predicate = PruningPredicate::try_new(expr);
             Ok(if let Some(stats_table) = self.stats_table().await? {
                 if let Some(predicate) = pruning_predicate {
@@ -143,7 +144,9 @@ impl ChunkedReader {
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.chunk_readers[idx].get_or_try_init(|| {
-            let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
+            let child_layout =
+                self.layout
+                    .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }

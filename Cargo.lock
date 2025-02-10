@@ -5698,6 +5698,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.24.0"
 dependencies = [
+ "log",
  "rstest",
  "vortex-array",
  "vortex-buffer",

@@ -81,9 +81,9 @@ impl StructReader {
 
         // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
-            let child_layout = self
-                .layout
-                .child(idx, self.struct_dtype().field_by_index(idx)?)?;
+            let child_layout =
+                self.layout
+                    .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }

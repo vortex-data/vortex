@@ -175,6 +175,7 @@ impl RangeScanner {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
                 NextOp::Eval((row_range, mask, expr)) => {
+                    log::debug!("RangeScan {:?} evaluating expr {}", row_range, expr);
                     self = self
                         .transition(evaluator(RowMask::new(mask, row_range.start), expr).await?)?;
                 }
