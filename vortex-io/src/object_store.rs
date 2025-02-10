@@ -61,7 +61,7 @@ impl VortexReadAt for ObjectStoreReadAt {
             GetResultPayload::File(file, _) => {
                 unsafe { buffer.set_len(len) };
                 tokio::task::spawn_blocking(move || {
-                    file.read_exact_at(&mut buffer, 0)?;
+                    file.read_exact_at(&mut buffer, range.start)?;
                     Ok::<_, io::Error>(buffer)
                 })
                 .await

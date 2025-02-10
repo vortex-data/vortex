@@ -192,6 +192,12 @@ impl<F: FileType> VortexOpenOptions<F> {
         {
             // NOTE(ngates): for now, we assume the dtype and layout segments are adjacent.
             let offset = postscript.dtype.offset.min(postscript.file_layout.offset);
+            log::info!(
+                "Initial read from {} did not cover all footer segments, reading from {}",
+                initial_offset,
+                offset
+            );
+
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - offset)?);
             new_initial_read.extend_from_slice(
