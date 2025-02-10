@@ -1,4 +1,4 @@
-#![allow(unused_imports, unused, dead_code)]
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 //! Various tests for the selection vector being present.
 
 use criterion::{BenchmarkId, Criterion};

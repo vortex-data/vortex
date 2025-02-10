@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
+
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use rand::distributions::Alphanumeric;
 use rand::seq::SliceRandom as _;
@@ -91,7 +93,7 @@ fn strings(c: &mut Criterion) {
     });
 
     let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
+    let fsst_array = fsst_compress(&varbinview_arr.into_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
         b.iter(|| fsst_array.clone().into_canonical().unwrap());
     });
