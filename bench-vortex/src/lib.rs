@@ -259,12 +259,10 @@ pub struct CompressionRunResults {
 }
 
 pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
-    let plan = ctx.sql(query).await.unwrap();
+    let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
-    let physical_plan = state.create_physical_plan(&plan).await.unwrap();
-    let result = collect(physical_plan.clone(), state.task_ctx())
-        .await
-        .unwrap();
+    let physical_plan = state.create_physical_plan(&plan).await?;
+    let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok(result)
 }
 
