@@ -1,11 +1,15 @@
 use std::io;
 use std::ops::Range;
+use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures_util::StreamExt;
 use object_store::path::Path;
-use object_store::{MultipartUpload, ObjectStore, PutPayload};
-use vortex_buffer::{Alignment, ByteBuffer};
+use object_store::{
+    GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, PutPayload,
+};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{IoBuf, VortexReadAt, VortexWrite};
@@ -36,10 +40,42 @@ impl VortexReadAt for ObjectStoreReadAt {
         let location = self.location.clone();
         let start = usize::try_from(range.start).vortex_expect("range.start");
         let end = usize::try_from(range.end).vortex_expect("range.end");
+        let len: usize = end - start;
 
-        let bytes = object_store.get_range(&location, start..end).await?;
+        // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
+        // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
+        // into the aligned buffer.
+        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
 
-        Ok(ByteBuffer::from(bytes).aligned(alignment))
+        let response = object_store
+            .get_opts(
+                &location,
+                GetOptions {
+                    range: Some(GetRange::Bounded(start..end)),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        let buffer = match response.payload {
+            GetResultPayload::File(file, _) => {
+                unsafe { buffer.set_len(len) };
+                tokio::task::spawn_blocking(move || {
+                    file.read_exact_at(&mut buffer, 0)?;
+                    Ok::<_, io::Error>(buffer)
+                })
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+            }
+            GetResultPayload::Stream(mut byte_stream) => {
+                while let Some(bytes) = byte_stream.next().await {
+                    buffer.extend_from_slice(&bytes?);
+                }
+                buffer
+            }
+        };
+
+        Ok(buffer.freeze())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
