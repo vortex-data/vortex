@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -38,9 +38,13 @@ impl LayoutReader for Arc<dyn LayoutReader> {
 pub trait LayoutRangeReader: 'static + Send + Sync {
     fn row_range(&self) -> &Range<u64>;
 
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     fn len(&self) -> usize {
         usize::try_from(self.row_range().end - self.row_range().start)
-            .expect("row range must fit within usize")
+            .vortex_expect("row range must fit within usize")
     }
 
     async fn evaluate_expr(&self, mask: Mask, expr: ExprRef) -> VortexResult<Array>;

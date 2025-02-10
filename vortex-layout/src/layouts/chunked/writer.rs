@@ -60,6 +60,7 @@ impl ChunkedLayoutWriter {
 
 impl LayoutWriter for ChunkedLayoutWriter {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+        let offset = self.row_count;
         self.row_count += chunk.len() as u64;
         self.stats_accumulator.push_chunk(&chunk)?;
 
@@ -68,7 +69,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         let mut chunk_writer = self
             .options
             .chunk_strategy
-            .new_writer(chunk.dtype(), self.row_count)?;
+            .new_writer(chunk.dtype(), offset)?;
         chunk_writer.push_chunk(segments, chunk)?;
         self.chunks.push(chunk_writer);
 

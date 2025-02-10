@@ -77,3 +77,100 @@ impl LayoutRangeReader for ChunkedRangeReader {
         Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use futures::executor::block_on;
+    use vortex_array::array::{BoolArray, ChunkedArray, ConstantArray};
+    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, FieldMask, PType};
+    use vortex_error::VortexExpect;
+    use vortex_expr::{gt, lit, Identity};
+    use vortex_mask::Mask;
+
+    use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::segments::test::TestSegments;
+    use crate::writer::LayoutWriterExt;
+    use crate::{Layout, LayoutReader};
+
+    /// Create a chunked layout with three chunks of primitive arrays.
+    fn chunked_layout() -> (Arc<TestSegments>, Layout) {
+        let mut segments = TestSegments::default();
+        let layout = ChunkedLayoutWriter::new(
+            &DType::Primitive(PType::I32, NonNullable),
+            0,
+            Default::default(),
+        )
+        .push_all(
+            &mut segments,
+            [
+                Ok(buffer![1, 2, 3].into_array()),
+                Ok(buffer![4, 5, 6].into_array()),
+                Ok(buffer![7, 8, 9].into_array()),
+            ],
+        )
+        .unwrap();
+        (Arc::new(segments), layout)
+    }
+
+    #[test]
+    fn test_chunked_evaluator() {
+        block_on(async {
+            let (segments, layout) = chunked_layout();
+
+            let result = layout
+                .reader(segments, Default::default(), &[FieldMask::All])
+                .unwrap()
+                .range_reader(0..layout.row_count())
+                .evaluate_expr(
+                    Mask::new_true(usize::try_from(layout.row_count()).unwrap()),
+                    Identity::new_expr(),
+                )
+                .await
+                .unwrap()
+                .into_primitive()
+                .unwrap();
+
+            assert_eq!(result.len(), 9);
+            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        })
+    }
+
+    #[test]
+    fn test_chunked_pruning_mask() {
+        block_on(async {
+            let (segments, layout) = chunked_layout();
+            let row_count = layout.row_count();
+            let reader = layout
+                .reader(segments, Default::default(), &[FieldMask::All])
+                .unwrap();
+
+            // Choose a prune-able expression
+            let expr = gt(Identity::new_expr(), lit(7));
+
+            let result = reader
+                .range_reader(0..row_count)
+                .evaluate_expr(
+                    Mask::new_true(usize::try_from(row_count).unwrap()),
+                    expr.clone(),
+                )
+                .await
+                .unwrap();
+            let result = ChunkedArray::try_from(result).unwrap();
+
+            // Now we ensure that the pruned chunks are ConstantArrays, instead of having been
+            // evaluated.
+            assert_eq!(result.nchunks(), 3);
+            ConstantArray::try_from(result.chunk(0).unwrap())
+                .vortex_expect("Expected first chunk to be pruned");
+            ConstantArray::try_from(result.chunk(1).unwrap())
+                .vortex_expect("Expected second chunk to be pruned");
+            BoolArray::try_from(result.chunk(2).unwrap())
+                .vortex_expect("Expected third chunk to be evaluated");
+        })
+    }
+}

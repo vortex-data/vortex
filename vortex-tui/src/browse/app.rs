@@ -100,7 +100,7 @@ impl LayoutCursor {
                 _ => todo!("unknown DType"),
             };
 
-            layout = layout.child(component, dtype.clone()).expect("children");
+            layout = layout.child(component, dtype.clone(), 0).expect("children");
         }
 
         Self {

@@ -84,7 +84,7 @@ impl StructReader {
 
         Ok(Self {
             layout,
-            field_readers: field_readers.into(),
+            field_readers,
             shared_state: Arc::new(SharedState {
                 expr_cache: Default::default(),
                 field_names: field_names.into(),

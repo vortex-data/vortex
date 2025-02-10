@@ -5,7 +5,7 @@ use async_once_cell::Lazy;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use vortex_array::{Array, ContextRef};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::flat::range_reader::FlatRangeReader;
 use crate::layouts::flat::FlatLayout;
@@ -41,7 +41,7 @@ impl FlatReader {
             async move {
                 // Fetch all the array segment.
                 let buffer = segments.get(segment_id).await?;
-                Ok::<_, VortexError>(Array::deserialize(buffer, ctx, dtype, row_count)?)
+                Array::deserialize(buffer, ctx, dtype, row_count)
             }
             .boxed(),
         ));

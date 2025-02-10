@@ -101,12 +101,14 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
+    use vortex_dtype::FieldMask;
     use vortex_expr::ident;
-    use vortex_scan::RowMask;
+    use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
+    use crate::LayoutReader;
 
     #[test]
     fn flat_stats() {
@@ -115,14 +117,18 @@ mod tests {
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             assert!(array.statistics().compute_bit_width_freq().is_some());
             assert!(array.statistics().compute_trailing_zero_freq().is_some());
-            let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
+            let layout = FlatLayoutWriter::new(array.dtype().clone(), 0, Default::default())
                 .push_one(&mut segments, array.into_array())
                 .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(Arc::new(segments), Default::default(), &[FieldMask::All])
                 .unwrap()
-                .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
+                .range_reader(0..layout.row_count())
+                .evaluate_expr(
+                    Mask::new_true(usize::try_from(layout.row_count()).unwrap()),
+                    ident(),
+                )
                 .await
                 .unwrap();
 

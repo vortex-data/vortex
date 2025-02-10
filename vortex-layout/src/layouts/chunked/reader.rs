@@ -75,7 +75,7 @@ impl ChunkedReader {
                 let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(metadata.as_ref()).into();
 
                 let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
-                let stats_layout = layout.child(nchunks, stats_dtype.clone(), 0)?;
+                let stats_layout = layout.child(nchunks, stats_dtype, 0)?;
                 let stats_reader =
                     stats_layout.reader(segments.clone(), ctx.clone(), &[FieldMask::All])?;
 
@@ -148,10 +148,12 @@ impl LayoutReader for ChunkedReader {
     }
 }
 
+type SharedStats = (Arc<dyn LayoutRangeReader>, Arc<[Stat]>);
+
 /// State that's shared between each chunk range reader.
 pub(crate) struct SharedState {
     /// The stats table range reader and present stats for the layout
-    shared_stats: Option<(Arc<dyn LayoutRangeReader>, Arc<[Stat]>)>,
+    shared_stats: Option<SharedStats>,
     /// Shared stats table
     stats_table: OnceCell<Option<StatsTable>>,
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)

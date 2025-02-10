@@ -71,7 +71,7 @@ mod test {
     #[test]
     fn test_layout_splits_flat() {
         let mut segments = TestSegments::default();
-        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
+        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), 0, Default::default())
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
         let splits = SplitBy::Layout
@@ -83,7 +83,7 @@ mod test {
     #[test]
     fn test_row_count_splits() {
         let mut segments = TestSegments::default();
-        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), Default::default())
+        let layout = FlatLayoutWriter::new(DType::Bool(NonNullable), 0, Default::default())
             .push_one(&mut segments, buffer![1; 10].into_array())
             .unwrap();
         let splits = SplitBy::RowCount(3)

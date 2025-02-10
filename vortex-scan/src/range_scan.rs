@@ -212,19 +212,19 @@ mod tests {
             .unwrap(),
         );
         let len = 1000;
-        let range = RangeScanner::new(scan, 0, Mask::new_true(len));
+        let range = RangeScanner::new(scan, Mask::new_true(len));
 
         let res = range
             .evaluate(|mask, expr| {
-                let arr = if expr == expr_a.clone() {
+                let arr = if expr == &expr_a {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 30))).into_array()
-                } else if expr == expr_b.clone() {
+                } else if expr == &expr_b {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 130)))
                         .into_array()
-                } else if expr == expr_c.clone() {
+                } else if expr == &expr_c {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 510 && i < 530)))
                         .into_array()
-                } else if expr == ident() {
+                } else if expr == &ident() {
                     let arr = PrimitiveArray::from_iter(0..mask.len() as u64).into_array();
                     StructArray::from_fields(
                         [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
@@ -235,7 +235,7 @@ mod tests {
                     unreachable!("unexpected expression {:?}", expr)
                 };
 
-                filter(&arr, mask.filter_mask())
+                filter(&arr, mask)
             })
             .unwrap()
             .unwrap();
@@ -268,19 +268,19 @@ mod tests {
             .unwrap(),
         );
         let len = 1000;
-        let range = RangeScanner::new(scan, 0, Mask::new_true(len));
+        let range = RangeScanner::new(scan, Mask::new_true(len));
 
         let res = range
             .evaluate(|mask, expr| {
-                let arr = if expr == expr_a.clone() {
+                let arr = if expr == &expr_a {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 900))).into_array()
-                } else if expr == expr_b.clone() {
+                } else if expr == &expr_b {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 100 && i < 950)))
                         .into_array()
-                } else if expr == expr_c.clone() {
+                } else if expr == &expr_c {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 210 && i < 990)))
                         .into_array()
-                } else if expr == ident() {
+                } else if expr == &ident() {
                     let arr = PrimitiveArray::from_iter(0..mask.len() as u64).into_array();
                     StructArray::from_fields(
                         [("a", arr.clone()), ("b", arr.clone()), ("c", arr)].as_slice(),
@@ -291,7 +291,7 @@ mod tests {
                     unreachable!("unexpected expression {:?}", expr)
                 };
 
-                filter(&arr, mask.filter_mask())
+                filter(&arr, mask)
             })
             .unwrap()
             .unwrap();
