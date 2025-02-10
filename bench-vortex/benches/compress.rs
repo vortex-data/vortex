@@ -20,7 +20,7 @@ use bench_vortex::{
     feature_flagged_allocator, fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch,
 };
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -187,10 +187,9 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
         group.bench_function(bench_name, |b| {
             b.iter_with_large_drop(|| {
-                compressed_size = black_box(
+                compressed_size =
                     vortex_compressed_written_size(runtime, compressor, uncompressed.as_ref())
-                        .unwrap(),
-                );
+                        .unwrap();
             });
         });
         group.finish();
@@ -209,12 +208,12 @@ fn benchmark_compress<F, U>(
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
 
             b.iter_with_large_drop(|| {
-                parquet_compressed_size = black_box(parquet_compress_write(
+                parquet_compressed_size = parquet_compress_write(
                     batches.clone(),
                     schema.clone(),
                     Compression::ZSTD(ZstdLevel::default()),
                     &mut Vec::new(),
-                ));
+                );
             });
         });
         group.finish();
@@ -234,7 +233,7 @@ fn benchmark_compress<F, U>(
 
         group.bench_function(bench_name, |b| {
             b.iter_with_large_drop(|| {
-                black_box(vortex_decompress_read(runtime, buffer.clone()).unwrap());
+                vortex_decompress_read(runtime, buffer.clone()).unwrap();
             });
         });
         group.finish();
@@ -261,7 +260,7 @@ fn benchmark_compress<F, U>(
 
         group.bench_function(bench_name, |b| {
             b.iter_with_large_drop(|| {
-                black_box(parquet_decompress_read(buffer.clone()));
+                parquet_decompress_read(buffer.clone());
             });
         });
         group.finish();
