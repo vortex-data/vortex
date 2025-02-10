@@ -62,7 +62,7 @@ impl DBGenOptions {
     pub fn with_scale_factor(self, scale_factor: u8) -> Self {
         Self {
             base_dir: self.base_dir,
-            scale_factor: scale_factor,
+            scale_factor,
             cache_dir: self.cache_dir,
         }
     }

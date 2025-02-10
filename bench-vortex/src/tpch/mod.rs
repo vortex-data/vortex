@@ -144,10 +144,9 @@ pub async fn load_datasets(
 
 mod named_locks {
     use std::future::Future;
-    use std::sync::Arc;
-    use std::sync::LazyLock;
-    use tokio::sync::Mutex;
+    use std::sync::{Arc, LazyLock};
 
+    use tokio::sync::Mutex;
     use vortex::aliases::hash_map::HashMap;
 
     type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
