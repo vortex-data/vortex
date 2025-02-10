@@ -35,6 +35,8 @@ struct Args {
     iterations: usize,
     #[arg(long, value_delimiter = ',')]
     formats: Option<Vec<String>>,
+    #[arg(long, default_value = 1)]
+    scale_factor: u8,
     #[arg(short, long)]
     only_vortex: bool,
     #[arg(short, long)]
@@ -67,7 +69,8 @@ fn main() -> ExitCode {
 
     let url = match args.use_s3_data_dir {
         None => {
-            let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
+            let db_gen_options = DBGenOptions::default().with_scale_factor(args.scale_factor);
+            let data_dir = DBGen::new(db_gen_options).generate().unwrap();
             Url::parse(
                 ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
                     .as_ref(),
