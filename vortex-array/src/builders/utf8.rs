@@ -81,12 +81,6 @@ impl Utf8Builder {
     }
 
     #[inline]
-    pub fn append_null(&mut self) {
-        self.null_buffer_builder.append_null();
-        self.views_builder.push(BinaryView::empty_view());
-    }
-
-    #[inline]
     fn flush_in_progress(&mut self) {
         if !self.in_progress.is_empty() {
             let f = ByteBuffer::from(std::mem::take(&mut self.in_progress));
