@@ -126,6 +126,7 @@ pub async fn load_datasets(
                         stringify!($name),
                         &$name,
                         $schema,
+                        do_not_use_object_store,
                     )
                     .await
                 }
@@ -139,6 +140,7 @@ pub async fn load_datasets(
                         stringify!($name),
                         &$name,
                         $schema,
+                        do_not_use_object_store,
                     )
                     .await
                 }
@@ -240,6 +242,7 @@ async fn register_parquet(
     name: &str,
     file: &Url,
     schema: &Schema,
+    do_not_use_object_store: bool,
 ) -> anyhow::Result<()> {
     let csv_file = file.as_str();
     let mut pq_file = file.clone();
@@ -266,6 +269,7 @@ async fn register_parquet(
                 df.write_parquet(pq_file.path(), DataFrameWriteOptions::default(), None)
                     .await?;
             } else {
+                assert!(!do_not_use_object_store);
                 anyhow::bail!("Writing to S3 does not seem to work!");
                 // df.write_parquet(pq_file.as_str(), DataFrameWriteOptions::default(), None)
                 //     .await?;
@@ -276,9 +280,18 @@ async fn register_parquet(
         .await?;
     }
 
-    Ok(session
-        .register_parquet(name, pq_file.as_str(), ParquetReadOptions::default())
-        .await?)
+    let url_or_path = if do_not_use_object_store {
+        assert!(pq_file.scheme() == "file");
+        pq_file.path()
+    } else {
+        pq_file.as_str()
+    };
+
+    session
+        .register_parquet(name, url_or_path, ParquetReadOptions::default())
+        .await?;
+
+    Ok(())
 }
 
 async fn register_vortex_file(
@@ -287,6 +300,7 @@ async fn register_vortex_file(
     table_name: &str,
     file: &Url,
     schema: &Schema,
+    do_not_use_object_store: bool,
 ) -> anyhow::Result<()> {
     let mut vortex_dir_segments = file
         .path_segments()
@@ -362,7 +376,13 @@ async fn register_vortex_file(
     }
 
     let format = Arc::new(VortexFormat::new(CTX.clone()));
-    let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
+    let url_or_path = if do_not_use_object_store {
+        assert!(vtx_file.scheme() == "file");
+        vtx_file.path()
+    } else {
+        vtx_file.as_str()
+    };
+    let table_url = ListingTableUrl::parse(url_or_path)?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
         .infer_schema(&session.state())
