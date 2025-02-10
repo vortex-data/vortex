@@ -41,6 +41,8 @@ struct Args {
     only_vortex: bool,
     #[arg(short, long)]
     verbose: bool,
+    #[arg(long)]
+    do_not_use_object_store: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value = "false")]
@@ -71,6 +73,10 @@ fn main() -> ExitCode {
         None => {
             let db_gen_options = DBGenOptions::default().with_scale_factor(args.scale_factor);
             let data_dir = DBGen::new(db_gen_options).generate().unwrap();
+            println!(
+                "Using existing or generating new files located at {}.",
+                data_dir.display()
+            );
             Url::parse(
                 ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
                     .as_ref(),
@@ -110,6 +116,7 @@ fn main() -> ExitCode {
         args.formats,
         args.display_format,
         args.emulate_object_store,
+        args.do_not_use_object_store,
         url,
     ))
 }
@@ -122,11 +129,9 @@ async fn bench_main(
     formats: Option<Vec<String>>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
+    do_not_use_object_store: bool,
     url: Url,
 ) -> ExitCode {
-    // uncomment the below to enable trace logging of datafusion execution
-    // setup_logger(LevelFilter::Trace);
-
     // Run TPC-H data gen.
 
     // The formats to run against (vs the baseline)
@@ -149,13 +154,12 @@ async fn bench_main(
     );
 
     // Load datasets
-    let ctxs = try_join_all(
-        formats
-            .iter()
-            .map(|format| load_datasets(&url, *format, emulate_object_store)),
-    )
-    .await
-    .unwrap();
+    let ctxs =
+        try_join_all(formats.iter().map(|format| {
+            load_datasets(&url, *format, emulate_object_store, do_not_use_object_store)
+        }))
+        .await
+        .unwrap();
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
 

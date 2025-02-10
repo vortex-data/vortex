@@ -12,18 +12,19 @@ use datafusion::datasource::listing::{
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use futures::StreamExt;
+use named_locks::with_lock;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
 use object_store::ObjectStore;
+use tokio::fs::OpenOptions;
 use url::Url;
 use vortex::array::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
-use vortex::io::ObjectStoreWriter;
 use vortex::{Array, IntoArray};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
@@ -42,7 +43,11 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
 ];
 
-fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dyn ObjectStore>> {
+fn make_object_store(
+    df: &SessionContext,
+    source: &Url,
+    skip_registration: bool,
+) -> anyhow::Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
         "s3" => {
             // Get bucket name.
@@ -54,6 +59,7 @@ fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dy
                     .build()
                     .unwrap(),
             );
+            assert!(!skip_registration);
             df.register_object_store(&Url::parse(&format!("s3://{}/", bucket_name))?, s3.clone());
             Ok(s3)
         }
@@ -66,13 +72,16 @@ fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dy
                     .build()
                     .unwrap(),
             );
+            assert!(!skip_registration);
             df.register_object_store(&Url::parse(&format!("gs://{}/", bucket_name))?, gcs.clone());
             Ok(gcs)
         }
         _ => {
             // Just use local object store
             let fs = Arc::new(LocalFileSystem::default());
-            df.register_object_store(&Url::parse("file:/")?, fs.clone());
+            if !skip_registration {
+                df.register_object_store(&Url::parse("file:/")?, fs.clone());
+            }
             Ok(fs)
         }
     }
@@ -83,9 +92,18 @@ pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
     emulate_object_store: bool,
+    do_not_use_object_store: bool,
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_with_cache(emulate_object_store);
-    let object_store = make_object_store(&context, base_dir)?;
+
+    if do_not_use_object_store && base_dir.scheme() != "file" {
+        anyhow::bail!(
+            "Remote storage schemes are incompatible with --do-not-use-object-store: {}",
+            base_dir.scheme()
+        );
+    }
+
+    let object_store = make_object_store(&context, base_dir, do_not_use_object_store)?;
 
     let customer = base_dir.join("customer.tbl")?;
     let lineitem = base_dir.join("lineitem.tbl")?;
@@ -138,6 +156,39 @@ pub async fn load_datasets(
     register_table!(supplier, &schema::SUPPLIER)?;
 
     Ok(context)
+}
+
+mod named_locks {
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::sync::LazyLock;
+    use tokio::sync::Mutex;
+
+    use vortex::aliases::hash_map::HashMap;
+
+    type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
+    static NAMED_LOCKS: NamedLocksMap = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    pub async fn get(name: String) -> Arc<Mutex<()>> {
+        let named_locks = &mut *NAMED_LOCKS.lock().await;
+        let mutex: &Arc<Mutex<()>> = named_locks
+            .entry(name)
+            .or_insert_with(|| Arc::new(Mutex::new(())));
+        mutex.clone()
+    }
+
+    pub async fn with_lock<F, T, E>(name: String, f: impl FnOnce() -> F) -> Result<T, E>
+    where
+        F: Future<Output = Result<T, E>>,
+    {
+        println!("getting lock {}", name);
+        let lock = get(name.clone()).await;
+        let _guard = lock.lock().await;
+        println!("have lock {}", name);
+        let t = f().await;
+        println!("done with lock {}", name);
+        t
+    }
 }
 
 async fn register_csv(
@@ -203,19 +254,30 @@ async fn register_parquet(
         .await
         .is_err()
     {
-        let df = session
-            .read_csv(
-                csv_file,
-                CsvReadOptions::default()
-                    .delimiter(b'|')
-                    .has_header(false)
-                    .file_extension("tbl")
-                    .schema(schema),
-            )
-            .await?;
+        with_lock(pq_file.path().to_owned(), async || {
+            let df = session
+                .read_csv(
+                    csv_file,
+                    CsvReadOptions::default()
+                        .delimiter(b'|')
+                        .has_header(false)
+                        .file_extension("tbl")
+                        .schema(schema),
+                )
+                .await?;
 
-        df.write_parquet(pq_file.as_str(), DataFrameWriteOptions::default(), None)
-            .await?;
+            if pq_file.scheme() == "file" {
+                df.write_parquet(pq_file.path(), DataFrameWriteOptions::default(), None)
+                    .await?;
+            } else {
+                anyhow::bail!("Writing to S3 does not seem to work!");
+                // df.write_parquet(pq_file.as_str(), DataFrameWriteOptions::default(), None)
+                //     .await?;
+            };
+
+            anyhow::Ok(())
+        })
+        .await?;
     }
 
     Ok(session
@@ -257,32 +319,51 @@ async fn register_vortex_file(
         .await
         .is_err()
     {
-        let record_batches = session
-            .read_csv(
-                file.as_str(),
-                CsvReadOptions::default()
-                    .delimiter(b'|')
-                    .has_header(false)
-                    .file_extension("tbl")
-                    .schema(schema),
-            )
-            .await?
-            .execute_stream()
-            .await?;
-
-        // Convert the arrow schema to a Vortex DType
-        let array_stream = ArrayStreamAdapter::new(
-            // TODO(ngates): or should we use the provided schema?
-            DType::from_arrow(record_batches.schema()),
-            record_batches.map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
-        );
-        let writer =
-            ObjectStoreWriter::new(object_store.clone(), ObjectStorePath::from(vtx_file.path()))
+        with_lock(vtx_file.path().to_owned(), async || {
+            let record_batches = session
+                .read_csv(
+                    file.as_str(),
+                    CsvReadOptions::default()
+                        .delimiter(b'|')
+                        .has_header(false)
+                        .file_extension("tbl")
+                        .schema(schema),
+                )
+                .await?
+                .execute_stream()
                 .await?;
 
-        VortexWriteOptions::default()
-            .write(writer, array_stream)
-            .await?;
+            // Convert the arrow schema to a Vortex DType
+            let array_stream = ArrayStreamAdapter::new(
+                // TODO(ngates): or should we use the provided schema?
+                DType::from_arrow(record_batches.schema()),
+                record_batches
+                    .map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
+            );
+
+            if vtx_file.scheme() == "file" {
+                let f = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(vtx_file.path())
+                    .await?;
+                VortexWriteOptions::default().write(f, array_stream).await?;
+            } else {
+                anyhow::bail!("Writing to S3 does not seem to work!");
+                // let writer = ObjectStoreWriter::new(
+                //     object_store.clone(),
+                //     ObjectStorePath::from(vtx_file.path()),
+                // )
+                // .await?;
+                // VortexWriteOptions::default()
+                //     .write(writer, array_stream)
+                //     .await?;
+            };
+
+            anyhow::Ok(())
+        })
+        .await?;
     }
 
     let format = Arc::new(VortexFormat::new(CTX.clone()));
