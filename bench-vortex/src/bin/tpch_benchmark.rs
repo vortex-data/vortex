@@ -48,8 +48,6 @@ struct Args {
     /// -vvv: TRACE
     #[arg(short, action = ArgAction::Count)]
     verbosity: u8,
-    #[arg(long)]
-    do_not_use_object_store: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value = "false")]
@@ -132,7 +130,6 @@ fn main() -> ExitCode {
         args.formats,
         args.display_format,
         args.emulate_object_store,
-        args.do_not_use_object_store,
         url,
     ))
 }
@@ -145,7 +142,6 @@ async fn bench_main(
     formats: Option<Vec<String>>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
-    do_not_use_object_store: bool,
     url: Url,
 ) -> ExitCode {
     // Run TPC-H data gen.
@@ -170,12 +166,13 @@ async fn bench_main(
     );
 
     // Load datasets
-    let ctxs =
-        try_join_all(formats.iter().map(|format| {
-            load_datasets(&url, *format, emulate_object_store, do_not_use_object_store)
-        }))
-        .await
-        .unwrap();
+    let ctxs = try_join_all(
+        formats
+            .iter()
+            .map(|format| load_datasets(&url, *format, emulate_object_store)),
+    )
+    .await
+    .unwrap();
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
 
