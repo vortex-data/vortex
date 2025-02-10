@@ -2,7 +2,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::array::ConstantArray;
 use crate::encoding::Encoding;
-use crate::stats::{Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, Canonical, IntoArray};
 
 /// Limit array to start...stop range
@@ -91,8 +91,11 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 fn derive_sliced_stats(arr: &Array) -> StatsSet {
     let stats = arr.stats_set();
 
-    stats.keep_exact_inexact_stats(
-        &[Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted],
+    // an array that is not constant can become constant after slicing
+    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+
+    let mut stats = stats.keep_exact_inexact_stats(
+        &[Stat::IsSorted, Stat::IsStrictSorted],
         &[
             Stat::Max,
             Stat::Min,
@@ -101,7 +104,16 @@ fn derive_sliced_stats(arr: &Array) -> StatsSet {
             Stat::NullCount,
             Stat::UncompressedSizeInBytes,
         ],
-    )
+    );
+
+    if is_constant
+        .as_ref()
+        .is_some_and(|is_constant| is_constant == &Precision::exact(true))
+    {
+        stats.set(Stat::IsConstant, Precision::exact(true));
+    };
+
+    stats
 }
 
 fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<()> {
