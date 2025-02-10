@@ -41,7 +41,7 @@ impl VortexWriteOptions {
     ) -> VortexResult<W> {
         // Set up the root layout
         let mut layout_writer = StatsLayoutWriter::new(
-            self.strategy.new_writer(stream.dtype())?,
+            self.strategy.new_writer(stream.dtype(), 0)?,
             stream.dtype(),
             PRUNING_STATS.into(),
         )?;

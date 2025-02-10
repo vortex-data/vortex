@@ -14,11 +14,16 @@ use crate::LayoutVTableRef;
 pub struct StructLayoutWriter {
     column_strategies: Vec<Box<dyn LayoutWriter>>,
     dtype: DType,
+    row_offset: u64,
     row_count: u64,
 }
 
 impl StructLayoutWriter {
-    pub fn new(dtype: DType, column_layout_writers: Vec<Box<dyn LayoutWriter>>) -> Self {
+    pub fn new(
+        dtype: DType,
+        row_offset: u64,
+        column_layout_writers: Vec<Box<dyn LayoutWriter>>,
+    ) -> Self {
         let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
         if struct_dtype.fields().len() != column_layout_writers.len() {
             vortex_panic!(
@@ -28,20 +33,23 @@ impl StructLayoutWriter {
         Self {
             column_strategies: column_layout_writers,
             dtype,
+            row_offset,
             row_count: 0,
         }
     }
 
     pub fn try_new_with_factory<F: LayoutStrategy>(
         dtype: &DType,
+        row_offset: u64,
         factory: F,
     ) -> VortexResult<Self> {
         let struct_dtype = dtype.as_struct().vortex_expect("dtype is not a struct");
         Ok(Self::new(
             dtype.clone(),
+            row_offset,
             struct_dtype
                 .fields()
-                .map(|dtype| factory.new_writer(&dtype))
+                .map(|dtype| factory.new_writer(&dtype, row_offset))
                 .try_collect()?,
         ))
     }
@@ -84,6 +92,7 @@ impl LayoutWriter for StructLayoutWriter {
         Ok(Layout::new_owned(
             LayoutVTableRef::from_static(&StructLayout),
             self.dtype.clone(),
+            self.row_offset,
             self.row_count,
             vec![],
             column_layouts,

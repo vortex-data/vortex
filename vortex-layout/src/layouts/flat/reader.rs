@@ -5,7 +5,7 @@ use async_once_cell::Lazy;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use vortex_array::{Array, ContextRef};
-use vortex_dtype::FieldPath;
+use vortex_dtype::{FieldMask, FieldPath};
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 
 use crate::layouts::flat::range_reader::FlatRangeReader;
@@ -59,7 +59,7 @@ impl LayoutReader for FlatReader {
     fn range_reader(
         &self,
         row_range: Range<u64>,
-        field_mask: Arc<[FieldPath]>,
+        field_mask: Arc<[FieldMask]>,
     ) -> Arc<dyn LayoutRangeReader> {
         if row_range.start >= self.row_count() || row_range.end > self.row_count() {
             vortex_panic!("Row range out of bounds")

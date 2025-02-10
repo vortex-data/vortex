@@ -38,7 +38,6 @@ impl LayoutVTable for StructLayout {
         &self,
         layout: &Layout,
         field_mask: &[FieldMask],
-        row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         let DType::Struct(dtype, _) = layout.dtype() else {
@@ -48,8 +47,8 @@ impl LayoutVTable for StructLayout {
         // If the field mask contains an `All` fields, then register splits for all fields.
         if field_mask.iter().any(|mask| mask.matches_all()) {
             for (idx, field_dtype) in dtype.fields().enumerate() {
-                let child = layout.child(idx, field_dtype)?;
-                child.register_splits(&[FieldMask::All], row_offset, splits)?;
+                let child = layout.child(idx, field_dtype, layout.row_offset())?;
+                child.register_splits(&[FieldMask::All], splits)?;
             }
             return Ok(());
         }
@@ -65,8 +64,8 @@ impl LayoutVTable for StructLayout {
             };
 
             let idx = dtype.find(field_name)?;
-            let child = layout.child(idx, dtype.field_by_index(idx)?)?;
-            child.register_splits(&[path.clone().step_into()?], row_offset, splits)?;
+            let child = layout.child(idx, dtype.field_by_index(idx)?, layout.row_offset())?;
+            child.register_splits(&[path.clone().step_into()?], splits)?;
         }
 
         Ok(())

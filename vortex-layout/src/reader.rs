@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_array::Array;
-use vortex_dtype::{DType, FieldPath};
+use vortex_dtype::{DType, FieldMask, FieldPath};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
@@ -25,7 +25,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     fn range_reader(
         &self,
         row_range: Range<u64>,
-        field_mask: Arc<[FieldPath]>,
+        field_mask: Arc<[FieldMask]>,
     ) -> Arc<dyn LayoutRangeReader>;
 }
 
@@ -37,7 +37,7 @@ impl LayoutReader for Arc<dyn LayoutReader> {
     fn range_reader(
         &self,
         row_range: Range<u64>,
-        field_mask: Arc<[FieldPath]>,
+        field_mask: Arc<[FieldMask]>,
     ) -> Arc<dyn LayoutRangeReader> {
         self.as_ref().range_reader(row_range, field_mask)
     }

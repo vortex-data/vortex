@@ -86,10 +86,6 @@ impl Scanner {
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
     /// parent scan in order to optimize future range scans.
     pub fn range_scanner(self: Arc<Self>, row_mask: RowMask) -> VortexResult<RangeScanner> {
-        Ok(RangeScanner::new(
-            self,
-            row_mask.begin(),
-            row_mask.filter_mask().clone(),
-        ))
+        Ok(RangeScanner::new(self, row_mask.filter_mask().clone()))
     }
 }

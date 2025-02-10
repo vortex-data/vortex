@@ -8,13 +8,13 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 use vortex_scan::RowMask;
 
+use crate::layouts::chunked::reader::SharedState;
 use crate::{ExprEvaluator, LayoutRangeReader, LayoutReader};
 
 pub struct ChunkedRangeReader {
-    pub(super) row_range: Range<u64>,
-    pub(super) chunks: Vec<Arc<dyn LayoutReader>>,
-    pub(super) start_chunk_offset: usize,
-    pub(super) end_chunk_length: usize,
+    pub(super) chunk_range: Range<usize>,
+    pub(super) chunks: Vec<Arc<dyn LayoutRangeReader>>,
+    pub(super) shared_state: Arc<SharedState>,
 }
 
 #[async_trait]

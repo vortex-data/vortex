@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::ops::{BitAnd, Range};
+use std::ops::BitAnd;
 use std::sync::Arc;
 
 use vortex_array::Array;
@@ -7,12 +7,11 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::{RowMask, Scanner};
+use crate::Scanner;
 
 /// A scan operation defined for a single row-range of the columnar data.
 pub struct RangeScanner {
     scan: Arc<Scanner>,
-    row_range: Range<u64>,
     mask: Mask,
     state: State,
 }
@@ -33,7 +32,7 @@ pub enum NextOp {
     Ready(Option<Array>),
     /// The next expression to evaluate.
     /// The caller **must** first apply the mask before evaluating the expression.
-    Eval((Range<u64>, Mask, ExprRef)),
+    Eval((Mask, ExprRef)),
 }
 
 /// We implement the range scan via polling for the next operation to perform, and then posting
@@ -60,7 +59,7 @@ pub enum NextOp {
 // identical to the filter API and there's no point having both. Hence, a single
 // `evaluate(row_mask, expr)` API.
 impl RangeScanner {
-    pub(crate) fn new(scan: Arc<Scanner>, row_offset: u64, mask: Mask) -> Self {
+    pub(crate) fn new(scan: Arc<Scanner>, mask: Mask) -> Self {
         let state = if !scan.rev_filter.is_empty() {
             // If we have a filter expression, then for now we evaluate it against all rows
             // of the range.
@@ -73,12 +72,7 @@ impl RangeScanner {
             State::Project((mask.clone(), scan.projection().clone()))
         };
 
-        Self {
-            scan,
-            row_range: row_offset..row_offset + mask.len() as u64,
-            mask,
-            state,
-        }
+        Self { scan, mask, state }
     }
 
     /// Check for the next operation to perform.
@@ -89,16 +83,13 @@ impl RangeScanner {
     fn next(&self) -> NextOp {
         match &self.state {
             State::FilterEval((mask, conjuncts)) => NextOp::Eval((
-                self.row_range.clone(),
                 mask.clone(),
                 conjuncts
                     .last()
                     .vortex_expect("conjuncts is always non-empty")
                     .clone(),
             )),
-            State::Project((mask, expr)) => {
-                NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
-            }
+            State::Project((mask, expr)) => NextOp::Eval((mask.clone(), expr.clone())),
             State::Ready(array) => NextOp::Ready(array.clone()),
         }
     }
@@ -152,14 +143,13 @@ impl RangeScanner {
     /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
     pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<Option<Array>>
     where
-        E: Fn(RowMask, ExprRef) -> VortexResult<Array>,
+        E: Fn(&Mask, &ExprRef) -> VortexResult<Array>,
     {
         loop {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
-                NextOp::Eval((row_range, mask, expr)) => {
-                    self =
-                        self.transition(evaluator(RowMask::new(mask, row_range.start), expr)?)?;
+                NextOp::Eval((mask, expr)) => {
+                    self = self.transition(evaluator(&mask, &expr)?)?;
                 }
             }
         }
@@ -168,15 +158,14 @@ impl RangeScanner {
     /// Evaluate the [`RangeScanner`] operation using an async expression evaluator.
     pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<Option<Array>>
     where
-        E: Fn(RowMask, ExprRef) -> F,
+        E: Fn(&Mask, &ExprRef) -> F,
         F: Future<Output = VortexResult<Array>>,
     {
         loop {
             match self.next() {
                 NextOp::Ready(array) => return Ok(array),
-                NextOp::Eval((row_range, mask, expr)) => {
-                    self = self
-                        .transition(evaluator(RowMask::new(mask, row_range.start), expr).await?)?;
+                NextOp::Eval((mask, expr)) => {
+                    self = self.transition(evaluator(&mask, &expr).await?)?;
                 }
             }
         }

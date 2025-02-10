@@ -68,7 +68,6 @@ pub trait LayoutVTable: Debug + Send + Sync {
         &self,
         layout: &Layout,
         field_mask: &[FieldMask],
-        row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;
 }

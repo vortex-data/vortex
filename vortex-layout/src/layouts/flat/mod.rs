@@ -37,12 +37,11 @@ impl LayoutVTable for FlatLayout {
         &self,
         layout: &Layout,
         field_mask: &[FieldMask],
-        row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         for path in field_mask {
             if path.matches_root() {
-                splits.insert(row_offset + layout.row_count());
+                splits.insert(layout.row_offset() + layout.row_count());
                 break;
             }
         }

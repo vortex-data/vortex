@@ -40,10 +40,10 @@ impl Default for VortexLayoutStrategy {
 }
 
 impl LayoutStrategy for VortexLayoutStrategy {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+    fn new_writer(&self, dtype: &DType, row_offset: u64) -> VortexResult<Box<dyn LayoutWriter>> {
         // First, we unwrap struct arrays into their components.
         if dtype.is_struct() {
-            return StructLayoutWriter::try_new_with_factory(dtype, self.clone())
+            return StructLayoutWriter::try_new_with_factory(dtype, row_offset, self.clone())
                 .map(|w| w.boxed());
         }
 
@@ -56,6 +56,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 compress_like: None,
                 child: ChunkedLayoutWriter::new(
                     dtype,
+                    row_offset,
                     ChunkedLayoutOptions {
                         // ...and write each chunk as a flat layout.
                         chunk_strategy: Arc::new(FlatLayoutOptions::default()),

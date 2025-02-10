@@ -197,7 +197,7 @@ pub struct Scan<D> {
     pub(crate) filter: Option<ExprRef>,
     pub(crate) dtype: DType,
     pub(crate) row_masks: Vec<RowMask>,
-    pub(crate) field_mask: Arc<[FieldPath]>,
+    pub(crate) field_mask: Arc<[FieldMask]>,
 }
 
 impl<D: ScanDriver> Scan<D> {
@@ -222,14 +222,16 @@ impl<D: ScanDriver> Scan<D> {
             results.push(recv_result);
 
             let range_reader =
-                reader.range_reader(row_mask.begin()..row_mask.end(), self.field_mask);
+                reader.range_reader(row_mask.begin()..row_mask.end(), self.field_mask.clone());
 
             let task: BoxFuture<'static, VortexResult<()>> = scanner
                 .clone()
                 .range_scanner(row_mask)?
-                .evaluate_async(move |row_mask, expr| {
-                    let reader = reader.clone();
-                    async move { reader.evaluate_expr(row_mask, expr).await }
+                .evaluate_async(move |mask, expr| {
+                    let range_reader = range_reader.clone();
+                    let mask = mask.clone();
+                    let expr = expr.clone();
+                    async move { range_reader.evaluate_expr(mask, expr).await }
                 })
                 .map(|result| {
                     send_result

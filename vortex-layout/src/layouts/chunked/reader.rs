@@ -7,7 +7,7 @@ use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_dtype::FieldPath;
+use vortex_dtype::{FieldMask, FieldPath};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
@@ -25,15 +25,10 @@ type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
 #[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
-    ctx: ContextRef,
-    segments: Arc<dyn AsyncSegmentReader>,
-    /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
-    pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
-    /// Shared stats table
-    stats_table: Arc<OnceCell<Option<StatsTable>>>,
+    shared_state: Arc<SharedState>,
     /// Shared lazy chunk scanners
-    chunk_readers: Arc<[OnceLock<Weak<dyn LayoutReader>>]>,
-    /// Row ranges for each chunk
+    chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    /// The cumulative row offsets of each chunk, starting with zero.
     chunk_row_offsets: Vec<u64>,
 }
 
@@ -61,16 +56,105 @@ impl ChunkedReader {
         let chunk_row_offsets = (0..nchunks).map(|i| layout.child_row_count(i)).collect();
 
         Ok(Self {
-            layout,
-            ctx,
-            segments,
-            pruning_result: Arc::new(RwLock::new(HashMap::new())),
-            stats_table: Arc::new(OnceCell::new()),
+            layout: layout.clone(),
+            shared_state: Arc::new(SharedState {
+                layout: layout.clone(),
+                ctx,
+                segments,
+                stats_table: OnceCell::new(),
+                pruning_result: RwLock::new(HashMap::new()),
+            }),
             chunk_readers,
             chunk_row_offsets,
         })
     }
 
+    /// Return the number of chunks
+    pub(crate) fn nchunks(&self) -> usize {
+        self.chunk_readers.len()
+    }
+
+    /// Return the child reader for the chunk.
+    pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
+        self.chunk_readers[idx].get_or_try_init(|| {
+            let child_layout = self.layout.child(
+                idx,
+                self.layout.dtype().clone(),
+                self.chunk_row_offsets[idx],
+            )?;
+            child_layout.reader(
+                self.shared_state.segments.clone(),
+                self.shared_state.ctx.clone(),
+            )
+        })
+    }
+}
+
+impl LayoutReader for ChunkedReader {
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    fn range_reader(
+        &self,
+        row_range: Range<u64>,
+        field_mask: Arc<[FieldMask]>,
+    ) -> Arc<dyn LayoutRangeReader> {
+        let start_chunk = self
+            .chunk_row_offsets
+            .binary_search(&row_range.start)
+            .unwrap_or_else(|x| x);
+        let end_chunk = self
+            .chunk_row_offsets
+            .binary_search(&row_range.end)
+            .unwrap_or_else(|x| x);
+        let start_chunk_offset =
+            usize::try_from(row_range.start - self.chunk_row_offsets[start_chunk])
+                .vortex_expect("Chunk offset must fit within usize");
+        let end_chunk_length =
+            usize::try_from(row_range.end - self.chunk_row_offsets[end_chunk + 1])
+                .vortex_expect("Chunk length must fit within usize");
+
+        let chunks = (start_chunk..end_chunk)
+            .map(|i| {
+                // Truncate the row range to the chunk.
+                // Note that row ranges are not relativized.
+                let row_range = if i == start_chunk {
+                    row_range.start..self.chunk_row_offsets[i + 1]
+                } else if i == end_chunk {
+                    self.chunk_row_offsets[i]..row_range.end
+                } else {
+                    self.chunk_row_offsets[i]..self.chunk_row_offsets[i + 1]
+                };
+                self.child(i)
+                    .vortex_expect("not out of bounds")
+                    .range_reader(row_range, field_mask.clone())
+            })
+            .collect();
+
+        Arc::new(ChunkedRangeReader {
+            chunk_range: start_chunk..end_chunk,
+            chunks,
+            shared_state: self.shared_state.clone(),
+        }) as _
+    }
+}
+
+/// State that's shared between each chunk range reader.
+///
+// TODO(ngates): we could make this use Lazy instead of OnceCell. The errors are worse, but the
+//  execution model is better?
+pub(crate) struct SharedState {
+    layout: Layout,
+    ctx: ContextRef,
+    segments: Arc<dyn AsyncSegmentReader>,
+    /// Shared stats table
+    stats_table: OnceCell<Option<StatsTable>>,
+    /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
+    pruning_result: RwLock<HashMap<ExprRef, PruningCache>>,
+}
+
+impl SharedState {
     /// Get or initialize the stats table.
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
@@ -90,7 +174,7 @@ impl ChunkedReader {
                         let layout_dtype = self.layout.dtype();
                         let stats_dtype =
                             StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone())?;
+                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone(), self.layout.row_offset())?;
 
                         let stats_array = stats_layout
                             .reader(self.segments.clone(), self.ctx.clone())?
@@ -104,7 +188,7 @@ impl ChunkedReader {
                             vortex_bail!("Expected stats DType {stats_dtype} doesn't match read stats dtype {}", stats_array.dtype())
                         }
 
-                        // SAFETY: This is only fine to call because we perfrorm validation above
+                        // SAFETY: This is only fine to call because we perform validation above
                         Some(StatsTable::unchecked_new(
                             stats_array,
                             present_stats.into(),
@@ -143,56 +227,5 @@ impl ChunkedReader {
         })
         .await
         .cloned()
-    }
-
-    /// Return the number of chunks
-    pub(crate) fn nchunks(&self) -> usize {
-        self.chunk_readers.len()
-    }
-
-    /// Return the child reader for the chunk.
-    pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
-        self.chunk_readers[idx].get_or_try_init(|| {
-            let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
-        })
-    }
-}
-
-impl LayoutReader for ChunkedReader {
-    fn layout(&self) -> &Layout {
-        &self.layout
-    }
-
-    fn range_reader(
-        &self,
-        row_range: Range<u64>,
-        field_mask: Arc<[FieldPath]>,
-    ) -> Arc<dyn LayoutRangeReader> {
-        let start_chunk = self
-            .chunk_row_offsets
-            .binary_search(&row_range.start)
-            .unwrap_or_else(|x| x);
-        let end_chunk = self
-            .chunk_row_offsets
-            .binary_search(&row_range.end)
-            .unwrap_or_else(|x| x);
-        let chunks = (start_chunk..end_chunk)
-            .map(|i| self.child(i).vortex_expect("not out of bounds"))
-            .cloned()
-            .collect();
-        let start_chunk_offset =
-            usize::try_from(row_range.start - self.chunk_row_offsets[start_chunk])
-                .vortex_expect("Chunk offset must fit within usize");
-        let end_chunk_length =
-            usize::try_from(row_range.end - self.chunk_row_offsets[end_chunk + 1])
-                .vortex_expect("Chunk length must fit within usize");
-
-        Arc::new(ChunkedRangeReader {
-            row_range,
-            chunks,
-            start_chunk_offset,
-            end_chunk_length,
-        }) as _
     }
 }

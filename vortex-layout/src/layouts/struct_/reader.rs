@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, FieldName, FieldPath, StructDType};
+use vortex_dtype::{DType, FieldMask, FieldName, FieldPath, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{partition, PartitionedExpr};
 use vortex_expr::ExprRef;
@@ -82,9 +82,11 @@ impl StructReader {
 
         // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
-            let child_layout = self
-                .layout
-                .child(idx, self.struct_dtype().field_by_index(idx)?)?;
+            let child_layout = self.layout.child(
+                idx,
+                self.struct_dtype().field_by_index(idx)?,
+                self.layout.row_offset(),
+            )?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }
@@ -115,7 +117,7 @@ impl LayoutReader for StructReader {
     fn range_reader(
         &self,
         row_range: Range<u64>,
-        field_mask: Arc<[FieldPath]>,
+        field_mask: Arc<[FieldMask]>,
     ) -> Arc<dyn LayoutRangeReader> {
         todo!()
     }

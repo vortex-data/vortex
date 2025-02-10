@@ -27,8 +27,8 @@ impl Default for FlatLayoutOptions {
 }
 
 impl LayoutStrategy for FlatLayoutOptions {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(dtype.clone(), self.clone()).boxed())
+    fn new_writer(&self, dtype: &DType, row_offset: u64) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(dtype.clone(), row_offset, self.clone()).boxed())
     }
 }
 
@@ -37,14 +37,16 @@ pub struct FlatLayoutWriter {
     options: FlatLayoutOptions,
     dtype: DType,
     layout: Option<Layout>,
+    row_offset: u64,
 }
 
 impl FlatLayoutWriter {
-    pub fn new(dtype: DType, options: FlatLayoutOptions) -> Self {
+    pub fn new(dtype: DType, row_offset: u64, options: FlatLayoutOptions) -> Self {
         Self {
             options,
             dtype,
             layout: None,
+            row_offset,
         }
     }
 }
@@ -73,6 +75,7 @@ impl LayoutWriter for FlatLayoutWriter {
         self.layout = Some(Layout::new_owned(
             LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
+            self.row_offset,
             row_count,
             vec![segment_id],
             vec![],

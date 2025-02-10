@@ -32,6 +32,7 @@ enum Inner {
 pub struct OwnedLayout {
     vtable: LayoutVTableRef,
     dtype: DType,
+    row_offset: u64,
     row_count: u64,
     segments: Vec<SegmentId>,
     children: Vec<Layout>,
@@ -43,6 +44,7 @@ pub struct OwnedLayout {
 struct ViewedLayout {
     vtable: LayoutVTableRef,
     dtype: DType,
+    row_offset: u64,
     flatbuffer: ByteBuffer,
     flatbuffer_loc: usize,
     ctx: LayoutContextRef,
@@ -60,6 +62,7 @@ impl Layout {
     pub fn new_owned(
         vtable: LayoutVTableRef,
         dtype: DType,
+        row_offset: u64,
         row_count: u64,
         segments: Vec<SegmentId>,
         children: Vec<Layout>,
@@ -68,6 +71,7 @@ impl Layout {
         Self(Inner::Owned(OwnedLayout {
             vtable,
             dtype,
+            row_offset,
             row_count,
             segments,
             children,
@@ -79,6 +83,7 @@ impl Layout {
     pub fn try_new_viewed(
         vtable: LayoutVTableRef,
         dtype: DType,
+        row_offset: u64,
         flatbuffer: ByteBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
@@ -101,6 +106,7 @@ impl Layout {
         Ok(Self(Inner::Viewed(ViewedLayout {
             vtable,
             dtype,
+            row_offset,
             flatbuffer,
             flatbuffer_loc,
             ctx,
@@ -115,6 +121,7 @@ impl Layout {
     pub unsafe fn new_viewed_unchecked(
         encoding: LayoutVTableRef,
         dtype: DType,
+        row_offset: u64,
         flatbuffer: ByteBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContextRef,
@@ -122,6 +129,7 @@ impl Layout {
         Self(Inner::Viewed(ViewedLayout {
             vtable: encoding,
             dtype,
+            row_offset,
             flatbuffer,
             flatbuffer_loc,
             ctx,
@@ -141,6 +149,14 @@ impl Layout {
         match &self.0 {
             Inner::Owned(owned) => owned.vtable.id(),
             Inner::Viewed(viewed) => LayoutId(viewed.flatbuffer().encoding()),
+        }
+    }
+
+    /// Return the row-offset of the layout.
+    pub fn row_offset(&self) -> u64 {
+        match &self.0 {
+            Inner::Owned(owned) => owned.row_offset,
+            Inner::Viewed(viewed) => viewed.row_offset,
         }
     }
 
@@ -176,7 +192,7 @@ impl Layout {
     /// ## Panics
     ///
     /// Panics if the child index is out of bounds.
-    pub fn child(&self, i: usize, dtype: DType) -> VortexResult<Layout> {
+    pub fn child(&self, i: usize, dtype: DType, row_offset: u64) -> VortexResult<Layout> {
         if i >= self.nchildren() {
             vortex_panic!("child index out of bounds");
         }
@@ -207,6 +223,7 @@ impl Layout {
                 Ok(Self(Inner::Viewed(ViewedLayout {
                     vtable: encoding,
                     dtype,
+                    row_offset,
                     flatbuffer: v.flatbuffer.clone(),
                     flatbuffer_loc: fb._tab.loc(),
                     ctx: v.ctx.clone(),
@@ -288,11 +305,9 @@ impl Layout {
     pub fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.encoding()
-            .register_splits(self, field_mask, row_offset, splits)
+        self.encoding().register_splits(self, field_mask, splits)
     }
 }
 

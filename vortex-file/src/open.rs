@@ -330,6 +330,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             Layout::new_viewed_unchecked(
                 root_encoding,
                 dtype,
+                0,
                 bytes.clone(),
                 fb_root_layout._tab.loc(),
                 self.layout_ctx.clone(),

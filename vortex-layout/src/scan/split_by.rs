@@ -34,7 +34,7 @@ impl SplitBy {
                 row_splits.insert(0);
                 row_splits.insert(layout.row_count());
                 // Register the splits for all the layouts.
-                layout.register_splits(field_mask, 0, &mut row_splits)?;
+                layout.register_splits(field_mask, &mut row_splits)?;
 
                 row_splits
                     .into_iter()

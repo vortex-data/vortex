@@ -43,14 +43,13 @@ impl LayoutVTable for ChunkedLayout {
         &self,
         layout: &Layout,
         field_mask: &[FieldMask],
-        row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
-        let mut offset = row_offset;
+        let mut offset = layout.row_offset();
         for i in 0..nchunks {
-            let child = layout.child(i, layout.dtype().clone())?;
-            child.register_splits(field_mask, offset, splits)?;
+            let child = layout.child(i, layout.dtype().clone(), offset)?;
+            child.register_splits(field_mask, splits)?;
             offset += child.row_count();
             splits.insert(offset);
         }

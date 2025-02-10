@@ -40,17 +40,19 @@ pub struct ChunkedLayoutWriter {
     chunks: Vec<Box<dyn LayoutWriter>>,
     stats_accumulator: StatsAccumulator,
     dtype: DType,
+    row_offset: u64,
     row_count: u64,
 }
 
 impl ChunkedLayoutWriter {
-    pub fn new(dtype: &DType, options: ChunkedLayoutOptions) -> Self {
+    pub fn new(dtype: &DType, row_offset: u64, options: ChunkedLayoutOptions) -> Self {
         let stats_accumulator = StatsAccumulator::new(dtype.clone(), options.chunk_stats.clone());
         Self {
             options,
             chunks: Vec::new(),
             stats_accumulator,
             dtype: dtype.clone(),
+            row_offset,
             row_count: 0,
         }
     }
@@ -63,7 +65,10 @@ impl LayoutWriter for ChunkedLayoutWriter {
 
         // We write each chunk, but don't call finish quite yet to ensure that chunks have an
         // opportunity to write messages at the end of the file.
-        let mut chunk_writer = self.options.chunk_strategy.new_writer(chunk.dtype())?;
+        let mut chunk_writer = self
+            .options
+            .chunk_strategy
+            .new_writer(chunk.dtype(), self.row_count)?;
         chunk_writer.push_chunk(segments, chunk)?;
         self.chunks.push(chunk_writer);
 
@@ -82,9 +87,12 @@ impl LayoutWriter for ChunkedLayoutWriter {
         let metadata: Option<Bytes> = match stats_table {
             Some(stats_table) => {
                 // Write the stats array as the final layout.
-                let stats_layout =
-                    FlatLayoutWriter::new(stats_table.array().dtype().clone(), Default::default())
-                        .push_one(segments, stats_table.array().clone())?;
+                let stats_layout = FlatLayoutWriter::new(
+                    stats_table.array().dtype().clone(),
+                    self.row_offset,
+                    Default::default(),
+                )
+                .push_one(segments, stats_table.array().clone())?;
                 children.push(stats_layout);
 
                 // We store a bit-set of the statistics in the layout metadata so we can infer the
@@ -97,6 +105,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         Ok(Layout::new_owned(
             LayoutVTableRef::from_static(&ChunkedLayout),
             self.dtype.clone(),
+            self.row_offset,
             self.row_count,
             vec![],
             children,
