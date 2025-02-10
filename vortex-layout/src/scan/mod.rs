@@ -10,9 +10,11 @@ use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
 mod split_by;
 pub mod unified;
+mod v2;
 
 use futures::StreamExt;
 pub use split_by::*;
+pub use v2::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -103,11 +105,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    pub fn with_options(mut self, options: D::Options) -> Self {
-        self.driver_options = Some(options);
-        self
-    }
-
     pub fn build(self) -> VortexResult<Scan<D>> {
         let projection = simplify_typed(self.projection, self.layout.dtype())?;
         let filter = self
@@ -166,13 +163,17 @@ impl<D: ScanDriver> ScanBuilder<D> {
             })
             .collect_vec();
 
+        let dtype = projection.return_dtype(self.layout.dtype())?;
+
         Ok(Scan {
             driver: self.driver,
             layout: self.layout,
             ctx: self.ctx,
             projection,
             filter,
+            dtype,
             row_masks,
+            field_mask,
         })
     }
 
@@ -187,14 +188,16 @@ impl<D: ScanDriver> ScanBuilder<D> {
 }
 
 pub struct Scan<D> {
-    driver: D,
-    layout: Layout,
-    ctx: ContextRef,
+    pub(crate) driver: D,
+    pub(crate) layout: Layout,
+    pub(crate) ctx: ContextRef,
     // Guaranteed to be simplified
-    projection: ExprRef,
+    pub(crate) projection: ExprRef,
     // Guaranteed to be simplified
-    filter: Option<ExprRef>,
-    row_masks: Vec<RowMask>,
+    pub(crate) filter: Option<ExprRef>,
+    pub(crate) dtype: DType,
+    pub(crate) row_masks: Vec<RowMask>,
+    pub(crate) field_mask: Arc<[FieldPath]>,
 }
 
 impl<D: ScanDriver> Scan<D> {
@@ -205,8 +208,6 @@ impl<D: ScanDriver> Scan<D> {
             self.projection,
             self.filter,
         )?);
-
-        let result_dtype = scanner.result_dtype().clone();
 
         // Create a single LayoutReader that is reused for the entire scan.
         let reader: Arc<dyn LayoutReader> = self
@@ -220,7 +221,9 @@ impl<D: ScanDriver> Scan<D> {
             let (send_result, recv_result) = oneshot::channel::<VortexResult<Option<Array>>>();
             results.push(recv_result);
 
-            let reader = reader.clone();
+            let range_reader =
+                reader.range_reader(row_mask.begin()..row_mask.end(), self.field_mask);
+
             let task: BoxFuture<'static, VortexResult<()>> = scanner
                 .clone()
                 .range_scanner(row_mask)?
@@ -250,7 +253,7 @@ impl<D: ScanDriver> Scan<D> {
             io_stream: driver_stream,
         };
 
-        Ok(ArrayStreamAdapter::new(result_dtype, stream))
+        Ok(ArrayStreamAdapter::new(self.dtype, stream))
     }
 
     pub async fn into_array(self) -> VortexResult<Array> {
@@ -265,9 +268,9 @@ fn field_mask(
     projection: &ExprRef,
     filter: Option<&ExprRef>,
     scope_dtype: &DType,
-) -> VortexResult<Vec<FieldMask>> {
+) -> VortexResult<Arc<[FieldMask]>> {
     let Some(struct_dtype) = scope_dtype.as_struct() else {
-        return Ok(vec![FieldMask::All]);
+        return Ok([FieldMask::All].into());
     };
 
     let projection_mask = immediate_scope_access(projection, struct_dtype)?;
@@ -280,5 +283,5 @@ fn field_mask(
         .union(&filter_mask)
         .cloned()
         .map(|c| FieldMask::Prefix(FieldPath::from(Field::Name(c))))
-        .collect_vec())
+        .collect())
 }

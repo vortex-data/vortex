@@ -1,3 +1,5 @@
+use std::ops::Range;
+use std::rc::Weak;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use arrow_buffer::BooleanBuffer;
@@ -5,16 +7,18 @@ use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_dtype::FieldPath;
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_scan::RowMask;
 
+use crate::layouts::chunked::range_reader::ChunkedRangeReader;
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutVTable};
+use crate::{ExprEvaluator, Layout, LayoutRangeReader, LayoutVTable};
 
 type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
 
@@ -28,7 +32,9 @@ pub struct ChunkedReader {
     /// Shared stats table
     stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
-    chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    chunk_readers: Arc<[OnceLock<Weak<dyn LayoutReader>>]>,
+    /// Row ranges for each chunk
+    chunk_row_offsets: Vec<u64>,
 }
 
 impl ChunkedReader {
@@ -51,6 +57,9 @@ impl ChunkedReader {
         // Construct a lazy scan for each chunk of the layout.
         let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
 
+        // Generate the cumulative chunk offsets
+        let chunk_row_offsets = (0..nchunks).map(|i| layout.child_row_count(i)).collect();
+
         Ok(Self {
             layout,
             ctx,
@@ -58,6 +67,7 @@ impl ChunkedReader {
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
+            chunk_row_offsets,
         })
     }
 
@@ -152,5 +162,37 @@ impl ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn range_reader(
+        &self,
+        row_range: Range<u64>,
+        field_mask: Arc<[FieldPath]>,
+    ) -> Arc<dyn LayoutRangeReader> {
+        let start_chunk = self
+            .chunk_row_offsets
+            .binary_search(&row_range.start)
+            .unwrap_or_else(|x| x);
+        let end_chunk = self
+            .chunk_row_offsets
+            .binary_search(&row_range.end)
+            .unwrap_or_else(|x| x);
+        let chunks = (start_chunk..end_chunk)
+            .map(|i| self.child(i).vortex_expect("not out of bounds"))
+            .cloned()
+            .collect();
+        let start_chunk_offset =
+            usize::try_from(row_range.start - self.chunk_row_offsets[start_chunk])
+                .vortex_expect("Chunk offset must fit within usize");
+        let end_chunk_length =
+            usize::try_from(row_range.end - self.chunk_row_offsets[end_chunk + 1])
+                .vortex_expect("Chunk length must fit within usize");
+
+        Arc::new(ChunkedRangeReader {
+            row_range,
+            chunks,
+            start_chunk_offset,
+            end_chunk_length,
+        }) as _
     }
 }

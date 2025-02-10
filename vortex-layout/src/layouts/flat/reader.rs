@@ -1,17 +1,24 @@
+use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::ContextRef;
-use vortex_error::{vortex_panic, VortexResult};
+use async_once_cell::Lazy;
+use futures::future::BoxFuture;
+use futures::FutureExt;
+use vortex_array::{Array, ContextRef};
+use vortex_dtype::FieldPath;
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 
+use crate::layouts::flat::range_reader::FlatRangeReader;
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutVTable};
+use crate::{Layout, LayoutRangeReader, LayoutReaderExt, LayoutVTable};
+
+pub(crate) type LazyArray = Arc<Lazy<VortexResult<Array>, BoxFuture<'static, VortexResult<Array>>>>;
 
 pub struct FlatReader {
     layout: Layout,
-    ctx: ContextRef,
-    segments: Arc<dyn AsyncSegmentReader>,
+    array: LazyArray,
 }
 
 impl FlatReader {
@@ -24,24 +31,47 @@ impl FlatReader {
             vortex_panic!("Mismatched layout ID")
         }
 
-        Ok(Self {
-            layout,
-            ctx,
-            segments,
-        })
-    }
+        let segment_id = layout
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+        let dtype = layout.dtype().clone();
+        let row_count = usize::try_from(layout.row_count())
+            .vortex_expect("FlatLayout row count does not fit within usize");
 
-    pub(crate) fn ctx(&self) -> ContextRef {
-        self.ctx.clone()
-    }
+        let array = Arc::new(Lazy::new(
+            async move {
+                // Fetch all the array segment.
+                let buffer = segments.get(segment_id).await?;
+                Ok::<_, VortexError>(Array::deserialize(buffer, ctx, dtype, row_count)?)
+            }
+            .boxed(),
+        ));
 
-    pub(crate) fn segments(&self) -> &dyn AsyncSegmentReader {
-        self.segments.as_ref()
+        Ok(Self { layout, array })
     }
 }
 
 impl LayoutReader for FlatReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn range_reader(
+        &self,
+        row_range: Range<u64>,
+        field_mask: Arc<[FieldPath]>,
+    ) -> Arc<dyn LayoutRangeReader> {
+        if row_range.start >= self.row_count() || row_range.end > self.row_count() {
+            vortex_panic!("Row range out of bounds")
+        }
+        let start =
+            usize::try_from(row_range.start).vortex_expect("Flat row range must fit within usize");
+        let end =
+            usize::try_from(row_range.end).vortex_expect("Flat row range must fit within usize");
+
+        Arc::new(FlatRangeReader {
+            row_range: start..end,
+            array: self.array.clone(),
+        }) as _
     }
 }

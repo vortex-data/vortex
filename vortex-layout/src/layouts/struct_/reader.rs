@@ -1,16 +1,17 @@
 use std::hash::Hash;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, FieldName, StructDType};
+use vortex_dtype::{DType, FieldName, FieldPath, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{partition, PartitionedExpr};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
+use crate::{Layout, LayoutRangeReader, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 #[derive(Clone)]
 pub struct StructReader {
@@ -109,6 +110,14 @@ impl StructReader {
 impl LayoutReader for StructReader {
     fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    fn range_reader(
+        &self,
+        row_range: Range<u64>,
+        field_mask: Arc<[FieldPath]>,
+    ) -> Arc<dyn LayoutRangeReader> {
+        todo!()
     }
 }
 
