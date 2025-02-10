@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::debug;
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::builders::ArrayBuilder;

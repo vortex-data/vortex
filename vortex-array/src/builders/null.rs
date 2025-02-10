@@ -1,11 +1,11 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::array::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, IntoArray, IntoCanonical};
 
 pub struct NullBuilder {
     length: usize,

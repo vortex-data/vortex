@@ -222,9 +222,7 @@ impl IntoCanonical for Array {
 
     /// Canonicalize an [`Array`] into an existing [`ArrayBuilder`].
     fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        let canonical = self.vtable().canonicalize_into(self.clone(), builder);
-        canonical.as_ref().inherit_statistics(self.statistics());
-        Ok(canonical)
+        self.vtable().canonicalize_into(self.clone(), builder)
     }
 }
 
