@@ -4,7 +4,6 @@ use rand::{Rng, SeedableRng};
 use vortex_array::array::{BoolArray, ChunkedArray};
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, Utf8Builder};
 use vortex_array::{Array, IntoArray, IntoCanonical};
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexUnwrap;
 
 fn main() {
@@ -45,18 +44,22 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> Array {
         .into_array()
 }
 
-fn make_string_chunks(len: usize, chunk_count: usize) -> Array {
+fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> Array {
     let mut rng = StdRng::seed_from_u64(123);
 
     (0..chunk_count)
         .map(|_| {
-            let mut builder = Utf8Builder::with_capacity(NonNullable, len);
+            let mut builder = Utf8Builder::with_capacity(nullable.into(), len);
             (0..len).for_each(|_| {
-                builder.append_value(
-                    (0..rng.gen_range(1..=20))
-                        .map(|_| rng.gen_range(b'a'..=b'z') as char)
-                        .collect::<String>(),
-                )
+                if nullable && rng.gen_bool(0.2) {
+                    builder.append_null()
+                } else {
+                    builder.append_value(
+                        (0..rng.gen_range(0..=20))
+                            .map(|_| rng.gen_range(b'a'..=b'z') as char)
+                            .collect::<String>(),
+                    )
+                }
             });
             builder.finish().vortex_unwrap()
         })
@@ -126,7 +129,7 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
 
 #[divan::bench(args=bench_args())]
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
-    let chunks = make_string_chunks(len, chunk_count);
+    let chunks = make_string_chunks(false, len, chunk_count);
 
     bencher
         .with_inputs(|| chunks.clone())
@@ -140,7 +143,30 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
 
 #[divan::bench(args=bench_args())]
 fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
-    let chunks = make_string_chunks(len, chunk_count);
+    let chunks = make_string_chunks(false, len, chunk_count);
+
+    bencher
+        .with_inputs(|| chunks.clone())
+        .bench_local_values(|chunk| chunk.into_canonical())
+}
+
+#[divan::bench(args=bench_args())]
+fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_string_chunks(true, len, chunk_count);
+
+    bencher
+        .with_inputs(|| chunks.clone())
+        .bench_local_values(|chunk| {
+            let mut builder =
+                Utf8Builder::with_capacity(chunk.dtype().nullability(), len * chunk_count);
+            chunk.canonicalize_into(&mut builder).vortex_unwrap();
+            builder.finish().vortex_unwrap()
+        })
+}
+
+#[divan::bench(args=bench_args())]
+fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_string_chunks(true, len, chunk_count);
 
     bencher
         .with_inputs(|| chunks.clone())
