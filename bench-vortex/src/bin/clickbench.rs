@@ -192,11 +192,7 @@ fn main() {
                     let query = query.clone();
                     tokio::task::spawn(async move {
                         execute_query(&context, &query)
-                            .instrument(info_span!(
-                                "execute_query",
-                                query_idx,
-                                iteration = iteration
-                            ))
+                            .instrument(info_span!("execute_query", query_idx, iteration))
                             .await
                             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
                     })
