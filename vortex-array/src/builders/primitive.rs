@@ -80,16 +80,16 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             vortex_bail!("Cannot extend from array with different ptype");
         }
 
+        self.values.extend_from_slice(array.as_slice::<T>());
+
         match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                self.values.extend_from_slice(array.as_slice::<T>());
                 self.validity.append_n_non_nulls(array.len());
             }
             AllOr::None => {
                 self.append_nulls(array.len());
             }
             AllOr::Some(validity) => {
-                self.values.push_n(T::default(), validity.len());
                 // TODO(ngates): this is slow
                 validity.iter().for_each(|v| self.validity.append(v));
             }

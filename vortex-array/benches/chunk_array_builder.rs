@@ -134,7 +134,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
             let mut builder =
                 Utf8Builder::with_capacity(chunk.dtype().nullability(), len * chunk_count);
             chunk.canonicalize_into(&mut builder).vortex_unwrap();
-            builder.finish2().vortex_unwrap()
+            builder.finish().vortex_unwrap()
         })
 }
 
