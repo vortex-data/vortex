@@ -45,8 +45,6 @@ pub struct VortexOpenOptions<F: FileType> {
     /// File-specific options
     pub(crate) options: F::Options,
     /// A human-readable name for debugging and logging,
-    #[allow(dead_code)]
-    name: Option<Arc<str>>,
     /// The Vortex Array encoding context.
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
@@ -118,7 +116,6 @@ impl VortexOpenOptions<InMemoryVortexFile> {
         Self {
             read: buffer.into(),
             options: (),
-            name: None,
             ctx: ALL_ENCODINGS_CONTEXT.clone(),
             layout_ctx: Arc::new(Default::default()),
             file_size: None,
@@ -137,7 +134,6 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
             read,
             // TODO(ngates): move this context into the vortex-file crate
             options: Default::default(),
-            name: None,
             ctx: ALL_ENCODINGS_CONTEXT.clone(),
             layout_ctx: LayoutContextRef::default(),
             file_size: None,
