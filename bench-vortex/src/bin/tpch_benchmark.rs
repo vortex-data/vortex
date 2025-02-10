@@ -27,11 +27,15 @@ struct Args {
     exclude_queries: Option<Vec<usize>>,
     #[arg(short, long)]
     threads: Option<usize>,
+    #[arg(long)]
+    use_s3_data_dir: Option<String>,
     #[arg(short, long, default_value_t = true, default_missing_value = "true", action = ArgAction::Set)]
     warmup: bool,
     #[arg(short, long, default_value = "5")]
     iterations: usize,
-    #[arg(long)]
+    #[arg(long, value_delimiter = ',')]
+    formats: Option<Vec<String>>,
+    #[arg(short, long)]
     only_vortex: bool,
     #[arg(short, long)]
     verbose: bool,
@@ -61,22 +65,33 @@ fn main() -> ExitCode {
     }
     .expect("Failed building the Runtime");
 
-    let url = if false {
-        let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
-        Url::parse(
-            ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
-                .as_ref(),
-        )
-        .unwrap()
-    } else {
-        Url::parse("s3://vortex-bench-dev/parquet/").unwrap()
+    let url = match args.use_s3_data_dir {
+        None => {
+            let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
+            Url::parse(
+                ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
+                    .as_ref(),
+            )
+            .unwrap()
+        }
+        Some(tpch_benchmark_s3_data_location) => {
+            // e.g. "s3://vortex-bench-dev/parquet/"
+            //
+            // The trailing slash is significant!
+            Url::parse(&tpch_benchmark_s3_data_location).unwrap()
+        }
     };
+
+    if args.only_vortex {
+        panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
+    }
+
     runtime.block_on(bench_main(
         args.queries,
         args.exclude_queries,
         args.iterations,
         args.warmup,
-        args.only_vortex,
+        args.formats,
         args.display_format,
         args.emulate_object_store,
         url,
@@ -88,7 +103,7 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     warmup: bool,
-    only_vortex: bool,
+    formats: Option<Vec<String>>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
     url: Url,
@@ -99,18 +114,23 @@ async fn bench_main(
     // Run TPC-H data gen.
 
     // The formats to run against (vs the baseline)
-    let formats = if only_vortex {
-        vec![
-            // Format::Arrow,
-            Format::OnDiskVortex,
-        ]
-    } else {
-        vec![
-            // Format::Arrow,
-            Format::Parquet,
-            Format::OnDiskVortex,
-        ]
+    let formats = match formats {
+        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
+        Some(formats) => formats
+            .into_iter()
+            .map(|format| match format.as_ref() {
+                "arrow" => Format::Arrow,
+                "parquet" => Format::Parquet,
+                "vortex" => Format::OnDiskVortex,
+                _ => panic!("unrecognized format: {}", format),
+            })
+            .collect::<Vec<_>>(),
     };
+
+    println!(
+        "Benchmarking against these formats: {}.",
+        formats.iter().join(", ")
+    );
 
     // Load datasets
     let ctxs = try_join_all(
