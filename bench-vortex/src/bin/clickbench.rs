@@ -51,18 +51,13 @@ fn main() {
     let _trace_guard = {
         // Capture `RUST_LOG` configuration
         let filter = tracing_subscriber::EnvFilter::from_default_env();
-        let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
+        let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
             .file("clickbench.trace.json")
             .build();
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_target(true)
-            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
-            .pretty();
 
         tracing_subscriber::registry()
             .with(filter)
-            .with(chrome_layer)
-            .with(fmt_layer)
+            .with(layer)
             .init();
         _guard
     };
