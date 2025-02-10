@@ -124,8 +124,8 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use rand::distributions::Uniform;
-    use rand::{thread_rng, Rng};
+    use rand::distr::Uniform;
+    use rand::{rng, Rng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
@@ -183,8 +183,8 @@ mod test {
         let packed = BitPackedArray::encode(&uncompressed, 16).unwrap();
         assert!(packed.patches().is_some());
 
-        let rng = thread_rng();
-        let range = Uniform::new(0, values.len());
+        let rng = rng();
+        let range = Uniform::new(0, values.len()).unwrap();
         let random_indices =
             PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
         let taken = take(&packed, &random_indices).unwrap();

@@ -543,8 +543,8 @@ pub mod test_harness {
     ) -> VortexResult<ArrayRef> {
         let values = (0..len)
             .map(|_| {
-                let mut v = rng.gen_range(0..100i32);
-                if rng.gen_bool(fraction_patches) {
+                let mut v = rng.random_range(0..100i32);
+                if rng.random_bool(fraction_patches) {
                     v += 1 << 13
                 };
                 v
@@ -554,7 +554,7 @@ pub mod test_harness {
         let values = if fraction_null == 0.0 {
             values.into_array().to_primitive()?
         } else {
-            let validity = Validity::from_iter((0..len).map(|_| !rng.gen_bool(fraction_null)));
+            let validity = Validity::from_iter((0..len).map(|_| !rng.random_bool(fraction_null)));
             PrimitiveArray::new(values, validity)
         };
 

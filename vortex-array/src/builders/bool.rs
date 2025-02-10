@@ -116,7 +116,7 @@ mod tests {
 
         (0..chunk_count)
             .map(|_| {
-                BoolArray::from_iter((0..len).map(|_| match rng.gen_range::<u8, _>(0..=2) {
+                BoolArray::from_iter((0..len).map(|_| match rng.random_range::<u8, _>(0..=2) {
                     0 => Some(false),
                     1 => Some(true),
                     2 => None,

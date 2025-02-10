@@ -25,7 +25,7 @@ fn main() {
 fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..10_000)
-        .map(|_| T::from(rng.gen_range(0..100)).unwrap())
+        .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
         .to_primitive()
@@ -34,7 +34,7 @@ fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
     let mask = (0..10000)
-        .map(|_| rng.gen_bool(fraction_kept))
+        .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
     let mask = &Mask::from_buffer(mask);
 
@@ -46,7 +46,7 @@ fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction
 fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..10_000)
-        .map(|_| T::from(rng.gen_range(0..100)).unwrap())
+        .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
         .to_primitive()
@@ -55,7 +55,7 @@ fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
     let mask = (0..10000)
-        .map(|_| rng.gen_bool(fraction_kept))
+        .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
     let mask = &Mask::from_buffer(mask);
 

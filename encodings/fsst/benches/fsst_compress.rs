@@ -131,10 +131,10 @@ fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> 
     for _ in 0..string_count {
         // Generate a random string with length around `avg_len`. The number of possible
         // characters within the random string is defined by `unique_chars`.
-        let len = avg_len * rng.gen_range(50..=150) / 100;
+        let len = avg_len * rng.random_range(50..=150) / 100;
         strings.push(Some(
             (0..len)
-                .map(|_| rng.gen_range(b'a'..(b'a' + unique_chars)) as char)
+                .map(|_| rng.random_range(b'a'..(b'a' + unique_chars)) as char)
                 .collect::<String>()
                 .into_bytes(),
         ));

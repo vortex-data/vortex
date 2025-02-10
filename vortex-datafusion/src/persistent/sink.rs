@@ -10,7 +10,7 @@ use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::{StreamExt, TryStreamExt};
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distr::{Alphanumeric, SampleString};
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::TryIntoArray;
@@ -78,7 +78,7 @@ impl DataSink for VortexSink {
         let path = if single_file_output {
             base_output_path.prefix().to_owned()
         } else {
-            let filename = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+            let filename = Alphanumeric.sample_string(&mut rand::rng(), 16);
             base_output_path
                 .prefix()
                 .child(format!("{filename}.{}", VORTEX_FILE_EXTENSION))

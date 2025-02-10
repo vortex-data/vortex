@@ -121,15 +121,15 @@ mod tests {
         let mut strings = Vec::with_capacity(STRING_COUNT);
 
         for _ in 0..STRING_COUNT {
-            if rng.gen_bool(0.9) {
+            if rng.random_bool(0.9) {
                 strings.push(None)
             } else {
                 // Generate a random string with length around `avg_len`. The number of possible
                 // characters within the random string is defined by `unique_chars`.
-                let len = 10 * rng.gen_range(50..=150) / 100;
+                let len = 10 * rng.random_range(50..=150) / 100;
                 strings.push(Some(
                     (0..len)
-                        .map(|_| rng.gen_range(b'a'..=b'z') as char)
+                        .map(|_| rng.random_range(b'a'..=b'z') as char)
                         .collect::<String>()
                         .into_bytes(),
                 ));

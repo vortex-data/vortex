@@ -64,7 +64,7 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
     let indices = (0..len)
-        .filter(|_| rng.gen_bool(sparsity))
+        .filter(|_| rng.random_bool(sparsity))
         .map(|x| x as u64)
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
@@ -73,5 +73,5 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {
-    Buffer::from_iter((0..n_indices).map(|_| rng.gen_range(0..(array_len as u64)))).into_array()
+    Buffer::from_iter((0..n_indices).map(|_| rng.random_range(0..(array_len as u64)))).into_array()
 }

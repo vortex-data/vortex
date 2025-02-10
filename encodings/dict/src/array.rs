@@ -219,7 +219,7 @@ impl ArrayStatisticsImpl for DictArray {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use rand::distributions::{Distribution, Standard};
+    use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
@@ -298,17 +298,19 @@ mod test {
         chunk_count: usize,
     ) -> ArrayRef
     where
-        Standard: Distribution<T>,
+        StandardUniform: Distribution<T>,
     {
         let mut rng = StdRng::seed_from_u64(0);
 
         (0..chunk_count)
             .map(|_| {
                 let values = (0..unique_values)
-                    .map(|_| rng.gen::<T>())
+                    .map(|_| rng.random::<T>())
                     .collect::<PrimitiveArray>();
                 let codes = (0..len)
-                    .map(|_| U::from(rng.gen_range(0..unique_values)).vortex_expect("valid value"))
+                    .map(|_| {
+                        U::from(rng.random_range(0..unique_values)).vortex_expect("valid value")
+                    })
                     .collect::<PrimitiveArray>();
 
                 DictArray::try_new(codes.into_array(), values.into_array())

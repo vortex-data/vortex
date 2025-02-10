@@ -291,7 +291,7 @@ pub fn generate_struct_of_list_of_ints_array(
             let fields = (0u32..num_columns)
                 .map(|_| {
                     let elements = PrimitiveArray::from_iter(
-                        (0u32..chunk_row_count).map(|_| rng.gen::<i64>()),
+                        (0u32..chunk_row_count).map(|_| rng.random::<i64>()),
                     );
                     let offsets = PrimitiveArray::from_iter(0u32..=chunk_row_count);
                     ListArray::try_new(

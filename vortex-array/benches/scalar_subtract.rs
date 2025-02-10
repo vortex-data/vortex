@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use rand::distributions::Uniform;
+use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::ChunkedArray;
@@ -15,8 +15,7 @@ fn main() {
 #[divan::bench]
 fn scalar_subtract(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
-    let range = Uniform::new(0i64, 100_000_000);
-
+    let range = Uniform::new(0i64, 100_000_000).unwrap();
     let data1 = (0..100_000)
         .map(|_| rng.sample(range))
         .collect::<Buffer<i64>>()

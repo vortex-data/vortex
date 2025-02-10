@@ -10,9 +10,8 @@ use object_store::{
     GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMultipartOpts,
     PutOptions, PutPayload, PutResult, Result as OSResult,
 };
-use rand::prelude::Distribution as _;
-use rand::thread_rng;
-use rand_distr::LogNormal;
+use rand::rng;
+use rand_distr::{Distribution, LogNormal};
 use reqwest::Url;
 
 #[derive(Debug)]
@@ -62,7 +61,7 @@ impl SlowObjectStore {
     }
 
     fn wait_time(&self) -> Duration {
-        let duration = (self.distribution.sample(&mut thread_rng()) as u64).clamp(30, 1_000);
+        let duration = (self.distribution.sample(&mut rng()) as u64).clamp(30, 1_000);
         Duration::from_millis(duration)
     }
 

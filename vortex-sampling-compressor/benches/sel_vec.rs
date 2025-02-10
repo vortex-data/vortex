@@ -105,7 +105,7 @@ fn create_mask(len: usize, true_count: usize) -> Mask {
     let mut set = 0;
     // Randomly distribute true values until we reach the desired count
     while set < true_count {
-        let index = rng.gen_range(0..len);
+        let index = rng.random_range(0..len);
         if !mask[index] {
             mask[index] = true;
             set += 1;

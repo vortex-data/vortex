@@ -48,7 +48,7 @@ impl BenchmarkDataset for StructListOfInts {
                 let fields = (0..self.num_columns)
                     .map(|_| {
                         let elements = PrimitiveArray::from_iter(
-                            (0..chunk_row_count).map(|_| rng.gen::<i64>()),
+                            (0..chunk_row_count).map(|_| rng.random::<i64>()),
                         );
                         let offsets =
                             PrimitiveArray::from_iter((0..=chunk_row_count).map(|i| i as u32));

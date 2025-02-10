@@ -69,7 +69,7 @@ fn decompress(bencher: Bencher, (compressor, ptype): (CompressorRef, PType)) {
 fn fixture(ptype: PType) -> ArrayRef {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     let uint_array =
-        Buffer::from_iter((0..u16::MAX as u64).map(|_| rng.gen_range(0u32..256))).into_array();
+        Buffer::from_iter((0..u16::MAX as u64).map(|_| rng.random_range(0u32..256))).into_array();
     let int_array = try_cast(&uint_array, PType::I32.into()).unwrap();
     let float_array = try_cast(&uint_array, PType::F32.into()).unwrap();
 
@@ -83,8 +83,8 @@ fn fixture(ptype: PType) -> ArrayRef {
 
 #[cfg(not(codspeed))]
 mod varbinview {
-    use rand::distributions::Alphanumeric;
-    use rand::seq::SliceRandom;
+    use rand::distr::Alphanumeric;
+    use rand::prelude::IndexedRandom;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::nbytes::NBytes;
     use vortex_array::Array;

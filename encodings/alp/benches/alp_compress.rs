@@ -43,13 +43,13 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
     if fraction_patch > 0.0 {
         for index in 0..values.len() {
-            if rng.gen_bool(fraction_patch) {
+            if rng.random_bool(fraction_patch) {
                 values[index] = T::from(1000.0).unwrap()
             }
         }
     }
     let validity = if fraction_valid < 1.0 {
-        Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
+        Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
     } else {
         Validity::NonNullable
     };
@@ -69,13 +69,13 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     let mut values = buffer![T::from(1.234).unwrap(); n].into_mut();
     if fraction_patch > 0.0 {
         for index in 0..values.len() {
-            if rng.gen_bool(fraction_patch) {
+            if rng.random_bool(fraction_patch) {
                 values[index] = T::from(1000.0).unwrap()
             }
         }
     }
     let validity = if fraction_valid < 1.0 {
-        Validity::from_iter((0..values.len()).map(|_| rng.gen_bool(fraction_valid)))
+        Validity::from_iter((0..values.len()).map(|_| rng.random_bool(fraction_valid)))
     } else {
         Validity::NonNullable
     };

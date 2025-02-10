@@ -121,7 +121,7 @@ fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         .map(|_| {
             BoolArray::from_iter(
                 (0..len / SPAN_LEN)
-                    .flat_map(|_| match rng.gen_range::<u8, _>(0..=2) {
+                    .flat_map(|_| match rng.random_range::<u8, _>(0..=2) {
                         0 => vec![Some(false); SPAN_LEN],
                         1 => vec![Some(true); SPAN_LEN],
                         2 => vec![None; SPAN_LEN],
@@ -140,7 +140,7 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
 
     (0..chunk_count)
-        .map(|_| BoolArray::from_iter((0..len).map(|_| rng.gen_bool(0.5))).into_array())
+        .map(|_| BoolArray::from_iter((0..len).map(|_| rng.random_bool(0.5))).into_array())
         .collect::<ChunkedArray>()
         .into_array()
 }
@@ -152,12 +152,12 @@ fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRe
         .map(|_| {
             let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(nullable.into()), len);
             (0..len).for_each(|_| {
-                if nullable && rng.gen_bool(0.2) {
+                if nullable && rng.random_bool(0.2) {
                     builder.append_null()
                 } else {
                     builder.append_value(
-                        (0..rng.gen_range(0..=20))
-                            .map(|_| rng.gen_range(b'a'..=b'z'))
+                        (0..rng.random_range(0..=20))
+                            .map(|_| rng.random_range(b'a'..=b'z'))
                             .collect::<Vec<u8>>(),
                     )
                 }

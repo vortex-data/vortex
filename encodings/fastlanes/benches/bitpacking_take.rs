@@ -2,9 +2,9 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
-use rand::distributions::Uniform;
+use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use rand::{thread_rng, Rng, SeedableRng};
+use rand::{rng, Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
 use vortex_array::validity::Validity;
@@ -44,7 +44,7 @@ fn take_10_contiguous(bencher: Bencher) {
 #[divan::bench]
 fn take_10k_random(bencher: Bencher) {
     let values = fixture(1_000_000, 8);
-    let range = Uniform::new(0, values.len());
+    let range = Uniform::new(0, values.len()).unwrap();
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed =
         BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
@@ -97,8 +97,8 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
 }
 
 fn fixture(len: usize, bits: usize) -> Buffer<u32> {
-    let rng = thread_rng();
-    let range = Uniform::new(0_u32, 2_u32.pow(bits as u32));
+    let rng = rng();
+    let range = Uniform::new(0_u32, 2_u32.pow(bits as u32)).unwrap();
     rng.sample_iter(range).take(len).collect()
 }
 
@@ -166,7 +166,7 @@ fn patched_take_10k_random(bencher: Bencher) {
         BitPackedArray::encode(&uncompressed, find_best_bit_width(&uncompressed).unwrap()).unwrap();
 
     let rng = StdRng::seed_from_u64(0);
-    let range = Uniform::new(0, values.len());
+    let range = Uniform::new(0, values.len()).unwrap();
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
 
     bencher

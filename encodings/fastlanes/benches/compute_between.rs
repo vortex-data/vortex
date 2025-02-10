@@ -22,7 +22,7 @@ fn generate_primitive_array<T: NativePType + NumCast + PartialOrd>(
     len: usize,
 ) -> PrimitiveArray {
     (0..len)
-        .map(|_| T::from_usize(rng.gen_range(0..10_000)).vortex_expect(""))
+        .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>()
 }
 
@@ -31,7 +31,7 @@ fn generate_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
     len: usize,
 ) -> ArrayRef {
     let a = (0..len)
-        .map(|_| T::from_usize(rng.gen_range(0..10_000)).vortex_expect(""))
+        .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
     bitpack_to_best_bit_width(&a).vortex_expect("").into_array()
@@ -42,7 +42,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
     len: usize,
 ) -> ArrayRef {
     let a = (0..len)
-        .map(|_| T::from_usize(rng.gen_range(0..10_000)).vortex_expect(""))
+        .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
     let alp = alp_encode(&a).vortex_expect("");
