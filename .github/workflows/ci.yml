@@ -119,6 +119,8 @@ jobs:
             command: "build"
             target: wasm32-unknown-unknown
             args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-tui"
+            env:
+              rustflags: '--cfg getrandom_backend="wasm_js"'
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -130,7 +132,9 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
         run: cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
-  
+        env:
+          RUSTFLAGS: ${{matrix.config.env.rustflags || ''}}
+
   check-min-deps:
     name: "Check build with minimal dependencies"
     runs-on: ubuntu-latest
