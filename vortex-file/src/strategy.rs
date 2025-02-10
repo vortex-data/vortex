@@ -28,6 +28,7 @@ pub struct VortexLayoutStrategy {
     pub minimum_block_size: usize,
     /// The divisor for the number of rows in a block.
     pub block_len_multiple: usize,
+    pub compress: bool,
 }
 
 impl Default for VortexLayoutStrategy {
@@ -35,6 +36,7 @@ impl Default for VortexLayoutStrategy {
         Self {
             minimum_block_size: 8 * (1 << 20), // 8MB
             block_len_multiple: 8 * 1024,      // 8192 rows
+            compress: false,
         }
     }
 }
@@ -47,27 +49,30 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 .map(|w| w.boxed());
         }
 
-        // Then we re-chunk each column per our strategy...
-        Ok(ColumnChunker::new(
-            dtype.clone(),
-            // ...compress each chunk using a sampling compressor...
+        let chunked_writer = ChunkedLayoutWriter::new(
+            dtype,
+            ChunkedLayoutOptions {
+                chunk_strategy: Arc::new(FlatLayoutOptions::default()),
+                ..Default::default()
+            },
+        )
+        .boxed();
+
+        let writer = if self.compress {
             SamplingCompressorWriter {
                 compressor: COMPRESSOR.clone(),
                 compress_like: None,
-                child: ChunkedLayoutWriter::new(
-                    dtype,
-                    ChunkedLayoutOptions {
-                        // ...and write each chunk as a flat layout.
-                        chunk_strategy: Arc::new(FlatLayoutOptions::default()),
-                        ..Default::default()
-                    },
-                )
-                .boxed(),
+                child: chunked_writer,
             }
-            .boxed(),
-            self.clone(),
-        )
-        .boxed())
+            .boxed()
+        } else {
+            chunked_writer
+        };
+
+        // Then we re-chunk each column per our strategy, optionally
+        // compressing each chunk using a sampling compressor, and writing
+        // each chunk as a flat layout.
+        Ok(ColumnChunker::new(dtype.clone(), writer, self.clone()).boxed())
     }
 }
 

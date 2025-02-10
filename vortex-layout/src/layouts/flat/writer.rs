@@ -59,7 +59,7 @@ fn retain_only_stats(array: &Array, stats: &[Stat]) {
 impl LayoutWriter for FlatLayoutWriter {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         if self.layout.is_some() {
-            vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
+            vortex_bail!("FlatLayoutStrategy::push_chunk called after finish");
         }
         let row_count = chunk.len() as u64;
         retain_only_stats(&chunk, &self.options.array_stats);
@@ -84,7 +84,7 @@ impl LayoutWriter for FlatLayoutWriter {
     fn finish(&mut self, _segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         self.layout
             .take()
-            .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))
+            .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_chunk"))
     }
 }
 
