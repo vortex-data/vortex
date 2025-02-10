@@ -55,6 +55,8 @@ fn main() {
             .file("clickbench.trace.json")
             .build();
 
+        tracing_log::LogTracer::init().expect("Failed to initialize LogTracer");
+
         tracing_subscriber::registry()
             .with(filter)
             .with(layer)
