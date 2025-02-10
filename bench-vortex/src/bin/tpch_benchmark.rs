@@ -5,13 +5,14 @@ use std::time::Instant;
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
-use bench_vortex::{feature_flagged_allocator, setup_logger, Format, Measurement};
+use bench_vortex::{feature_flagged_allocator, Format, Measurement};
 use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::LevelFilter;
 use tokio::runtime::Builder;
+use tracing::{info, Level};
+use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect as _;
@@ -39,8 +40,14 @@ struct Args {
     scale_factor: u8,
     #[arg(short, long)]
     only_vortex: bool,
-    #[arg(short, long)]
-    verbose: bool,
+    /// Allow specifying verbosity of logging.
+    ///
+    /// None: WARN
+    /// -v:   INFO
+    /// -vv:  DEBUG
+    /// -vvv: TRACE
+    #[arg(short, action = ArgAction::Count)]
+    verbosity: u8,
     #[arg(long)]
     do_not_use_object_store: bool,
     #[arg(short, long, default_value_t, value_enum)]
@@ -52,11 +59,20 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    setup_logger(if args.verbose {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    });
+    let (enabled, max_level) = match args.verbosity {
+        0 => (false, Level::WARN),
+        1 => (true, Level::INFO),
+        2 => (true, Level::DEBUG),
+        _ => (true, Level::TRACE),
+    };
+
+    if enabled {
+        tracing_subscriber::fmt()
+            .with_max_level(max_level)
+            .with_span_events(FmtSpan::CLOSE)
+            .init();
+        info!("logging enabled");
+    }
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
