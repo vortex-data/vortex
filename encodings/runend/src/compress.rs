@@ -182,15 +182,16 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     Ok(match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length.next_multiple_of(8));
+            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             let mut pos = 0;
+
             for (idx, end) in run_ends.enumerate() {
-                assert!(end <= length);
-                for _ in 0..(end - pos).div_ceil(8) {
-                    unsafe { decoded.extend_from_slice_unchecked(&[*values.get_unchecked(idx); 8]) }
-                }
+                let value = unsafe {
+                    decoded.set_len(end);
+                    *values.get_unchecked(idx)
+                };
+                decoded.as_mut_slice()[pos..end].fill(value);
                 pos = end;
-                unsafe { decoded.set_len(pos) }
             }
             unsafe { decoded.set_len(length) }
             PrimitiveArray::new(decoded, values_nullability.into())

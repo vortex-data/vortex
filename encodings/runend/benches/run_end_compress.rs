@@ -11,7 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
 
-const LENS: [usize; 2] = [1000, 100_000];
+const LENS: [usize; 2] = [1000, 10000];
 
 fn run_end_compress(c: &mut Criterion) {
     evenly_spaced(c);
