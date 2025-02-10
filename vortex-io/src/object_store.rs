@@ -30,7 +30,7 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(self.location = %self.location)))]
     async fn read_byte_range(
         &self,
         range: Range<u64>,
