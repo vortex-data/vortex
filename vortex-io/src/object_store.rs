@@ -38,7 +38,6 @@ impl VortexReadAt for ObjectStoreReadAt {
     ) -> io::Result<ByteBuffer> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
-
         let start = usize::try_from(range.start).vortex_expect("range.start");
         let end = usize::try_from(range.end).vortex_expect("range.end");
         let len: usize = end - start;
