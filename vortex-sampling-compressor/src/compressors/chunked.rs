@@ -76,17 +76,12 @@ impl ChunkedCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let less_chunked = array.rechunk(
-            ctx.options().target_block_bytesize,
-            ctx.options().target_block_size,
-        )?;
-
         let mut previous = like_into_parts(like)?;
-        let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
-        let mut compressed_trees = Vec::with_capacity(less_chunked.nchunks() + 1);
+        let mut compressed_chunks = Vec::with_capacity(array.nchunks());
+        let mut compressed_trees = Vec::with_capacity(array.nchunks() + 1);
         compressed_trees.push(None); // for the chunk offsets
 
-        for (index, chunk) in less_chunked.chunks().enumerate() {
+        for (index, chunk) in array.chunks().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive
             // to compute post-compression. That's because not all encodings implement stats, so we would
             // potentially have to canonicalize during writes just to get stats, which would be silly.

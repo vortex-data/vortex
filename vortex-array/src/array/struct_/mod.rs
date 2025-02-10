@@ -58,7 +58,7 @@ impl StructArray {
 
     pub fn try_new(
         names: FieldNames,
-        fields: Vec<Array>,
+        mut fields: Vec<Array>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -81,10 +81,8 @@ impl StructArray {
 
         let validity_metadata = validity.to_metadata(length)?;
 
-        let mut children = Vec::with_capacity(fields.len() + 1);
-        children.extend(fields);
         if let Some(v) = validity.into_array() {
-            children.push(v);
+            fields.push(v);
         }
 
         Self::try_from_parts(
@@ -94,7 +92,7 @@ impl StructArray {
                 validity: validity_metadata,
             }),
             None,
-            Some(children.into()),
+            Some(fields.into()),
             StatsSet::default(),
         )
     }

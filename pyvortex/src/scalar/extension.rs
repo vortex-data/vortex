@@ -1,4 +1,4 @@
-use pyo3::{pyclass, pymethods, IntoPy, PyObject, PyRef, PyResult};
+use pyo3::{pyclass, pymethods, IntoPyObject, PyObject, PyRef, PyResult};
 use vortex::scalar::ExtScalar;
 
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
@@ -18,6 +18,8 @@ impl PyExtensionScalar {
     pub fn storage(self_: PyRef<'_, Self>) -> PyResult<PyObject> {
         let scalar = self_.as_scalar_ref();
         let storage = scalar.storage();
-        Ok(PyVortex(&storage).into_py(self_.py()))
+        PyVortex(&storage)
+            .into_pyobject(self_.py())
+            .map(|v| v.into())
     }
 }

@@ -1,10 +1,9 @@
-//! This is a collection of built-in layout strategies designed to be used in conjunction with one
-//! another to develop an overall strategy.
-//!
 //! Each [`LayoutWriter`] is passed horizontal chunks of a Vortex array one-by-one, and is
-//! eventually asked to return a [`Layout`]. The writers can buffer, re-chunk, flush, or
+//! eventually asked to return a [`crate::Layout`]. The writers can buffer, re-chunk, flush, or
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
+
+use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -16,7 +15,7 @@ use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 
 /// A trait for creating new layout writers given a DType.
-pub trait LayoutStrategy: Send + Sync {
+pub trait LayoutStrategy: 'static + Send + Sync {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
 }
 
@@ -27,17 +26,41 @@ impl LayoutStrategy for FlatLayout {
     }
 }
 
-/// The default Vortex file layout strategy.
-///
-/// The current implementation is a placeholder and needs to be fleshed out.
-pub struct VortexLayoutStrategy;
+/// A layout strategy that preserves struct arrays and writes everything else as flat.
+pub struct StructStrategy;
 
-impl LayoutStrategy for VortexLayoutStrategy {
+impl LayoutStrategy for StructStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        if dtype.is_struct() {
-            StructLayoutWriter::try_new_with_factory(dtype, VortexLayoutStrategy).map(|w| w.boxed())
+        if let DType::Struct(..) = dtype {
+            StructLayoutWriter::try_new_with_factory(dtype, StructStrategy).map(|w| w.boxed())
         } else {
-            Ok(ChunkedLayoutWriter::new(dtype, ChunkedLayoutOptions::default()).boxed())
+            Ok(FlatLayoutWriter::new(dtype.clone(), Default::default()).boxed())
         }
+    }
+}
+
+/// A layout strategy that preserves each chunk as-given.
+pub struct ChunkedStrategy {
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
+}
+
+impl Default for ChunkedStrategy {
+    fn default() -> Self {
+        Self {
+            chunk_strategy: Arc::new(StructStrategy),
+        }
+    }
+}
+
+impl LayoutStrategy for ChunkedStrategy {
+    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(ChunkedLayoutWriter::new(
+            dtype,
+            ChunkedLayoutOptions {
+                chunk_strategy: self.chunk_strategy.clone(),
+                ..Default::default()
+            },
+        )
+        .boxed())
     }
 }

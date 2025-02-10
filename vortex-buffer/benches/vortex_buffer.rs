@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used)]
 
-use std::hint::black_box;
 use std::iter;
 use std::iter::Iterator;
 
@@ -82,7 +81,7 @@ impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
 fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
     bencher
         .with_inputs(|| B::from_iter((0..n).map(|i| i % i32::MAX)))
-        .bench_local_values(|buffer| black_box(B::map_each(buffer, |i| (i as u32) + 1)));
+        .bench_local_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
 }
 
 trait Push<T> {

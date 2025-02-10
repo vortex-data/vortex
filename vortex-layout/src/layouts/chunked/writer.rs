@@ -20,14 +20,14 @@ pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
     pub chunk_stats: Arc<[Stat]>,
     /// The layout strategy for each chunk.
-    pub chunk_strategy: Box<dyn LayoutStrategy>,
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
 }
 
 impl Default for ChunkedLayoutOptions {
     fn default() -> Self {
         Self {
             chunk_stats: PRUNING_STATS.into(),
-            chunk_strategy: Box::new(FlatLayout),
+            chunk_strategy: Arc::new(FlatLayout),
         }
     }
 }

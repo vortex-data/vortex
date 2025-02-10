@@ -78,7 +78,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module
         .py()
-        .import_bound("sys")?
+        .import("sys")?
         .getattr("modules")?
         .set_item(name, module)?;
     // needs to be set *after* `add_submodule()`

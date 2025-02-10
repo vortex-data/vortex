@@ -63,7 +63,6 @@ tokio = { workspace = true, features = ["full"] }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
-vortex-mask = { workspace = true }
 xshell = { workspace = true }
 
 [dev-dependencies]

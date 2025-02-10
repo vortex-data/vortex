@@ -5,14 +5,13 @@ pub use data::*;
 mod context;
 pub use context::*;
 pub mod layouts;
-pub use vtable::*;
-mod reader;
 use std::fmt::{Display, Formatter};
 
 pub use reader::*;
 pub use strategy::*;
+pub use vtable::*;
 pub use writer::*;
-
+mod reader;
 pub mod scan;
 pub mod segments;
 pub mod stats;

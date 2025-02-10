@@ -1,5 +1,5 @@
 use bench_vortex::feature_flagged_allocator;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use rand::distributions::Alphanumeric;
 use rand::seq::SliceRandom as _;
 use rand::{thread_rng, Rng, SeedableRng as _};
@@ -58,11 +58,9 @@ fn primitive(c: &mut Criterion) {
     for (compressor, name, array) in compressors_names_and_arrays {
         group.bench_function(format!("{} compress", name), |b| {
             b.iter(|| {
-                black_box(
-                    compressor
-                        .compress(array, None, ctx.including(compressor))
-                        .unwrap(),
-                );
+                compressor
+                    .compress(array, None, ctx.including(compressor))
+                    .unwrap()
             })
         });
 
@@ -70,12 +68,11 @@ fn primitive(c: &mut Criterion) {
             .compress(array, None, ctx.including(compressor))
             .unwrap()
             .into_array();
+
         group.bench_function(format!("{} decompress", name), |b| {
             b.iter_batched(
                 || compressed.clone(),
-                |compressed| {
-                    black_box(compressed.into_canonical().unwrap());
-                },
+                |compressed| compressed.into_canonical().unwrap(),
                 BatchSize::SmallInput,
             )
         });
@@ -93,13 +90,13 @@ fn strings(c: &mut Criterion) {
         varbinview_arr.clone().into_array().nbytes() as u64,
     ));
     group.bench_function("dict_decode_varbinview", |b| {
-        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
+        b.iter(|| dict.clone().into_canonical().unwrap());
     });
 
     let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
     let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
-        b.iter(|| black_box(fsst_array.clone().into_canonical().unwrap()));
+        b.iter(|| fsst_array.clone().into_canonical().unwrap());
     });
 }
 

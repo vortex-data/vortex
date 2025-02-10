@@ -10,30 +10,7 @@ use vortex_array::IntoCanonical;
 use vortex_buffer::buffer;
 use vortex_dtype::NativePType;
 
-fn main() {
-    divan::main();
-}
-
-#[divan::bench(types = [f32, f64], args = [
-    (100_000, 0.0, 0.25),
-    (100_000, 0.01, 0.25),
-    (100_000, 0.1, 0.25),
-    (10_000_000, 0.0, 0.25),
-    (10_000_000, 0.01, 0.25),
-    (10_000_000, 0.1, 0.25),
-    (100_000, 0.0, 0.95),
-    (100_000, 0.01, 0.95),
-    (100_000, 0.1, 0.95),
-    (10_000_000, 0.0, 0.95),
-    (10_000_000, 0.01, 0.95),
-    (10_000_000, 0.1, 0.95),
-    (100_000, 0.0, 1.0),
-    (100_000, 0.01, 1.0),
-    (100_000, 0.1, 1.0),
-    (10_000_000, 0.0, 1.0),
-    (10_000_000, 0.01, 1.0),
-    (10_000_000, 0.1, 1.0),
-])]
+#[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
 fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
     let (n, fraction_patch, fraction_valid) = args;
     let mut rng = StdRng::seed_from_u64(0);
@@ -52,31 +29,14 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     };
     let values = values.freeze();
 
-    bencher.bench_local(move || {
-        alp_encode(&PrimitiveArray::new(values.clone(), validity.clone())).unwrap()
-    })
+    bencher
+        .with_inputs(|| (values.clone(), validity.clone()))
+        .bench_values(|(values, validity)| {
+            alp_encode(&PrimitiveArray::new(values, validity)).unwrap()
+        })
 }
 
-#[divan::bench(types = [f32, f64], args = [
-    (100_000, 0.0, 0.25),
-    (100_000, 0.01, 0.25),
-    (100_000, 0.1, 0.25),
-    (10_000_000, 0.0, 0.25),
-    (10_000_000, 0.01, 0.25),
-    (10_000_000, 0.1, 0.25),
-    (100_000, 0.0, 0.95),
-    (100_000, 0.01, 0.95),
-    (100_000, 0.1, 0.95),
-    (10_000_000, 0.0, 0.95),
-    (10_000_000, 0.01, 0.95),
-    (10_000_000, 0.1, 0.95),
-    (100_000, 0.0, 1.0),
-    (100_000, 0.01, 1.0),
-    (100_000, 0.1, 1.0),
-    (10_000_000, 0.0, 1.0),
-    (10_000_000, 0.01, 1.0),
-    (10_000_000, 0.1, 1.0),
-])]
+#[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
 fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
     let (n, fraction_patch, fraction_valid) = args;
     let mut rng = StdRng::seed_from_u64(0);
@@ -95,14 +55,15 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     };
     let values = values.freeze();
     let array = alp_encode(&PrimitiveArray::new(values, validity)).unwrap();
-    bencher.bench_local(move || array.clone().into_canonical().unwrap());
+    bencher
+        .with_inputs(|| array.clone())
+        .bench_local_values(|array| array.into_canonical().unwrap());
 }
 
 #[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]
 fn compress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
     let primitive = PrimitiveArray::new(buffer![T::from(1.23).unwrap(); n], Validity::NonNullable);
     let encoder = RDEncoder::new(&[T::from(1.23).unwrap()]);
-
     bencher.bench_local(|| encoder.encode(&primitive));
 }
 
@@ -116,3 +77,28 @@ fn decompress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
         .with_inputs(move || encoded.clone())
         .bench_local_values(|encoded| encoded.into_canonical().unwrap());
 }
+
+fn main() {
+    divan::main();
+}
+
+const BENCH_ARGS: &[(usize, f64, f64)] = &[
+    (100_000, 0.0, 0.25),
+    (100_000, 0.01, 0.25),
+    (100_000, 0.1, 0.25),
+    (10_000_000, 0.0, 0.25),
+    (10_000_000, 0.01, 0.25),
+    (10_000_000, 0.1, 0.25),
+    (100_000, 0.0, 0.95),
+    (100_000, 0.01, 0.95),
+    (100_000, 0.1, 0.95),
+    (10_000_000, 0.0, 0.95),
+    (10_000_000, 0.01, 0.95),
+    (10_000_000, 0.1, 0.95),
+    (100_000, 0.0, 1.0),
+    (100_000, 0.01, 1.0),
+    (100_000, 0.1, 1.0),
+    (10_000_000, 0.0, 1.0),
+    (10_000_000, 0.01, 1.0),
+    (10_000_000, 0.1, 1.0),
+];

@@ -1,4 +1,4 @@
-use pyo3::{pyclass, pymethods, IntoPy, PyObject, PyRef, PyResult};
+use pyo3::{pyclass, pymethods, IntoPyObject, PyObject, PyRef, PyResult};
 use vortex::scalar::StructScalar;
 
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
@@ -18,6 +18,6 @@ impl PyStructScalar {
     pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyObject> {
         let scalar = self_.as_scalar_ref();
         let child = scalar.field(name)?;
-        Ok(PyVortex(&child).into_py(self_.py()))
+        PyVortex(&child).into_pyobject(self_.py()).map(|v| v.into())
     }
 }

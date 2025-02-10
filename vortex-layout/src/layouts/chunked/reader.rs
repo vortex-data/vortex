@@ -5,7 +5,7 @@ use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_scan::RowMask;
@@ -80,7 +80,7 @@ impl ChunkedReader {
                         let layout_dtype = self.layout.dtype();
                         let stats_dtype =
                             StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype)?;
+                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone())?;
 
                         let stats_array = stats_layout
                             .reader(self.segments.clone(), self.ctx.clone())?
@@ -90,11 +90,15 @@ impl ChunkedReader {
                             )
                             .await?;
 
-                        Some(StatsTable::try_new(
-                            layout_dtype.clone(),
+                        if &stats_dtype != stats_array.dtype() {
+                            vortex_bail!("Expected stats DType {stats_dtype} doesn't match read stats dtype {}", stats_array.dtype())
+                        }
+
+                        // SAFETY: This is only fine to call because we perfrorm validation above
+                        Some(StatsTable::unchecked_new(
                             stats_array,
                             present_stats.into(),
-                        )?)
+                        ))
                     }
                 })
             })

@@ -94,7 +94,6 @@ pub fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> PathBuf {
 pub trait BenchmarkDataset {
     fn as_uncompressed(&self);
     fn to_vortex_array(&self) -> VortexResult<Array>;
-    fn compress_to_vortex(&self) -> VortexResult<()>;
     fn write_as_parquet(&self);
     fn write_as_vortex(&self) -> impl Future<Output = ()>;
     fn list_files(&self, file_type: FileType) -> Vec<PathBuf>;

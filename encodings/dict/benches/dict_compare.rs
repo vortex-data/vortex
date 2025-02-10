@@ -13,18 +13,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dict::dict_encode;
 
-fn params() -> impl Iterator<Item = &'static (usize, f64)> {
-    [
-        (1_000_000_usize, 0.00005_f64),
-        (10_000_000, 0.00005),
-        (100_000_000, 0.00005),
-        (1_000_000, 0.05),
-        (10_000_000, 0.05),
-        (100_000_000, 0.05),
-    ]
-    .iter()
-}
-
 fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
     let mut rng = thread_rng();
     let value_range = len as f64 * uniqueness;
@@ -50,17 +38,20 @@ fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
         .collect()
 }
 
-#[divan::bench(args = params())]
+#[divan::bench(args = BENCH_ARGS)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, f64)) {
     let primitive_arr = gen_primitive_dict(len, uniqueness);
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
-    bencher.bench_local(|| {
-        compare(dict.clone(), ConstantArray::new(value, len), Operator::Eq).unwrap()
-    })
+
+    bencher
+        .with_inputs(|| dict.clone())
+        .bench_local_values(|dict| {
+            compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap()
+        })
 }
 
-#[divan::bench(args = params())]
+#[divan::bench(args = BENCH_ARGS)]
 fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, f64)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, uniqueness));
     let dict = dict_encode(varbin_arr.as_ref()).unwrap();
@@ -68,12 +59,15 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, f64)
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();
     let value = from_utf8(bytes.as_slice()).unwrap();
-    bencher.bench_local(|| {
-        compare(dict.clone(), ConstantArray::new(value, len), Operator::Eq).unwrap()
-    })
+
+    bencher
+        .with_inputs(|| dict.clone())
+        .bench_local_values(|dict| {
+            compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap()
+        })
 }
 
-#[divan::bench(args = params())]
+#[divan::bench(args = BENCH_ARGS)]
 fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, f64)) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, uniqueness));
     let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
@@ -81,11 +75,22 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();
     let value = from_utf8(bytes.as_slice()).unwrap();
-    bencher.bench_local(|| {
-        compare(dict.clone(), ConstantArray::new(value, len), Operator::Eq).unwrap()
-    })
+    bencher
+        .with_inputs(|| dict.clone())
+        .bench_local_values(|dict| {
+            compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap()
+        })
 }
 
 fn main() {
     divan::main();
 }
+
+const BENCH_ARGS: &[(usize, f64)] = &[
+    (1_000_000, 0.00005),
+    (10_000_000, 0.00005),
+    (100_000_000, 0.00005),
+    (1_000_000, 0.05),
+    (10_000_000, 0.05),
+    (100_000_000, 0.05),
+];

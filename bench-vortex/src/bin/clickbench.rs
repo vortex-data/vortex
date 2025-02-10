@@ -102,16 +102,9 @@ fn main() {
     });
 
     let formats = if args.only_vortex {
-        vec![Format::OnDiskVortex {
-            enable_compression: true,
-        }]
+        vec![Format::OnDiskVortex]
     } else {
-        vec![
-            Format::Parquet,
-            Format::OnDiskVortex {
-                enable_compression: true,
-            },
-        ]
+        vec![Format::Parquet, Format::OnDiskVortex]
     };
 
     let queries = match args.queries.clone() {
@@ -140,9 +133,7 @@ fn main() {
                 .await
                 .unwrap()
             }),
-            Format::OnDiskVortex {
-                enable_compression: true,
-            } => {
+            Format::OnDiskVortex => {
                 runtime.block_on(async {
                     clickbench::register_vortex_files(
                         context.clone(),

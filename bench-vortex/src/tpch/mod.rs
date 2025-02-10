@@ -11,27 +11,25 @@ use datafusion::datasource::listing::{
 };
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
+use futures::StreamExt;
 use tokio::fs::OpenOptions;
-use vortex::aliases::hash_map::HashMap;
-use vortex::array::{ChunkedArray, StructArray};
-use vortex::arrow::FromArrowArray;
+use vortex::array::ChunkedArray;
+use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::variants::StructArrayTrait;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::{Array, IntoArray};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{
-    get_session_with_cache, idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE,
-};
+use crate::{get_session_with_cache, idempotent_async, Format, CTX};
 
 pub mod dbgen;
 mod execute;
 pub mod schema;
 
 pub use execute::*;
+use vortex::error::VortexError;
+use vortex::stream::ArrayStreamAdapter;
 
 pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
@@ -66,15 +64,8 @@ pub async fn load_datasets<P: AsRef<Path>>(
                 Format::InMemoryVortex => {
                     register_vortex(&context, stringify!($name), &$name, $schema).await
                 }
-                Format::OnDiskVortex { enable_compression } => {
-                    register_vortex_file(
-                        &context,
-                        stringify!($name),
-                        &$name,
-                        $schema,
-                        enable_compression,
-                    )
-                    .await
+                Format::OnDiskVortex => {
+                    register_vortex_file(&context, stringify!($name), &$name, $schema).await
                 }
             }
         };
@@ -186,13 +177,8 @@ async fn register_vortex_file(
     table_name: &str,
     file: &Path,
     schema: &Schema,
-    enable_compression: bool,
 ) -> anyhow::Result<()> {
-    let vortex_dir = file.parent().unwrap().join(if enable_compression {
-        "vortex_compressed"
-    } else {
-        "vortex_uncompressed"
-    });
+    let vortex_dir = file.parent().unwrap().join("vortex_compressed");
     create_dir_all(&vortex_dir)?;
     let output_file = &vortex_dir
         .join(file.file_name().unwrap())
@@ -208,58 +194,15 @@ async fn register_vortex_file(
                     .schema(schema),
             )
             .await?
-            .collect()
+            .execute_stream()
             .await?;
 
-        // Create a ChunkedArray from the set of chunks.
-        let sts = record_batches
-            .into_iter()
-            .map(Array::try_from)
-            .map(|a| a.unwrap().into_struct().unwrap())
-            .collect::<Vec<_>>();
-
-        let mut arrays_map: HashMap<Arc<str>, Vec<Array>> = HashMap::default();
-        let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
-
-        for st in sts.into_iter() {
-            let struct_dtype = st.dtype().as_struct().unwrap();
-            let names = struct_dtype.names().iter();
-            let types = struct_dtype.fields();
-
-            for (field_name, field_type) in names.zip(types) {
-                let val = arrays_map.entry(field_name.clone()).or_default();
-                val.push(st.maybe_null_field_by_name(field_name).unwrap());
-
-                types_map.insert(field_name.clone(), field_type.clone());
-            }
-        }
-
-        let fields = schema
-            .fields()
-            .iter()
-            .map(|field| {
-                let name: Arc<str> = field.name().as_str().into();
-                let dtype = types_map[&name].clone();
-                let chunks = arrays_map.remove(&name).unwrap();
-                let mut chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
-                if !enable_compression {
-                    chunked_child = chunked_child
-                        .rechunk(TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE)
-                        .unwrap()
-                }
-
-                (name, chunked_child.into_array())
-            })
-            .collect::<Vec<_>>();
-
-        let data = StructArray::from_fields(&fields)?.into_array();
-
-        let data = if enable_compression {
-            let compressor = SamplingCompressor::default();
-            compressor.compress(&data, None)?.into_array()
-        } else {
-            data
-        };
+        // Convert the arrow schema to a Vortex DType
+        let array_stream = ArrayStreamAdapter::new(
+            // TODO(ngates): or should we use the provided schema?
+            DType::from_arrow(record_batches.schema()),
+            record_batches.map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
+        );
 
         let f = OpenOptions::new()
             .write(true)
@@ -268,9 +211,7 @@ async fn register_vortex_file(
             .open(&vtx_file)
             .await?;
 
-        VortexWriteOptions::default()
-            .write(f, data.into_array_stream())
-            .await?;
+        VortexWriteOptions::default().write(f, array_stream).await?;
 
         anyhow::Ok(())
     })

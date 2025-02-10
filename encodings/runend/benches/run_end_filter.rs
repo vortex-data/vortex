@@ -2,7 +2,7 @@
 
 use std::iter::Iterator;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use num_traits::ToPrimitive;
 use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
@@ -67,10 +67,8 @@ fn evenly_spaced(c: &mut Criterion) {
                     ),
                     |b| {
                         b.iter(|| {
-                            black_box(
-                                take_indices_unchecked(&array, mask.values().unwrap().indices())
-                                    .unwrap(),
-                            )
+                            take_indices_unchecked(&array, mask.values().unwrap().indices())
+                                .unwrap()
                         });
                     },
                 );
@@ -83,7 +81,7 @@ fn evenly_spaced(c: &mut Criterion) {
                         ratio
                     ),
                     |b| {
-                        b.iter(|| black_box(filter_run_end(&array, &mask).unwrap()));
+                        b.iter(|| filter_run_end(&array, &mask).unwrap());
                     },
                 );
             }

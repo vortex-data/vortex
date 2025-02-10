@@ -5,10 +5,11 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::stats::StatsLayoutWriter;
-use vortex_layout::{LayoutStrategy, LayoutWriter, VortexLayoutStrategy};
+use vortex_layout::{LayoutStrategy, LayoutWriter};
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::writer::BufferedSegmentWriter;
+use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct VortexWriteOptions {
@@ -18,15 +19,15 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy),
+            strategy: Box::new(VortexLayoutStrategy::default()),
         }
     }
 }
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy(mut self, strategy: Box<dyn LayoutStrategy>) -> Self {
-        self.strategy = strategy;
+    pub fn with_strategy<S: LayoutStrategy>(mut self, strategy: S) -> Self {
+        self.strategy = Box::new(strategy);
         self
     }
 }

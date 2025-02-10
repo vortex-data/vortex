@@ -8,7 +8,7 @@ use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_array::stats::StatsSet;
 use vortex_array::ContextRef;
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
@@ -180,9 +180,8 @@ impl<F: FileType> VortexOpenOptions<F> {
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = self
             .read
-            .read_byte_range(initial_offset..file_size)
-            .await?
-            .into();
+            .read_byte_range(initial_offset..file_size, Alignment::none())
+            .await?;
 
         // We know the initial read _must_ contain at least the Postscript.
         let postscript = self.parse_postscript(&initial_read)?;
@@ -193,10 +192,20 @@ impl<F: FileType> VortexOpenOptions<F> {
         {
             // NOTE(ngates): for now, we assume the dtype and layout segments are adjacent.
             let offset = postscript.dtype.offset.min(postscript.file_layout.offset);
+            log::info!(
+                "Initial read from {} did not cover all footer segments, reading from {}",
+                initial_offset,
+                offset
+            );
+
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - offset)?);
-            new_initial_read
-                .extend_from_slice(&self.read.read_byte_range(offset..initial_offset).await?);
+            new_initial_read.extend_from_slice(
+                &self
+                    .read
+                    .read_byte_range(offset..initial_offset, Alignment::none())
+                    .await?,
+            );
             new_initial_read.extend_from_slice(&initial_read);
             (offset, new_initial_read.freeze())
         } else {

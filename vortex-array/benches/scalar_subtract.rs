@@ -1,12 +1,11 @@
 #![allow(clippy::unwrap_used)]
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::ChunkedArray;
 use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
-use vortex_error::VortexError;
 
 fn scalar_subtract(c: &mut Criterion) {
     let mut group = c.benchmark_group("scalar_subtract");
@@ -29,10 +28,7 @@ fn scalar_subtract(c: &mut Criterion) {
     group.bench_function("vortex", |b| {
         b.iter(|| {
             let array = vortex_array::compute::sub_scalar(&chunked, to_subtract.into()).unwrap();
-
-            let chunked = ChunkedArray::try_from(array).unwrap();
-            black_box(chunked);
-            Ok::<(), VortexError>(())
+            ChunkedArray::try_from(array).unwrap()
         });
     });
 }

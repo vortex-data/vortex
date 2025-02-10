@@ -9,14 +9,12 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use futures::{stream, StreamExt, TryStreamExt};
 use tokio::fs::{create_dir_all, OpenOptions};
-use vortex::aliases::hash_map::HashMap;
-use vortex::array::{ChunkedArray, StructArray};
+use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
-use vortex::error::vortex_err;
+use vortex::error::{vortex_err, VortexError};
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::variants::StructArrayTrait;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::stream::ArrayStreamAdapter;
+use vortex::Array;
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::{idempotent_async, CTX};
@@ -156,7 +154,6 @@ pub async fn register_vortex_files(
                 .join(format!("hits_{idx}.parquet"));
             let output_path = vortex_dir.join(format!("hits_{idx}.{VORTEX_FILE_EXTENSION}"));
             let session = session.clone();
-            let schema = schema.clone();
 
             tokio::spawn(async move {
                 let output_path = output_path.clone();
@@ -168,49 +165,17 @@ pub async fn register_vortex_files(
                             ParquetReadOptions::default(),
                         )
                         .await?
-                        .collect()
+                        .execute_stream()
                         .await?;
 
-                    // Create a ChunkedArray from the set of chunks.
-                    let sts = record_batches
-                        .into_iter()
-                        .map(Array::try_from)
-                        .map(|a| a.unwrap().into_struct().unwrap())
-                        .collect::<Vec<_>>();
-
-                    let mut arrays_map: HashMap<Arc<str>, Vec<Array>> = HashMap::default();
-                    let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
-
-                    for st in sts.into_iter() {
-                        let struct_dtype = st.dtype().as_struct().unwrap();
-                        let names = struct_dtype.names().iter();
-                        let types = struct_dtype.fields();
-
-                        for (field_name, field_type) in names.zip(types) {
-                            let val = arrays_map.entry(field_name.clone()).or_default();
-                            val.push(st.maybe_null_field_by_name(field_name.as_ref()).unwrap());
-
-                            types_map.insert(field_name.clone(), field_type.clone());
-                        }
-                    }
-
-                    let fields = schema
-                        .fields()
-                        .iter()
-                        .map(|field| {
-                            let name: Arc<str> = field.name().as_str().into();
-                            let dtype = types_map[&name].clone();
-                            let chunks = arrays_map.remove(&name).unwrap();
-                            let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
-
-                            (name, chunked_child.into_array())
-                        })
-                        .collect::<Vec<_>>();
-
-                    let data = StructArray::from_fields(&fields)?.into_array();
-
-                    let compressor = SamplingCompressor::default();
-                    let data = compressor.compress(&data, None)?.into_array();
+                    // Convert the arrow schema to a Vortex DType
+                    let array_stream = ArrayStreamAdapter::new(
+                        // TODO(ngates): or should we use the provided schema?
+                        DType::from_arrow(record_batches.schema()),
+                        record_batches.map(|batch| {
+                            batch.map_err(VortexError::from).and_then(Array::try_from)
+                        }),
+                    );
 
                     let f = OpenOptions::new()
                         .write(true)
@@ -219,9 +184,7 @@ pub async fn register_vortex_files(
                         .open(&vtx_file)
                         .await?;
 
-                    VortexWriteOptions::default()
-                        .write(f, data.into_array_stream())
-                        .await?;
+                    VortexWriteOptions::default().write(f, array_stream).await?;
 
                     anyhow::Ok(())
                 })

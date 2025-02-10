@@ -5,9 +5,9 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::task::spawn_blocking;
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
 use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
@@ -61,11 +61,16 @@ impl Deref for TokioFile {
 
 impl VortexReadAt for TokioFile {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
         let this = self.clone();
+
         spawn_blocking(move || {
-            let mut buffer = BytesMut::with_capacity(len);
+            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
             unsafe { buffer.set_len(len) }
             this.read_exact_at(&mut buffer, range.start)?;
             Ok(buffer.freeze())
@@ -106,6 +111,7 @@ mod tests {
     use std::os::unix::fs::FileExt;
 
     use tempfile::NamedTempFile;
+    use vortex_buffer::Alignment;
 
     use crate::{TokioFile, VortexReadAt};
 
@@ -116,9 +122,15 @@ mod tests {
 
         let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
-        let first_half = shared_file.read_byte_range(0..5).await.unwrap();
+        let first_half = shared_file
+            .read_byte_range(0..5, Alignment::none())
+            .await
+            .unwrap();
 
-        let second_half = shared_file.read_byte_range(5..10).await.unwrap();
+        let second_half = shared_file
+            .read_byte_range(5..10, Alignment::none())
+            .await
+            .unwrap();
 
         assert_eq!(first_half.as_ref(), "01234".as_bytes());
         assert_eq!(second_half.as_ref(), "56789".as_bytes());

@@ -11,16 +11,9 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
-    use vortex_array::stats::{Precision, Stat};
-    use vortex_array::variants::StructArrayTrait;
-    use vortex_array::Encoding;
+    use vortex_array::array::BooleanBuffer;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
-    use vortex_datetime_parts::DateTimePartsEncoding;
-    use vortex_dict::DictEncoding;
-    use vortex_fastlanes::BitPackedEncoding;
-    use vortex_fsst::FSSTEncoding;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
 
     use super::*;
@@ -61,134 +54,6 @@ mod tests {
 
         println!("compressed: {}", compressed.tree_display());
         assert_eq!(compressed.dtype(), to_compress.dtype());
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // roaring bit maps uses an unsupported FFI
-    pub fn smoketest_compressor_on_chunked_array() {
-        let compressor = SamplingCompressor::default();
-
-        let chunk_size = 1 << 14;
-
-        let ints: Vec<Array> = (0..4).map(|_| make_primitive_column(chunk_size)).collect();
-        let bools: Vec<Array> = (0..4).map(|_| make_bool_column(chunk_size)).collect();
-        let varbins: Vec<Array> = (0..4).map(|_| make_string_column(chunk_size)).collect();
-        let binaries: Vec<Array> = (0..4).map(|_| make_binary_column(chunk_size)).collect();
-        let timestamps: Vec<Array> = (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
-
-        fn chunked(arrays: Vec<Array>) -> Array {
-            let dtype = arrays[0].dtype().clone();
-            ChunkedArray::try_new(arrays, dtype).unwrap().into_array()
-        }
-
-        let to_compress = StructArray::try_new(
-            vec![
-                "prim_col".into(),
-                "bool_col".into(),
-                "varbin_col".into(),
-                "binary_col".into(),
-                "timestamp_col".into(),
-            ]
-            .into(),
-            vec![
-                chunked(ints),
-                chunked(bools),
-                chunked(varbins),
-                chunked(binaries),
-                chunked(timestamps),
-            ],
-            chunk_size * 4,
-            Validity::NonNullable,
-        )
-        .unwrap()
-        .into_array();
-
-        println!("uncompressed: {}", to_compress.tree_display());
-        let compressed = compressor
-            .compress(&to_compress, None)
-            .unwrap()
-            .into_array();
-
-        println!("compressed: {}", compressed.tree_display());
-        assert_eq!(compressed.dtype(), to_compress.dtype());
-
-        let struct_array: StructArray = compressed.try_into().unwrap();
-
-        let prim_col: ChunkedArray = struct_array
-            .maybe_null_field_by_name("prim_col")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        println!("prim_col num chunks: {}", prim_col.nchunks());
-        for chunk in prim_col.chunks() {
-            assert_eq!(chunk.encoding(), BitPackedEncoding::ID);
-            assert_eq!(
-                chunk
-                    .statistics()
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(Precision::exact((chunk.len() * 8) + 1))
-            );
-        }
-
-        let bool_col: ChunkedArray = struct_array
-            .maybe_null_field_by_name("bool_col")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        for chunk in bool_col.chunks() {
-            assert_eq!(chunk.encoding(), BoolEncoding::ID);
-            assert_eq!(
-                chunk
-                    .statistics()
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(Precision::exact(chunk.len().div_ceil(8) + 2))
-            );
-        }
-
-        let varbin_col: ChunkedArray = struct_array
-            .maybe_null_field_by_name("varbin_col")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        for chunk in varbin_col.chunks() {
-            assert!(chunk.encoding() == DictEncoding::ID || chunk.encoding() == FSSTEncoding::ID);
-            assert_eq!(
-                chunk
-                    .statistics()
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(Precision::exact(1392641_usize))
-            );
-        }
-
-        let binary_col: ChunkedArray = struct_array
-            .maybe_null_field_by_name("binary_col")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        for chunk in binary_col.chunks() {
-            assert_eq!(chunk.encoding(), VarBinEncoding::ID);
-            assert_eq!(
-                chunk
-                    .statistics()
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(Precision::exact(134357007_usize))
-            );
-        }
-
-        let timestamp_col: ChunkedArray = struct_array
-            .maybe_null_field_by_name("timestamp_col")
-            .unwrap()
-            .try_into()
-            .unwrap();
-        for chunk in timestamp_col.chunks() {
-            assert_eq!(chunk.encoding(), DateTimePartsEncoding::ID);
-            assert_eq!(
-                chunk
-                    .statistics()
-                    .get_as::<usize>(Stat::UncompressedSizeInBytes),
-                Some(Precision::exact(chunk.len() * 8 + 4))
-            )
-        }
     }
 
     fn make_primitive_column(count: usize) -> Array {

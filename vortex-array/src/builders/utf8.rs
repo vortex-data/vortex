@@ -198,6 +198,10 @@ impl ArrayBuilder for Utf8Builder {
         Ok(())
     }
 
+    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
+        todo!()
+    }
+
     fn finish(&mut self) -> VortexResult<Array> {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);

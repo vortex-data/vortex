@@ -52,7 +52,7 @@ impl Array {
             .map(|buf| buf.alignment())
             .chain(iter::once(FlatBuffer::alignment()))
             .max()
-            .vortex_expect("There is at least one alignment, the flatbuffer one");
+            .unwrap_or_else(FlatBuffer::alignment);
 
         // Create a shared buffer of zeros we can use for padding
         let zeros = ByteBuffer::zeroed(*max_alignment);
@@ -83,6 +83,7 @@ impl Array {
                 Compression::None,
                 u32::try_from(buffer.len()).vortex_expect("buffers fit into u32"),
             ));
+
             pos += buffer.len();
             buffers.push(buffer.aligned(Alignment::none()));
         }
@@ -106,7 +107,7 @@ impl Array {
         let fb_length = fb_buffer.len();
 
         if options.include_padding {
-            let padding = pos.next_multiple_of(*fb_buffer.alignment()) - pos;
+            let padding = pos.next_multiple_of(*FlatBuffer::alignment()) - pos;
             if padding > 0 {
                 buffers.push(zeros.slice(0..padding));
             }
@@ -257,7 +258,8 @@ impl TryFrom<ByteBuffer> for ArrayParts {
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
         let fb_offset = value.len() - 4 - fb_length;
-        let fb_buffer = FlatBuffer::align_from(value.slice(fb_offset..fb_offset + fb_length));
+        let fb_buffer = value.slice(fb_offset..fb_offset + fb_length);
+        let fb_buffer = FlatBuffer::align_from(fb_buffer);
 
         let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");

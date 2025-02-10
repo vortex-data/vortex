@@ -248,6 +248,7 @@ impl FileFormat for VortexFormat {
                     null_count: directional_bound_to_df_precision(null_count),
                     max_value: directional_bound_to_df_precision(max),
                     min_value: directional_bound_to_df_precision(min),
+                    sum_value: Precision::default(),
                     distinct_count: stats_set
                         .get_as::<bool>(Stat::IsConstant)
                         .and_then(|is_constant| {
@@ -321,15 +322,10 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
-        let sink_schema = conf.output_schema().clone();
-        let sink = Arc::new(VortexSink::new(conf));
+        let schema = conf.output_schema().clone();
+        let sink = Arc::new(VortexSink::new(conf, schema));
 
-        Ok(Arc::new(DataSinkExec::new(
-            input,
-            sink,
-            sink_schema,
-            order_requirements,
-        )) as _)
+        Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }
 
     fn supports_filters_pushdown(

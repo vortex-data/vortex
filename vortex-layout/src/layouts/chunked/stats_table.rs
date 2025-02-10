@@ -17,8 +17,6 @@ use vortex_scalar::Scalar;
 /// Note that it's possible for the stats table to have no statistics.
 #[derive(Clone)]
 pub struct StatsTable {
-    // The DType of the column for which these stats are computed.
-    column_dtype: DType,
     // The struct array backing the stats table
     array: Array,
     // The statistics that are included in the table.
@@ -26,15 +24,18 @@ pub struct StatsTable {
 }
 
 impl StatsTable {
+    /// Create StatsTable of given column_dtype from given array. Validates that the array matches expected
+    /// structure for given list of stats
     pub fn try_new(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
-        Ok(Self {
-            column_dtype,
-            array,
-            stats,
-        })
+        Ok(Self::unchecked_new(array, stats))
+    }
+
+    /// Create StatsTable without validating return array against expected stats
+    pub fn unchecked_new(array: Array, stats: Arc<[Stat]>) -> Self {
+        Self { array, stats }
     }
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
@@ -49,11 +50,6 @@ impl StatsTable {
             }))),
             Nullability::NonNullable,
         )
-    }
-
-    /// The DType of the column for which these stats are computed.
-    pub fn column_dtype(&self) -> &DType {
-        &self.column_dtype
     }
 
     /// The struct array backing the stats table
@@ -128,7 +124,6 @@ impl StatsTable {
 ///  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
 ///  See: <https://github.com/spiraldb/vortex/issues/1835>
 pub struct StatsAccumulator {
-    column_dtype: DType,
     stats: Arc<[Stat]>,
     builders: Vec<Box<dyn ArrayBuilder>>,
     length: usize,
@@ -141,7 +136,6 @@ impl StatsAccumulator {
             .map(|s| builder_with_capacity(&s.dtype(&dtype).as_nullable(), 1024))
             .collect();
         Self {
-            column_dtype: dtype,
             stats,
             builders,
             length: 0,
@@ -203,7 +197,6 @@ impl StatsAccumulator {
         }
 
         Some(StatsTable {
-            column_dtype: self.column_dtype.clone(),
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
                 .vortex_expect("Failed to create stats table")
                 .into_array(),

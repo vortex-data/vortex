@@ -2,7 +2,6 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 use std::ops::RangeBounds;
 
-use vortex_array::array::BooleanBuffer;
 use vortex_array::compute::{filter, slice, try_cast};
 use vortex_array::{Array, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
@@ -50,14 +49,14 @@ impl RowMask {
     pub fn new_valid_between(begin: u64, end: u64) -> Self {
         let length =
             usize::try_from(end - begin).vortex_expect("Range length does not fit into a usize");
-        RowMask::new(Mask::from(BooleanBuffer::new_set(length)), begin)
+        RowMask::new(Mask::new_true(length), begin)
     }
 
     /// Construct a RowMask which is invalid everywhere in the given range.
     pub fn new_invalid_between(begin: u64, end: u64) -> Self {
         let length =
             usize::try_from(end - begin).vortex_expect("Range length does not fit into a usize");
-        RowMask::new(Mask::from(BooleanBuffer::new_unset(length)), begin)
+        RowMask::new(Mask::new_false(length), begin)
     }
 
     /// Creates a RowMask from an array, only supported boolean and integer types.

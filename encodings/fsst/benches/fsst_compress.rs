@@ -10,10 +10,6 @@ use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 use vortex_scalar::Scalar;
 
-fn main() {
-    divan::main();
-}
-
 // Helper function to generate random string data.
 fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> VarBinArray {
     let mut rng = StdRng::seed_from_u64(0);
@@ -44,8 +40,7 @@ fn compress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
     let (string_count, avg_len, unique_chars) = args;
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array).unwrap();
-
-    bencher.bench_local(move || fsst_compress(&array, &compressor).unwrap())
+    bencher.bench_local(|| fsst_compress(&array, &compressor).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -57,14 +52,14 @@ fn decompress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
 
     bencher
         .with_inputs(|| encoded.clone())
-        .bench_values(|encoded| encoded.into_canonical().unwrap())
+        .bench_local_values(|encoded| encoded.into_canonical().unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn train_compressor(bencher: Bencher, args: (usize, usize, u8)) {
     let (string_count, avg_len, unique_chars) = args;
     let array = generate_test_data(string_count, avg_len, unique_chars);
-    bencher.bench_local(move || fsst_train_compressor(&array).unwrap())
+    bencher.bench_local(|| fsst_train_compressor(&array).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -82,13 +77,19 @@ fn canonicalize_compare(bencher: Bencher, args: (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
 
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
-    bencher.with_inputs(|| array.clone()).bench_values(|array| {
-        compare(array.into_canonical().unwrap(), &constant, Operator::Eq).unwrap()
-    });
+    bencher
+        .with_inputs(|| array.clone())
+        .bench_local_values(|array| {
+            compare(array.into_canonical().unwrap(), &constant, Operator::Eq).unwrap()
+        });
+}
+
+fn main() {
+    divan::main();
 }
 
 // [(string_count, avg_len, unique_chars)]
-const BENCH_ARGS: [(usize, usize, u8); 12] = [
+const BENCH_ARGS: &[(usize, usize, u8)] = &[
     (10_000, 4, 4),
     (10_000, 16, 4),
     (10_000, 64, 4),

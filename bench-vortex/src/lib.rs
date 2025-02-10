@@ -48,10 +48,6 @@ pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
 
-// Sizes match default compressor configuration
-const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
-const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
-
 #[macro_export]
 macro_rules! feature_flagged_allocator {
     () => {
@@ -81,7 +77,7 @@ pub enum Format {
     Arrow,
     Parquet,
     InMemoryVortex,
-    OnDiskVortex { enable_compression: bool },
+    OnDiskVortex,
 }
 
 impl std::fmt::Display for Format {
@@ -93,8 +89,8 @@ impl std::fmt::Display for Format {
             Format::InMemoryVortex => {
                 write!(f, "in_memory_vortex")
             }
-            Format::OnDiskVortex { enable_compression } => {
-                write!(f, "on_disk_vortex(compressed={enable_compression})")
+            Format::OnDiskVortex => {
+                write!(f, "on_disk_vortex(compressed=true)")
             }
         }
     }
@@ -107,12 +103,7 @@ impl Format {
             Format::Arrow => "arrow".to_string(),
             Format::Parquet => "parquet".to_string(),
             Format::InMemoryVortex => "vortex-in-memory".to_string(),
-            Format::OnDiskVortex { enable_compression } => if *enable_compression {
-                "vortex-file-compressed"
-            } else {
-                "vortex-file-uncompressed"
-            }
-            .to_string(),
+            Format::OnDiskVortex => "vortex-file-compressed".to_string(),
         }
     }
 }
@@ -403,66 +394,4 @@ pub fn generate_struct_of_list_of_ints_array(
         arrays,
         DType::Struct(struct_dtype.clone(), Nullability::NonNullable),
     )
-}
-
-#[cfg(test)]
-mod test {
-    use std::fs::File;
-    use std::ops::Deref;
-    use std::sync::Arc;
-
-    use arrow_array::{ArrayRef as ArrowArrayRef, StructArray as ArrowStructArray};
-    use log::LevelFilter;
-    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-    use vortex::arrow::{FromArrowArray, IntoArrowArray};
-    use vortex::compress::CompressionStrategy;
-    use vortex::sampling_compressor::SamplingCompressor;
-    use vortex::Array;
-
-    use crate::taxi_data::taxi_data_parquet;
-    use crate::{compress_taxi_data, setup_logger};
-
-    #[ignore]
-    #[test]
-    fn compression_ratio() {
-        setup_logger(LevelFilter::Debug);
-        _ = compress_taxi_data();
-    }
-
-    #[ignore]
-    #[test]
-    fn round_trip_arrow() {
-        let file = File::open(taxi_data_parquet()).unwrap();
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
-        let reader = builder.with_limit(1).build().unwrap();
-
-        for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
-            let struct_arrow: ArrowStructArray = record_batch.into();
-            let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
-            let vortex_array = Array::from_arrow(arrow_array.clone(), false);
-            let vortex_as_arrow = vortex_array.into_arrow_preferred().unwrap();
-            assert_eq!(vortex_as_arrow.deref(), arrow_array.deref());
-        }
-    }
-
-    // Ignoring since Struct arrays don't currently support equality.
-    // https://github.com/apache/arrow-rs/issues/5199
-    #[ignore]
-    #[test]
-    fn round_trip_arrow_compressed() {
-        let file = File::open(taxi_data_parquet()).unwrap();
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
-        let reader = builder.with_limit(1).build().unwrap();
-        let compressor: &dyn CompressionStrategy = &SamplingCompressor::default();
-
-        for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
-            let struct_arrow: ArrowStructArray = record_batch.into();
-            let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
-            let vortex_array = Array::from_arrow(arrow_array.clone(), false);
-
-            let compressed = compressor.compress(&vortex_array).unwrap();
-            let compressed_as_arrow = compressed.into_arrow_preferred().unwrap();
-            assert_eq!(compressed_as_arrow.deref(), arrow_array.deref());
-        }
-    }
 }
