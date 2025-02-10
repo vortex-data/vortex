@@ -1,4 +1,3 @@
-// mod eval_expr;
 mod range_reader;
 mod reader;
 pub mod writer;
@@ -11,10 +10,10 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::reader::{LayoutReader, LayoutReaderExt};
+use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::vtable::LayoutVTable;
-use crate::{Layout, LayoutId, FLAT_LAYOUT_ID};
+use crate::{Layout, LayoutId, LayoutReaderExt, FLAT_LAYOUT_ID};
 
 #[derive(Debug)]
 pub struct FlatLayout;

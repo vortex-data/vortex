@@ -12,9 +12,6 @@ use crate::Layout;
 
 /// A [`LayoutReader`] is an instance of a [`Layout`] that can cache state across multiple
 /// operations.
-///
-/// Since different row ranges of the reader may be evaluated by different threads, it is required
-/// to be both `Send` and `Sync`.
 pub trait LayoutReader {
     /// Returns the [`Layout`] of this reader.
     fn layout(&self) -> &Layout;

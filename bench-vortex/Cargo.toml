@@ -82,17 +82,3 @@ name = "random_access"
 test = false
 harness = false
 
-[[bench]]
-name = "bytes_at"
-test = false
-harness = false
-
-[[bench]]
-name = "compressor_throughput"
-test = false
-harness = false
-
-[[bench]]
-name = "sel_vec"
-test = false
-harness = false

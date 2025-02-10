@@ -74,7 +74,6 @@ compio = { version = "0.13", features = ["io-uring"], default-features = false }
 criterion = { package = "codspeed-criterion-compat", features = [
     "html_reports",
 ], version = "2.7.2" }
-croaring = "2.1.0"
 crossterm = "0.28"
 datafusion = { version = "45", default-features = false }
 datafusion-common = "45"

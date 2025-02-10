@@ -87,3 +87,58 @@ pub fn to_arrow<A: AsRef<Array>>(array: A, data_type: &DataType) -> VortexResult
             )
         })
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::Arc;
+
+    use arrow_array::types::Int32Type;
+    use arrow_array::{ArrayRef, PrimitiveArray, StringViewArray, StructArray};
+    use arrow_buffer::NullBuffer;
+
+    use crate::arrow::infer_data_type;
+    use crate::compute::to_arrow;
+    use crate::{array, IntoArray};
+
+    #[test]
+    fn test_to_arrow() {
+        let array = array::StructArray::from_fields(
+            vec![
+                (
+                    "a",
+                    array::PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)])
+                        .into_array(),
+                ),
+                (
+                    "b",
+                    array::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                ),
+            ]
+            .as_slice(),
+        )
+        .unwrap();
+
+        let arrow_array: ArrayRef = Arc::new(
+            StructArray::try_from(vec![
+                (
+                    "a",
+                    Arc::new(PrimitiveArray::<Int32Type>::from_iter_values_with_nulls(
+                        vec![1, 0, 2],
+                        Some(NullBuffer::from(vec![true, false, true])),
+                    )) as ArrayRef,
+                ),
+                (
+                    "b",
+                    Arc::new(StringViewArray::from(vec![Some("a"), Some("b"), Some("c")])),
+                ),
+            ])
+            .unwrap(),
+        );
+
+        assert_eq!(
+            &to_arrow(&array, &infer_data_type(array.dtype()).unwrap()).unwrap(),
+            &arrow_array
+        );
+    }
+}

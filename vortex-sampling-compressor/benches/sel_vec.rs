@@ -1,22 +1,19 @@
-#![allow(unused_imports, unused, dead_code)]
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 //! Various tests for the selection vector being present.
 
 use criterion::{BenchmarkId, Criterion};
 use rand::Rng;
-use vortex::array::PrimitiveArray;
-use vortex::compute::filter;
-use vortex::dtype::{DType, Nullability, PType};
-use vortex::encodings::alp::{ALPArray, ALPEncoding};
-use vortex::mask::Mask;
-use vortex::sampling_compressor::compressors::alp::ALPCompressor;
-use vortex::sampling_compressor::compressors::bitpacked::{
-    BitPackedCompressor, BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES,
-};
-use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex::sampling_compressor::compressors::EncodingCompressor;
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::variants::PrimitiveArrayTrait;
-use vortex::{Array, Encoding, IntoArray, IntoCanonical};
+use vortex_alp::ALPEncoding;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::filter;
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::{Array, Encoding, IntoArray, IntoCanonical};
+use vortex_dtype::PType;
+use vortex_mask::Mask;
+use vortex_sampling_compressor::compressors::alp::ALPCompressor;
+use vortex_sampling_compressor::compressors::bitpacked::BITPACK_NO_PATCHES;
+use vortex_sampling_compressor::compressors::EncodingCompressor;
+use vortex_sampling_compressor::SamplingCompressor;
 
 // criterion benchmark setup:
 fn bench_sel_vec(c: &mut Criterion) {

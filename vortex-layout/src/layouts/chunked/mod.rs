@@ -1,4 +1,3 @@
-// mod eval_expr;
 mod range_reader;
 mod reader;
 pub mod stats_table;
@@ -13,7 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::data::Layout;
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::reader::{LayoutReader, LayoutReaderExt};
+use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::vtable::LayoutVTable;
 use crate::{LayoutId, CHUNKED_LAYOUT_ID};
