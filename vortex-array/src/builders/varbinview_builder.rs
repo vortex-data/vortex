@@ -184,11 +184,9 @@ impl ArrayBuilder for VarBinViewBuilder {
         };
 
         Ok(VarBinViewArray::try_new(
-            // TODO(joe): remove clone.
             std::mem::take(&mut self.views_builder).freeze(),
             buffers,
-            // TODO(joe): remove clone.
-            self.dtype.clone(),
+            std::mem::replace(&mut self.dtype, DType::Null),
             validity,
         )?
         .into_array())
