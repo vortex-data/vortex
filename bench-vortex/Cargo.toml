@@ -37,7 +37,6 @@ datafusion = { workspace = true, features = [
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
-dotenv = { workspace = true }
 enum-iterator = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 governor = { workspace = true }
