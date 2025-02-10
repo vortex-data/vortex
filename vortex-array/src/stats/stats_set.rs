@@ -213,13 +213,7 @@ impl StatsSet {
     pub fn keep_inexact_stats(self, inexact_keep: &[Stat]) -> Self {
         if let Some(v) = self.values {
             v.into_iter()
-                .filter_map(|(s, v)| {
-                    if inexact_keep.contains(&s) {
-                        Some((s, v.into_inexact()))
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|(s, v)| inexact_keep.contains(&s).then(|| (s, v.into_inexact())))
                 .collect()
         } else {
             self
@@ -923,7 +917,7 @@ mod test {
             (Stat::TrueCount, Precision::inexact(10)),
         ]);
 
-        let set = set.keep_exact_inexact_stats(&[Stat::Min, Stat::Max]);
+        let set = set.keep_inexact_stats(&[Stat::Min, Stat::Max]);
 
         assert_eq!(set.len(), 2);
         assert_eq!(set.get_as::<i32>(Stat::Max), Some(Precision::inexact(100)));
