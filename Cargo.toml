@@ -93,7 +93,7 @@ fsst-rs = "0.5.0"
 futures = { version = "0.3.31", default-features = false }
 futures-executor = "0.3.31"
 futures-util = "0.3.31"
-getrandom = "0.2.14"
+getrandom = "0.3.0"
 goldenfile = "1"
 half = { version = "2.2.1", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
