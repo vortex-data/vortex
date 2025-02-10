@@ -114,8 +114,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let io_stream = self.segment_channel.into_stream();
 
         // We map the segment requests to their respective locations within the file.
-        // let coalescing_window = self.read.performance_hint().coalescing_window();
-        let coalescing_window = 1 << 20; // 1MB
+        let coalescing_window = self.read.performance_hint().coalescing_window();
         let segment_map = self.file_layout.segment_map().clone();
         let io_stream = io_stream.filter_map(move |request| {
             let segment_map = segment_map.clone();
