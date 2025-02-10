@@ -1,11 +1,10 @@
 #![allow(clippy::unwrap_used)]
 
-use std::hint::black_box;
 use std::iter;
 use std::iter::Iterator;
 
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer, ToByteSlice};
-use divan::Bencher;
+use divan::{black_box, Bencher};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{vortex_err, VortexExpect};
 
