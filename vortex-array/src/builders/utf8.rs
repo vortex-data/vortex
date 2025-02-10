@@ -5,6 +5,7 @@ use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_mask::AllOr;
 
 use crate::array::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -186,33 +187,13 @@ impl ArrayBuilder for Utf8Builder {
                 }
             }));
 
-        // for view in array.views().iter() {
-        //     if view.is_inlined() {
-        //         unsafe {
-        //             // Inlined views can be copied directly into the output
-        //             self.views_builder.push_unchecked(*view);
-        //         }
-        //     } else {
-        //         // Referencing views must have their buffer_index adjusted with new offsets
-        //         let view_ref = view.as_view();
-        //         unsafe {
-        //             self.views_builder.push_unchecked(BinaryView::new_view(
-        //                 view.len(),
-        //                 *view_ref.prefix(),
-        //                 buffers_offset + view_ref.buffer_index(),
-        //                 view_ref.offset(),
-        //             ));
-        //         }
-        //     }
-        // }
-
-        // match array.validity_mask()?.boolean_buffer() {
-        //     AllOr::All => {
-        //         self.null_buffer_builder.append_n_non_nulls(array.len());
-        //     }
-        //     AllOr::None => self.null_buffer_builder.append_n_nulls(array.len()),
-        //     AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
-        // }
+        match array.validity_mask()?.boolean_buffer() {
+            AllOr::All => {
+                self.null_buffer_builder.append_n_non_nulls(array.len());
+            }
+            AllOr::None => self.null_buffer_builder.append_n_nulls(array.len()),
+            AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
+        }
 
         Ok(())
     }
