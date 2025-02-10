@@ -16,6 +16,7 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
+use tracing::{info_span, Instrument};
 use tracing_subscriber::prelude::*;
 use vortex::error::{vortex_panic, VortexExpect};
 
@@ -186,14 +187,25 @@ fn main() {
             }
 
             let mut fastest_result = Duration::from_millis(u64::MAX);
-            for _ in 0..args.iterations {
+            for iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
                     let context = context.clone();
                     let query = query.clone();
                     tokio::task::spawn(async move {
-                        execute_query(&context, &query)
-                            .await
+                        let f = {
+                            #[cfg(feature = "tracing")]
+                            {
+                                let info_span = info_span!("execute_query", query_idx, iteration);
+                                execute_query(&context, &query).instrument(info_span)
+                            }
+                            #[cfg(not(feature = "tracing"))]
+                            {
+                                execute_query(&context, &query)
+                            }
+                        };
+
+                        f.await
                             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
                     })
                     .await

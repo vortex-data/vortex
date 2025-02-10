@@ -103,7 +103,7 @@ indicatif = "0.17.8"
 itertools = "0.14.0"
 jiff = "0.1.29"
 libfuzzer-sys = "0.4"
-log = { version = "0.4.21", features = ["release_max_level_info"] }
+log = { version = "0.4.21" }
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 governor = "0.8"
