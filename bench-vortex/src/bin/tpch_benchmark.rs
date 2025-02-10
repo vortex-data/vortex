@@ -88,9 +88,9 @@ fn main() -> ExitCode {
             }
             println!(
                 concat!(
-                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}. If it does not, you should ",
-                    "kill this command, locally generate the files (by running without --use-remote-data-dir) and ",
-                    "upload data/tpch/1/ to some remote location.",
+                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                    "If it does not, you should kill this command, locally generate the files (by running without\n",
+                    "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
                 ),
                 tpch_benchmark_remote_data_dir,
             );
