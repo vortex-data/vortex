@@ -39,7 +39,8 @@ impl Utf8Builder {
 
     fn append_value_view(&mut self, value: &str) {
         let v: &[u8] = value.as_ref();
-        let length: u32 = v.len().try_into().unwrap();
+        let length =
+            u32::try_from(v.len()).vortex_expect("cannot have a single string >2^32 in length");
         if length <= 12 {
             self.views_builder.push(BinaryView::new_inlined(v));
             return;
@@ -51,7 +52,7 @@ impl Utf8Builder {
             let to_reserve = max(v.len(), Utf8Builder::BLOCK_SIZE as usize);
             self.in_progress.reserve(to_reserve);
         };
-        let offset = self.in_progress.len() as u32;
+        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
         self.in_progress.extend_from_slice(v);
 
         let view = BinaryView::new_view(
@@ -59,10 +60,10 @@ impl Utf8Builder {
             // inline the first 4 bytes of the view
             v[0..4].try_into().vortex_expect("length already checked"),
             // buffer offset
-            self.completed.len() as u32,
+            u32::try_from(self.completed.len()).vortex_expect("too many buffers"),
             offset,
         );
-        self.views_builder.push(view.into());
+        self.views_builder.push(view);
     }
 
     #[inline]
@@ -196,10 +197,6 @@ impl ArrayBuilder for Utf8Builder {
         }
 
         Ok(())
-    }
-
-    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
-        todo!()
     }
 
     fn finish(&mut self) -> VortexResult<Array> {

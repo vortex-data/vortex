@@ -58,7 +58,7 @@ fn make_string_chunks(len: usize, chunk_count: usize) -> Array {
                         .collect::<String>(),
                 )
             });
-            builder.finish().unwrap()
+            builder.finish().vortex_unwrap()
         })
         .collect::<ChunkedArray>()
         .into_array()
