@@ -8,7 +8,7 @@ use crate::{Array, IntoArray};
 
 impl CastFn<VarBinViewArray> for VarBinViewEncoding {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<Array> {
-        if !matches!(dtype, DType::Utf8(_) | DType::Binary(_)) {
+        if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
         }
 
