@@ -16,6 +16,8 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
+use tracing::info_span;
+use tracing_futures::Instrument;
 use vortex::error::{vortex_panic, VortexExpect};
 
 feature_flagged_allocator!();
@@ -52,10 +54,9 @@ fn main() {
         // Capture `RUST_LOG` configuration
         let filter = tracing_subscriber::EnvFilter::from_default_env();
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .include_args(true)
             .file("clickbench.trace.json")
             .build();
-
-        tracing_log::LogTracer::init().expect("Failed to initialize LogTracer");
 
         tracing_subscriber::registry()
             .with(filter)
@@ -184,31 +185,19 @@ fn main() {
             }
 
             let mut fastest_result = Duration::from_millis(u64::MAX);
-            for _iteration in 0..args.iterations {
+            for iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
                     let context = context.clone();
                     let query = query.clone();
                     tokio::task::spawn(async move {
-                        let f = {
-                            #[cfg(feature = "tracing")]
-                            {
-                                use tracing::Instrument;
-
-                                let info_span = tracing::info_span!(
-                                    "execute_query",
-                                    query_idx,
-                                    iteration = _iteration
-                                );
-                                execute_query(&context, &query).instrument(info_span)
-                            }
-                            #[cfg(not(feature = "tracing"))]
-                            {
-                                execute_query(&context, &query)
-                            }
-                        };
-
-                        f.await
+                        execute_query(&context, &query)
+                            .instrument(info_span!(
+                                "execute_query",
+                                query_idx,
+                                iteration = iteration
+                            ))
+                            .await
                             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
                     })
                     .await

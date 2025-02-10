@@ -503,7 +503,6 @@ dependencies = [
  "tracing",
  "tracing-chrome",
  "tracing-futures",
- "tracing-log",
  "tracing-subscriber",
  "uuid",
  "vortex",

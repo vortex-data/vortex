@@ -60,12 +60,12 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
-tracing = { workspace = true, optional = true }
-tracing-chrome = { workspace = true, optional = true }
-tracing-futures = { workspace = true, optional = true }
-tracing-log = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, optional = true, features = [
+tracing = { workspace = true }
+tracing-chrome = { workspace = true }
+tracing-futures = { workspace = true }
+tracing-subscriber = { workspace = true, features = [
     "env-filter",
+    "tracing-log",
 ] }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
@@ -78,13 +78,7 @@ criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 [features]
 mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
-tracing = [
-    "dep:tracing",
-    "dep:tracing-chrome",
-    "dep:tracing-subscriber",
-    "dep:tracing-log",
-    "vortex-datafusion/tracing",
-]
+tracing = []
 
 [[bench]]
 name = "compress"
