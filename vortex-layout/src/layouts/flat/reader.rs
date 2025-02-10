@@ -5,7 +5,6 @@ use async_once_cell::Lazy;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use vortex_array::{Array, ContextRef};
-use vortex_dtype::{FieldMask, FieldPath};
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 
 use crate::layouts::flat::range_reader::FlatRangeReader;
@@ -56,21 +55,19 @@ impl LayoutReader for FlatReader {
         &self.layout
     }
 
-    fn range_reader(
-        &self,
-        row_range: Range<u64>,
-        field_mask: Arc<[FieldMask]>,
-    ) -> Arc<dyn LayoutRangeReader> {
-        if row_range.start >= self.row_count() || row_range.end > self.row_count() {
+    fn range_reader(&self, row_range: Range<u64>) -> Arc<dyn LayoutRangeReader> {
+        let start = usize::try_from(row_range.start - self.layout.row_offset())
+            .vortex_expect("array offset must fit within usize");
+        let end = usize::try_from(row_range.end - self.layout.row_offset())
+            .vortex_expect("array length must fit within usize");
+
+        if start as u64 >= self.row_count() || end as u64 > self.row_count() {
             vortex_panic!("Row range out of bounds")
         }
-        let start =
-            usize::try_from(row_range.start).vortex_expect("Flat row range must fit within usize");
-        let end =
-            usize::try_from(row_range.end).vortex_expect("Flat row range must fit within usize");
 
         Arc::new(FlatRangeReader {
-            row_range: start..end,
+            row_range,
+            self_range: start..end,
             array: self.array.clone(),
         }) as _
     }

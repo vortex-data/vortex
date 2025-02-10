@@ -297,8 +297,10 @@ impl Layout {
         &self,
         segments: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
+        field_mask: &[FieldMask],
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx, segments)
+        self.encoding()
+            .reader(self.clone(), ctx, segments, field_mask)
     }
 
     /// Register splits for this layout.

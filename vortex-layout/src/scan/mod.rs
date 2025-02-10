@@ -10,11 +10,9 @@ use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
 mod split_by;
 pub mod unified;
-mod v2;
 
 use futures::StreamExt;
 pub use split_by::*;
-pub use v2::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -25,7 +23,7 @@ use vortex_scan::{RowMask, Scanner};
 
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutReader};
+use crate::{Layout, LayoutReader};
 
 pub trait ScanTask {
     fn execute(&self, segments: &dyn AsyncSegmentReader) -> BoxFuture<()>;
@@ -52,7 +50,6 @@ pub trait ScanDriver: 'static + Sized {
 /// A struct for building a scan operation.
 pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
-    driver_options: Option<D::Options>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
     projection: ExprRef,
@@ -65,7 +62,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
         Self {
             driver,
-            driver_options: None,
             layout,
             ctx,
             projection: Identity::new_expr(),
@@ -187,7 +183,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 }
 
-pub struct Scan<D> {
+pub struct Scan<D: ScanDriver> {
     pub(crate) driver: D,
     pub(crate) layout: Layout,
     pub(crate) ctx: ContextRef,
@@ -210,9 +206,11 @@ impl<D: ScanDriver> Scan<D> {
         )?);
 
         // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self
-            .layout
-            .reader(self.driver.segment_reader(), self.ctx.clone())?;
+        let reader: Arc<dyn LayoutReader> = self.layout.reader(
+            self.driver.segment_reader(),
+            self.ctx.clone(),
+            &self.field_mask,
+        )?;
 
         let mut results = Vec::with_capacity(self.row_masks.len());
         let mut tasks = Vec::with_capacity(self.row_masks.len());
@@ -221,8 +219,7 @@ impl<D: ScanDriver> Scan<D> {
             let (send_result, recv_result) = oneshot::channel::<VortexResult<Option<Array>>>();
             results.push(recv_result);
 
-            let range_reader =
-                reader.range_reader(row_mask.begin()..row_mask.end(), self.field_mask.clone());
+            let range_reader = reader.range_reader(row_mask.begin()..row_mask.end());
 
             let task: BoxFuture<'static, VortexResult<()>> = scanner
                 .clone()

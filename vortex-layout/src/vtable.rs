@@ -53,6 +53,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
+        field_mask: &[FieldMask],
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 
     /// Register the row splits for this layout, these represent natural boundaries at which

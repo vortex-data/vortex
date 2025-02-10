@@ -29,6 +29,7 @@ impl LayoutVTable for FlatLayout {
         layout: Layout,
         ctx: ContextRef,
         segments: Arc<dyn AsyncSegmentReader>,
+        _field_mask: &[FieldMask],
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(FlatReader::try_new(layout, ctx, segments)?.into_arc())
     }

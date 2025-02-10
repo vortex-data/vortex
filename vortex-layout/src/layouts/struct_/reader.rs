@@ -1,28 +1,25 @@
 use std::hash::Hash;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, FieldMask, FieldName, FieldPath, StructDType};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldNames};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{partition, PartitionedExpr};
 use vortex_expr::ExprRef;
 
+use crate::layouts::struct_::range_reader::StructRangeReader;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{Layout, LayoutRangeReader, LayoutReader, LayoutReaderExt, LayoutVTable};
+use crate::{Layout, LayoutRangeReader, LayoutReader, LayoutVTable};
 
-#[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
-    ctx: ContextRef,
-
-    segments: Arc<dyn AsyncSegmentReader>,
-
-    field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
-    field_lookup: Option<HashMap<FieldName, usize>>,
-    expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    /// Field readers corresponding to each field name.
+    field_readers: Vec<Arc<dyn LayoutReader>>,
+    /// Shared state among all range readers.
+    shared_state: Arc<SharedState>,
 }
 
 impl StructReader {
@@ -30,6 +27,7 @@ impl StructReader {
         layout: Layout,
         segments: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
+        field_mask: &[FieldMask],
     ) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -40,57 +38,92 @@ impl StructReader {
             vortex_panic!("Mismatched dtype {} for struct layout", dtype);
         };
 
-        let field_readers = (0..layout.nchildren()).map(|_| OnceLock::new()).collect();
+        let mut field_names = vec![];
+        let mut field_readers = vec![];
 
-        // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
-        let field_lookup = (layout.nchildren() > 80).then(|| {
-            struct_dt
-                .names()
-                .iter()
-                .enumerate()
-                .map(|(i, n)| (n.clone(), i))
-                .collect()
-        });
+        // If the field mask contains an `All` fields, then register splits for all fields.
+        if field_mask.iter().any(|mask| mask.matches_all()) {
+            for (idx, field_dtype) in struct_dt.fields().enumerate() {
+                let child_layout = layout.child(idx, field_dtype, layout.row_offset())?;
+                let child_reader =
+                    child_layout.reader(segments.clone(), ctx.clone(), &[FieldMask::All])?;
 
-        // This is where we need to do some complex things with the scan in order to split it into
-        // different scans for different fields.
+                field_names.push(
+                    struct_dt
+                        .field_name(idx)
+                        .vortex_expect("missing field")
+                        .clone(),
+                );
+                field_readers.push(child_reader);
+            }
+        } else {
+            for path in field_mask {
+                let Some(field) = path.starting_field()? else {
+                    // skip fields not in mask
+                    continue;
+                };
+                let Field::Name(field_name) = field else {
+                    vortex_bail!("Expected field name, got {:?}", field);
+                };
+
+                let idx = struct_dt.find(field_name)?;
+                let child_layout =
+                    layout.child(idx, struct_dt.field_by_index(idx)?, layout.row_offset())?;
+                let child_reader = child_layout.reader(
+                    segments.clone(),
+                    ctx.clone(),
+                    &[path.clone().step_into()?],
+                )?;
+
+                field_names.push(field_name.clone());
+                field_readers.push(child_reader);
+            }
+        }
+
+        let dtype = layout.dtype().clone();
+
         Ok(Self {
             layout,
-            ctx,
-            segments,
-            field_readers,
-            field_lookup,
-            expr_cache: Arc::new(Default::default()),
+            field_readers: field_readers.into(),
+            shared_state: Arc::new(SharedState {
+                expr_cache: Default::default(),
+                field_names: field_names.into(),
+                dtype,
+            }),
         })
     }
+}
 
-    /// Return the [`StructDType`] of this layout.
-    pub(crate) fn struct_dtype(&self) -> &StructDType {
-        self.dtype()
-            .as_struct()
-            .vortex_expect("Struct layout must have a struct DType, verified at construction")
+impl LayoutReader for StructReader {
+    fn layout(&self) -> &Layout {
+        &self.layout
     }
 
-    /// Return the child reader for the chunk.
-    pub(crate) fn child(&self, name: &FieldName) -> VortexResult<&Arc<dyn LayoutReader>> {
-        let idx = self
-            .field_lookup
-            .as_ref()
-            .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_dtype().find(name).ok())
-            .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
+    fn range_reader(&self, row_range: Range<u64>) -> Arc<dyn LayoutRangeReader> {
+        let fields = self
+            .field_readers
+            .iter()
+            .map(|r| r.range_reader(row_range.clone()))
+            .collect();
 
-        // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
-        self.field_readers[idx].get_or_try_init(|| {
-            let child_layout = self.layout.child(
-                idx,
-                self.struct_dtype().field_by_index(idx)?,
-                self.layout.row_offset(),
-            )?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
-        })
+        Arc::new(StructRangeReader {
+            row_range,
+            fields,
+            shared_state: self.shared_state.clone(),
+        }) as _
     }
+}
 
+pub(crate) struct SharedState {
+    /// Cache of partitioned expressions.
+    expr_cache: RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>,
+    /// Field names of the selected fields.
+    field_names: FieldNames,
+    /// The dtype of the struct.
+    dtype: DType,
+}
+
+impl SharedState {
     /// Utility for partitioning an expression over the fields of a struct.
     pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
         Ok(
@@ -102,24 +135,18 @@ impl StructReader {
             {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => entry
-                    .insert(Arc::new(partition(expr, self.dtype())?))
+                    .insert(Arc::new(partition(expr, &self.dtype)?))
                     .clone(),
             },
         )
     }
-}
 
-impl LayoutReader for StructReader {
-    fn layout(&self) -> &Layout {
-        &self.layout
-    }
-
-    fn range_reader(
-        &self,
-        row_range: Range<u64>,
-        field_mask: Arc<[FieldMask]>,
-    ) -> Arc<dyn LayoutRangeReader> {
-        todo!()
+    /// Return the child idx for the given field name.
+    pub(crate) fn child_idx(&self, name: &FieldName) -> VortexResult<usize> {
+        self.field_names
+            .iter()
+            .position(|n| n == name)
+            .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))
     }
 }
 

@@ -20,7 +20,6 @@ use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
-use crate::v2::FileV2;
 use crate::{
     GenericVortexFile, InMemoryVortexFile, VortexFile, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE,
     VERSION,
@@ -130,27 +129,6 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     pub fn file(read: R) -> Self {
-        Self {
-            read,
-            // TODO(ngates): move this context into the vortex-file crate
-            options: Default::default(),
-            ctx: ALL_ENCODINGS_CONTEXT.clone(),
-            layout_ctx: LayoutContextRef::default(),
-            file_size: None,
-            file_layout: None,
-            segment_cache: Arc::new(InMemorySegmentCache::new(
-                // For now, use a fixed 1GB overhead.
-                CacheBuilder::new(1 << 30),
-            )),
-            initial_read_size: Self::INITIAL_READ_SIZE,
-        }
-    }
-}
-
-impl<R: VortexReadAt> VortexOpenOptions<FileV2<R>> {
-    const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
-
-    pub fn file2(read: R) -> Self {
         Self {
             read,
             // TODO(ngates): move this context into the vortex-file crate

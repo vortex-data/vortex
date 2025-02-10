@@ -1,8 +1,5 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
 mod data;
 pub use data::*;
 mod context;

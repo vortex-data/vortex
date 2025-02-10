@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-#![allow(unused_imports)]
 #![allow(clippy::cast_possible_truncation)]
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 
@@ -98,7 +96,6 @@ pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
-mod v2;
 mod writer;
 
 pub use file::*;
