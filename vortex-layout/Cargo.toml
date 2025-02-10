@@ -24,7 +24,7 @@ itertools = { workspace = true }
 log = { workspace = true }
 oneshot = { workspace = true, features = ["async"] }
 tracing = { workspace = true }
-tracing-futures = { workspace = true }
+tracing-futures = { workspace = true, features = ["futures-03"] }
 pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
