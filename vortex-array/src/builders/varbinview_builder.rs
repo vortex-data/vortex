@@ -38,7 +38,7 @@ impl VarBinViewBuilder {
     }
 
     fn append_value_view(&mut self, value: &[u8]) {
-        let v: &[u8] = value.as_ref();
+        let v: &[u8] = value;
         let length =
             u32::try_from(v.len()).vortex_expect("cannot have a single string >2^32 in length");
         if length <= 12 {

@@ -44,7 +44,7 @@ impl ArrayBuilder for Utf8Builder {
     }
 
     fn dtype(&self) -> &DType {
-        &self.varbinview_builder.dtype()
+        self.varbinview_builder.dtype()
     }
 
     #[inline]
