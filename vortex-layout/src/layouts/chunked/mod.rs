@@ -15,7 +15,7 @@ use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
 use crate::vtable::LayoutVTable;
-use crate::{LayoutId, CHUNKED_LAYOUT_ID};
+use crate::{LayoutId, LayoutReaderExt, CHUNKED_LAYOUT_ID};
 
 #[derive(Default, Debug)]
 pub struct ChunkedLayout;
