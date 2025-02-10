@@ -5567,10 +5567,10 @@ name = "vortex-sampling-compressor"
 version = "0.24.0"
 dependencies = [
  "arbitrary",
- "chrono",
  "codspeed-criterion-compat",
  "fsst-rs",
  "itertools 0.14.0",
+ "jiff",
  "log",
  "rand",
  "vortex-alp",
