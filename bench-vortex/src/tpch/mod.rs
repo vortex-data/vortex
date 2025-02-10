@@ -43,11 +43,7 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
 ];
 
-fn make_object_store(
-    df: &SessionContext,
-    source: &Url,
-    skip_registration: bool,
-) -> anyhow::Result<Arc<dyn ObjectStore>> {
+fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
         "s3" => {
             // Get bucket name.
@@ -59,7 +55,6 @@ fn make_object_store(
                     .build()
                     .unwrap(),
             );
-            assert!(!skip_registration);
             df.register_object_store(&Url::parse(&format!("s3://{}/", bucket_name))?, s3.clone());
             Ok(s3)
         }
@@ -72,16 +67,13 @@ fn make_object_store(
                     .build()
                     .unwrap(),
             );
-            assert!(!skip_registration);
             df.register_object_store(&Url::parse(&format!("gs://{}/", bucket_name))?, gcs.clone());
             Ok(gcs)
         }
         _ => {
             // Just use local object store
             let fs = Arc::new(LocalFileSystem::default());
-            if !skip_registration {
-                df.register_object_store(&Url::parse("file:/")?, fs.clone());
-            }
+            df.register_object_store(&Url::parse("file:/")?, fs.clone());
             Ok(fs)
         }
     }
@@ -92,18 +84,10 @@ pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
     emulate_object_store: bool,
-    do_not_use_object_store: bool,
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_with_cache(emulate_object_store);
 
-    if do_not_use_object_store && base_dir.scheme() != "file" {
-        anyhow::bail!(
-            "Remote storage schemes are incompatible with --do-not-use-object-store: {}",
-            base_dir.scheme()
-        );
-    }
-
-    let object_store = make_object_store(&context, base_dir, do_not_use_object_store)?;
+    let object_store = make_object_store(&context, base_dir)?;
 
     let customer = base_dir.join("customer.tbl")?;
     let lineitem = base_dir.join("lineitem.tbl")?;
@@ -126,7 +110,6 @@ pub async fn load_datasets(
                         stringify!($name),
                         &$name,
                         $schema,
-                        do_not_use_object_store,
                     )
                     .await
                 }
@@ -140,7 +123,6 @@ pub async fn load_datasets(
                         stringify!($name),
                         &$name,
                         $schema,
-                        do_not_use_object_store,
                     )
                     .await
                 }
@@ -242,7 +224,6 @@ async fn register_parquet(
     name: &str,
     file: &Url,
     schema: &Schema,
-    do_not_use_object_store: bool,
 ) -> anyhow::Result<()> {
     let csv_file = file.as_str();
     let mut pq_file = file.clone();
@@ -269,7 +250,6 @@ async fn register_parquet(
                 df.write_parquet(pq_file.path(), DataFrameWriteOptions::default(), None)
                     .await?;
             } else {
-                assert!(!do_not_use_object_store);
                 anyhow::bail!("Writing to S3 does not seem to work!");
                 // df.write_parquet(pq_file.as_str(), DataFrameWriteOptions::default(), None)
                 //     .await?;
@@ -280,15 +260,8 @@ async fn register_parquet(
         .await?;
     }
 
-    let url_or_path = if do_not_use_object_store {
-        assert!(pq_file.scheme() == "file");
-        pq_file.path()
-    } else {
-        pq_file.as_str()
-    };
-
     session
-        .register_parquet(name, url_or_path, ParquetReadOptions::default())
+        .register_parquet(name, pq_file.as_str(), ParquetReadOptions::default())
         .await?;
 
     Ok(())
@@ -300,7 +273,6 @@ async fn register_vortex_file(
     table_name: &str,
     file: &Url,
     schema: &Schema,
-    do_not_use_object_store: bool,
 ) -> anyhow::Result<()> {
     let mut vortex_dir_segments = file
         .path_segments()
@@ -376,13 +348,7 @@ async fn register_vortex_file(
     }
 
     let format = Arc::new(VortexFormat::new(CTX.clone()));
-    let url_or_path = if do_not_use_object_store {
-        assert!(vtx_file.scheme() == "file");
-        vtx_file.path()
-    } else {
-        vtx_file.as_str()
-    };
-    let table_url = ListingTableUrl::parse(url_or_path)?;
+    let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
         .infer_schema(&session.state())
