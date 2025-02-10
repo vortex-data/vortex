@@ -2,7 +2,7 @@
 
 use std::iter::Iterator;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::array::PrimitiveArray;
@@ -42,12 +42,10 @@ fn run_end_null_count(c: &mut Criterion) {
                     ),
                     |b| {
                         b.iter(|| {
-                            black_box(
-                                array
-                                    .vtable()
-                                    .compute_statistics(&array, Stat::NullCount)
-                                    .unwrap(),
-                            )
+                            array
+                                .vtable()
+                                .compute_statistics(&array, Stat::NullCount)
+                                .unwrap()
                         });
                     },
                 );
