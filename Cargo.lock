@@ -5279,6 +5279,7 @@ dependencies = [
  "arrow-string",
  "backtrace",
  "codspeed-criterion-compat",
+ "divan",
  "enum-iterator",
  "flatbuffers 25.1.24",
  "flexbuffers",

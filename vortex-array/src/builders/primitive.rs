@@ -4,11 +4,13 @@ use arrow_buffer::NullBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::AllOr;
 
 use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::variants::PrimitiveArrayTrait;
+use crate::{Array, IntoArray, IntoCanonical};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     values: BufferMut<T>,
@@ -70,6 +72,30 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     fn append_nulls(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.validity.append_n_nulls(n);
+    }
+
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?.into_primitive()?;
+        if array.ptype() != T::PTYPE {
+            vortex_bail!("Cannot extend from array with different ptype");
+        }
+
+        match array.validity_mask()?.boolean_buffer() {
+            AllOr::All => {
+                self.values.extend_from_slice(array.as_slice::<T>());
+                self.validity.append_n_non_nulls(array.len());
+            }
+            AllOr::None => {
+                self.append_nulls(array.len());
+            }
+            AllOr::Some(validity) => {
+                self.values.push_n(T::default(), validity.len());
+                // TODO(ngates): this is slow
+                validity.iter().for_each(|v| self.validity.append(v));
+            }
+        }
+
+        Ok(())
     }
 
     fn finish(&mut self) -> VortexResult<Array> {

@@ -9,15 +9,27 @@ use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
 use crate::array::{BinaryView, BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
+use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical, IntoArray, IntoArrayVariant};
+use crate::{Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
 
 impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
     fn into_canonical(&self, array: ChunkedArray) -> VortexResult<Canonical> {
         let validity = Validity::from_mask(array.validity_mask()?, array.dtype().nullability());
         try_canonicalize_chunks(array.chunks().collect(), validity, array.dtype())
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: ChunkedArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        for chunk in array.chunks() {
+            chunk.canonicalize_into(builder)?;
+        }
+        Ok(())
     }
 }
 

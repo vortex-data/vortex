@@ -15,7 +15,7 @@ impl BinaryBooleanFn<ChunkedArray> for ChunkedEncoding {
         let mut idx = 0;
         let mut chunks = Vec::with_capacity(lhs.nchunks());
 
-        for chunk in lhs.chunks().filter(|c| !c.is_empty()) {
+        for chunk in lhs.non_empty_chunks() {
             let sliced = slice(rhs, idx, idx + chunk.len())?;
             let result = binary_boolean(&chunk, &sliced, op)?;
             chunks.push(result);

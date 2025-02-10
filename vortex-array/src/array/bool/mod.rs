@@ -22,6 +22,7 @@ mod stats;
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 use vortex_mask::Mask;
 
+use crate::builders::ArrayBuilder;
 use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
 
 impl_encoding!(
@@ -214,6 +215,14 @@ impl FromIterator<Option<bool>> for BoolArray {
 impl CanonicalVTable<BoolArray> for BoolEncoding {
     fn into_canonical(&self, array: BoolArray) -> VortexResult<Canonical> {
         Ok(Canonical::Bool(array))
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: BoolArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(array.into_array())
     }
 }
 

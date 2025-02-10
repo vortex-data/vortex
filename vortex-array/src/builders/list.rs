@@ -117,6 +117,10 @@ where
         self.validity.append_values(false, n);
     }
 
+    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
+        todo!()
+    }
+
     fn finish(&mut self) -> VortexResult<Array> {
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,

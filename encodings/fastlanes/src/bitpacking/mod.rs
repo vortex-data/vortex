@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
@@ -12,7 +13,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, RkyvMetadata};
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -255,6 +256,15 @@ impl BitPackedArray {
 impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
     fn into_canonical(&self, array: BitPackedArray) -> VortexResult<Canonical> {
         unpack(array).map(Canonical::Primitive)
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: BitPackedArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        // TODO(joe): add specialised impl
+        builder.extend_from_array(array.into_array())
     }
 }
 

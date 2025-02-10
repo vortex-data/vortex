@@ -1,6 +1,7 @@
 mod binary;
 mod bool;
 mod extension;
+mod lazy_validity_builder;
 mod list;
 mod null;
 mod primitive;
@@ -54,6 +55,9 @@ pub trait ArrayBuilder: Send {
 
     /// Appends n "null" values to the array.
     fn append_nulls(&mut self, n: usize);
+
+    /// Extends the array with the provided array, canonicalizing if necessary.
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()>;
 
     fn finish(&mut self) -> VortexResult<Array>;
 }

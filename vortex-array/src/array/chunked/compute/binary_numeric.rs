@@ -15,7 +15,7 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
         let mut start = 0;
 
         let mut new_chunks = Vec::with_capacity(array.nchunks());
-        for chunk in array.chunks() {
+        for chunk in array.non_empty_chunks() {
             let end = start + chunk.len();
             new_chunks.push(binary_numeric(&chunk, &slice(rhs, start, end)?, op)?);
             start = end;

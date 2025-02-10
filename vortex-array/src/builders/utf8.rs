@@ -62,6 +62,10 @@ impl ArrayBuilder for Utf8Builder {
         }
     }
 
+    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
+        todo!()
+    }
+
     fn finish(&mut self) -> VortexResult<Array> {
         let arrow = self.inner.finish();
 
