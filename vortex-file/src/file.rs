@@ -68,8 +68,6 @@ impl<F: FileType> VortexFile<F> {
             Err(_) => Err(vortex_err!("Failed to receive result, send dropped")),
         });
         let driver_stream = driver.drive_future(async move {
-            let field_paths = field_paths.clone();
-            let stats = stats.clone();
             reader
                 .clone()
                 .evaluate_stats(field_paths, stats)
@@ -80,10 +78,20 @@ impl<F: FileType> VortexFile<F> {
                 .await
         });
 
-        Ok(UnifiedDriverFuture {
+        let f = UnifiedDriverFuture {
             exec_future: result_future,
             io_stream: driver_stream,
-        })
+        };
+
+        #[cfg(feature = "tracing")]
+        {
+            use tracing::{info_span, Instrument as _};
+            let f = f.instrument(info_span!("statistics"));
+            Ok(f)
+        }
+
+        #[cfg(not(feature = "tracing"))]
+        Ok(f)
     }
 
     pub fn scan(&self) -> ScanBuilder<F::ScanDriver> {

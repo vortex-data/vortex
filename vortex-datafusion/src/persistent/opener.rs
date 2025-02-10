@@ -68,7 +68,7 @@ impl FileOpener for VortexFileOpener {
 
             Ok(vxf
                 .scan()
-                .with_identifier(file_meta.object_meta.location)
+                // .with_identifier(file_meta.object_meta.location)
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
                 .into_array_stream()?

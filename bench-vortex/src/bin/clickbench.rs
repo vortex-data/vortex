@@ -8,16 +8,14 @@ use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
     execute_query, feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
-    setup_logger, Format, IdempotentPath as _, Measurement,
+    Format, IdempotentPath as _, Measurement,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
-use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::prelude::*;
 use vortex::error::{vortex_panic, VortexExpect};
 
@@ -42,30 +40,31 @@ struct Args {
     emit_plan: bool,
     #[arg(long, default_value = "false")]
     emulate_object_store: bool,
-    #[arg(short, long, default_value = "false")]
-    trace: bool,
 }
 
 fn main() {
     let args = Args::parse();
 
     // We need the guard to live to the end of the function, so can't create it in the if-block
-    let _trace_guard = args.trace.then(|| {
-        let (chrome_layer, _guard) = ChromeLayerBuilder::new()
+    #[cfg(feature = "tracing")]
+    let _trace_guard = {
+        // Capture `RUST_LOG` configuration
+        let filter = tracing_subscriber::EnvFilter::from_default_env();
+        let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
             .file("clickbench.trace.json")
             .build();
-        tracing_subscriber::registry().with(chrome_layer).init();
-        _guard
-    });
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+            .pretty();
 
-    if !args.trace {
-        // TODO(ngates): i think tracing also collects logs?
-        setup_logger(if args.verbose {
-            LevelFilter::Debug
-        } else {
-            LevelFilter::Info
-        });
-    }
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(chrome_layer)
+            .with(fmt_layer)
+            .init();
+        _guard
+    };
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),

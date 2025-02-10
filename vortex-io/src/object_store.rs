@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::TryFutureExt as _;
 use object_store::path::Path;
 use object_store::{MultipartUpload, ObjectStore, PutPayload};
 use vortex_error::{VortexExpect, VortexResult};
@@ -25,16 +26,22 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(size = range.end - range.start)))]
     async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
         let start = usize::try_from(range.start).vortex_expect("range.start");
         let end = usize::try_from(range.end).vortex_expect("range.end");
-        object_store
+        let f = object_store
             .get_range(&location, start..end)
-            .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        #[cfg(feature = "tracing")]
+        {
+            tracing::Instrument::in_current_span(f).await
+        }
+        #[cfg(not(feature = "tracing"))]
+        f.await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]

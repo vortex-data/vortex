@@ -44,6 +44,7 @@ pub struct VortexOpenOptions<F: FileType> {
     /// File-specific options
     pub(crate) options: F::Options,
     /// A human-readable name for debugging and logging,
+    #[allow(dead_code)]
     name: Option<Arc<str>>,
     /// The Vortex Array encoding context.
     ctx: ContextRef,
@@ -300,7 +301,6 @@ impl<F: FileType> VortexOpenOptions<F> {
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
             Layout::new_viewed_unchecked(
-                self.name.clone().unwrap_or_else(|| Arc::from("$")),
                 root_encoding,
                 dtype,
                 bytes.clone(),

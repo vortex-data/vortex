@@ -267,7 +267,15 @@ pub struct CompressionRunResults {
     pub total_compressed_size: Option<u64>,
 }
 
+#[cfg(feature = "tracing")]
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
 pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+    let p = CALLS.fetch_add(1, Ordering::SeqCst);
+    println!("{p}");
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
