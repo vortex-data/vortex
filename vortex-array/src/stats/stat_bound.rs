@@ -67,9 +67,13 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
                     IntersectionResult::None
                 }
             }
-            (Precision::Exact(exact), Precision::Inexact(_))
-            | (Precision::Inexact(_), Precision::Exact(exact)) => {
-                IntersectionResult::Value(Precision::Inexact(exact.clone()))
+            (Precision::Exact(exact), Precision::Inexact(inexact))
+            | (Precision::Inexact(inexact), Precision::Exact(exact)) => {
+                if exact.partial_cmp(inexact)? == Ordering::Less {
+                    IntersectionResult::Value(Precision::Inexact(exact.clone()))
+                } else {
+                    IntersectionResult::Value(Precision::Exact(exact.clone()))
+                }
             }
             (Precision::Inexact(lhs), Precision::Inexact(rhs)) => {
                 IntersectionResult::Value(Precision::Inexact(partial_min(lhs, rhs)?.clone()))
