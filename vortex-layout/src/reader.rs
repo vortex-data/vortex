@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::Array;
-use vortex_dtype::{DType, FieldPath};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
@@ -15,7 +14,7 @@ use crate::Layout;
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: Send + Sync + ExprEvaluator + StatsEvaluator {
+pub trait LayoutReader: Send + Sync + ExprEvaluator {
     /// Returns the [`Layout`] of this reader.
     fn layout(&self) -> &Layout;
 }
@@ -36,30 +35,6 @@ pub trait ExprEvaluator {
 impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         self.as_ref().evaluate_expr(row_mask, expr).await
-    }
-}
-
-/// A trait for evaluating field statistics against a [`LayoutReader`].
-///
-/// Implementations should avoid fetching data segments (metadata segments are ok) and instead
-/// rely on the statistics that were computed at write time.
-#[async_trait]
-pub trait StatsEvaluator {
-    async fn evaluate_stats(
-        &self,
-        field_paths: Arc<[FieldPath]>,
-        stats: Arc<[Stat]>,
-    ) -> VortexResult<Vec<StatsSet>>;
-}
-
-#[async_trait]
-impl StatsEvaluator for Arc<dyn LayoutReader + 'static> {
-    async fn evaluate_stats(
-        &self,
-        field_paths: Arc<[FieldPath]>,
-        stats: Arc<[Stat]>,
-    ) -> VortexResult<Vec<StatsSet>> {
-        self.as_ref().evaluate_stats(field_paths, stats).await
     }
 }
 

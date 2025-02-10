@@ -1,5 +1,4 @@
 mod eval_expr;
-mod eval_stats;
 mod reader;
 pub mod stats_table;
 pub mod writer;
