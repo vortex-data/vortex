@@ -241,8 +241,8 @@ impl Array {
         self.is_encoding(BoolEncoding.id())
             || self
                 .statistics()
-                .get_as(Stat::IsConstant)
-                .is_some_and(|p| p == Precision::exact(true))
+                .get_as::<bool>(Stat::IsConstant)
+                .is_some_and(|p| p == Precision::Exact(true))
     }
 
     /// Return whether the array is constant.
