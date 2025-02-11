@@ -67,7 +67,7 @@ fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> Array {
         .into_array()
 }
 
-const BENCH_ARGS: &'static [(usize, usize)] = &[
+const BENCH_ARGS: &[(usize, usize)] = &[
     (1_000usize, 10usize),
     (1_000, 1_000),
     (10_000, 100),
