@@ -12,7 +12,6 @@ use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
-#[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
