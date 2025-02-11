@@ -87,12 +87,13 @@ mod test {
     use vortex_scan::RowMask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::Layout;
 
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Arc<TestSegments>, Layout) {
+    fn chunked_layout() -> (Arc<ScanExecutor>, Layout) {
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
             &DType::Primitive(PType::I32, NonNullable),
@@ -107,7 +108,7 @@ mod test {
             ],
         )
         .unwrap();
-        (Arc::new(segments), layout)
+        (ScanExecutor::inline(Arc::new(segments)), layout)
     }
 
     #[test]

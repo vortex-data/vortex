@@ -72,12 +72,13 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
+    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::Layout;
 
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<TestSegments>, Layout) {
+    fn struct_layout() -> (Arc<ScanExecutor>, Layout) {
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(
@@ -107,7 +108,7 @@ mod tests {
             .map(IntoArray::into_array)],
         )
         .unwrap();
-        (Arc::new(segments), layout)
+        (ScanExecutor::inline(Arc::new(segments)), layout)
     }
 
     #[test]

@@ -217,6 +217,14 @@ pub struct ScanExecutor {
 }
 
 impl ScanExecutor {
+    /// Mostly used for testing, this creates a ScanExecutor with an inline task executor.
+    pub fn inline(segments: Arc<dyn AsyncSegmentReader>) -> Arc<Self> {
+        Arc::new(Self {
+            segment_reader: segments,
+            task_executor: Arc::new(InlineTaskExecutor),
+        })
+    }
+
     pub async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         self.segment_reader.get(id).await
     }
