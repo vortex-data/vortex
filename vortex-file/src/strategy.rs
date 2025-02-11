@@ -136,8 +136,7 @@ impl ColumnChunker {
 
             // Combine the chunks to and flush them to the layout.
             assert!(!chunks.is_empty());
-            let chunk = ChunkedArray::try_new(chunks, self.dtype.clone())
-                .vortex_expect("failed to create chunked array")
+            let chunk = ChunkedArray::try_new_unchecked(chunks, self.dtype.clone())
                 .into_canonical()?
                 .into_array();
 
@@ -170,10 +169,10 @@ impl LayoutWriter for ColumnChunker {
     }
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        let chunk = ChunkedArray::try_new(self.chunks.drain(..).collect(), self.dtype.clone())
-            .vortex_expect("failed to create chunked array")
-            .into_canonical()?
-            .into_array();
+        let chunk =
+            ChunkedArray::try_new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
+                .into_canonical()?
+                .into_array();
         self.writer.push_chunk(segments, chunk)?;
         self.writer.finish(segments)
     }
