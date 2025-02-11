@@ -40,6 +40,7 @@ compio = ["dep:compio", "vortex-buffer/compio"]
 futures = ["futures-util/io"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs"]
+tracing = ["dep:tracing"]
 
 [lints]
 workspace = true

@@ -4,7 +4,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::{Max, Min, Precision, Stat, StatBound, StatType};
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -176,6 +176,14 @@ impl StatsSet {
         })
     }
 
+    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
+    where
+        S: StatType<U>,
+        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    {
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
+    }
+
     /// Set the stat `stat` to `value`.
     pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
         if self.values.is_none() {
@@ -202,20 +210,10 @@ impl StatsSet {
         }
     }
 
-    pub fn keep_exact_inexact_stats(self, exact_keep: &[Stat], inexact_keep: &[Stat]) -> Self {
+    pub fn keep_inexact_stats(self, inexact_keep: &[Stat]) -> Self {
         if let Some(v) = self.values {
-            // v.retain(|(s, _)| exact_keep.contains(s) || inexact_keep.contains(s));
-
             v.into_iter()
-                .filter_map(|(s, v)| {
-                    if exact_keep.contains(&s) {
-                        Some((s, v))
-                    } else if inexact_keep.contains(&s) {
-                        Some((s, v.into_inexact()))
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|(s, v)| inexact_keep.contains(&s).then(|| (s, v.into_inexact())))
                 .collect()
         } else {
             self
@@ -330,7 +328,8 @@ impl StatsSet {
     // given two sets of stats (of differing precision) for the same array, combine them
     pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         self.combine_max(other, dtype)?;
-        self.combine_min(other, dtype)
+        self.combine_min(other, dtype)?;
+        self.combine_is_constant(other)
     }
 
     fn combine_min(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
@@ -375,6 +374,29 @@ impl StatsSet {
         Ok(())
     }
 
+    fn combine_is_constant(&mut self, other: &Self) -> VortexResult<()> {
+        match (
+            self.get_as_bound::<IsConstant, bool>(),
+            other.get_as_bound::<IsConstant, bool>(),
+        ) {
+            (Some(m1), Some(m2)) => {
+                let intersection = m1
+                    .intersection(&m2)
+                    .vortex_expect("can always compare scalar")
+                    .ok_or_else(|| {
+                        vortex_err!("IsConstant bounds ({m1:?}, {m2:?}) do not overlap")
+                    })?;
+                if intersection != m1 {
+                    self.set(Stat::IsConstant, intersection.map(ScalarValue::from));
+                }
+            }
+            (None, Some(m)) => self.set(Stat::IsConstant, m.map(ScalarValue::from)),
+            (Some(_), None) => (),
+            (None, None) => self.clear(Stat::IsConstant),
+        }
+        Ok(())
+    }
+
     fn merge_min(&mut self, other: &Self, dtype: &DType) {
         match (
             self.get_scalar_bound::<Min>(dtype.clone()),
@@ -406,21 +428,25 @@ impl StatsSet {
     }
 
     fn merge_is_constant(&mut self, other: &Self, dtype: &DType) {
-        if self
-            .get_as(Stat::IsConstant)
-            .is_some_and(|v| v.some_exact() == Some(true))
-            && other
-                .get_as(Stat::IsConstant)
-                .is_some_and(|v| v.some_exact() == Some(true))
-            && self
-                .get_scalar(Stat::Min, dtype.clone())
-                .is_some_and(|min| {
-                    min.is_exact() && Some(min) == other.get_scalar(Stat::Min, dtype.clone())
-                })
+        let self_const = self.get_as(Stat::IsConstant);
+        let other_const = other.get_as(Stat::IsConstant);
+        let self_min = self.get_scalar(Stat::Min, dtype.clone());
+        let other_min = other.get_scalar(Stat::Min, dtype.clone());
+
+        if let (
+            Some(Precision::Exact(self_const)),
+            Some(Precision::Exact(other_const)),
+            Some(Precision::Exact(self_min)),
+            Some(Precision::Exact(other_min)),
+        ) = (self_const, other_const, self_min, other_min)
         {
-            return;
+            if self_const && other_const && self_min == other_min {
+                self.set(Stat::IsConstant, Precision::exact(true));
+            } else {
+                self.set(Stat::IsConstant, Precision::inexact(false));
+            }
         }
-        self.set(Stat::IsConstant, Precision::inexact(false));
+        self.set(Stat::IsConstant, Precision::exact(false));
     }
 
     fn merge_is_sorted(&mut self, other: &Self, dtype: &DType) {
@@ -595,7 +621,7 @@ mod test {
         );
         assert_eq!(
             first.get_as::<bool>(Stat::IsConstant),
-            Some(Precision::inexact(false))
+            Some(Precision::exact(false))
         );
         assert_eq!(first.get_as::<i32>(Stat::Min), Some(Precision::exact(42)));
     }
@@ -891,11 +917,44 @@ mod test {
             (Stat::TrueCount, Precision::inexact(10)),
         ]);
 
-        let set = set.keep_exact_inexact_stats(&[Stat::Min], &[Stat::Max]);
+        let set = set.keep_inexact_stats(&[Stat::Min, Stat::Max]);
 
         assert_eq!(set.len(), 2);
         assert_eq!(set.get_as::<i32>(Stat::Max), Some(Precision::inexact(100)));
-        assert_eq!(set.get_as::<i32>(Stat::Min), Some(Precision::exact(50)));
+        assert_eq!(set.get_as::<i32>(Stat::Min), Some(Precision::inexact(50)));
         assert_eq!(set.get_as::<i32>(Stat::TrueCount), None);
+    }
+
+    #[test]
+    fn test_combine_is_constant() {
+        {
+            let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(true));
+            let stats2 = StatsSet::of(Stat::IsConstant, Precision::exact(true));
+            stats.combine_is_constant(&stats2).unwrap();
+            assert_eq!(
+                stats.get_as::<bool>(Stat::IsConstant),
+                Some(Precision::exact(true))
+            );
+        }
+
+        {
+            let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(true));
+            let stats2 = StatsSet::of(Stat::IsConstant, Precision::inexact(false));
+            stats.combine_is_constant(&stats2).unwrap();
+            assert_eq!(
+                stats.get_as::<bool>(Stat::IsConstant),
+                Some(Precision::exact(true))
+            );
+        }
+
+        {
+            let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(false));
+            let stats2 = StatsSet::of(Stat::IsConstant, Precision::inexact(false));
+            stats.combine_is_constant(&stats2).unwrap();
+            assert_eq!(
+                stats.get_as::<bool>(Stat::IsConstant),
+                Some(Precision::exact(false))
+            );
+        }
     }
 }

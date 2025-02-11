@@ -75,18 +75,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 ///     >>> c = vx.io.read_path("a.vortex", projection = ["age"])
 ///     >>> c.to_arrow_array()
-///     <pyarrow.lib.ChunkedArray object at ...>
-///     [
-///       -- is_valid: all not null
-///       -- child 0 type: int64
-///         [
-///           25,
-///           31,
-///           null,
-///           57,
-///           null
-///         ]
-///     ]
+///     <pyarrow.lib.StructArray object at ...>
+///     -- is_valid: all not null
+///     -- child 0 type: int64
+///       [
+///         25,
+///         31,
+///         null,
+///         57,
+///         null
+///       ]
+///
 ///
 /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
 ///

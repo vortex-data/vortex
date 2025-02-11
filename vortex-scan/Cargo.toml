@@ -14,6 +14,7 @@ readme = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+log = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }

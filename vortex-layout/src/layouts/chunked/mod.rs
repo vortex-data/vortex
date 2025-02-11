@@ -48,7 +48,7 @@ impl LayoutVTable for ChunkedLayout {
         let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
         let mut offset = row_offset;
         for i in 0..nchunks {
-            let child = layout.child(i, layout.dtype().clone())?;
+            let child = layout.child(i, layout.dtype().clone(), format!("[{}]", i))?;
             child.register_splits(field_mask, offset, splits)?;
             offset += child.row_count();
             splits.insert(offset);
