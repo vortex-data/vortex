@@ -61,23 +61,6 @@ impl FileOpener for VortexFileOpener {
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
 
-        struct TokioTaskExecutor(Handle);
-
-        #[async_trait]
-        impl TaskExecutor for TokioTaskExecutor {
-            async fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
-                let array = array.clone();
-                let tasks = tasks.to_vec();
-                self.0
-                    .spawn(
-                        async move { tasks.iter().try_fold(array, |acc, task| task.execute(&acc)) },
-                    )
-                    .await
-                    .map_err(|e| vortex_err!("Error spawning task: {}", e))
-                    .and_then(|r| r)
-            }
-        }
-
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
@@ -137,5 +120,20 @@ impl FileOpener for VortexFileOpener {
                 .boxed())
         }
         .boxed())
+    }
+}
+
+struct TokioTaskExecutor(Handle);
+
+#[async_trait]
+impl TaskExecutor for TokioTaskExecutor {
+    async fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
+        let array = array.clone();
+        let tasks = tasks.to_vec();
+        self.0
+            .spawn(async move { tasks.iter().try_fold(array, |acc, task| task.execute(&acc)) })
+            .await
+            .map_err(|e| vortex_err!("Error spawning task: {}", e))
+            .and_then(|r| r)
     }
 }

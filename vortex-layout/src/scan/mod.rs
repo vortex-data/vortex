@@ -235,7 +235,6 @@ impl ScanExecutor {
     }
 }
 
-#[allow(dead_code)]
 pub struct Scan<D> {
     driver: D,
     task_executor: Arc<dyn TaskExecutor>,
@@ -274,6 +273,13 @@ impl<D: ScanDriver> Scan<D> {
                         let reader = reader.clone();
                         let filter = filter.clone();
                         async move {
+                            log::debug!(
+                                "Evaluating filter {} for row mask {}..{} {}",
+                                &filter,
+                                row_mask.begin(),
+                                row_mask.end(),
+                                row_mask.filter_mask().density()
+                            );
                             let array = reader
                                 .evaluate_expr(
                                     RowMask::new_valid_between(row_mask.begin(), row_mask.end()),
