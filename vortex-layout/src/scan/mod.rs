@@ -1,4 +1,3 @@
-use std::ops::BitAnd;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
@@ -8,7 +7,6 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
 mod split_by;
-use futures::FutureExt;
 mod task;
 pub mod unified;
 
@@ -21,7 +19,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
-use vortex_scan::RowMask;
+use vortex_scan::{RowMask, Scanner};
 
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, SegmentId};
@@ -263,6 +261,8 @@ impl<D: ScanDriver> Scan<D> {
         let reader: Arc<dyn LayoutReader> =
             self.layout.reader(executor.clone(), self.ctx.clone())?;
 
+        let scanner = Arc::new(Scanner::new(self.filter.clone())?);
+
         // Setup a filter stream
         let row_masks = stream::iter(self.row_masks);
         let row_masks: BoxStream<'static, VortexResult<RowMask>> =
@@ -272,31 +272,34 @@ impl<D: ScanDriver> Scan<D> {
                     .map(move |row_mask| {
                         let reader = reader.clone();
                         let filter = filter.clone();
+
+                        log::debug!(
+                            "Evaluating filter {} for row mask {}..{} {}",
+                            &filter,
+                            row_mask.begin(),
+                            row_mask.end(),
+                            row_mask.filter_mask().density()
+                        );
+
+                        let row_offset = row_mask.begin();
+                        let range_scanner = scanner.clone().range_scanner(row_mask);
+
                         async move {
-                            log::debug!(
-                                "Evaluating filter {} for row mask {}..{} {}",
-                                &filter,
-                                row_mask.begin(),
-                                row_mask.end(),
-                                row_mask.filter_mask().density()
-                            );
-                            let array = reader
-                                .evaluate_expr(
-                                    RowMask::new_valid_between(row_mask.begin(), row_mask.end()),
-                                    filter.clone(),
-                                )
+                            let mask = range_scanner
+                                .evaluate_async(move |mask, expr| {
+                                    let reader = reader.clone();
+                                    async move { reader.evaluate_expr(mask, expr).await }
+                                })
                                 .await?;
-                            let mask = Mask::try_from(array)?.bitand(row_mask.filter_mask());
                             if mask.all_false() {
                                 Ok(None)
                             } else {
-                                Ok(Some(RowMask::new(mask, row_mask.begin())))
+                                Ok(Some(RowMask::new(mask, row_offset)))
                             }
                         }
-                        .map(|r| r.transpose())
                     })
                     .buffered(self.concurrency)
-                    .filter_map(|r| async move { r })
+                    .filter_map(|r| async move { r.transpose() })
                     .boxed()
             } else {
                 row_masks.map(Ok).boxed()

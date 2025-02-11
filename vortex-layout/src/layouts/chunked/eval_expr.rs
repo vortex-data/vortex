@@ -20,6 +20,13 @@ impl ExprEvaluator for ChunkedReader {
 
         // First we need to compute the pruning mask
         let pruning_mask = self.pruning_mask(&expr).await?;
+        log::debug!(
+            "Pruning mask for {}..{} expr {}: {:?}",
+            row_mask.begin(),
+            row_mask.end(),
+            expr,
+            pruning_mask
+        );
 
         // Figure out which chunks intersect the RowMask
         let chunk_range = self.chunk_range(row_mask.begin()..row_mask.end());

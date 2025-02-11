@@ -26,6 +26,9 @@ impl LayoutReader for Arc<dyn LayoutReader + 'static> {
 }
 
 /// A trait for evaluating expressions against a [`LayoutReader`].
+///
+/// FIXME(ngates): what if this was evaluating_predicate(mask, expr) -> mask,
+///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
 #[async_trait]
 pub trait ExprEvaluator {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array>;

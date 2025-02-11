@@ -3,7 +3,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use vortex_array::Array;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -11,26 +11,23 @@ use crate::{RowMask, Scanner};
 
 /// A scan operation defined for a single row-range of the columnar data.
 pub struct RangeScanner {
-    scan: Arc<Scanner>,
     row_range: Range<u64>,
     mask: Mask,
     state: State,
 }
 
 enum State {
-    // First we run the filter expression over the full row range.
+    // We run the filters.
     FilterEval((Mask, Vec<ExprRef>)),
-    // Then we project the selected rows.
-    Project((Mask, ExprRef)),
-    // And then we're done.
-    Ready(Option<Array>),
+    // And then we return the projection mask.
+    Ready(Mask),
 }
 
 /// The next operation that should be performed. Either an expression to run, or the result
 /// of the [`RangeScanner`].
 pub enum NextOp {
-    /// The finished result of the scan.
-    Ready(Option<Array>),
+    /// The finished result of the scan is the projection mask.
+    Ready(Mask),
     /// The next expression to evaluate.
     /// The caller **must** first apply the mask before evaluating the expression.
     Eval((Range<u64>, Mask, ExprRef)),
@@ -69,12 +66,10 @@ impl RangeScanner {
             //  aligned and intersected with the given mask.
             State::FilterEval((Mask::new_true(mask.len()), scan.rev_filter.to_vec()))
         } else {
-            // If there is no filter expression, then we immediately perform a mask + project.
-            State::Project((mask.clone(), scan.projection().clone()))
+            State::Ready(mask.clone())
         };
 
         Self {
-            scan,
             row_range: row_offset..row_offset + mask.len() as u64,
             mask,
             state,
@@ -96,10 +91,7 @@ impl RangeScanner {
                     .vortex_expect("conjuncts is always non-empty")
                     .clone(),
             )),
-            State::Project((mask, expr)) => {
-                NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
-            }
-            State::Ready(array) => NextOp::Ready(array.clone()),
+            State::Ready(mask) => NextOp::Ready(mask.clone()),
         }
     }
 
@@ -122,11 +114,7 @@ impl RangeScanner {
                     self.mask.intersect_by_rank(&mask)
                 };
 
-                // Then move onto the projection
-                if mask.true_count() == 0 {
-                    // If the mask is empty, then we're done.
-                    self.state = State::Ready(None);
-                } else if !conjuncts_rev.is_empty() {
+                if mask.true_count() > 0 && !conjuncts_rev.is_empty() {
                     self.mask = mask;
                     let mask = if self.mask.density() < APPLY_FILTER_SELECTIVITY_THRESHOLD {
                         self.mask.clone()
@@ -136,27 +124,25 @@ impl RangeScanner {
                     // conjuncts_rev is again non-empty, so we can put it into FilterEval
                     self.state = State::FilterEval((mask, conjuncts_rev))
                 } else {
-                    self.state = State::Project((mask, self.scan.projection().clone()))
+                    // Otherwise, we're done
+                    self.state = State::Ready(mask);
                 }
             }
-            State::Project(_) => {
-                // We're done.
-                assert!(!result.is_empty(), "projected array cannot be empty");
-                self.state = State::Ready(Some(result));
+            State::Ready(_) => {
+                vortex_bail!("unexpected state transition")
             }
-            State::Ready(_) => {}
         }
         Ok(self)
     }
 
     /// Evaluate the [`RangeScanner`] operation using a synchronous expression evaluator.
-    pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<Option<Array>>
+    pub fn evaluate<E>(mut self, evaluator: E) -> VortexResult<Mask>
     where
         E: Fn(RowMask, ExprRef) -> VortexResult<Array>,
     {
         loop {
             match self.next() {
-                NextOp::Ready(array) => return Ok(array),
+                NextOp::Ready(mask) => return Ok(mask),
                 NextOp::Eval((row_range, mask, expr)) => {
                     self =
                         self.transition(evaluator(RowMask::new(mask, row_range.start), expr)?)?;
@@ -166,14 +152,14 @@ impl RangeScanner {
     }
 
     /// Evaluate the [`RangeScanner`] operation using an async expression evaluator.
-    pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<Option<Array>>
+    pub async fn evaluate_async<E, F>(mut self, evaluator: E) -> VortexResult<Mask>
     where
         E: Fn(RowMask, ExprRef) -> F,
         F: Future<Output = VortexResult<Array>>,
     {
         loop {
             match self.next() {
-                NextOp::Ready(array) => return Ok(array),
+                NextOp::Ready(mask) => return Ok(mask),
                 NextOp::Eval((row_range, mask, expr)) => {
                     log::debug!("RangeScan {:?} evaluating expr {}", row_range, expr);
                     self = self
@@ -190,25 +176,11 @@ mod tests {
 
     use vortex_array::array::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::compute::filter;
-    use vortex_array::variants::StructArrayTrait;
-    use vortex_array::{IntoArray, IntoArrayVariant};
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::U64;
-    use vortex_dtype::{DType, StructDType};
+    use vortex_array::IntoArray;
     use vortex_expr::{and, get_item, gt, ident, lit};
     use vortex_mask::Mask;
 
     use crate::{RangeScanner, Scanner};
-
-    fn dtype() -> DType {
-        DType::Struct(
-            Arc::new(StructDType::new(
-                vec!["a".into(), "b".into(), "c".into()].into(),
-                vec![U64.into(), U64.into(), U64.into()],
-            )),
-            NonNullable,
-        )
-    }
 
     #[test]
     fn range_scan_few_conj_filter_low_selectivity() {
@@ -216,17 +188,16 @@ mod tests {
         let expr_b = gt(get_item("b", ident()), lit(2));
         let expr_c = gt(get_item("c", ident()), lit(3));
         let scan = Arc::new(
-            Scanner::new(
-                dtype(),
-                ident(),
-                Some(and(expr_a.clone(), and(expr_b.clone(), expr_c.clone()))),
-            )
+            Scanner::new(Some(and(
+                expr_a.clone(),
+                and(expr_b.clone(), expr_c.clone()),
+            )))
             .unwrap(),
         );
         let len = 1000;
         let range = RangeScanner::new(scan, 0, Mask::new_true(len));
 
-        let res = range
+        let mask = range
             .evaluate(|mask, expr| {
                 let arr = if expr == expr_a.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 30))).into_array()
@@ -249,16 +220,15 @@ mod tests {
 
                 filter(&arr, mask.filter_mask())
             })
-            .unwrap()
             .unwrap();
 
-        assert!(res.as_struct_array().is_some());
-        let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
-
         assert_eq!(
-            field.unwrap().into_primitive().unwrap().as_slice::<u64>(),
+            mask.to_boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>()
+                .as_slice(),
             (0..len as u64)
-                .filter(|&i| {
+                .map(|i| {
                     (i <= 10 || i >= 30) && (i <= 100 || i >= 130) && (i <= 510 || i >= 530)
                 })
                 .collect::<Vec<_>>()
@@ -272,17 +242,16 @@ mod tests {
         let expr_b = gt(get_item("b", ident()), lit(2));
         let expr_c = gt(get_item("c", ident()), lit(3));
         let scan = Arc::new(
-            Scanner::new(
-                dtype(),
-                ident(),
-                Some(and(expr_a.clone(), and(expr_b.clone(), expr_c.clone()))),
-            )
+            Scanner::new(Some(and(
+                expr_a.clone(),
+                and(expr_b.clone(), expr_c.clone()),
+            )))
             .unwrap(),
         );
         let len = 1000;
         let range = RangeScanner::new(scan, 0, Mask::new_true(len));
 
-        let res = range
+        let mask = range
             .evaluate(|mask, expr| {
                 let arr = if expr == expr_a.clone() {
                     BoolArray::from_iter((0..mask.len()).map(|i| !(i > 10 && i < 900))).into_array()
@@ -305,17 +274,15 @@ mod tests {
 
                 filter(&arr, mask.filter_mask())
             })
-            .unwrap()
             .unwrap();
 
-        assert!(res.as_struct_array().is_some());
-
-        let field = res.into_struct().unwrap().maybe_null_field_by_name("a");
-
         assert_eq!(
-            field.unwrap().into_primitive().unwrap().as_slice::<u64>(),
+            mask.to_boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>()
+                .as_slice(),
             (0..len as u64)
-                .filter(|&i| !(i > 10 && i < 990))
+                .map(|i| !(i > 10 && i < 990))
                 .collect::<Vec<_>>()
                 .as_slice()
         );

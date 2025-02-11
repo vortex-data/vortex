@@ -2,14 +2,14 @@ use std::iter;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use arrow_buffer::BooleanBuffer;
 use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::stats_from_bitset_bytes;
-use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_array::ContextRef;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
+use vortex_mask::Mask;
 use vortex_scan::RowMask;
 
 use crate::layouts::chunked::stats_table::StatsTable;
@@ -18,7 +18,7 @@ use crate::reader::LayoutReader;
 use crate::scan::ScanExecutor;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
-type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
+type PruningCache = Arc<OnceCell<Option<Mask>>>;
 
 #[derive(Clone)]
 pub struct ChunkedReader {
@@ -125,7 +125,8 @@ impl ChunkedReader {
             .map(|opt| opt.as_ref())
     }
 
-    pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<BooleanBuffer>> {
+    /// Returns a pruning mask where `true` means the chunk _can be pruned_.
+    pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<Mask>> {
         let cell = self
             .pruning_result
             .write()
@@ -135,15 +136,16 @@ impl ChunkedReader {
             .clone();
 
         cell.get_or_try_init(async {
-            log::debug!("Constructing pruning mask for expr: {:?}", expr);
             let pruning_predicate = PruningPredicate::try_new(expr);
+            if let Some(p) = &pruning_predicate {
+                log::debug!("Constructed pruning mask for expr: {}: {}", expr, p);
+            }
             Ok(if let Some(stats_table) = self.stats_table().await? {
                 if let Some(predicate) = pruning_predicate {
                     predicate
                         .evaluate(stats_table.array())?
-                        .map(|mask| mask.into_bool())
+                        .map(|mask| Mask::try_from(mask))
                         .transpose()?
-                        .map(|mask| mask.boolean_buffer())
                 } else {
                     None
                 }

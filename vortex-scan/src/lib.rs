@@ -11,10 +11,8 @@ use std::sync::Arc;
 
 pub use range_scan::*;
 pub use row_mask::*;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::forms::cnf::cnf;
-use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{lit, or, ExprRef};
 
 /// Represents a scan operation to read data from a set of rows, with an optional filter expression,
@@ -30,9 +28,7 @@ use vortex_expr::{lit, or, ExprRef};
 /// the second filter over the reduced set of rows.
 #[derive(Debug, Clone)]
 pub struct Scanner {
-    projection: ExprRef,
     rev_filter: Box<[ExprRef]>,
-    projection_dtype: DType,
     // A sorted list of row indices to include in the scan. We store row indices since they may
     // produce a very sparse RowMask.
     // take_indices: Vec<u64>,
@@ -41,14 +37,8 @@ pub struct Scanner {
 
 impl Scanner {
     /// Create a new scan with the given projection and optional filter.
-    pub fn new(dtype: DType, projection: ExprRef, filter: Option<ExprRef>) -> VortexResult<Self> {
-        let projection = simplify_typed(projection, &dtype)?;
-        let filter = filter.map(|f| simplify_typed(f, &dtype)).transpose()?;
-
-        // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
-        //  Where FieldMask ~= Vec<FieldPath>
-        let result_dtype = projection.return_dtype(&dtype)?;
-
+    /// Expressions must be simplified and typed before being passed to this function.
+    pub fn new(filter: Option<ExprRef>) -> VortexResult<Self> {
         let conjuncts: Box<[ExprRef]> = if let Some(filter) = filter {
             let conjuncts = cnf(filter)?;
             conjuncts
@@ -67,29 +57,13 @@ impl Scanner {
         };
 
         Ok(Self {
-            projection,
             rev_filter: conjuncts,
-            projection_dtype: result_dtype,
         })
-    }
-
-    /// Returns the projection expression.
-    pub fn projection(&self) -> &ExprRef {
-        &self.projection
-    }
-
-    /// Compute the result dtype of the scan given the input dtype.
-    pub fn result_dtype(&self) -> &DType {
-        &self.projection_dtype
     }
 
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
     /// parent scan in order to optimize future range scans.
-    pub fn range_scanner(self: Arc<Self>, row_mask: RowMask) -> VortexResult<RangeScanner> {
-        Ok(RangeScanner::new(
-            self,
-            row_mask.begin(),
-            row_mask.filter_mask().clone(),
-        ))
+    pub fn range_scanner(self: Arc<Self>, row_mask: RowMask) -> RangeScanner {
+        RangeScanner::new(self, row_mask.begin(), row_mask.filter_mask().clone())
     }
 }
