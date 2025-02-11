@@ -24,7 +24,7 @@ use crate::{FileType, VortexOpenOptions};
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
+impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
     type ScanDriver = GenericScanDriver<R>;
@@ -45,7 +45,7 @@ impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
     }
 }
 
-impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
         self.options.execution_mode = execution_mode;
         self
@@ -89,7 +89,7 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
-impl<R: VortexReadAt + Send> ScanDriver for GenericScanDriver<R> {
+impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
