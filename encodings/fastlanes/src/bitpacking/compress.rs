@@ -1,13 +1,17 @@
+use std::ops::DerefMut as _;
+
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArray;
-use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
+    match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
+    match_each_unsigned_integer_ptype, NativePType, PType,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -196,38 +200,51 @@ pub fn gather_patches(
 }
 
 pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype_with_unsigned_type!(array.ptype(), |$P, $UnsignedT| {
+        unpack_primitive::<$P, $UnsignedT>(array)
+    })
+}
+
+pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
+    array: BitPackedArray,
+) -> VortexResult<PrimitiveArray> {
+    let mut builder =
+        PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len() + 1024);
+    assert!(size_of::<T>() == size_of::<UnsignedT>());
+    unpack_into::<T, UnsignedT, _, _>(
+        array,
+        &mut builder,
+        |x| unsafe { std::mem::transmute(x) },
+        |x| unsafe { std::mem::transmute(x) },
+    )?;
+    builder.finish_into_primitive()
+}
+
+pub(crate) fn unpack_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(
+    array: BitPackedArray,
+    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
+    builder: &mut PrimitiveBuilder<T>,
+    transmute: F,
+    transmute_mut: G,
+) -> VortexResult<()>
+where
+    F: Fn(&[UnsignedT]) -> &[T],
+    G: Fn(&mut [T]) -> &mut [UnsignedT],
+{
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
-    let ptype = array.ptype();
-    let mut unpacked = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$P| {
-        PrimitiveArray::new(
-            unpack_primitive::<$P>(array.packed_slice::<$P>(), bit_width, offset, length),
-            array.validity(),
-        )
-    });
 
-    // Cast to signed if necessary
-    if ptype.is_signed_int() {
-        unpacked = unpacked.reinterpret_cast(ptype);
-    }
+    builder.nulls.append_validity(array.validity(), length)?;
 
-    if let Some(patches) = array.patches() {
-        unpacked.patch(patches)
-    } else {
-        Ok(unpacked)
-    }
-}
-
-pub fn unpack_primitive<T: NativePType + BitPacking>(
-    packed: &[T],
-    bit_width: usize,
-    offset: usize,
-    length: usize,
-) -> Buffer<T> {
     if bit_width == 0 {
-        return buffer![T::zero(); length];
+        builder.append_zeros(length);
+        return Ok(());
     }
+
+    let packed = array.packed_slice::<UnsignedT>();
+    let builder_current_length = builder.len();
+    builder.values.reserve((length + 1023) / 1024 * 1024);
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
@@ -241,42 +258,48 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
         num_chunks * elems_per_chunk
     );
 
-    // Allocate a result vector.
-    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
-    let mut output = BufferMut::with_capacity(num_chunks * 1024 - offset);
-
     // Handle first chunk if offset is non 0. We have to decode the chunk and skip first offset elements
     let first_full_chunk = if offset != 0 {
-        let chunk: &[T] = &packed[0..elems_per_chunk];
-        let mut decoded = [T::zero(); 1024];
+        let chunk = &packed[0..elems_per_chunk];
+        let mut decoded = [UnsignedT::zero(); 1024];
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        output.extend_from_slice(&decoded[offset..]);
+        builder
+            .values
+            .extend_from_slice(transmute(&decoded[offset..]));
         1
     } else {
         0
     };
 
     // Loop over all the chunks.
-    (first_full_chunk..num_chunks).for_each(|i| {
-        let chunk: &[T] = &packed[i * elems_per_chunk..][0..elems_per_chunk];
+    for i in first_full_chunk..num_chunks {
+        let chunk = &packed[i * elems_per_chunk..][0..elems_per_chunk];
+
+        // SAFETY:
+        //
+        // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
+        // have been written to.
+        //
+        // 2. The output buffer is exactly size 1024.
         unsafe {
-            let output_len = output.len();
-            output.set_len(output_len + 1024);
-            BitPacking::unchecked_unpack(bit_width, chunk, &mut output[output_len..][0..1024]);
+            builder.values.set_len(builder.values.len() + 1024);
+            BitPacking::unchecked_unpack(
+                bit_width,
+                chunk,
+                &mut transmute_mut(builder.values.deref_mut())
+                    [builder_current_length + i * 1024 - offset..][..1024],
+            );
         }
-    });
+    }
 
     // The final chunk may have had padding
-    output.truncate(length);
+    builder.truncate(builder_current_length + length);
 
-    assert_eq!(
-        output.len(),
-        length,
-        "Expected unpacked array to be of length {} but got {}",
-        length,
-        output.len()
-    );
-    output.freeze()
+    if let Some(patches) = array.patches() {
+        builder.patch(patches, builder_current_length)?;
+    }
+
+    Ok(())
 }
 
 pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {

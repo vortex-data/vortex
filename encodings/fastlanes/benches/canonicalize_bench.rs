@@ -105,8 +105,10 @@ fn canonical_into<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usi
         .into_array();
 
     bencher.bench(|| {
-        let mut primitive_builder =
-            PrimitiveBuilder::<T>::with_capacity(arr.dtype().nullability(), arr_len * chunk_count);
+        let mut primitive_builder = PrimitiveBuilder::<T>::with_capacity(
+            arr.dtype().nullability(),
+            arr_len * chunk_count + 1024,
+        );
         chunked
             .clone()
             .canonicalize_into(&mut primitive_builder)

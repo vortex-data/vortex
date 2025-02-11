@@ -1,20 +1,21 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::AllOr;
 
 use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
+use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{Array, IntoArray, IntoArrayVariant as _, IntoCanonical};
 
 pub struct PrimitiveBuilder<T: NativePType> {
-    values: BufferMut<T>,
-    nulls: LazyNullBufferBuilder,
+    pub values: BufferMut<T>,
+    pub nulls: LazyNullBufferBuilder,
     dtype: DType,
 }
 
@@ -44,6 +45,55 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             }
             None => self.append_null(),
         }
+    }
+
+    pub fn patch(&mut self, patches: Patches, starting_at: usize) -> VortexResult<()> {
+        let (array_len, offset, indices, values) = patches.into_parts();
+        assert!(values.len() == array_len);
+        let indices = indices.into_primitive()?;
+        let values = values.into_primitive()?;
+        let validity = values.validity_mask()?;
+        let values = values.as_slice::<T>();
+        match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
+            for index in indices.into_primitive()?.as_slice::<$P>() {
+                let index = *index as usize;
+                let out_index = starting_at + index - offset;
+                if validity.value(index) {
+                    self.values[out_index] = values[index]
+                } else {
+                    self.nulls.set_bit(out_index, false)
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.values.truncate(len);
+        self.nulls.truncate(len);
+    }
+
+    pub fn finish_into_primitive(&mut self) -> VortexResult<PrimitiveArray> {
+        let validity = match (self.nulls.finish(), self.dtype().nullability()) {
+            (None, Nullability::NonNullable) => Validity::NonNullable,
+            (Some(_), Nullability::NonNullable) => {
+                vortex_bail!("Non-nullable builder has null values")
+            }
+            (None, Nullability::Nullable) => Validity::AllValid,
+            (Some(nulls), Nullability::Nullable) => {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
+                }
+            }
+        };
+
+        Ok(PrimitiveArray::new(
+            std::mem::take(&mut self.values).freeze(),
+            validity,
+        ))
     }
 }
 
@@ -94,21 +144,6 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
-        let validity = match (self.nulls.finish(), self.dtype().nullability()) {
-            (None, Nullability::NonNullable) => Validity::NonNullable,
-            (Some(_), Nullability::NonNullable) => {
-                vortex_bail!("Non-nullable builder has null values")
-            }
-            (None, Nullability::Nullable) => Validity::AllValid,
-            (Some(nulls), Nullability::Nullable) => {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
-                }
-            }
-        };
-
-        Ok(PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity).into_array())
+        self.finish_into_primitive().map(IntoArray::into_array)
     }
 }

@@ -4,6 +4,7 @@ use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::validity::Validity;
+use crate::IntoArrayVariant as _;
 
 /// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`
 /// method to append a boolean buffer directly.
@@ -80,9 +81,49 @@ impl LazyNullBufferBuilder {
             .append_buffer(&bool_buffer);
     }
 
+    pub fn append_validity(&mut self, validity: Validity, length: usize) -> VortexResult<()> {
+        match validity {
+            Validity::NonNullable => {}
+            Validity::AllValid => {
+                self.append_n_non_nulls(length);
+            }
+            Validity::AllInvalid => {
+                self.append_n_nulls(length);
+            }
+            Validity::Array(array) => {
+                self.append_buffer(array.into_bool()?.boolean_buffer());
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn set_bit(&mut self, index: usize, v: bool) {
+        self.materialize_if_needed();
+        self.inner
+            .as_mut()
+            .vortex_expect("buffer just materialized")
+            .set_bit(index, v);
+    }
+
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        if let Some(b) = self.inner.as_mut() {
+            b.truncate(len)
+        }
+        self.len = len;
+    }
+
+    pub fn reserve(&mut self, n: usize) {
+        self.materialize_if_needed();
+        self.inner
+            .as_mut()
+            .vortex_expect("buffer just materialized")
+            .reserve(n);
     }
 
     pub fn finish(&mut self) -> Option<NullBuffer> {
