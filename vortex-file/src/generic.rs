@@ -10,7 +10,6 @@ use futures_util::{stream, StreamExt, TryStreamExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::unified::UnifiedDriverStream;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
@@ -25,7 +24,7 @@ use crate::{FileType, VortexOpenOptions};
 /// This is a reasonable choice for files backed by a network since it performs I/O coalescing.
 pub struct GenericVortexFile<R>(PhantomData<R>);
 
-impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
+impl<R: VortexReadAt + Send> FileType for GenericVortexFile<R> {
     type Options = GenericScanOptions;
     type Read = R;
     type ScanDriver = GenericScanDriver<R>;
@@ -46,7 +45,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
     }
 }
 
-impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
+impl<R: VortexReadAt + Send> VortexOpenOptions<GenericVortexFile<R>> {
     pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
         self.options.execution_mode = execution_mode;
         self
@@ -90,7 +89,7 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
-impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
+impl<R: VortexReadAt + Send> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
@@ -99,16 +98,14 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         self.segment_channel.reader()
     }
 
-    fn drive_stream(
-        self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        let exec_driver = self
-            .options
-            .execution_mode
-            .into_driver(self.options.execution_concurrency);
-        let exec_stream = exec_driver.drive(stream.boxed());
+    fn spawn_task(
+        &self,
+        task: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        task
+    }
 
+    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {
         // Now we set up the I/O stream to poll the other end of the segment channel.
         let io_stream = self.segment_channel.into_stream();
 
@@ -204,11 +201,25 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         // Buffer some number of concurrent I/O operations.
         let io_stream = io_stream.buffer_unordered(self.options.io_concurrency);
 
-        // Finally, we unify the stream to drive both the CPU and I/O requests.
-        UnifiedDriverStream {
-            exec_stream,
-            io_stream,
-        }
+        // TODO(ngates): we need to do this within vortex-datafusion somehow, where we know the
+        //  read future is send.
+        // Finally, we spawn the collection of the stream so it's polled by Tokio in the background.
+        // let (mut send, recv) = futures::channel::mpsc::unbounded::<VortexResult<()>>();
+        // tokio::spawn(async move {
+        //     let count = 0;
+        //
+        //     pin_mut!(io_stream);
+        //     while let Some(r) = io_stream.next().await {
+        //         log::debug!("Processed {} segment requests", count + 1);
+        //         send.send(r)
+        //             .await
+        //             .map_err(|e| vortex_err!("stream closed {}", e))
+        //             .vortex_expect("stream closed");
+        //     }
+        // });
+        // recv
+
+        io_stream
     }
 }
 

@@ -1,10 +1,9 @@
-use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
+use futures::stream::FuturesOrdered;
 use futures::{stream, FutureExt, Stream};
 use itertools::Itertools;
-use oneshot;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::Buffer;
 use vortex_expr::{ExprRef, Identity};
@@ -15,7 +14,7 @@ use futures::StreamExt;
 pub use split_by::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
@@ -34,17 +33,21 @@ pub trait ScanDriver: 'static + Sized {
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
-    fn drive_future(
-        self,
-        future: impl Future<Output = VortexResult<()>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        self.drive_stream(stream::iter([future.boxed()]))
-    }
+    fn spawn_task(
+        &self,
+        task: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>>;
 
-    fn drive_stream(
-        self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static;
+    /// Return a future that drives the I/O stream for the segment reader.
+    /// The future should return when the stream is complete, and can return an error to
+    /// terminate the scan early.
+    ///
+    /// It is recommended that I/O is spawned and processed on its own thread, with this driver
+    /// serving only as a mechanism to signal completion or error. There is no guarantee around
+    /// how frequently this future will be polled, so it should not be used to drive I/O.
+    ///
+    /// TODO(ngates): make this a future
+    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static;
 }
 
 /// A struct for building a scan operation.
@@ -213,44 +216,56 @@ impl<D: ScanDriver> Scan<D> {
             .layout
             .reader(self.driver.segment_reader(), self.ctx.clone())?;
 
-        let mut results = Vec::with_capacity(self.row_masks.len());
-        let mut tasks = Vec::with_capacity(self.row_masks.len());
-
+        let mut tasks = FuturesOrdered::new();
+        let mut results = vec![];
         for row_mask in self.row_masks.into_iter() {
-            let (send_result, recv_result) = oneshot::channel::<VortexResult<Option<Array>>>();
-            results.push(recv_result);
+            let result: Arc<Mutex<Option<VortexResult<Array>>>> = Arc::new(Mutex::new(None));
+            results.push(result.clone());
 
+            let scanner = scanner.clone();
             let reader = reader.clone();
-            let task: BoxFuture<'static, VortexResult<()>> = scanner
-                .clone()
-                .range_scanner(row_mask)?
-                .evaluate_async(move |row_mask, expr| {
-                    let reader = reader.clone();
-                    async move { reader.evaluate_expr(row_mask, expr).await }
-                })
-                .map(|result| {
-                    send_result
-                        .send(result)
-                        .map_err(|_| vortex_err!("Failed to send result, recv dead"))
-                })
-                .boxed();
-            tasks.push(task);
+            let fut = async move {
+                let array = {
+                    scanner
+                        .clone()
+                        .range_scanner(row_mask)?
+                        .evaluate_async(move |row_mask, expr| {
+                            let reader = reader.clone();
+                            async move { reader.evaluate_expr(row_mask, expr).await }
+                        })
+                        .await
+                };
+                let mut lock = result.lock().map_err(|_| vortex_err!("lock error"))?;
+                *lock = array.transpose();
+                Ok::<_, VortexError>(())
+            };
+
+            tasks.push_back(self.driver.spawn_task(fut.boxed()));
         }
 
-        let array_stream = stream::iter(results).filter_map(|result| async move {
-            match result.await {
-                Ok(result) => result.transpose(),
-                Err(canceled) => Some(Err(vortex_err!("Scan task canceled: {}", canceled))),
-            }
-        });
-        let driver_stream = self.driver.drive_stream(stream::iter(tasks));
+        let array_stream =
+            tasks
+                .zip(stream::iter(results))
+                .filter_map(|(task, result)| async move {
+                    // Propagate any task errors
+                    if let Err(e) = task {
+                        return Some(Err(e));
+                    }
 
-        let stream = UnifiedDriverStream {
+                    // Otherwise, the result mutex should hold our answer
+                    match result.lock().map_err(|_| vortex_err!("lock error")) {
+                        Ok(mut lock) => lock.take(),
+                        Err(e) => Some(Err(e)),
+                    }
+                });
+
+        let io_stream = self.driver.io_stream();
+        let unified = UnifiedDriverStream {
             exec_stream: array_stream,
-            io_stream: driver_stream,
+            io_stream,
         };
 
-        Ok(ArrayStreamAdapter::new(result_dtype, stream))
+        Ok(ArrayStreamAdapter::new(result_dtype, unified))
     }
 
     pub async fn into_array(self) -> VortexResult<Array> {
