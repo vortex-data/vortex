@@ -13,11 +13,13 @@ use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
-    null_buffer_builder: LazyNullBufferBuilder,
+    pub null_buffer_builder: LazyNullBufferBuilder,
     completed: Vec<ByteBuffer>,
     in_progress: Vec<u8>,
     nullability: Nullability,
     dtype: DType,
+
+    raw_push_buffers: bool,
 }
 
 impl VarBinViewBuilder {
@@ -32,6 +34,7 @@ impl VarBinViewBuilder {
             in_progress: vec![],
             nullability: dtype.nullability(),
             dtype,
+            raw_push_buffers: false,
         }
     }
 
@@ -90,6 +93,27 @@ impl VarBinViewBuilder {
         assert!(block.len() < u32::MAX as usize, "Block too large");
         assert!(self.completed.len() < u32::MAX as usize, "Too many blocks");
         self.completed.push(block);
+    }
+
+    pub fn completed_block_count(&self) -> usize {
+        self.completed.len()
+    }
+
+    pub fn push_buffer(&mut self, buffer: impl Iterator<Item = ByteBuffer>) {
+        self.flush_in_progress();
+
+        assert_eq!(self.raw_push_buffers, false);
+        self.completed.extend(buffer);
+
+        self.raw_push_buffers = true;
+    }
+
+    pub fn push_adjusted_views(&mut self, views: impl Iterator<Item = BinaryView>) {
+        assert!(self.raw_push_buffers);
+
+        self.views_builder.extend(views);
+
+        self.raw_push_buffers = false;
     }
 }
 
@@ -182,5 +206,91 @@ impl ArrayBuilder for VarBinViewBuilder {
             validity,
         )?
         .into_array())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::from_utf8;
+
+    use itertools::Itertools;
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::accessor::ArrayAccessor;
+    use crate::array::VarBinViewArray;
+    use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+
+    #[test]
+    fn test_utf8_builder() {
+        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+
+        builder.append_option(Some("Hello"));
+        builder.append_option::<&str>(None);
+        builder.append_value("World");
+
+        builder.append_nulls(2);
+
+        builder.append_zeros(2);
+        builder.append_value("test");
+
+        let arr = VarBinViewArray::try_from(builder.finish().unwrap()).unwrap();
+
+        let arr = arr
+            .with_iterator(|iter| {
+                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
+                    .collect_vec()
+            })
+            .unwrap();
+        assert_eq!(arr.len(), 8);
+        assert_eq!(
+            arr,
+            vec![
+                Some("Hello".to_string()),
+                None,
+                Some("World".to_string()),
+                None,
+                None,
+                Some("".to_string()),
+                Some("".to_string()),
+                Some("test".to_string()),
+            ]
+        );
+    }
+    #[test]
+    fn test_utf8_builder_with_extend() {
+        let array = {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+            builder.append_null();
+            builder.append_value("Hello2");
+            builder.finish().unwrap()
+        };
+        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+
+        builder.append_option(Some("Hello1"));
+        builder.extend_from_array(array).unwrap();
+        builder.append_nulls(2);
+        builder.append_value("Hello3");
+
+        let arr = VarBinViewArray::try_from(builder.finish().unwrap()).unwrap();
+
+        let arr = arr
+            .with_iterator(|iter| {
+                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
+                    .collect_vec()
+            })
+            .unwrap();
+        assert_eq!(arr.len(), 6);
+        assert_eq!(
+            arr,
+            vec![
+                Some("Hello1".to_string()),
+                None,
+                Some("Hello2".to_string()),
+                None,
+                None,
+                Some("Hello3".to_string()),
+            ]
+        );
     }
 }
