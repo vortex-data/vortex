@@ -50,7 +50,7 @@ fn main() {
     let filter = default_env_filter(args.verbose);
 
     #[cfg(not(feature = "tracing"))]
-    setup_logger(filter);
+    bench_vortex::setup_logger(filter);
 
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
