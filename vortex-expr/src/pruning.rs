@@ -13,7 +13,6 @@ use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::field::DisplayFieldName;
 use crate::{
     and, eq, get_item, gt, ident, lit, not, or, BinaryExpr, ExprRef, GetItem, Identity, Literal,
     Not, Operator, VortexExprExt,
@@ -412,7 +411,7 @@ impl FieldOrIdentity {
 impl Display for FieldOrIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldOrIdentity::Field(field) => write!(f, "{}", DisplayFieldName(field)),
+            FieldOrIdentity::Field(field) => write!(f, "{}", field),
             FieldOrIdentity::Identity => write!(f, "$[]"),
         }
     }
