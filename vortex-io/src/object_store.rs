@@ -9,22 +9,28 @@ use object_store::path::Path;
 use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, PutPayload,
 };
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{IoBuf, VortexReadAt, VortexWrite};
+use crate::{Dispatch as _, IoBuf, IoDispatcher, VortexReadAt, VortexWrite};
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
+    io_dispatcher: IoDispatcher,
 }
 
 impl ObjectStoreReadAt {
-    pub fn new(object_store: Arc<dyn ObjectStore>, location: Path) -> Self {
+    pub fn new(
+        object_store: Arc<dyn ObjectStore>,
+        location: Path,
+        io_dispatcher: IoDispatcher,
+    ) -> Self {
         Self {
             object_store,
             location,
+            io_dispatcher,
         }
     }
 }
@@ -67,12 +73,17 @@ impl VortexReadAt for ObjectStoreReadAt {
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
             }
-            GetResultPayload::Stream(mut byte_stream) => {
-                while let Some(bytes) = byte_stream.next().await {
-                    buffer.extend_from_slice(&bytes?);
-                }
-                buffer
-            }
+            GetResultPayload::Stream(mut byte_stream) => self
+                .io_dispatcher
+                .dispatch::<_, _, object_store::Result<BufferMut<u8>>>(|| async move {
+                    while let Some(bytes) = byte_stream.next().await {
+                        buffer.extend_from_slice(&bytes?);
+                    }
+                    object_store::Result::Ok(buffer)
+                })
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??,
         };
 
         Ok(buffer.freeze())

@@ -171,7 +171,7 @@ impl FileFormat for VortexFormat {
                 let store = store.clone();
                 let cache = self.file_layout_cache.clone();
                 async move {
-                    let file_layout = cache.try_get(&o, store).await?;
+                    let file_layout = cache.try_get(&o, store, self.io_dispatcher.clone()).await?;
                     let inferred_schema = infer_schema(file_layout.dtype())?;
                     VortexResult::Ok((o.location, inferred_schema))
                 }
@@ -200,10 +200,14 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+        let read_at = ObjectStoreReadAt::new(
+            store.clone(),
+            object.location.clone(),
+            self.io_dispatcher.clone(),
+        );
         let file_layout = self
             .file_layout_cache
-            .try_get(object, store.clone())
+            .try_get(object, store.clone(), self.io_dispatcher.clone())
             .await?;
 
         let vxf = VortexOpenOptions::file(read_at)
