@@ -1,5 +1,9 @@
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
-use vortex_error::VortexExpect;
+use vortex_dtype::Nullability;
+use vortex_dtype::Nullability::{NonNullable, Nullable};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+
+use crate::validity::Validity;
 
 /// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`
 /// method to append a boolean buffer directly.
@@ -84,6 +88,16 @@ impl LazyNullBufferBuilder {
     pub fn finish(&mut self) -> Option<NullBuffer> {
         self.len = 0;
         Some(NullBuffer::new(self.inner.take()?.finish()))
+    }
+
+    pub fn finish_with_nullability(&mut self, nullability: Nullability) -> VortexResult<Validity> {
+        let nulls = self.finish();
+        Ok(match (nullability, nulls) {
+            (NonNullable, None) => Validity::NonNullable,
+            (Nullable, None) => Validity::AllValid,
+            (Nullable, Some(arr)) => Validity::from(arr),
+            _ => vortex_panic!("Invalid nullability/nulls combination"),
+        })
     }
 
     #[inline]

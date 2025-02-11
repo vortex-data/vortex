@@ -2,15 +2,13 @@ use std::any::Any;
 use std::cmp::max;
 
 use vortex_buffer::{BufferMut, ByteBuffer};
-use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 
 use crate::array::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::validity::Validity;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct VarBinViewBuilder {
@@ -175,13 +173,9 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 
-        let nulls = self.null_buffer_builder.finish();
-        let validity = match (self.nullability, nulls) {
-            (NonNullable, None) => Validity::NonNullable,
-            (Nullable, None) => Validity::AllValid,
-            (Nullable, Some(arr)) => Validity::from(arr),
-            _ => vortex_panic!("Invalid nullability/nulls combination"),
-        };
+        let validity = self
+            .null_buffer_builder
+            .finish_with_nullability(self.nullability)?;
 
         Ok(VarBinViewArray::try_new(
             std::mem::take(&mut self.views_builder).freeze(),

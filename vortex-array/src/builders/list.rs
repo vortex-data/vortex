@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::Nullability::{NonNullable, Nullable};
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
@@ -11,7 +11,6 @@ use crate::array::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
 use crate::compute::{binary_numeric, slice, try_cast};
-use crate::validity::Validity;
 use crate::{Array, IntoArray, IntoCanonical};
 
 pub struct ListBuilder<O: NativePType> {
@@ -149,18 +148,10 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
-        let nulls = self.nulls.finish();
-        let validity = match (self.nullability, nulls) {
-            (NonNullable, None) => Validity::NonNullable,
-            (Nullable, None) => Validity::AllValid,
-            (Nullable, Some(arr)) => Validity::from(arr),
-            _ => vortex_panic!("Invalid nullability/nulls combination"),
-        };
-
         ListArray::try_new(
             self.value_builder.finish()?,
             self.index_builder.finish()?,
-            validity,
+            self.nulls.finish_with_nullability(self.nullability)?,
         )
         .map(ListArray::into_array)
     }
