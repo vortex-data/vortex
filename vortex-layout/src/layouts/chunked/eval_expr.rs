@@ -11,7 +11,7 @@ use vortex_scan::RowMask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReaderExt;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, LayoutReader};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
@@ -27,10 +27,8 @@ impl ExprEvaluator for ChunkedReader {
 
         let mut row_offset = 0;
         for chunk_idx in 0..self.nchunks() {
-            let chunk_reader = self.child(chunk_idx)?;
-
             // Figure out the row range of the chunk
-            let chunk_len = chunk_reader.layout().row_count();
+            let chunk_len = self.layout().child_row_count(chunk_idx);
             let chunk_range = row_offset..row_offset + chunk_len;
             row_offset += chunk_len;
 
@@ -62,8 +60,10 @@ impl ExprEvaluator for ChunkedReader {
             }
 
             // Otherwise, we need to read it. So we set up a mask for the chunk range.
-
-            chunks.push_back(chunk_reader.evaluate_expr(chunk_mask, expr.clone()));
+            chunks.push_back(
+                self.child(chunk_idx)?
+                    .evaluate_expr(chunk_mask, expr.clone()),
+            );
         }
 
         let chunks = chunks.try_collect::<Vec<_>>().await?;

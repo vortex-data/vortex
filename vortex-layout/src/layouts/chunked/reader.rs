@@ -22,7 +22,7 @@ type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<dyn ScanExecutor>,
+    executor: Arc<ScanExecutor>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
@@ -36,7 +36,7 @@ impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")

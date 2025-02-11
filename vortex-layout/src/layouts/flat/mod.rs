@@ -27,7 +27,7 @@ impl LayoutVTable for FlatLayout {
         &self,
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(FlatReader::try_new(layout, ctx, executor)?.into_arc())
     }

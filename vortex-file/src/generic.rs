@@ -3,15 +3,12 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
-use futures::{stream, FutureExt, Stream, StreamExt, TryStreamExt};
-use vortex_array::Array;
+use futures::{stream, Stream, StreamExt, TryStreamExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::{ScanDriver, ScanExecutor, ScanTask};
+use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::footer::{FileLayout, Segment};
@@ -46,11 +43,6 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
 }
 
 impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
-    pub fn with_executor_fn(mut self, executor_fn: ExecutorFn) -> Self {
-        self.options.executor_fn = executor_fn;
-        self
-    }
-
     pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
         self.options.io_concurrency = io_concurrency;
         self
@@ -59,22 +51,14 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
 
 #[derive(Clone)]
 pub struct GenericScanOptions {
-    /// The execution function to use.
-    executor_fn: ExecutorFn,
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
 }
 
-pub type ExecutorFn =
-    Arc<dyn Fn(ScanTask) -> BoxFuture<'static, VortexResult<Array>> + Send + Sync>;
-
 impl Default for GenericScanOptions {
     fn default() -> Self {
-        Self {
-            executor_fn: Arc::new(|task| async move { task.execute() }.boxed()),
-            io_concurrency: 10,
-        }
+        Self { io_concurrency: 10 }
     }
 }
 
@@ -86,30 +70,11 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
-pub struct GenericScanExecutor {
-    segment_reader: Arc<dyn AsyncSegmentReader>,
-    executor: ExecutorFn,
-}
-
-#[async_trait]
-impl ScanExecutor for GenericScanExecutor {
-    async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        self.segment_reader.get(id).await
-    }
-
-    async fn evaluate(&self, task: ScanTask) -> VortexResult<Array> {
-        (self.executor)(task).await
-    }
-}
-
 impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
-    fn executor(&self) -> Arc<dyn ScanExecutor> {
-        Arc::new(GenericScanExecutor {
-            segment_reader: self.segment_channel.reader(),
-            executor: self.options.executor_fn.clone(),
-        })
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
+        self.segment_channel.reader()
     }
 
     fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {

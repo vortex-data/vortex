@@ -52,7 +52,7 @@ pub trait LayoutVTable: Debug + Send + Sync {
         &self,
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Arc<dyn LayoutReader>>;
 
     /// Register the row splits for this layout, these represent natural boundaries at which

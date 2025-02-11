@@ -51,7 +51,7 @@ impl ExprEvaluator for StructReader {
         .into_array();
 
         self.executor()
-            .evaluate(ScanTask::Expr((root_scope, partitioned.root.clone())))
+            .evaluate(&root_scope, &[ScanTask::Expr(partitioned.root.clone())])
             .await
     }
 }

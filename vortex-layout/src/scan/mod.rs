@@ -1,7 +1,5 @@
-use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{stream, Stream};
 use itertools::Itertools;
@@ -10,12 +8,13 @@ use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
 mod split_by;
 use futures::FutureExt;
+mod task;
 pub mod unified;
 
 use futures::StreamExt;
 pub use split_by::*;
-use vortex_array::compute::{filter, slice};
-use vortex_array::{Array, ContextRef, IntoArray, IntoCanonical};
+pub use task::*;
+use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
@@ -24,39 +23,13 @@ use vortex_mask::Mask;
 use vortex_scan::RowMask;
 
 use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::SegmentId;
+use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::{ExprEvaluator, Layout, LayoutReader};
-
-pub enum ScanTask {
-    Filter((Array, Mask)),
-    Expr((Array, ExprRef)),
-    Slice((Array, Range<usize>)),
-    Canonicalize(Array),
-}
-
-impl ScanTask {
-    pub fn execute(&self) -> VortexResult<Array> {
-        match self {
-            ScanTask::Filter((array, mask)) => filter(array, mask),
-            ScanTask::Expr((array, expr)) => expr.evaluate(array),
-            ScanTask::Slice((array, range)) => slice(array, range.start, range.end),
-            ScanTask::Canonicalize(array) => array.clone().into_canonical().map(|c| c.into_array()),
-        }
-    }
-}
-
-/// A trait passed to a [`LayoutReader`] that allows it to schedule either I/O or CPU work.
-#[async_trait]
-pub trait ScanExecutor: 'static + Send + Sync {
-    async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
-
-    async fn evaluate(&self, task: ScanTask) -> VortexResult<Array>;
-}
 
 pub trait ScanDriver: 'static + Sized {
     type Options: Default;
 
-    fn executor(&self) -> Arc<dyn ScanExecutor>;
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
     /// Return a future that drives the I/O stream for the segment reader.
     /// The future should return when the stream is complete, and can return an error to
@@ -74,6 +47,7 @@ pub trait ScanDriver: 'static + Sized {
 pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
     driver_options: Option<D::Options>,
+    task_executor: Option<Arc<dyn TaskExecutor>>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
     projection: ExprRef,
@@ -81,6 +55,8 @@ pub struct ScanBuilder<D: ScanDriver> {
     row_indices: Option<Buffer<u64>>,
     split_by: SplitBy,
     canonicalize: bool,
+    // The number of splits to make progress on concurrently.
+    concurrency: usize,
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
@@ -88,6 +64,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
         Self {
             driver,
             driver_options: None,
+            task_executor: None,
             layout,
             ctx,
             projection: Identity::new_expr(),
@@ -95,6 +72,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
+            concurrency: 10,
         }
     }
 
@@ -131,6 +109,17 @@ impl<D: ScanDriver> ScanBuilder<D> {
     /// Set whether the scan should canonicalize the output.
     pub fn with_canonicalize(mut self, canonicalize: bool) -> Self {
         self.canonicalize = canonicalize;
+        self
+    }
+
+    /// The number of row splits to make progress on concurrently.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+
+    pub fn with_task_executor(mut self, task_executor: Arc<dyn TaskExecutor>) -> Self {
+        self.task_executor = Some(task_executor);
         self
     }
 
@@ -199,12 +188,16 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
         Ok(Scan {
             driver: self.driver,
+            task_executor: self
+                .task_executor
+                .unwrap_or_else(|| Arc::new(InlineTaskExecutor)),
             layout: self.layout,
             ctx: self.ctx,
             projection,
             filter,
             row_masks,
             canonicalize: self.canonicalize,
+            concurrency: self.concurrency,
         })
     }
 
@@ -218,9 +211,25 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 }
 
+pub struct ScanExecutor {
+    segment_reader: Arc<dyn AsyncSegmentReader>,
+    task_executor: Arc<dyn TaskExecutor>,
+}
+
+impl ScanExecutor {
+    pub async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+        self.segment_reader.get(id).await
+    }
+
+    pub async fn evaluate(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
+        self.task_executor.execute(array, tasks).await
+    }
+}
+
 #[allow(dead_code)]
 pub struct Scan<D> {
     driver: D,
+    task_executor: Arc<dyn TaskExecutor>,
     layout: Layout,
     ctx: ContextRef,
     // Guaranteed to be simplified
@@ -229,6 +238,7 @@ pub struct Scan<D> {
     filter: Option<ExprRef>,
     row_masks: Vec<RowMask>,
     canonicalize: bool,
+    concurrency: usize,
 }
 
 impl<D: ScanDriver> Scan<D> {
@@ -238,7 +248,10 @@ impl<D: ScanDriver> Scan<D> {
     /// frequent polling to make progress.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
-        let executor = self.driver.executor();
+        let executor = Arc::new(ScanExecutor {
+            segment_reader: self.driver.segment_reader(),
+            task_executor: self.task_executor.clone(),
+        });
         let reader: Arc<dyn LayoutReader> =
             self.layout.reader(executor.clone(), self.ctx.clone())?;
 
@@ -264,7 +277,7 @@ impl<D: ScanDriver> Scan<D> {
                         }
                         .map(|r| r.transpose())
                     })
-                    .buffered(10)
+                    .buffered(self.concurrency)
                     .filter_map(|r| async move { r })
                     .boxed()
             } else {
@@ -283,12 +296,12 @@ impl<D: ScanDriver> Scan<D> {
                     let row_mask = row_mask?;
                     let mut array = reader.evaluate_expr(row_mask, projection).await?;
                     if self.canonicalize {
-                        array = executor.evaluate(ScanTask::Canonicalize(array)).await?;
+                        array = executor.evaluate(&array, &[ScanTask::Canonicalize]).await?;
                     }
                     Ok(array)
                 }
             })
-            .buffered(10);
+            .buffered(self.concurrency);
 
         let io_stream = self.driver.io_stream();
 

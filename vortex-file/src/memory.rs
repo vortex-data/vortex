@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{stream, Stream};
-use vortex_array::Array;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
-use vortex_layout::scan::{ScanDriver, ScanExecutor, ScanTask};
-use vortex_layout::segments::SegmentId;
+use vortex_layout::scan::ScanDriver;
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::segments::SegmentCache;
 use crate::{FileLayout, FileType, Segment};
@@ -42,7 +41,7 @@ impl FileType for InMemoryVortexFile {
 impl ScanDriver for InMemoryVortexFile {
     type Options = ();
 
-    fn executor(&self) -> Arc<dyn ScanExecutor> {
+    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         Arc::new(self.clone())
     }
 
@@ -52,8 +51,8 @@ impl ScanDriver for InMemoryVortexFile {
 }
 
 #[async_trait]
-impl ScanExecutor for InMemoryVortexFile {
-    async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+impl AsyncSegmentReader for InMemoryVortexFile {
+    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         let segment: &Segment = self
             .file_layout
             .segment_map()
@@ -64,9 +63,5 @@ impl ScanExecutor for InMemoryVortexFile {
         let end = start + segment.length as usize;
 
         Ok(self.buffer.slice(start..end))
-    }
-
-    async fn evaluate(&self, task: ScanTask) -> VortexResult<Array> {
-        task.execute()
     }
 }

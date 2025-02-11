@@ -28,7 +28,7 @@ impl LayoutVTable for StructLayout {
         &self,
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(StructReader::try_new(layout, ctx, executor)?.into_arc())
     }

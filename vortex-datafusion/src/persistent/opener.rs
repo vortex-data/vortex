@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
+use async_trait::async_trait;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use futures::{pin_mut, FutureExt as _, SinkExt, StreamExt, TryStreamExt};
@@ -9,7 +10,7 @@ use tokio::runtime::Handle;
 use vortex_array::{Array, ContextRef, IntoArrayVariant};
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::{SplitBy, VortexOpenOptions};
+use vortex_file::{ScanTask, SplitBy, TaskExecutor, VortexOpenOptions};
 use vortex_io::{Dispatch, IoDispatcher, ObjectStoreReadAt};
 
 use super::cache::FileLayoutCache;
@@ -60,9 +61,24 @@ impl FileOpener for VortexFileOpener {
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
 
-        Ok(async move {
-            let handle = Handle::current();
+        struct TokioTaskExecutor(Handle);
 
+        #[async_trait]
+        impl TaskExecutor for TokioTaskExecutor {
+            async fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
+                let array = array.clone();
+                let tasks = tasks.to_vec();
+                self.0
+                    .spawn(
+                        async move { tasks.iter().try_fold(array, |acc, task| task.execute(&acc)) },
+                    )
+                    .await
+                    .map_err(|e| vortex_err!("Error spawning task: {}", e))
+                    .and_then(|r| r)
+            }
+        }
+
+        Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
                 .with_file_layout(
@@ -70,19 +86,12 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, object_store)
                         .await?,
                 )
-                .with_executor_fn(Arc::new(move |task| {
-                    let handle = handle.clone();
-                    async move {
-                        handle
-                            .spawn_blocking(move || task.execute())
-                            .await
-                            .map_err(|e| vortex_err!("Error spawning task: {}", e))
-                            .and_then(|r| r)
-                    }
-                    .boxed()
-                }))
                 .open()
                 .await?;
+
+            // Set up a task executor using the current DataFusion handle to make sure we don't
+            // accidentally spawn tasks on the I/O dispatcher.
+            let task_executor = Arc::new(TokioTaskExecutor(Handle::current()));
 
             // Vortex assumes that the caller can frequently poll the returned stream in order to
             // drive underlying I/O. In the DataFusion model, where the Tokio runtime is used for
@@ -102,6 +111,7 @@ impl FileOpener for VortexFileOpener {
                         .with_canonicalize(true)
                         // DataFusion likes ~8k row batches, we just respect the config.
                         .with_split_by(SplitBy::RowCount(batch_size))
+                        .with_task_executor(task_executor.clone())
                         .into_array_stream()?;
 
                     pin_mut!(stream);

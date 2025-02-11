@@ -12,7 +12,7 @@ use crate::{Layout, LayoutReaderExt, LayoutVTable};
 pub struct FlatReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<dyn ScanExecutor>,
+    executor: Arc<ScanExecutor>,
     array: Arc<OnceCell<Array>>,
 }
 
@@ -20,7 +20,7 @@ impl FlatReader {
     pub(crate) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -38,7 +38,7 @@ impl FlatReader {
         self.ctx.clone()
     }
 
-    pub(crate) fn executor(&self) -> &dyn ScanExecutor {
+    pub(crate) fn executor(&self) -> &ScanExecutor {
         self.executor.as_ref()
     }
 

@@ -292,7 +292,7 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
         ctx: ContextRef,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
         self.encoding().reader(self.clone(), ctx, executor)

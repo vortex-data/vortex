@@ -16,7 +16,7 @@ use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 pub struct StructReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<dyn ScanExecutor>,
+    executor: Arc<ScanExecutor>,
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: Option<HashMap<FieldName, usize>>,
@@ -27,7 +27,7 @@ impl StructReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<dyn ScanExecutor>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -62,7 +62,7 @@ impl StructReader {
         })
     }
 
-    pub(crate) fn executor(&self) -> &dyn ScanExecutor {
+    pub(crate) fn executor(&self) -> &ScanExecutor {
         self.executor.as_ref()
     }
 

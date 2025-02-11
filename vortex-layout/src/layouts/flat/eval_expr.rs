@@ -13,37 +13,30 @@ impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
-        let mut array = self.array().await?.clone();
+        let array = self.array().await?.clone();
 
         // TODO(ngates): what's the best order to apply the filter mask / expression?
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
 
+        let mut tasks = Vec::with_capacity(3);
+
         // Slice the array based on the row mask.
         if begin > 0 || (begin + row_mask.len()) < array.len() {
-            array = self
-                .executor()
-                .evaluate(ScanTask::Slice((array, begin..begin + row_mask.len())))
-                .await?;
+            tasks.push(ScanTask::Slice(begin..begin + row_mask.len()));
         }
 
         // Filter the array based on the row mask.
         if !row_mask.filter_mask().all_true() {
-            array = self
-                .executor()
-                .evaluate(ScanTask::Filter((array, row_mask.filter_mask().clone())))
-                .await?;
+            tasks.push(ScanTask::Filter(row_mask.filter_mask().clone()));
         }
 
         // Evaluate the projection expression.
         if !expr.as_any().is::<Identity>() {
-            array = self
-                .executor()
-                .evaluate(ScanTask::Expr((array, expr)))
-                .await?;
+            tasks.push(ScanTask::Expr(expr));
         }
 
-        Ok(array)
+        self.executor().evaluate(&array, &tasks).await
     }
 }
 
