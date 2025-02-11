@@ -43,7 +43,10 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
 
     if bit_width >= array.ptype().bit_width() as u8 {
         // Nothing we can do
-        vortex_bail!("Cannot pack -- specified bit width is greater than or equal to raw bit width")
+        vortex_bail!(
+            "Cannot pack -- specified bit width {bit_width} >= {}",
+            array.ptype().bit_width()
+        )
     }
 
     // SAFETY: we check that array only contains non-negative values.

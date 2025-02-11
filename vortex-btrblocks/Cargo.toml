@@ -22,6 +22,8 @@ rustc-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-datetime-dtype = { workspace = true }
+vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
@@ -35,12 +37,24 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+env_logger = "0.11"
 vortex-sampling-compressor = { workspace = true }
 
 [lints]
 workspace = true
 
 [[bench]]
-name = "compressors"
+name = "clickbench_window_name"
 harness = false
 test = false
+
+[[bench]]
+name = "dict_encode"
+harness = false
+test = false
+
+[[bench]]
+name = "stats_calc"
+harness = false
+test = false
+

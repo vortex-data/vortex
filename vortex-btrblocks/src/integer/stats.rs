@@ -1,3 +1,4 @@
+#![allow(unused, dead_code)]
 use std::hash::Hash;
 
 use num_traits::PrimInt;
@@ -7,17 +8,19 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArrayVariant;
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::PValue;
 
 use crate::sample::sample;
-use crate::CompressorStats;
+use crate::{CompressorStats, GenerateStatsOptions};
 
 #[derive(Clone)]
 pub struct TypedStats<T> {
-    min: T,
-    max: T,
-    distinct_values: HashMap<T, u32, FxBuildHasher>,
+    pub min: T,
+    pub max: T,
+    pub top_value: T,
+    pub top_count: u32,
+    pub distinct_values: HashMap<T, u32, FxBuildHasher>,
 }
 
 /// Type-erased container for one of the [TypedStats] variants.
@@ -63,19 +66,6 @@ impl ErasedStats {
         }
     }
 
-    pub fn distinct_value_count(&self) -> usize {
-        match &self {
-            ErasedStats::U8(x) => x.distinct_values.len(),
-            ErasedStats::U16(x) => x.distinct_values.len(),
-            ErasedStats::U32(x) => x.distinct_values.len(),
-            ErasedStats::U64(x) => x.distinct_values.len(),
-            ErasedStats::I8(x) => x.distinct_values.len(),
-            ErasedStats::I16(x) => x.distinct_values.len(),
-            ErasedStats::I32(x) => x.distinct_values.len(),
-            ErasedStats::I64(x) => x.distinct_values.len(),
-        }
-    }
-
     // Difference between max and min.
     pub fn max_minus_min(&self) -> u64 {
         match &self {
@@ -91,27 +81,18 @@ impl ErasedStats {
     }
 
     /// Get the most commonly occurring value and its count
-    pub fn top_value(&self) -> (PValue, u32) {
+    pub fn top_value_and_count(&self) -> (PValue, u32) {
         match &self {
-            ErasedStats::U8(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::U16(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::U32(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::U64(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::I8(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::I16(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::I32(x) => extract_top_value(&x.distinct_values),
-            ErasedStats::I64(x) => extract_top_value(&x.distinct_values),
+            ErasedStats::U8(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::U16(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::U32(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::U64(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::I8(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::I16(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::I32(x) => (x.top_value.into(), x.top_count),
+            ErasedStats::I64(x) => (x.top_value.into(), x.top_count),
         }
     }
-}
-
-fn extract_top_value<T: Copy + Into<PValue>, S>(values: &HashMap<T, u32, S>) -> (PValue, u32) {
-    let (&top_value, &top_count) = values
-        .iter()
-        .max_by_key(|(_, &count)| count)
-        .vortex_expect("non-empty");
-
-    (top_value.into(), top_count)
 }
 
 macro_rules! impl_from_typed {
@@ -141,16 +122,17 @@ pub struct IntegerStats {
     // cache for validity.true_count()
     pub(super) value_count: u32,
     pub(super) average_run_length: u32,
-
-    pub(super) typed: ErasedStats,
+    pub(super) bit_width_histogram: Vec<u32>,
+    pub(super) distinct_values_count: u32,
+    pub(crate) typed: ErasedStats,
 }
 
 impl CompressorStats for IntegerStats {
     type ArrayType = PrimitiveArray;
 
-    fn generate(input: &PrimitiveArray) -> IntegerStats {
+    fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         match_each_integer_ptype!(input.ptype(), |$T| {
-            typed_int_stats::<$T>(input)
+            typed_int_stats::<$T>(input, opts.count_distinct_values)
         })
     }
 
@@ -158,37 +140,55 @@ impl CompressorStats for IntegerStats {
         &self.src
     }
 
-    fn sample(&self, sample_size: u16, sample_count: u16) -> IntegerStats {
+    fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self {
         let sampled = sample(self.src.clone(), sample_size, sample_count)
             .into_primitive()
             .vortex_expect("primitive");
 
-        Self::generate(&sampled)
+        Self::generate_opts(&sampled, opts)
     }
 }
 
-fn typed_int_stats<T: NativePType + Hash + PrimInt>(array: &PrimitiveArray) -> IntegerStats
+// const MAX_DICT_SIZE: u32 = 4096;
+
+fn typed_int_stats<T: NativePType + Hash + PrimInt>(
+    array: &PrimitiveArray,
+    count_distinct_values: bool,
+) -> IntegerStats
 where
     TypedStats<T>: Into<ErasedStats>,
 {
+    let bit_width: usize = size_of::<T>() * 8;
+    let bit_width_u32: u32 = bit_width.try_into().vortex_unwrap();
+
     let validity = array.validity_mask().vortex_expect("logical_validity");
     let null_count = validity.false_count();
     let value_count = validity.true_count();
     let mut min = T::max_value();
     let mut max = T::min_value();
-    let mut distinct_values = HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher);
+    let mut distinct_values_count: u32 = if count_distinct_values { 0 } else { u32::MAX };
+    let mut distinct_values = if count_distinct_values {
+        HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+    } else {
+        HashMap::with_hasher(FxBuildHasher)
+    };
+    let mut bit_width_histogram = vec![0u32; bit_width + 1];
 
-    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
-    // so much more efficient to hash and search for.
     let mut runs = 1;
     let mut prev = array.as_slice::<T>()[0];
-    // Do nulls count for runs
 
     for (idx, &value) in array.buffer::<T>().iter().enumerate() {
         if validity.value(idx) {
             min = min.min(value);
             max = max.max(value);
-            *distinct_values.entry(value).or_insert(0) += 1;
+
+            if count_distinct_values {
+                *distinct_values.entry(value).or_insert(0) += 1;
+                distinct_values_count = distinct_values.len().try_into().vortex_unwrap();
+            }
+
+            let bw = bit_width_u32 - value.leading_zeros();
+            bit_width_histogram[bw as usize] += 1;
 
             if value != prev {
                 prev = value;
@@ -197,9 +197,21 @@ where
         }
     }
 
+    let (top_value, top_count) = if count_distinct_values {
+        let (&top_value, &top_count) = distinct_values
+            .iter()
+            .max_by_key(|(_, &count)| count)
+            .vortex_expect("non-empty");
+        (top_value, top_count)
+    } else {
+        (T::default(), 0)
+    };
+
     let typed = TypedStats {
         min,
         max,
+        top_value,
+        top_count,
         distinct_values,
     };
 
@@ -215,6 +227,8 @@ where
         null_count,
         value_count,
         average_run_length: value_count / runs,
+        bit_width_histogram,
+        distinct_values_count,
         typed: typed.into(),
     }
 }

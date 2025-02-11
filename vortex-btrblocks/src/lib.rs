@@ -1,31 +1,57 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use vortex_array::array::{ListArray, StructArray};
-use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
+use vortex_array::array::{ExtensionArray, ListArray, StructArray, TemporalArray};
+use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, Canonical, IntoArray, IntoCanonical};
+use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::float::FloatCompressor;
-use crate::integer::IntCompressor;
-use crate::string::StringCompressor;
+pub use crate::float::FloatCompressor;
+pub use crate::integer::IntCompressor;
+pub use crate::string::StringCompressor;
+pub use crate::temporal::compress_temporal;
 
 mod downscale;
 mod float;
 pub mod integer;
 mod sample;
 mod string;
+mod temporal;
+
+pub struct GenerateStatsOptions {
+    pub count_distinct_values: bool,
+    // pub count_runs: bool,
+}
+
+impl Default for GenerateStatsOptions {
+    fn default() -> Self {
+        Self {
+            count_distinct_values: true,
+            // count_runs: true,
+        }
+    }
+}
 
 /// Stats for the compressor.
 pub trait CompressorStats: Clone {
     type ArrayType: Deref<Target = Array>;
 
-    fn generate(input: &Self::ArrayType) -> Self;
+    // Generate with options.
+    fn generate(input: &Self::ArrayType) -> Self {
+        Self::generate_opts(input, GenerateStatsOptions::default())
+    }
+
+    fn generate_opts(input: &Self::ArrayType, opts: GenerateStatsOptions) -> Self;
 
     fn source(&self) -> &Self::ArrayType;
 
-    fn sample(&self, sample_size: u16, sample_count: u16) -> Self;
+    fn sample(&self, sample_size: u16, sample_count: u16) -> Self {
+        self.sample_opts(sample_size, sample_count, GenerateStatsOptions::default())
+    }
+
+    fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self;
 }
 
 /// Top-level compression scheme trait.
@@ -75,6 +101,16 @@ pub trait Scheme: Debug {
     ) -> VortexResult<Array>;
 }
 
+pub struct SchemeTree {
+    /// Scheme to use for the array.
+    ///
+    /// This is in the type-specific code space, for example either the `IntCompressor` or
+    /// `FloatCompressor` code space.
+    pub scheme: u8,
+    /// Specified schemes to use for children.
+    pub children: Vec<SchemeTree>,
+}
+
 pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     compressor: &T,
     stats: &T::StatsType,
@@ -91,7 +127,9 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     let after = compressor
         .compress(&sample, true, allowed_cascading, excludes)?
         .nbytes();
-    let before = stats.source().nbytes();
+    let before = sample.source().nbytes();
+
+    log::debug!("estimate_compression_ratio_with_sampling(compressor={compressor:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}", before as f64 / after as f64);
 
     Ok(before as f64 / after as f64)
 }
@@ -112,6 +150,7 @@ pub trait Compressor {
 
     fn schemes() -> &'static [&'static Self::SchemeType];
     fn default_scheme() -> &'static Self::SchemeType;
+    fn dict_scheme_code() -> u8;
 
     fn compress(
         array: &Self::ArrayType,
@@ -123,13 +162,23 @@ pub trait Compressor {
         Self::SchemeType: 'static,
     {
         // Generate stats on the array directly.
-        let stats = Self::StatsType::generate(array);
+        let stats = if excludes.contains(&Self::dict_scheme_code()) {
+            Self::StatsType::generate_opts(
+                array,
+                GenerateStatsOptions {
+                    count_distinct_values: false,
+                },
+            )
+        } else {
+            Self::StatsType::generate(array)
+        };
         let best_scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
 
         let output = best_scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
+            log::debug!("resulting tree too large: {}", output.tree_display());
             Ok(array.deref().clone())
         }
     }
@@ -156,11 +205,11 @@ pub trait Compressor {
                 continue;
             }
 
-            log::trace!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
+            log::debug!("depth={depth} is_sample={is_sample} trying scheme: {scheme:#?}",);
 
             let ratio =
                 scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
-            log::trace!("depth={depth} is_sample={is_sample} scheme: {scheme:#?} ratio = {ratio}");
+            log::debug!("depth={depth} is_sample={is_sample} scheme: {scheme:#?} ratio = {ratio}");
 
             if ratio > best_ratio {
                 best_ratio = ratio;
@@ -183,8 +232,10 @@ pub struct BtrBlocksCompressor;
 impl BtrBlocksCompressor {
     #[allow(clippy::only_used_in_recursion)]
     pub fn compress(&self, array: Array) -> VortexResult<Array> {
+        // println!("compressing array of len {}", array.len());
         match array.into_canonical()? {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
+            // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
@@ -237,8 +288,21 @@ impl BtrBlocksCompressor {
                 }
             }
             Canonical::Extension(ext_array) => {
-                // Canonicalize chunked array.
-                Ok(ext_array.into_array())
+                // We compress Timestamp-level arrays with DateTimeParts compression
+                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.clone().into_array())
+                {
+                    if let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata() {
+                        return compress_temporal(temporal_array);
+                    }
+                }
+
+                // Compress the underlying storage array.
+                let compressed_storage = self.compress(ext_array.storage())?;
+
+                Ok(
+                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
+                        .into_array(),
+                )
             }
         }
     }

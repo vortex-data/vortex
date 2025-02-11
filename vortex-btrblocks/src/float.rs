@@ -1,21 +1,26 @@
+mod dictionary;
 mod stats;
 
 use vortex_alp::{alp_encode, ALPArray, RDEncoder};
 use vortex_array::array::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
-use vortex_dict::{dict_encode, DictArray};
+use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
 
 use self::stats::FloatStats;
-use crate::integer::IntCompressor;
-use crate::{estimate_compression_ratio_with_sampling, Compressor, CompressorStats, Scheme};
+use crate::float::dictionary::dictionary_encode;
+use crate::integer::{IntCompressor, IntegerStats};
+use crate::{
+    estimate_compression_ratio_with_sampling, integer, Compressor, CompressorStats,
+    GenerateStatsOptions, Scheme,
+};
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
-const RUN_END_THRESHOLD: u32 = 2;
+const RUN_END_THRESHOLD: u32 = 3;
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats> {}
 
@@ -41,7 +46,18 @@ impl Compressor for FloatCompressor {
     fn default_scheme() -> &'static Self::SchemeType {
         &UncompressedScheme
     }
+
+    fn dict_scheme_code() -> u8 {
+        DICT_SCHEME
+    }
 }
+
+const UNCOMPRESSED_SCHEME: u8 = 0;
+const CONSTANT_SCHEME: u8 = 1;
+const ALP_SCHEME: u8 = 2;
+const ALPRD_SCHEME: u8 = 3;
+const DICT_SCHEME: u8 = 4;
+const RUNEND_SCHEME: u8 = 5;
 
 #[derive(Debug, Copy, Clone)]
 struct UncompressedScheme;
@@ -65,7 +81,7 @@ impl Scheme for UncompressedScheme {
     type StatsType = FloatStats;
 
     fn code(&self) -> u8 {
-        0
+        UNCOMPRESSED_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -93,7 +109,7 @@ impl Scheme for ConstantScheme {
     type StatsType = FloatStats;
 
     fn code(&self) -> u8 {
-        1
+        CONSTANT_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -109,7 +125,7 @@ impl Scheme for ConstantScheme {
         }
 
         // Can only have 1 distinct value
-        if stats.distinct_value_count > 1 {
+        if stats.distinct_values_count > 1 {
             return Ok(0.0);
         }
 
@@ -141,7 +157,7 @@ impl Scheme for ALPScheme {
     type StatsType = FloatStats;
 
     fn code(&self) -> u8 {
-        2
+        ALP_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -162,6 +178,14 @@ impl Scheme for ALPScheme {
             return Ok(0.0);
         }
 
+        // If Dict/RLE is feasible, we want to do that before ALP, and then only ALP encode
+        // the values.
+        if stats.average_run_length >= RUN_END_THRESHOLD
+            || stats.distinct_values_count < stats.value_count / 2
+        {
+            return Ok(0.0);
+        }
+
         estimate_compression_ratio_with_sampling(
             self,
             stats,
@@ -176,7 +200,7 @@ impl Scheme for ALPScheme {
         stats: &FloatStats,
         is_sample: bool,
         allowed_cascading: usize,
-        _excludes: &[u8],
+        excludes: &[u8],
     ) -> VortexResult<Array> {
         let alp = alp_encode(stats.source())?;
         let alp_ints = alp.encoded().into_primitive()?;
@@ -184,8 +208,10 @@ impl Scheme for ALPScheme {
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
         // to keep them linear for easy indexing.
+        let mut new_excludes = vec![ALPScheme.code(), ALPRDScheme.code()];
+        new_excludes.extend_from_slice(excludes);
         let compressed_alp_ints =
-            IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &[])?;
+            IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &new_excludes)?;
 
         Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches())?.into_array())
     }
@@ -195,7 +221,7 @@ impl Scheme for ALPRDScheme {
     type StatsType = FloatStats;
 
     fn code(&self) -> u8 {
-        3
+        ALPRD_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -239,7 +265,7 @@ impl Scheme for DictScheme {
     type StatsType = FloatStats;
 
     fn code(&self) -> u8 {
-        4
+        DICT_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -249,19 +275,23 @@ impl Scheme for DictScheme {
         allowed_cascading: usize,
         excludes: &[u8],
     ) -> VortexResult<f64> {
+        if stats.value_count == 0 {
+            return Ok(0.0);
+        }
+
+        // If the array is high cardinality (>50% unique values) skip.
+        if stats.distinct_values_count > stats.value_count / 2 {
+            return Ok(0.0);
+        }
+
         // Take a sample and run compression on the sample to determine before/after size.
-        let sample = if is_sample {
-            stats.clone()
-        } else {
-            stats.sample(64, 10)
-        };
-
-        let after = self
-            .compress(&sample, is_sample, allowed_cascading, excludes)?
-            .nbytes();
-        let before = stats.source().nbytes();
-
-        Ok(before as f64 / after as f64)
+        estimate_compression_ratio_with_sampling(
+            self,
+            stats,
+            is_sample,
+            allowed_cascading,
+            excludes,
+        )
     }
 
     fn compress(
@@ -269,19 +299,41 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        _excludes: &[u8],
+        excludes: &[u8],
     ) -> VortexResult<Array> {
-        let dict_array = dict_encode(stats.source())?;
+        let dict_array = dictionary_encode(stats)?;
+
+        let mut new_excludes = vec![DictScheme.code(), integer::DictScheme.code()];
+        new_excludes.extend_from_slice(excludes);
 
         // Only compress the codes.
-        let compressed_codes = IntCompressor::compress(
+        let codes_stats = IntegerStats::generate_opts(
             &dict_array.codes().into_primitive()?,
+            GenerateStatsOptions {
+                count_distinct_values: false,
+            },
+        );
+        let codes_scheme = IntCompressor::choose_scheme(
+            &codes_stats,
             is_sample,
             allowed_cascading - 1,
-            &[super::integer::DictScheme.code()],
+            &[integer::DictScheme.code()],
+        )?;
+        let compressed_codes = codes_scheme.compress(
+            &codes_stats,
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, dict_array.values())?.into_array())
+        let compressed_values = FloatCompressor::compress(
+            &dict_array.values().into_primitive()?,
+            is_sample,
+            allowed_cascading - 1,
+            &new_excludes,
+        )?;
+
+        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
     }
 }
 
@@ -289,7 +341,7 @@ impl Scheme for RunEndScheme {
     type StatsType = FloatStats;
 
     fn code(&self) -> u8 {
-        5
+        RUNEND_SCHEME
     }
 
     fn expected_compression_ratio(
@@ -344,9 +396,7 @@ mod tests {
             // Insert 2.0 at all odd positions.
             // This should force dictionary encoding and exclude run-end due to the
             // average run length being 1.
-            if i % 2 == 0 {
-                values[i] = 2.0f32;
-            }
+            values[i] = (i % 50) as f32;
         }
 
         let floats = values.into_array().into_primitive().unwrap();

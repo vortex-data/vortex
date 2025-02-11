@@ -4,7 +4,6 @@ mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
 use serde::{Deserialize, Serialize};
-pub use typed::TypedPrimitiveArray;
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -25,7 +24,6 @@ use crate::{impl_encoding, Array, Canonical, IntoArray, IntoCanonical, RkyvMetad
 mod compute;
 mod patch;
 mod stats;
-mod typed;
 
 impl_encoding!(
     "vortex.primitive",
