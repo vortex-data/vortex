@@ -318,6 +318,7 @@ mod tests {
         // patch the underlying array
         let patches = Patches::new(
             arr.len(),
+            0,
             PrimitiveArray::new(buffer![4u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
@@ -356,6 +357,7 @@ mod tests {
 
         let patches = Patches::new(
             arr.len(),
+            0,
             PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );

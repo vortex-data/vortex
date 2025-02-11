@@ -188,6 +188,7 @@ pub fn gather_patches(
         }
         (!indices.is_empty()).then(|| Patches::new(
             parray.len(),
+            0,
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
         ))

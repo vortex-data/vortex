@@ -115,8 +115,6 @@ impl FileOpener for VortexFileOpener {
                     let st = array.into_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
                 })
-                .map(|r| r.and_then(|inner| inner))
-                .map_err(|e| e.into())
                 .boxed())
         }
         .boxed())

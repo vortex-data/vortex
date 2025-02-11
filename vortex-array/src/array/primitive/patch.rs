@@ -11,7 +11,7 @@ use crate::IntoArrayVariant;
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let (_, patch_indices, patch_values) = patches.into_parts();
+        let (_, _, patch_indices, patch_values) = patches.into_parts();
         let patch_indices = patch_indices.into_primitive()?;
         let patch_values = patch_values.into_primitive()?;
 

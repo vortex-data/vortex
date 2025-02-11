@@ -70,13 +70,7 @@ impl StructArrayTrait for SparseArray {
         })?;
         let scalar = StructScalar::try_from(&self.fill_scalar())?.field_by_idx(idx)?;
 
-        Ok(SparseArray::try_new_from_patches(
-            new_patches,
-            self.len(),
-            self.indices_offset(),
-            scalar,
-        )?
-        .into_array())
+        Ok(SparseArray::try_new_from_patches(new_patches, self.len(), scalar)?.into_array())
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
@@ -88,7 +82,7 @@ impl StructArrayTrait for SparseArray {
         })?;
         let scalar = StructScalar::try_from(&self.fill_scalar())?.project(projection)?;
 
-        SparseArray::try_new_from_patches(new_patches, self.len(), self.indices_offset(), scalar)
+        SparseArray::try_new_from_patches(new_patches, self.len(), scalar)
             .map(IntoArray::into_array)
     }
 }
@@ -107,7 +101,6 @@ impl ExtensionArrayTrait for SparseArray {
                 })
                 .vortex_expect("as_extension_array preserves the length"),
             self.len(),
-            self.indices_offset(),
             self.fill_scalar(),
         )
         .vortex_expect("Failed to create new sparse array")

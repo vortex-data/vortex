@@ -87,7 +87,7 @@ impl ALPRDArray {
                 }
                 let metadata =
                     patches.to_metadata(left_parts.len(), &left_parts.dtype().as_nonnullable());
-                let (_, indices, values) = patches.into_parts();
+                let (_, _, indices, values) = patches.into_parts();
                 children.push(indices);
                 children.push(values);
                 metadata
@@ -171,6 +171,7 @@ impl ALPRDArray {
         self.metadata().patches.as_ref().map(|metadata| {
             Patches::new(
                 self.len(),
+                metadata.offset(),
                 self.as_ref()
                     .child(2, &metadata.indices_dtype(), metadata.len())
                     .vortex_expect("ALPRDArray: patch indices"),
@@ -282,7 +283,7 @@ mod test {
             "alprd.metadata",
             SerdeMetadata(ALPRDMetadata {
                 right_bit_width: u8::MAX,
-                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
                 dict: [0u16; 8],
                 left_parts_ptype: PType::U64,
                 dict_len: 8,

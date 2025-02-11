@@ -38,6 +38,7 @@ mod test {
                 Validity::AllInvalid,
                 Some(Patches::new(
                     8,
+                    0,
                     buffer![1u32].into_array(),
                     PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                 )),
