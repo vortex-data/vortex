@@ -13,7 +13,7 @@ use vortex_scan::RowMask;
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
+use crate::scan::ScanExecutor;
 use crate::{ExprEvaluator, Layout, LayoutVTable};
 
 type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
@@ -22,7 +22,8 @@ type PruningCache = Arc<OnceCell<Option<BooleanBuffer>>>;
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
-    segments: Arc<dyn AsyncSegmentReader>,
+    executor: Arc<dyn ScanExecutor>,
+
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
     /// Shared stats table
@@ -35,7 +36,7 @@ impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        segments: Arc<dyn AsyncSegmentReader>,
+        executor: Arc<dyn ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -54,7 +55,7 @@ impl ChunkedReader {
         Ok(Self {
             layout,
             ctx,
-            segments,
+            executor,
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
@@ -83,7 +84,7 @@ impl ChunkedReader {
                         let stats_layout = self.layout.child(nchunks, stats_dtype.clone())?;
 
                         let stats_array = stats_layout
-                            .reader(self.segments.clone(), self.ctx.clone())?
+                            .reader(self.executor.clone(), self.ctx.clone())?
                             .evaluate_expr(
                                 RowMask::new_valid_between(0, nchunks as u64),
                                 Identity::new_expr(),
@@ -144,7 +145,7 @@ impl ChunkedReader {
     pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.chunk_readers[idx].get_or_try_init(|| {
             let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
+            child_layout.reader(self.executor.clone(), self.ctx.clone())
         })
     }
 }

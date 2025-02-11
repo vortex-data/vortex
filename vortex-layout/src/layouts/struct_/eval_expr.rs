@@ -9,6 +9,7 @@ use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
+use crate::scan::ScanTask;
 use crate::ExprEvaluator;
 
 #[async_trait]
@@ -43,7 +44,9 @@ impl ExprEvaluator for StructReader {
         )?
         .into_array();
 
-        partitioned.root.evaluate(&root_scope)
+        self.executor()
+            .evaluate(ScanTask::Expr((root_scope, partitioned.root.clone())))
+            .await
     }
 }
 

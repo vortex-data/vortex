@@ -81,6 +81,7 @@ impl FileOpener for VortexFileOpener {
                         .scan()
                         .with_projection(projection.clone())
                         .with_some_filter(filter.clone())
+                        .with_canonicalize(true)
                         .into_array_stream()?;
 
                     pin_mut!(stream);

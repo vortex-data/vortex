@@ -5,20 +5,20 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
+use crate::scan::ScanExecutor;
 use crate::{Layout, LayoutVTable};
 
 pub struct FlatReader {
     layout: Layout,
     ctx: ContextRef,
-    segments: Arc<dyn AsyncSegmentReader>,
+    executor: Arc<dyn ScanExecutor>,
 }
 
 impl FlatReader {
     pub(crate) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        segments: Arc<dyn AsyncSegmentReader>,
+        executor: Arc<dyn ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -27,7 +27,7 @@ impl FlatReader {
         Ok(Self {
             layout,
             ctx,
-            segments,
+            executor,
         })
     }
 
@@ -35,8 +35,8 @@ impl FlatReader {
         self.ctx.clone()
     }
 
-    pub(crate) fn segments(&self) -> &dyn AsyncSegmentReader {
-        self.segments.as_ref()
+    pub(crate) fn executor(&self) -> &dyn ScanExecutor {
+        self.executor.as_ref()
     }
 }
 

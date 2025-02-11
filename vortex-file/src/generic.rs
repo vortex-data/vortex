@@ -3,14 +3,16 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::Stream;
-use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{stream, StreamExt, TryStreamExt};
+use tokio::runtime::Handle;
+use vortex_array::Array;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::ScanDriver;
+use vortex_layout::scan::{ScanDriver, ScanExecutor, ScanTask};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::exec::ExecutionMode;
@@ -89,20 +91,34 @@ pub struct GenericScanDriver<R> {
     segment_channel: SegmentChannel,
 }
 
+pub struct GenericScanExecutor {
+    segment_reader: Arc<dyn AsyncSegmentReader>,
+    executor: Handle,
+}
+
+#[async_trait]
+impl ScanExecutor for GenericScanExecutor {
+    async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+        self.segment_reader.get(id).await
+    }
+
+    async fn evaluate(&self, task: ScanTask) -> VortexResult<Array> {
+        self.executor
+            .spawn_blocking(move || task.execute())
+            .await
+            .map_err(|e| vortex_err!("task failed: {}", e))
+            .and_then(|r| r)
+    }
+}
+
 impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
-    fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
-        // This reader simply enqueues segment requests into the channel.
-        // Our driver polls the other end of this channel to drive the I/O requests.
-        self.segment_channel.reader()
-    }
-
-    fn spawn_task(
-        &self,
-        task: BoxFuture<'static, VortexResult<()>>,
-    ) -> BoxFuture<'static, VortexResult<()>> {
-        task
+    fn executor(&self) -> Arc<dyn ScanExecutor> {
+        Arc::new(GenericScanExecutor {
+            segment_reader: self.segment_channel.reader(),
+            executor: Handle::current(),
+        })
     }
 
     fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {

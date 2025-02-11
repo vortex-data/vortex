@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use vortex_array::compute::{filter, slice};
+use vortex_array::compute::slice;
 use vortex_array::Array;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
@@ -7,6 +7,7 @@ use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutReaderExt;
+use crate::scan::ScanTask;
 use crate::{ExprEvaluator, LayoutReader};
 
 #[async_trait]
@@ -16,8 +17,8 @@ impl ExprEvaluator for FlatReader {
 
         // Fetch all the array segment.
         let buffer = self
-            .segments()
-            .get(
+            .executor()
+            .get_segment(
                 self.layout()
                     .segment_id(0)
                     .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?,
@@ -29,14 +30,20 @@ impl ExprEvaluator for FlatReader {
         let array = Array::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)?;
 
         // TODO(ngates): what's the best order to apply the filter mask / expression?
-
-        // Filter the array based on the row mask.
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
         let array = slice(array, begin, begin + row_mask.len())?;
-        let array = filter(&array, row_mask.filter_mask())?;
-        // Then apply the expression
-        expr.evaluate(&array)
+
+        // Filter the array based on the row mask.
+        let array = self
+            .executor()
+            .evaluate(ScanTask::Filter((array, row_mask.filter_mask().clone())))
+            .await?;
+
+        // Evaluate the projection expression.
+        self.executor()
+            .evaluate(ScanTask::Expr((array, expr)))
+            .await
     }
 }
 
