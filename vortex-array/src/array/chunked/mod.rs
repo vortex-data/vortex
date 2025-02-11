@@ -7,19 +7,17 @@ use std::fmt::{Debug, Display};
 use futures_util::stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_buffer::{Buffer, BufferMut};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
+use crate::compute::{SearchSorted, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
-use crate::validity::Validity::NonNullable;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{impl_encoding, Array, IntoArray, IntoCanonical, RkyvMetadata};
@@ -50,8 +48,6 @@ impl Display for ChunkedMetadata {
 }
 
 impl ChunkedArray {
-    const ENDS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
-
     pub fn try_new(chunks: Vec<Array>, dtype: DType) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
@@ -59,49 +55,44 @@ impl ChunkedArray {
             }
         }
 
-        let mut chunk_offsets = BufferMut::<u64>::with_capacity(chunks.len() + 1);
-        chunk_offsets.extend(
-            [0u64]
-                .into_iter()
-                .chain(chunks.iter().map(|c| c.len() as u64))
-                .scan(0, |acc, c| {
-                    *acc += c;
-                    Some(*acc)
-                }),
-        );
+        Ok(Self::try_new_unchecked(chunks, dtype))
+    }
 
-        let nchunks = chunk_offsets.len() - 1;
-        let length = *chunk_offsets
-            .last()
-            .vortex_expect("Chunk ends is guaranteed to have at least one element");
+    pub fn try_new_unchecked(chunks: Vec<Array>, dtype: DType) -> Self {
+        let nchunks = chunks.len();
 
-        let mut children = Vec::with_capacity(chunks.len() + 1);
-        children.push(PrimitiveArray::new(chunk_offsets, NonNullable).into_array());
-        children.extend(chunks);
+        let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
+        unsafe { chunk_offsets.push_unchecked(0) }
+        let mut curr_offset = 0u64;
+        for c in &chunks {
+            curr_offset += c.len() as u64;
+            unsafe { chunk_offsets.push_unchecked(curr_offset) }
+        }
 
         Self::try_from_parts(
             dtype,
-            length.try_into().vortex_unwrap(),
+            curr_offset.try_into().vortex_unwrap(),
             RkyvMetadata(ChunkedMetadata { nchunks }),
-            None,
-            Some(children.into()),
+            Some([chunk_offsets.freeze().into_byte_buffer()].into()),
+            Some(chunks.into()),
             StatsSet::default(),
         )
+        .vortex_expect("Constructing chunked array")
     }
 
     #[inline]
     pub fn chunk(&self, idx: usize) -> VortexResult<Array> {
-        if idx >= self.nchunks() {
+        if idx > self.nchunks() {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
 
         let chunk_offsets = self.chunk_offsets();
-        let chunk_start = usize::try_from(&scalar_at(&chunk_offsets, idx)?)?;
-        let chunk_end = usize::try_from(&scalar_at(&chunk_offsets, idx + 1)?)?;
+        let chunk_start = usize::try_from(chunk_offsets[idx])?;
+        let chunk_end = usize::try_from(chunk_offsets[idx + 1])?;
 
         // Offset the index since chunk_ends is child 0.
         self.as_ref()
-            .child(idx + 1, self.as_ref().dtype(), chunk_end - chunk_start)
+            .child(idx, self.as_ref().dtype(), chunk_end - chunk_start)
     }
 
     pub fn nchunks(&self) -> usize {
@@ -109,10 +100,12 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> Array {
-        self.as_ref()
-            .child(0, &Self::ENDS_DTYPE, self.nchunks() + 1)
-            .vortex_expect("Missing chunk ends in ChunkedArray")
+    pub fn chunk_offsets(&self) -> Buffer<u64> {
+        Buffer::from_byte_buffer(
+            self.byte_buffer(0)
+                .cloned()
+                .vortex_expect("Missing chunk ends in ChunkedArray"),
+        )
     }
 
     fn find_chunk_idx(&self, index: usize) -> (usize, usize) {
@@ -120,14 +113,12 @@ impl ChunkedArray {
 
         // Since there might be duplicate values in offsets because of empty chunks we want to search from right
         // and take the last chunk (we subtract 1 since there's a leading 0)
-        let index_chunk =
-            search_sorted_usize(&self.chunk_offsets(), index, SearchSortedSide::Right)
-                .vortex_expect("Search sorted failed in find_chunk_idx")
-                .to_ends_index(self.nchunks() + 1)
-                .saturating_sub(1);
-        let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
-            .and_then(|s| usize::try_from(&s))
-            .vortex_expect("Failed to find chunk start in find_chunk_idx");
+        let chunk_offsets = self.chunk_offsets();
+        let index_chunk = chunk_offsets
+            .search_sorted(&(index as u64), SearchSortedSide::Right)
+            .to_ends_index(self.nchunks() + 1)
+            .saturating_sub(1);
+        let chunk_start = chunk_offsets[index_chunk] as usize;
 
         let index_in_chunk = index - chunk_start;
         (index_chunk, index_in_chunk)
@@ -219,7 +210,7 @@ impl FromIterator<Array> for ChunkedArray {
 
 impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
     fn accept(&self, array: &ChunkedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("chunk_ends", &array.chunk_offsets())?;
+        visitor.visit_buffer(&array.chunk_offsets().into_byte_buffer())?;
         for (idx, chunk) in array.chunks().enumerate() {
             visitor.visit_child(format!("chunks[{}]", idx).as_str(), &chunk)?;
         }
