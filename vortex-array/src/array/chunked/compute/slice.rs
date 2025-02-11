@@ -13,15 +13,15 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
         if array.is_empty() && (start != 0 || stop != 0) {
             vortex_bail!(ComputeError: "Empty chunked array can't be sliced from {start} to {stop}");
         } else if array.is_empty() {
-            return Ok(ChunkedArray::try_new(vec![], array.dtype().clone())?.into_array());
+            return Ok(ChunkedArray::try_new_unchecked(vec![], array.dtype().clone()).into_array());
         }
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk)?;
-            return Ok(ChunkedArray::try_new(
+            return Ok(ChunkedArray::try_new_unchecked(
                 vec![slice(&chunk, offset_in_first_chunk, length_in_last_chunk)?],
                 array.dtype().clone(),
-            )?
+            )
             .into_array());
         }
 
@@ -38,7 +38,7 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
             *c = slice(&*c, 0, length_in_last_chunk)?;
         }
 
-        ChunkedArray::try_new(chunks, array.dtype().clone()).map(|a| a.into_array())
+        Ok(ChunkedArray::try_new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 }
 

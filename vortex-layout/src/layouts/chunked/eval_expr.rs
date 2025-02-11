@@ -68,7 +68,7 @@ impl ExprEvaluator for ChunkedReader {
         }
 
         let chunks = try_join_all(chunks).await?;
-        Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+        Ok(ChunkedArray::try_new_unchecked(chunks, dtype).into_array())
     }
 }
 

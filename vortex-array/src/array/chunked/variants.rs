@@ -108,11 +108,11 @@ impl StructArrayTrait for ChunkedArray {
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?
             .project(projection)?;
-        ChunkedArray::try_new(
+        Ok(ChunkedArray::try_new_unchecked(
             chunks,
             DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
         )
-        .map(|a| a.into_array())
+        .into_array())
     }
 }
 
