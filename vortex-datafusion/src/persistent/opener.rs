@@ -66,11 +66,11 @@ impl FileOpener for VortexFileOpener {
                 .open()
                 .await?;
 
-            Ok(vxf
+            let array_stream = vxf
                 .scan()
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
-                .into_array_stream()?
+                .into_array_stream()?;
                 .map_ok(move |array| {
                     let st = array.into_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
