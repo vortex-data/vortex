@@ -61,14 +61,22 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 
     let derived_stats = derive_take_stats(array);
 
+    // We know that constant array don't need stats propagation, so we can avoid the overhead of
+    // computing derived stats and merging them in.
+    let derived_stats = if array.must_be_constant() {
+        None
+    } else {
+        Some(derive_take_stats(array))
+    };
+
     let taken = take_impl(array, indices, checked_indices)?;
 
-    let mut stats = taken.stats_set();
-    stats.combine_sets(&derived_stats, array.dtype())?;
-    // TODO(joe): add
-    // taken.inherit_statistics(&stats)?;
-    for (stat, val) in stats.into_iter() {
-        taken.set_stat(stat, val)
+    if let Some(derived_stats) = derived_stats {
+        let mut stats = taken.stats_set();
+        stats.combine_sets(&derived_stats, array.dtype())?;
+        for (stat, val) in stats.into_iter() {
+            taken.set_stat(stat, val)
+        }
     }
 
     debug_assert_eq!(

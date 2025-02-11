@@ -1,6 +1,6 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
-use crate::array::ConstantArray;
+use crate::array::{ConstantArray, ConstantEncoding};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, Canonical, IntoArray};
@@ -47,7 +47,8 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     check_slice_bounds(array, start, stop)?;
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
-    let derived_stats = if ConstantArray::maybe_from(array).is_some() {
+    // computing derived stats and merging them in.
+    let derived_stats = if array.must_be_constant() {
         None
     } else {
         Some(derive_sliced_stats(array))
