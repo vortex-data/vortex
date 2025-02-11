@@ -118,7 +118,8 @@ impl ChunkedArray {
             .search_sorted(&(index as u64), SearchSortedSide::Right)
             .to_ends_index(self.nchunks() + 1)
             .saturating_sub(1);
-        let chunk_start = chunk_offsets[index_chunk] as usize;
+        let chunk_start = usize::try_from(chunk_offsets[index_chunk])
+            .vortex_expect("Chunk end must fit into usize");
 
         let index_in_chunk = index - chunk_start;
         (index_chunk, index_in_chunk)
