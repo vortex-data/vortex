@@ -4,9 +4,8 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt};
+use futures::{pin_mut, StreamExt, TryStreamExt};
 use futures_executor::block_on;
-use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};

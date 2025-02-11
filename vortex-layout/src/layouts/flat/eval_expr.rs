@@ -1,54 +1,49 @@
 use async_trait::async_trait;
-use vortex_array::compute::slice;
 use vortex_array::Array;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::ExprRef;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_expr::{ExprRef, Identity};
 use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::reader::LayoutReaderExt;
 use crate::scan::ScanTask;
-use crate::{ExprEvaluator, LayoutReader};
+use crate::ExprEvaluator;
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
-        let segment_id = self
-            .layout()
-            .segment_id(0)
-            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
-
-        log::debug!(
-            "Requesting segment {} for flat layout {} expr {}",
-            segment_id,
-            self.layout().name(),
-            expr
-        );
-
-        // Fetch all the array segment.
-        let buffer = self.executor().get_segment(segment_id).await?;
-        let row_count = usize::try_from(self.layout().row_count())
-            .vortex_expect("FlatLayout row count does not fit within usize");
-
-        let array = Array::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)?;
+        let mut array = self.array().await?.clone();
 
         // TODO(ngates): what's the best order to apply the filter mask / expression?
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
-        let array = slice(array, begin, begin + row_mask.len())?;
+
+        // Slice the array based on the row mask.
+        if begin > 0 || (begin + row_mask.len()) < array.len() {
+            array = self
+                .executor()
+                .evaluate(ScanTask::Slice((array, begin..begin + row_mask.len())))
+                .await?;
+        }
 
         // Filter the array based on the row mask.
-        let array = self
-            .executor()
-            .evaluate(ScanTask::Filter((array, row_mask.filter_mask().clone())))
-            .await?;
+        if !row_mask.filter_mask().all_true() {
+            array = self
+                .executor()
+                .evaluate(ScanTask::Filter((array, row_mask.filter_mask().clone())))
+                .await?;
+        }
 
         // Evaluate the projection expression.
-        self.executor()
-            .evaluate(ScanTask::Expr((array, expr)))
-            .await
+        if !expr.as_any().is::<Identity>() {
+            array = self
+                .executor()
+                .evaluate(ScanTask::Expr((array, expr)))
+                .await?;
+        }
+
+        Ok(array)
     }
 }
 

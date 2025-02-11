@@ -104,6 +104,7 @@ pub use forever_constant::*;
 pub use generic::*;
 pub use memory::*;
 pub use open::*;
+pub use vortex_layout::scan::*;
 pub use writer::*;
 
 /// The current version of the Vortex file format

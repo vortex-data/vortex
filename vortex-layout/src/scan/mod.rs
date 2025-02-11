@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -13,7 +14,7 @@ pub mod unified;
 
 use futures::StreamExt;
 pub use split_by::*;
-use vortex_array::compute::filter;
+use vortex_array::compute::{filter, slice};
 use vortex_array::{Array, ContextRef, IntoArray, IntoCanonical};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
@@ -29,6 +30,7 @@ use crate::{ExprEvaluator, Layout, LayoutReader};
 pub enum ScanTask {
     Filter((Array, Mask)),
     Expr((Array, ExprRef)),
+    Slice((Array, Range<usize>)),
     Canonicalize(Array),
 }
 
@@ -37,6 +39,7 @@ impl ScanTask {
         match self {
             ScanTask::Filter((array, mask)) => filter(array, mask),
             ScanTask::Expr((array, expr)) => expr.evaluate(array),
+            ScanTask::Slice((array, range)) => slice(array, range.start, range.end),
             ScanTask::Canonicalize(array) => array.clone().into_canonical().map(|c| c.into_array()),
         }
     }
@@ -275,7 +278,15 @@ impl<D: ScanDriver> Scan<D> {
             .map(move |row_mask| {
                 let reader = reader.clone();
                 let projection = projection.clone();
-                async move { reader.evaluate_expr(row_mask?, projection).await }
+                let executor = executor.clone();
+                async move {
+                    let row_mask = row_mask?;
+                    let mut array = reader.evaluate_expr(row_mask, projection).await?;
+                    if self.canonicalize {
+                        array = executor.evaluate(ScanTask::Canonicalize(array)).await?;
+                    }
+                    Ok(array)
+                }
             })
             .buffered(10);
 

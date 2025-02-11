@@ -1,6 +1,6 @@
-use futures_util::future::BoxFuture;
-use futures_util::stream::BoxStream;
-use futures_util::StreamExt;
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use vortex_error::VortexResult;
 
 use crate::exec::ExecDriver;

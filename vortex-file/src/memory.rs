@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Stream;
-use futures_util::stream;
+use futures::{stream, Stream};
 use vortex_array::Array;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};

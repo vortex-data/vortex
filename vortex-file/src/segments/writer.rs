@@ -25,7 +25,7 @@ impl BufferedSegmentWriter {
     /// Flush the segments to the provided async writer.
     pub async fn flush_async<W: VortexWrite>(
         &mut self,
-        write: &mut futures_util::io::Cursor<W>,
+        write: &mut futures::io::Cursor<W>,
         segments: &mut Vec<Segment>,
     ) -> VortexResult<()> {
         for buffers in self.segments.drain(..) {

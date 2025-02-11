@@ -1,6 +1,6 @@
-use futures_util::future::BoxFuture;
-use futures_util::stream::BoxStream;
-use futures_util::StreamExt;
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use tokio::runtime::Handle;
 use vortex_error::{vortex_err, VortexResult};
 

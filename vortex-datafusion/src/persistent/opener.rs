@@ -5,10 +5,11 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use datafusion_common::Result as DFResult;
 use futures::{pin_mut, FutureExt as _, SinkExt, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
+use tokio::runtime::Handle;
 use vortex_array::{Array, ContextRef, IntoArrayVariant};
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::VortexOpenOptions;
+use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::{Dispatch, IoDispatcher, ObjectStoreReadAt};
 
 use super::cache::FileLayoutCache;
@@ -21,6 +22,7 @@ pub(crate) struct VortexFileOpener {
     pub filter: Option<ExprRef>,
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
+    pub batch_size: usize,
 }
 
 impl VortexFileOpener {
@@ -31,6 +33,7 @@ impl VortexFileOpener {
         filter: Option<Arc<dyn VortexExpr>>,
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
+        batch_size: usize,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -39,6 +42,7 @@ impl VortexFileOpener {
             filter,
             file_layout_cache,
             projected_arrow_schema,
+            batch_size,
         })
     }
 }
@@ -54,8 +58,11 @@ impl FileOpener for VortexFileOpener {
         let file_layout_cache = self.file_layout_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
+        let batch_size = self.batch_size;
 
         Ok(async move {
+            let handle = Handle::current();
+
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
                 .with_file_layout(
@@ -63,6 +70,17 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, object_store)
                         .await?,
                 )
+                .with_executor_fn(Arc::new(move |task| {
+                    let handle = handle.clone();
+                    async move {
+                        handle
+                            .spawn_blocking(move || task.execute())
+                            .await
+                            .map_err(|e| vortex_err!("Error spawning task: {}", e))
+                            .and_then(|r| r)
+                    }
+                    .boxed()
+                }))
                 .open()
                 .await?;
 
@@ -82,6 +100,8 @@ impl FileOpener for VortexFileOpener {
                         .with_projection(projection.clone())
                         .with_some_filter(filter.clone())
                         .with_canonicalize(true)
+                        // DataFusion likes ~8k row batches, we just respect the config.
+                        .with_split_by(SplitBy::RowCount(batch_size))
                         .into_array_stream()?;
 
                     pin_mut!(stream);

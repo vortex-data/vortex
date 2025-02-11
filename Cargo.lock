@@ -5417,7 +5417,6 @@ dependencies = [
  "flatbuffers 25.2.10",
  "futures",
  "futures-executor",
- "futures-util",
  "itertools 0.14.0",
  "log",
  "moka",

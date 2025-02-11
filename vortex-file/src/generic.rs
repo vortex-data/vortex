@@ -4,10 +4,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Stream;
-use futures_util::stream::FuturesUnordered;
-use futures_util::{stream, StreamExt, TryStreamExt};
-use tokio::runtime::Handle;
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
+use futures::{stream, FutureExt, Stream, StreamExt, TryStreamExt};
 use vortex_array::Array;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -15,7 +14,6 @@ use vortex_io::VortexReadAt;
 use vortex_layout::scan::{ScanDriver, ScanExecutor, ScanTask};
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
-use crate::exec::ExecutionMode;
 use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
@@ -48,13 +46,8 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
 }
 
 impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
-    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
-        self.options.execution_mode = execution_mode;
-        self
-    }
-
-    pub fn with_execution_concurrency(mut self, execution_concurrency: usize) -> Self {
-        self.options.execution_concurrency = execution_concurrency;
+    pub fn with_executor_fn(mut self, executor_fn: ExecutorFn) -> Self {
+        self.options.executor_fn = executor_fn;
         self
     }
 
@@ -64,21 +57,22 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GenericScanOptions {
-    /// The number of concurrent splits to process.
-    execution_concurrency: usize,
-    execution_mode: ExecutionMode,
+    /// The execution function to use.
+    executor_fn: ExecutorFn,
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
 }
 
+pub type ExecutorFn =
+    Arc<dyn Fn(ScanTask) -> BoxFuture<'static, VortexResult<Array>> + Send + Sync>;
+
 impl Default for GenericScanOptions {
     fn default() -> Self {
         Self {
-            execution_concurrency: 10,
-            execution_mode: ExecutionMode::default(),
+            executor_fn: Arc::new(|task| async move { task.execute() }.boxed()),
             io_concurrency: 10,
         }
     }
@@ -94,7 +88,7 @@ pub struct GenericScanDriver<R> {
 
 pub struct GenericScanExecutor {
     segment_reader: Arc<dyn AsyncSegmentReader>,
-    executor: Handle,
+    executor: ExecutorFn,
 }
 
 #[async_trait]
@@ -104,11 +98,7 @@ impl ScanExecutor for GenericScanExecutor {
     }
 
     async fn evaluate(&self, task: ScanTask) -> VortexResult<Array> {
-        self.executor
-            .spawn_blocking(move || task.execute())
-            .await
-            .map_err(|e| vortex_err!("task failed: {}", e))
-            .and_then(|r| r)
+        (self.executor)(task).await
     }
 }
 
@@ -118,7 +108,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     fn executor(&self) -> Arc<dyn ScanExecutor> {
         Arc::new(GenericScanExecutor {
             segment_reader: self.segment_channel.reader(),
-            executor: Handle::current(),
+            executor: self.options.executor_fn.clone(),
         })
     }
 
@@ -214,7 +204,6 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         });
 
         // Buffer some number of concurrent I/O operations.
-        let io_stream = io_stream.buffer_unordered(self.options.io_concurrency);
 
         // TODO(ngates): we need to do this within vortex-datafusion somehow, where we know the
         //  read future is send.
@@ -234,7 +223,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         // });
         // recv
 
-        io_stream
+        io_stream.buffer_unordered(self.options.io_concurrency)
     }
 }
 
