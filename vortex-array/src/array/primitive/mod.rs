@@ -7,6 +7,7 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PTy
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::array::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
@@ -38,7 +39,10 @@ impl PrimitiveArray {
         let dtype = DType::from(T::PTYPE).with_nullability(validity.nullability());
         let children: Option<Box<[Array]>> = match validity {
             Validity::Array(a) => Some([a].into()),
-            _ => None,
+            Validity::AllInvalid => {
+                Some([ConstantArray::new(false, buffer.len()).into_array()].into())
+            }
+            Validity::AllValid | Validity::NonNullable => None,
         };
 
         Self::try_from_parts(
