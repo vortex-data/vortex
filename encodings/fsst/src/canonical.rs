@@ -139,7 +139,7 @@ mod tests {
                 let len = 10 * rng.gen_range(50..=150) / 100;
                 strings.push(Some(
                     (0..len)
-                        .map(|_| rng.gen_range(b'a'..=(b'z')) as char)
+                        .map(|_| rng.gen_range(b'a'..=b'z') as char)
                         .collect::<String>()
                         .into_bytes(),
                 ));

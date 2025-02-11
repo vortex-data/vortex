@@ -102,7 +102,7 @@ impl VarBinViewBuilder {
     pub fn push_buffer(&mut self, buffer: impl Iterator<Item = ByteBuffer>) {
         self.flush_in_progress();
 
-        assert_eq!(self.raw_push_buffers, false);
+        assert!(!self.raw_push_buffers);
         self.completed.extend(buffer);
 
         self.raw_push_buffers = true;
