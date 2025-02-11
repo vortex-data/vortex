@@ -4,7 +4,7 @@ use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Canonical, IntoArrayVariant};
+use vortex_array::{Canonical, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -24,10 +24,9 @@ impl CanonicalVTable<FSSTArray> for FSSTEncoding {
         array: FSSTArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        let builder = builder
-            .as_any_mut()
-            .downcast_mut::<VarBinViewBuilder>()
-            .unwrap();
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+            return builder.extend_from_array(self.into_canonical(array)?.into_array());
+        };
         let view = array.with_decompressor(|decompressor| {
             fsst_into_varbin_view(decompressor, &array, builder.completed_block_count())
         })?;
