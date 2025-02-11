@@ -82,7 +82,7 @@ impl FileOpener for VortexFileOpener {
 
             // Set up a task executor using the current DataFusion handle to make sure we don't
             // accidentally spawn tasks on the I/O dispatcher.
-            // let task_executor = Arc::new(TokioTaskExecutor(Handle::current()));
+            let task_executor = Arc::new(TokioTaskExecutor(Handle::current()));
 
             // Vortex assumes that the caller can frequently poll the returned stream in order to
             // drive underlying I/O. In the DataFusion model, where the Tokio runtime is used for
@@ -105,7 +105,7 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                // .with_task_executor(task_executor.clone())
+                .with_task_executor(task_executor.clone())
                 .into_array_stream()?
                 .map(move |array| {
                     let st = array?.into_struct()?;
@@ -117,7 +117,6 @@ impl FileOpener for VortexFileOpener {
     }
 }
 
-#[allow(dead_code)]
 struct TokioTaskExecutor(Handle);
 
 #[async_trait]
