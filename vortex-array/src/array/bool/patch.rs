@@ -10,10 +10,13 @@ use crate::IntoArrayVariant;
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
         let len = self.len();
-        let indices = patches.indices().clone().into_primitive()?;
-        let values = patches.values().clone().into_bool()?;
+        let (_, offset, indices, values) = patches.into_parts();
+        let indices = indices.into_primitive()?;
+        let values = values.into_bool()?;
 
-        let patched_validity = self.validity().patch(len, &indices, values.validity())?;
+        let patched_validity = self
+            .validity()
+            .patch(len, offset, &indices, values.validity())?;
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -22,7 +25,7 @@ impl BoolArray {
                 .iter()
                 .zip_eq(values.boolean_buffer().iter())
             {
-                own_values.set_bit(*idx as usize + bit_offset, value);
+                own_values.set_bit(*idx as usize - offset + bit_offset, value);
             }
         });
 

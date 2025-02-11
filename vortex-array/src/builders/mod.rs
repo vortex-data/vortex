@@ -7,6 +7,7 @@ mod null;
 mod primitive;
 mod struct_;
 mod utf8;
+mod varbinview_builder;
 
 use std::any::Any;
 

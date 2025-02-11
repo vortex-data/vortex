@@ -1,15 +1,13 @@
 use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::AllOr;
 
 use crate::array::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::validity::Validity;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct BoolBuilder {
@@ -96,17 +94,11 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
-        let bools = self.inner.finish();
-
-        let nulls = self.nulls.finish();
-        let validity = match (self.nullability, nulls) {
-            (NonNullable, None) => Validity::NonNullable,
-            (Nullable, None) => Validity::AllValid,
-            (Nullable, Some(arr)) => Validity::from(arr),
-            _ => vortex_panic!("Invalid nullability/nulls combination"),
-        };
-
-        Ok(BoolArray::try_new(bools, validity)?.into_array())
+        Ok(BoolArray::try_new(
+            self.inner.finish(),
+            self.nulls.finish_with_nullability(self.nullability)?,
+        )?
+        .into_array())
     }
 }
 

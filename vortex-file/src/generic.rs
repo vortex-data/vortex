@@ -69,6 +69,7 @@ pub struct GenericScanOptions {
     execution_concurrency: usize,
     execution_mode: ExecutionMode,
     /// The number of concurrent I/O requests to spawn.
+    /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
 }
 
@@ -76,7 +77,7 @@ impl Default for GenericScanOptions {
     fn default() -> Self {
         Self {
             execution_concurrency: 10,
-            execution_mode: ExecutionMode::Inline,
+            execution_mode: ExecutionMode::default(),
             io_concurrency: 10,
         }
     }
@@ -173,9 +174,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         // Note that we can provide a somewhat arbitrarily high capacity here since we're going to
         // deduplicate and coalesce. Meaning the resulting stream will at-most cover the entire
         // file and therefore be reasonably bounded.
-        let io_stream = io_stream
-            .ready_chunks(1024)
-            .inspect(|requests| log::debug!("Processing {} segment requests", requests.len()));
+        let io_stream = io_stream.ready_chunks(1024);
 
         // Coalesce the segment requests to minimize the number of I/O operations.
         let io_stream = io_stream
@@ -249,7 +248,8 @@ async fn evaluate<R: VortexReadAt>(
     segment_cache: Arc<dyn SegmentCache>,
 ) -> VortexResult<()> {
     log::debug!(
-        "Reading byte range: {:?} {}",
+        "Reading byte range for {} requests {:?} size={}",
+        request.requests.len(),
         request.byte_range,
         request.byte_range.end - request.byte_range.start,
     );

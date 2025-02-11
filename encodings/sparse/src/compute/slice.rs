@@ -6,23 +6,14 @@ use crate::{Array, IntoArray, SparseArray, SparseEncoding};
 
 impl SliceFn<SparseArray> for SparseEncoding {
     fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<Array> {
-        let new_patches = array.patches().slice(
-            array.indices_offset() + start,
-            array.indices_offset() + stop,
-        )?;
+        let new_patches = array.patches().slice(start, stop)?;
 
         let Some(new_patches) = new_patches else {
             return Ok(ConstantArray::new(array.fill_scalar(), stop - start).into_array());
         };
 
-        SparseArray::try_new_from_patches(
-            new_patches,
-            stop - start,
-            // NB: Patches::slice adjusts the indices
-            0,
-            array.fill_scalar(),
-        )
-        .map(IntoArray::into_array)
+        SparseArray::try_new_from_patches(new_patches, stop - start, array.fill_scalar())
+            .map(IntoArray::into_array)
     }
 }
 

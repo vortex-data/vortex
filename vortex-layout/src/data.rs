@@ -30,6 +30,7 @@ enum Inner {
 /// A layout that is fully deserialized and heap-allocated.
 #[derive(Debug, Clone)]
 pub struct OwnedLayout {
+    name: Arc<str>,
     vtable: LayoutVTableRef,
     dtype: DType,
     row_count: u64,
@@ -41,6 +42,7 @@ pub struct OwnedLayout {
 /// A layout that is lazily deserialized from a flatbuffer message.
 #[derive(Debug, Clone)]
 struct ViewedLayout {
+    name: Arc<str>,
     vtable: LayoutVTableRef,
     dtype: DType,
     flatbuffer: ByteBuffer,
@@ -58,6 +60,7 @@ impl ViewedLayout {
 impl Layout {
     /// Create a new owned layout.
     pub fn new_owned(
+        name: Arc<str>,
         vtable: LayoutVTableRef,
         dtype: DType,
         row_count: u64,
@@ -66,6 +69,7 @@ impl Layout {
         metadata: Option<Bytes>,
     ) -> Self {
         Self(Inner::Owned(OwnedLayout {
+            name,
             vtable,
             dtype,
             row_count,
@@ -77,6 +81,7 @@ impl Layout {
 
     /// Create a new viewed layout from a flatbuffer root message.
     pub fn try_new_viewed(
+        name: Arc<str>,
         vtable: LayoutVTableRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
@@ -99,6 +104,7 @@ impl Layout {
         }
 
         Ok(Self(Inner::Viewed(ViewedLayout {
+            name,
             vtable,
             dtype,
             flatbuffer,
@@ -113,6 +119,7 @@ impl Layout {
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
+        name: Arc<str>,
         encoding: LayoutVTableRef,
         dtype: DType,
         flatbuffer: ByteBuffer,
@@ -120,12 +127,21 @@ impl Layout {
         ctx: LayoutContextRef,
     ) -> Self {
         Self(Inner::Viewed(ViewedLayout {
+            name,
             vtable: encoding,
             dtype,
             flatbuffer,
             flatbuffer_loc,
             ctx,
         }))
+    }
+
+    /// Returns the human-readable name of the layout.
+    pub fn name(&self) -> &str {
+        match &self.0 {
+            Inner::Owned(owned) => owned.name.as_ref(),
+            Inner::Viewed(viewed) => viewed.name.as_ref(),
+        }
     }
 
     /// Returns the [`crate::LayoutVTable`] for this layout.
@@ -176,7 +192,7 @@ impl Layout {
     /// ## Panics
     ///
     /// Panics if the child index is out of bounds.
-    pub fn child(&self, i: usize, dtype: DType) -> VortexResult<Layout> {
+    pub fn child(&self, i: usize, dtype: DType, name: impl AsRef<str>) -> VortexResult<Layout> {
         if i >= self.nchildren() {
             vortex_panic!("child index out of bounds");
         }
@@ -184,11 +200,7 @@ impl Layout {
             Inner::Owned(o) => {
                 let child = o.children[i].clone();
                 if child.dtype() != &dtype {
-                    vortex_bail!(
-                        "child dtype mismatch. requested {:?}, actual {:?}",
-                        dtype,
-                        child.dtype(),
-                    );
+                    vortex_bail!("child dtype mismatch");
                 }
                 Ok(child)
             }
@@ -205,6 +217,7 @@ impl Layout {
                         vortex_err!("Child layout encoding {} not found", fb.encoding())
                     })?;
                 Ok(Self(Inner::Viewed(ViewedLayout {
+                    name: format!("{}.{}", v.name, name.as_ref()).into(),
                     vtable: encoding,
                     dtype,
                     flatbuffer: v.flatbuffer.clone(),

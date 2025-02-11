@@ -18,11 +18,11 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
-use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rand::{Rng, SeedableRng as _};
 use serde::Serialize;
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 use vortex::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
@@ -183,14 +183,32 @@ impl IdempotentPath for PathBuf {
     }
 }
 
-pub fn setup_logger(level: LevelFilter) {
-    TermLogger::init(
-        level,
-        Config::default(),
-        TerminalMode::Stderr,
-        ColorChoice::Auto,
-    )
-    .unwrap();
+pub fn setup_logger(_filter: EnvFilter) {
+    // #[cfg(not(feature = "tracing"))]
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_file(true)
+        .with_level(true)
+        .with_line_number(true)
+        .with_env_filter(_filter)
+        .init();
+}
+
+pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
+    match EnvFilter::try_from_default_env() {
+        Ok(filter) => filter,
+        Err(_e) => {
+            let default_level = if is_verbose {
+                LevelFilter::TRACE
+            } else {
+                LevelFilter::INFO
+            };
+
+            EnvFilter::builder()
+                .with_default_directive(default_level.into())
+                .from_env_lossy()
+        }
+    }
 }
 
 pub fn fetch_taxi_data() -> Array {

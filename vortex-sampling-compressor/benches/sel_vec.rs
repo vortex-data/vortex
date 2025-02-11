@@ -60,16 +60,19 @@ fn bench_sel_vec(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("canonical_then_filter");
     for selectivity in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999, 1.0] {
-        // Create a random mask of the given size
         let true_count = (selectivity * max as f64) as usize;
-        // Create a randomized mask with the correct length and true_count.
         let mask = create_mask(max, true_count);
         group.bench_with_input(
             BenchmarkId::from_parameter(selectivity),
             &mask,
             |b, mask| {
-                // Filter then into_canonical
-                b.iter(|| canonical_then_filter(&arr, mask))
+                b.iter_with_setup(
+                    || arr.clone(),
+                    |arr| {
+                        let canonical = arr.into_canonical().unwrap().into_array();
+                        filter(&canonical, mask).unwrap()
+                    },
+                )
             },
         );
     }
@@ -79,11 +82,6 @@ fn bench_sel_vec(c: &mut Criterion) {
 fn filter_then_canonical(array: &Array, mask: &Mask) -> Array {
     let filtered = filter(array, mask).unwrap();
     filtered.into_canonical().unwrap().into_array()
-}
-
-fn canonical_then_filter(array: &Array, mask: &Mask) -> Array {
-    let canonical = array.clone().into_canonical().unwrap().into_array();
-    filter(&canonical, mask).unwrap()
 }
 
 fn create_mask(len: usize, true_count: usize) -> Mask {

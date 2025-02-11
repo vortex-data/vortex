@@ -5,14 +5,13 @@ use std::sync::Arc;
 
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
-use num_traits::AsPrimitive;
+use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
-use vortex_dtype::Nullability;
-use vortex_dtype::{match_each_native_ptype, DType, PType};
+use vortex_dtype::Nullability::{NonNullable, Nullable};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
-#[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
@@ -36,6 +35,10 @@ impl_encoding!(
     List,
     RkyvMetadata<ListMetadata>
 );
+
+pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
+
+impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -207,25 +210,52 @@ impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then
     /// appended to the array.
-    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<Array>
+    pub fn from_iter_slow<O: OffsetPType, I: IntoIterator>(
+        iter: I,
+        dtype: Arc<DType>,
+    ) -> VortexResult<Array>
     where
         I::Item: IntoIterator,
         <I::Item as IntoIterator>::Item: Into<Scalar>,
     {
         let iter = iter.into_iter();
-        let mut builder = ListBuilder::<u32>::with_capacity(
-            dtype.clone(),
-            Nullability::NonNullable,
-            iter.size_hint().0,
-        );
+        let mut builder =
+            ListBuilder::<O>::with_capacity(dtype.clone(), NonNullable, iter.size_hint().0);
 
         for v in iter {
             let elem = Scalar::list(
                 dtype.clone(),
                 v.into_iter().map(|x| x.into()).collect_vec(),
-                Nullability::Nullable,
+                dtype.nullability(),
             );
             builder.append_value(elem.as_list())?
+        }
+        builder.finish()
+    }
+
+    pub fn from_iter_opt_slow<O: OffsetPType, I: IntoIterator<Item = Option<T>>, T>(
+        iter: I,
+        dtype: Arc<DType>,
+    ) -> VortexResult<Array>
+    where
+        T: IntoIterator,
+        T::Item: Into<Scalar>,
+    {
+        let iter = iter.into_iter();
+        let mut builder =
+            ListBuilder::<O>::with_capacity(dtype.clone(), Nullable, iter.size_hint().0);
+
+        for v in iter {
+            if let Some(v) = v {
+                let elem = Scalar::list(
+                    dtype.clone(),
+                    v.into_iter().map(|x| x.into()).collect_vec(),
+                    dtype.nullability(),
+                );
+                builder.append_value(elem.as_list())?
+            } else {
+                builder.append_null()
+            }
         }
         builder.finish()
     }
@@ -301,7 +331,8 @@ mod test {
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         let list_from_iter =
-            ListArray::from_iter_slow(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into())).unwrap();
+            ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into()))
+                .unwrap();
 
         assert_eq!(list.len(), list_from_iter.len());
         assert_eq!(

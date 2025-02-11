@@ -89,13 +89,16 @@ fn strings(c: &mut Criterion) {
         varbinview_arr.clone().into_array().nbytes() as u64,
     ));
     group.bench_function("dict_decode_varbinview", |b| {
-        b.iter(|| dict.clone().into_canonical().unwrap());
+        b.iter_with_setup(|| dict.clone(), |dict| dict.into_canonical().unwrap())
     });
 
     let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
     let fsst_array = fsst_compress(&varbinview_arr.into_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
-        b.iter(|| fsst_array.clone().into_canonical().unwrap());
+        b.iter_with_setup(
+            || fsst_array.clone(),
+            |fsst_array| fsst_array.into_canonical().unwrap(),
+        )
     });
 }
 

@@ -35,8 +35,6 @@ impl_encoding!(
 )]
 #[repr(C)]
 pub struct SparseMetadata {
-    // Offset value for patch indices as a result of slicing
-    indices_offset: usize,
     patches: PatchesMetadata,
 }
 
@@ -79,15 +77,14 @@ impl SparseArray {
             }
         }
 
-        let patches = Patches::new(len, indices, values);
+        let patches = Patches::new(len, indices_offset, indices, values);
 
-        Self::try_new_from_patches(patches, len, indices_offset, fill_value)
+        Self::try_new_from_patches(patches, len, fill_value)
     }
 
     pub fn try_new_from_patches(
         patches: Patches,
         len: usize,
-        indices_offset: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
         if fill_value.dtype() != patches.values().dtype() {
@@ -106,18 +103,12 @@ impl SparseArray {
             patches.dtype().clone(),
             len,
             RkyvMetadata(SparseMetadata {
-                indices_offset,
                 patches: patches_metadata,
             }),
             Some([fill_value_buffer.into_inner()].into()),
             Some([patches.indices().clone(), patches.values().clone()].into()),
             StatsSet::default(),
         )
-    }
-
-    #[inline]
-    pub fn indices_offset(&self) -> usize {
-        self.metadata().indices_offset
     }
 
     #[inline]
@@ -131,15 +122,15 @@ impl SparseArray {
             .as_ref()
             .child(1, self.dtype(), self.metadata().patches.len())
             .vortex_expect("Missing values array in SparseArray");
-        Patches::new(self.len(), indices, values)
+        Patches::new(self.len(), patches.offset(), indices, values)
     }
 
     #[inline]
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
-        let (len, indices, values) = self.patches().into_parts();
-        let indices_offset = Scalar::from(self.indices_offset()).cast(indices.dtype())?;
+        let (len, offset, indices, values) = self.patches().into_parts();
+        let indices_offset = Scalar::from(offset).cast(indices.dtype())?;
         let indices = sub_scalar(indices, indices_offset)?;
-        Ok(Patches::new(len, indices, values))
+        Ok(Patches::new(len, 0, indices, values))
     }
 
     #[inline]

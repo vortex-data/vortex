@@ -28,7 +28,6 @@ oneshot = { workspace = true, features = ["async"] }
 rayon = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
-tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -50,4 +49,3 @@ workspace = true
 [features]
 futures = ["futures-util/io", "vortex-io/futures"]
 object_store = ["vortex-error/object_store", "vortex-io/object_store"]
-tracing = ["dep:tracing", "vortex-io/tracing"]

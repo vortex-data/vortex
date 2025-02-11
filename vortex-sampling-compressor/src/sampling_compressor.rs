@@ -170,6 +170,7 @@ impl<'a> SamplingCompressor<'a> {
     pub fn compress_patches(&self, patches: Patches) -> VortexResult<Patches> {
         Ok(Patches::new(
             patches.array_len(),
+            patches.offset(),
             self.compress(&downscale_integer_array(patches.indices().clone())?, None)?
                 .into_array(),
             self.compress(patches.values(), None)?.into_array(),
