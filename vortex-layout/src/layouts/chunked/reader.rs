@@ -144,7 +144,7 @@ impl ChunkedReader {
                 if let Some(predicate) = pruning_predicate {
                     predicate
                         .evaluate(stats_table.array())?
-                        .map(|mask| Mask::try_from(mask))
+                        .map(Mask::try_from)
                         .transpose()?
                 } else {
                     None
