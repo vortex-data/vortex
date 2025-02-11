@@ -78,7 +78,7 @@ criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 [features]
 mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
-tracing = []
+tracing = ["vortex-datafusion/tracing"]
 
 [[bench]]
 name = "compress"
