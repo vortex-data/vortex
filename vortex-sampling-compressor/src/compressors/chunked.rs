@@ -117,7 +117,7 @@ impl ChunkedCompressor {
 
         let ratio = previous.map(|(_, ratio)| ratio);
         Ok(CompressedArray::compressed(
-            ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
+            ChunkedArray::try_new_unchecked(compressed_chunks, array.dtype().clone()).into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
                 compressed_trees,
