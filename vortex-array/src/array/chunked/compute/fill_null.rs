@@ -7,14 +7,14 @@ use crate::{Array, IntoArray};
 
 impl FillNullFn<ChunkedArray> for ChunkedEncoding {
     fn fill_null(&self, array: &ChunkedArray, fill_value: Scalar) -> VortexResult<Array> {
-        ChunkedArray::try_new(
+        Ok(ChunkedArray::try_new_unchecked(
             array
                 .chunks()
                 .map(|c| fill_null(c, fill_value.clone()))
                 .collect::<VortexResult<Vec<_>>>()?,
             array.dtype().as_nonnullable(),
         )
-        .map(|a| a.into_array())
+        .into_array())
     }
 }
 
