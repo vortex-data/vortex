@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 
 use futures::{Stream, TryFutureExt, TryStreamExt};
 use pin_project_lite::pin_project;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 
 pin_project! {
     /// A [`Stream`] that drives the both the I/O stream and the execution stream concurrently.
