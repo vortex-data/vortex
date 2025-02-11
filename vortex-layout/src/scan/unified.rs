@@ -50,7 +50,7 @@ where
                 }
                 // Unexpected end of stream.
                 Poll::Ready(None) => {
-                    return Poll::Ready(Some(Err(vortex_err!("unexpected end of I/O stream"))));
+                    continue;
                 }
                 // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
                 Poll::Pending => return Poll::Pending,
@@ -93,7 +93,7 @@ where
                 }
                 // Unexpected end of stream.
                 Poll::Ready(None) => {
-                    return Poll::Ready(Err(vortex_err!("unexpected end of I/O future")));
+                    continue;
                 }
                 // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
                 Poll::Pending => return Poll::Pending,
