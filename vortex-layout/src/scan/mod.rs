@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::stream::BoxStream;
 use futures::{stream, Stream};
 use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
 mod split_by;
+use futures::FutureExt;
 pub mod unified;
 
 use futures::StreamExt;
@@ -18,7 +20,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
-use vortex_scan::{RowMask, Scanner};
+use vortex_scan::RowMask;
 
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::SegmentId;
@@ -213,6 +215,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 }
 
+#[allow(dead_code)]
 pub struct Scan<D> {
     driver: D,
     layout: Layout,
@@ -231,48 +234,50 @@ impl<D: ScanDriver> Scan<D> {
     /// The returned stream should be considered to perform I/O-bound operations and requires
     /// frequent polling to make progress.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        let scanner = Arc::new(Scanner::new(
-            self.layout.dtype().clone(),
-            self.projection,
-            self.filter,
-        )?);
-
-        let result_dtype = scanner.result_dtype().clone();
-
         // Create a single LayoutReader that is reused for the entire scan.
         let executor = self.driver.executor();
         let reader: Arc<dyn LayoutReader> =
             self.layout.reader(executor.clone(), self.ctx.clone())?;
 
-        // This stream iterates each row mask and polls the layout reader.
-        // These reads spawn both their CPU and I/O work using the driver executor.
-        // We can therefore buffer this stream to make progress on multiple row masks concurrently.
-        let array_stream = stream::iter(self.row_masks)
-            .map(move |row_mask| {
-                let scanner = scanner.clone();
+        // Setup a filter stream
+        let row_masks = stream::iter(self.row_masks);
+        let row_masks: BoxStream<'static, VortexResult<RowMask>> =
+            if let Some(filter) = self.filter.clone() {
                 let reader = reader.clone();
-                let executor = executor.clone();
-                async move {
-                    scanner
-                        .clone()
-                        .range_scanner(row_mask)?
-                        .evaluate_async(move |row_mask, expr| {
-                            let reader = reader.clone();
-                            let executor = executor.clone();
-                            async move {
-                                let array = reader.evaluate_expr(row_mask, expr).await?;
-                                if self.canonicalize {
-                                    executor.evaluate(ScanTask::Canonicalize(array)).await
-                                } else {
-                                    Ok(array)
-                                }
+                row_masks
+                    .map(move |row_mask| {
+                        let reader = reader.clone();
+                        let filter = filter.clone();
+                        async move {
+                            let array = reader
+                                .evaluate_expr(row_mask.clone(), filter.clone())
+                                .await?;
+                            let mask = Mask::try_from(array)?;
+                            if mask.all_true() {
+                                Ok(None)
+                            } else {
+                                Ok(Some(RowMask::new(mask, row_mask.begin())))
                             }
-                        })
-                        .await
-                }
+                        }
+                        .map(|r| r.transpose())
+                    })
+                    .buffered(10)
+                    .filter_map(|r| async move { r })
+                    .boxed()
+            } else {
+                row_masks.map(Ok).boxed()
+            };
+
+        // Setup a projection stream
+        let reader = reader.clone();
+        let projection = self.projection.clone();
+        let array_stream = row_masks
+            .map(move |row_mask| {
+                let reader = reader.clone();
+                let projection = projection.clone();
+                async move { reader.evaluate_expr(row_mask?, projection).await }
             })
-            .buffered(1)
-            .filter_map(|result| async move { result.transpose() });
+            .buffered(10);
 
         let io_stream = self.driver.io_stream();
 
@@ -281,6 +286,7 @@ impl<D: ScanDriver> Scan<D> {
             io_stream,
         };
 
+        let result_dtype = self.projection.return_dtype(self.layout.dtype())?;
         Ok(ArrayStreamAdapter::new(result_dtype, unified))
     }
 
