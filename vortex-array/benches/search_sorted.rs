@@ -1,12 +1,13 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::distributions::Uniform;
-use rand::{thread_rng, Rng};
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
 use vortex_array::compute::{SearchSorted, SearchSortedSide};
 
 fn search_sorted(c: &mut Criterion) {
     let mut group = c.benchmark_group("search_sorted");
 
-    let mut rng = thread_rng();
+    let mut rng = StdRng::seed_from_u64(3440);
     let range = Uniform::new(0, 100_000_000);
     let mut data: Vec<i32> = (0..10_000_000).map(|_| rng.sample(range)).collect();
     data.sort();
