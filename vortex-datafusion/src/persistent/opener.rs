@@ -93,8 +93,10 @@ impl FileOpener for VortexFileOpener {
                         .with_projection(projection.clone())
                         .with_some_filter(filter.clone())
                         .with_canonicalize(true)
-                        // DataFusion likes ~8k row batches, we just respect the config.
-                        .with_split_by(SplitBy::RowCount(batch_size))
+                        // DataFusion likes ~8k row batches. Ideally we would respect the config,
+                        // but at the moment our scanner has too much overhead to process small
+                        // batches efficiently.
+                        .with_split_by(SplitBy::RowCount(8 * batch_size))
                         .with_task_executor(task_executor.clone())
                         .into_array_stream()?;
 
