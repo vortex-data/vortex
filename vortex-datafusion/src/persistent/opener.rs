@@ -4,7 +4,7 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use futures::{pin_mut, FutureExt as _, SinkExt, StreamExt, TryStreamExt};
+use futures::{pin_mut, FutureExt as _, SinkExt, StreamExt};
 use object_store::ObjectStore;
 use tokio::runtime::Handle;
 use vortex_array::{Array, ContextRef, IntoArrayVariant};
@@ -111,9 +111,9 @@ impl FileOpener for VortexFileOpener {
             })?;
 
             Ok(recv
-                .map_ok(move |array| {
-                    let st = array.into_struct()?;
-                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                .map(move |array| {
+                    let st = array?.into_struct()?;
+                    Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
                 })
                 .boxed())
         }
