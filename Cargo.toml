@@ -144,7 +144,6 @@ rustc-hash = "2"
 serde = "1.0.203"
 serde_json = "1.0.116"
 serde_test = "1.0.176"
-simplelog = { version = "0.12.2", features = ["paris"] }
 static_assertions = "1.1"
 tabled = { version = "0.18.0", default-features = false }
 tar = "0.4"

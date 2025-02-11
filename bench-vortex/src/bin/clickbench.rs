@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
-    Format, IdempotentPath as _, Measurement,
+    default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
+    idempotent, physical_plan, Format, IdempotentPath as _, Measurement,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -46,21 +46,32 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
+    // Capture `RUST_LOG` configuration
+    let filter = default_env_filter(args.verbose);
+
+    #[cfg(not(feature = "tracing"))]
+    bench_vortex::setup_logger(filter);
+
     // We need the guard to live to the end of the function, so can't create it in the if-block
     #[cfg(feature = "tracing")]
     let _trace_guard = {
         use tracing_subscriber::prelude::*;
 
-        // Capture `RUST_LOG` configuration
-        let filter = tracing_subscriber::EnvFilter::from_default_env();
         let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
             .include_args(true)
             .file("clickbench.trace.json")
             .build();
 
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_file(true)
+            .with_level(true)
+            .with_line_number(true);
+
         tracing_subscriber::registry()
             .with(filter)
             .with(layer)
+            .with(fmt_layer)
             .init();
         _guard
     };

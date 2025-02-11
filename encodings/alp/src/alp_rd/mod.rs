@@ -236,7 +236,7 @@ impl RDEncoder {
                     .into_array()
             };
 
-            Patches::new(doubles.len(), packed_pos, exceptions.into_array())
+            Patches::new(doubles.len(), 0, packed_pos, exceptions.into_array())
         });
 
         ALPRDArray::try_new(
@@ -282,8 +282,10 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
             indices
                 .as_slice::<$T>()
                 .iter()
+                .copied()
+                .map(|idx| idx - patches.offset() as $T)
                 .zip(patch_values.as_slice::<u16>().iter())
-                .for_each(|(idx, v)| values[*idx as usize] = *v);
+                .for_each(|(idx, v)| values[idx as usize] = *v);
         })
     }
 

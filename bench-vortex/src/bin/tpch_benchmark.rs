@@ -5,12 +5,13 @@ use std::time::Instant;
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
-use bench_vortex::{feature_flagged_allocator, setup_logger, Format, Measurement};
+use bench_vortex::{
+    default_env_filter, feature_flagged_allocator, setup_logger, Format, Measurement,
+};
 use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::LevelFilter;
 use tokio::runtime::Builder;
 use vortex::aliases::hash_map::HashMap;
 
@@ -42,11 +43,8 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    setup_logger(if args.verbose {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    });
+    let filter = default_env_filter(args.verbose);
+    setup_logger(filter);
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -80,7 +78,8 @@ async fn bench_main(
     emulate_object_store: bool,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
-    // setup_logger(LevelFilter::Trace);
+    // let filter = default_env_filter(true);
+    // setup_logger(filter);
 
     // Run TPC-H data gen.
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
