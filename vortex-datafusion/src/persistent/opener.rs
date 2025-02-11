@@ -98,10 +98,11 @@ impl FileOpener for VortexFileOpener {
             // compute, this is not the case.
             // To bridge this gap, we poll the Vortex stream on a dedicated thread, and then post
             // the results back to the DataFusion runtime.
-            // TODO(ngates): should we use the bounded-ness of this channel as back-pressure?
             let (send, recv) = futures::channel::mpsc::unbounded::<VortexResult<Array>>();
 
-            let _task = IoDispatcher::default().dispatch(move || {
+            // TODO(ngates): we may want to do something to also poll this handle and propagate
+            //  any errors back into DataFusion.
+            IoDispatcher::default().dispatch(move || {
                 let mut send = send.clone();
                 async move {
                     let stream = vxf
@@ -125,9 +126,6 @@ impl FileOpener for VortexFileOpener {
                     Ok::<_, VortexError>(())
                 }
             })?;
-
-            // TODO(ngates): is there a way to poll the task for early-exit / failure alongside
-            //  the result stream? Perhaps using the unified streams?
 
             Ok(recv
                 .map_ok(move |array| {

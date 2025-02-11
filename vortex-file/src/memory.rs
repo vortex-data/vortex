@@ -46,7 +46,7 @@ impl ScanDriver for InMemoryVortexFile {
     }
 
     fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {
-        stream::empty()
+        stream::repeat_with(|| Ok(()))
     }
 }
 
