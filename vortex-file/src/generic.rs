@@ -169,25 +169,6 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         });
 
         // Buffer some number of concurrent I/O operations.
-
-        // TODO(ngates): we need to do this within vortex-datafusion somehow, where we know the
-        //  read future is send.
-        // Finally, we spawn the collection of the stream so it's polled by Tokio in the background.
-        // let (mut send, recv) = futures::channel::mpsc::unbounded::<VortexResult<()>>();
-        // tokio::spawn(async move {
-        //     let count = 0;
-        //
-        //     pin_mut!(io_stream);
-        //     while let Some(r) = io_stream.next().await {
-        //         log::debug!("Processed {} segment requests", count + 1);
-        //         send.send(r)
-        //             .await
-        //             .map_err(|e| vortex_err!("stream closed {}", e))
-        //             .vortex_expect("stream closed");
-        //     }
-        // });
-        // recv
-
         io_stream.buffer_unordered(self.options.io_concurrency)
     }
 }

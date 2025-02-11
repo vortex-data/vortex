@@ -13,6 +13,8 @@ pub struct FlatReader {
     layout: Layout,
     ctx: ContextRef,
     executor: Arc<ScanExecutor>,
+    // TODO(ngates): we need to add an invalidate_row_range function to evict these from the
+    //  cache.
     array: Arc<OnceCell<Array>>,
 }
 
