@@ -1944,11 +1944,11 @@ dependencies = [
 
 [[package]]
 name = "flatbuffers"
-version = "25.1.24"
+version = "25.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c58d7edb5d62d268a095c72e59c8dcf2c456ad3e332a9df17bdc4bd029a9a870"
+checksum = "1045398c1bfd89168b5fd3f1fc11f6e70b34f6f66300c87d44d3de849463abf1"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.8.0",
  "rustc_version",
 ]
 
@@ -1964,9 +1964,9 @@ dependencies = [
 
 [[package]]
 name = "flexbuffers"
-version = "25.1.24"
+version = "25.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fbddda936f61d9be8a02b5b4ff6c1caf4bf05e6d1a057420834dde4c0fdec8c"
+checksum = "935627e7bc8f083035d9faad09ffaed9128f73fb1f74a8798f115749c43378e8"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",
@@ -2681,9 +2681,9 @@ checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
 
 [[package]]
 name = "jiff"
-version = "0.1.29"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c04ef77ae73f3cf50510712722f0c4e8b46f5aaa1bf5ffad2ae213e6495e78e5"
+checksum = "ba926fdd8e5b5e7f9700355b0831d8c416afe94b014b1023424037a187c9c582"
 dependencies = [
  "jiff-tzdb-platform",
  "log",
@@ -5281,7 +5281,7 @@ dependencies = [
  "codspeed-criterion-compat",
  "divan",
  "enum-iterator",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "flexbuffers",
  "futures-util",
  "getrandom 0.2.15",
@@ -5425,7 +5425,7 @@ name = "vortex-dtype"
 version = "0.24.0"
 dependencies = [
  "arbitrary",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "half",
  "itertools 0.14.0",
  "num-traits",
@@ -5446,7 +5446,7 @@ version = "0.24.0"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "flexbuffers",
  "jiff",
  "object_store",
@@ -5505,7 +5505,7 @@ version = "0.24.0"
 dependencies = [
  "async-trait",
  "bytes",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "futures",
  "futures-executor",
  "futures-util",
@@ -5531,7 +5531,7 @@ dependencies = [
 name = "vortex-flatbuffers"
 version = "0.24.0"
 dependencies = [
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "vortex-buffer",
 ]
 
@@ -5597,7 +5597,7 @@ name = "vortex-ipc"
 version = "0.24.0"
 dependencies = [
  "bytes",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "futures-util",
  "itertools 0.14.0",
  "pin-project-lite",
@@ -5617,7 +5617,7 @@ dependencies = [
  "async-once-cell",
  "async-trait",
  "bytes",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "futures",
  "itertools 0.14.0",
  "log",
@@ -5675,6 +5675,7 @@ version = "0.24.0"
 dependencies = [
  "arbitrary",
  "chrono",
+ "codspeed-criterion-compat",
  "fsst-rs",
  "itertools 0.14.0",
  "log",
@@ -5690,6 +5691,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
+ "vortex-mask",
  "vortex-runend",
  "vortex-scalar",
  "vortex-sparse",
@@ -5703,7 +5705,7 @@ dependencies = [
  "arbitrary",
  "arrow-array",
  "datafusion-common",
- "flatbuffers 25.1.24",
+ "flatbuffers 25.2.10",
  "flexbuffers",
  "itertools 0.14.0",
  "num-traits",
@@ -5724,6 +5726,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.24.0"
 dependencies = [
+ "log",
  "rstest",
  "vortex-array",
  "vortex-buffer",

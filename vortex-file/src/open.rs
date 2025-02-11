@@ -306,6 +306,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
             Layout::new_viewed_unchecked(
+                "$".into(),
                 root_encoding,
                 dtype,
                 bytes.clone(),

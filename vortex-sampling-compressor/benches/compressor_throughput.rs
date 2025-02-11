@@ -1,30 +1,29 @@
-use bench_vortex::feature_flagged_allocator;
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
+
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use rand::distributions::Alphanumeric;
 use rand::seq::SliceRandom as _;
 use rand::{thread_rng, Rng, SeedableRng as _};
-use vortex::aliases::hash_set::HashSet;
-use vortex::array::VarBinViewArray;
-use vortex::buffer::Buffer;
-use vortex::compute::try_cast;
-use vortex::dtype::PType;
-use vortex::encodings::dict::dict_encode;
-use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
-use vortex::sampling_compressor::compressors::alp::ALPCompressor;
-use vortex::sampling_compressor::compressors::alp_rd::ALPRDCompressor;
-use vortex::sampling_compressor::compressors::bitpacked::{
+use vortex_array::aliases::hash_set::HashSet;
+use vortex_array::array::VarBinViewArray;
+use vortex_array::compute::try_cast;
+use vortex_array::{IntoArray, IntoCanonical};
+use vortex_buffer::Buffer;
+use vortex_dict::dict_encode;
+use vortex_dtype::PType;
+use vortex_fsst::{fsst_compress, fsst_train_compressor};
+use vortex_sampling_compressor::compressors::alp::ALPCompressor;
+use vortex_sampling_compressor::compressors::alp_rd::ALPRDCompressor;
+use vortex_sampling_compressor::compressors::bitpacked::{
     BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES,
 };
-use vortex::sampling_compressor::compressors::delta::DeltaCompressor;
-use vortex::sampling_compressor::compressors::dict::DictCompressor;
-use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
-use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
-use vortex::sampling_compressor::compressors::CompressorRef;
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{IntoArray, IntoCanonical};
-
-feature_flagged_allocator!();
+use vortex_sampling_compressor::compressors::delta::DeltaCompressor;
+use vortex_sampling_compressor::compressors::dict::DictCompressor;
+use vortex_sampling_compressor::compressors::r#for::FoRCompressor;
+use vortex_sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
+use vortex_sampling_compressor::compressors::zigzag::ZigZagCompressor;
+use vortex_sampling_compressor::compressors::CompressorRef;
+use vortex_sampling_compressor::SamplingCompressor;
 
 fn primitive(c: &mut Criterion) {
     let mut group = c.benchmark_group("primitive-decompression");
@@ -94,7 +93,7 @@ fn strings(c: &mut Criterion) {
     });
 
     let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
+    let fsst_array = fsst_compress(&varbinview_arr.into_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
         b.iter(|| fsst_array.clone().into_canonical().unwrap());
     });
