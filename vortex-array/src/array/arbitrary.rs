@@ -4,7 +4,6 @@ use std::sync::Arc;
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
-use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};

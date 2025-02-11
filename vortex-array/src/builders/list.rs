@@ -132,7 +132,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let offsets = binary_numeric(
             &try_cast(
-                slice(&list.offsets(), 1, list.offsets().len())?,
+                slice(list.offsets(), 1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
             &ConstantArray::new(
@@ -285,7 +285,7 @@ mod tests {
         let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 6);
 
         builder.extend_from_array(list.clone()).unwrap();
-        builder.extend_from_array(list.clone()).unwrap();
+        builder.extend_from_array(list).unwrap();
 
         let expect = ListArray::from_iter_opt_slow::<O, _, _>(
             [
