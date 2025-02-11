@@ -60,13 +60,13 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
             ))
         })?;
 
-    derived_stats.inspect(|derived_stats| {
+    if let Some(derived_stats) = derived_stats {
         let mut stats = sliced.stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
             sliced.set_stat(stat, val)
         }
-    });
+    }
 
     debug_assert_eq!(
         sliced.len(),

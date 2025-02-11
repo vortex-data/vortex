@@ -65,13 +65,13 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 
     let taken = take_impl(array, indices, checked_indices)?;
 
-    derived_stats.inspect(|derived_stats| {
+    if let Some(derived_stats) = derived_stats {
         let mut stats = taken.stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
             taken.set_stat(stat, val)
         }
-    });
+    }
 
     debug_assert_eq!(
         taken.len(),
