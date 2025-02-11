@@ -8,7 +8,7 @@ impl Display for DisplayFieldNames<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, field) in self.0.iter().enumerate() {
             if i > 0 {
-                write!(f, ",")?;
+                write!(f, ", ")?;
             }
             field.fmt(f)?
         }
