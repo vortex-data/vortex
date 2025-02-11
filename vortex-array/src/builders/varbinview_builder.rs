@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::cmp::max;
 
-use vortex_buffer::{BufferMut, ByteBuffer};
+use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::AllOr;
@@ -15,7 +15,7 @@ pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
     null_buffer_builder: LazyNullBufferBuilder,
     completed: Vec<ByteBuffer>,
-    in_progress: Vec<u8>,
+    in_progress: ByteBufferMut,
     nullability: Nullability,
     dtype: DType,
 }
@@ -29,7 +29,7 @@ impl VarBinViewBuilder {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
             null_buffer_builder: LazyNullBufferBuilder::new(capacity),
             completed: vec![],
-            in_progress: vec![],
+            in_progress: ByteBufferMut::with_capacity(VarBinViewBuilder::BLOCK_SIZE as usize),
             nullability: dtype.nullability(),
             dtype,
         }
@@ -81,7 +81,7 @@ impl VarBinViewBuilder {
     #[inline]
     fn flush_in_progress(&mut self) {
         if !self.in_progress.is_empty() {
-            let f = ByteBuffer::from(std::mem::take(&mut self.in_progress));
+            let f = ByteBuffer::from(std::mem::take(&mut self.in_progress).freeze());
             self.push_completed(f)
         }
     }
