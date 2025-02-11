@@ -1,3 +1,4 @@
+use std::ops::BitAnd;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
@@ -274,10 +275,13 @@ impl<D: ScanDriver> Scan<D> {
                         let filter = filter.clone();
                         async move {
                             let array = reader
-                                .evaluate_expr(row_mask.clone(), filter.clone())
+                                .evaluate_expr(
+                                    RowMask::new_valid_between(row_mask.begin(), row_mask.end()),
+                                    filter.clone(),
+                                )
                                 .await?;
-                            let mask = Mask::try_from(array)?;
-                            if mask.all_true() {
+                            let mask = Mask::try_from(array)?.bitand(row_mask.filter_mask());
+                            if mask.all_false() {
                                 Ok(None)
                             } else {
                                 Ok(Some(RowMask::new(mask, row_mask.begin())))

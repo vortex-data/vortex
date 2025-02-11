@@ -715,8 +715,6 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap()
         .into_struct()
-        .unwrap()
-        .into_struct()
         .unwrap();
 
     let actual_numbers_array = actual_array
