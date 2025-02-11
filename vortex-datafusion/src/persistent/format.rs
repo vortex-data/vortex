@@ -28,7 +28,7 @@ use vortex_array::{stats, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
@@ -42,6 +42,7 @@ pub struct VortexFormat {
     context: ContextRef,
     file_layout_cache: FileLayoutCache,
     opts: VortexFormatOptions,
+    io_dispatcher: IoDispatcher,
 }
 
 /// Options to configure the [`VortexFormat`].
@@ -49,11 +50,16 @@ pub struct VortexFormat {
 pub struct VortexFormatOptions {
     /// The size of the in-memory [`vortex_file::FileLayout`] cache.
     pub cache_size_mb: usize,
+    /// Number of threads to dispatch the scan over
+    pub dispatch_threads: usize,
 }
 
 impl Default for VortexFormatOptions {
     fn default() -> Self {
-        Self { cache_size_mb: 256 }
+        Self {
+            cache_size_mb: 256,
+            dispatch_threads: 1,
+        }
     }
 }
 
@@ -117,10 +123,12 @@ impl VortexFormat {
     /// Create a new instance of the [`VortexFormat`].
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
+        let io_dispatcher = IoDispatcher::new_tokio(opts.dispatch_threads);
         Self {
             file_layout_cache: FileLayoutCache::new(opts.cache_size_mb, context.clone()),
             context,
             opts,
+            io_dispatcher,
         }
     }
 
@@ -302,6 +310,7 @@ impl FileFormat for VortexFormat {
             filters.cloned(),
             self.context.clone(),
             self.file_layout_cache.clone(),
+            self.io_dispatcher.clone(),
         )?
         .into_arc();
 

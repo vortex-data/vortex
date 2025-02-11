@@ -24,9 +24,11 @@ pub(crate) struct VortexFileOpener {
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
+    pub io_dispatcher: IoDispatcher,
 }
 
 impl VortexFileOpener {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ctx: ContextRef,
         object_store: Arc<dyn ObjectStore>,
@@ -35,6 +37,7 @@ impl VortexFileOpener {
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
+        io_dispatcher: IoDispatcher,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -44,6 +47,7 @@ impl VortexFileOpener {
             file_layout_cache,
             projected_arrow_schema,
             batch_size,
+            io_dispatcher,
         })
     }
 }
@@ -60,6 +64,7 @@ impl FileOpener for VortexFileOpener {
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
+        let io_dispatcher = self.io_dispatcher.clone();
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
@@ -85,7 +90,7 @@ impl FileOpener for VortexFileOpener {
 
             // TODO(ngates): we may want to do something to also poll this handle and propagate
             //  any errors back into DataFusion.
-            IoDispatcher::default().dispatch(move || {
+            io_dispatcher.dispatch(move || {
                 let mut send = send.clone();
                 async move {
                     let stream = vxf

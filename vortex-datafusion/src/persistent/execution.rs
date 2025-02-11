@@ -15,6 +15,7 @@ use itertools::Itertools;
 use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{and, VortexExpr};
+use vortex_io::IoDispatcher;
 
 use super::cache::FileLayoutCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
@@ -31,6 +32,7 @@ pub(crate) struct VortexExec {
     initial_read_cache: FileLayoutCache,
     projected_arrow_schema: SchemaRef,
     projection: Arc<dyn VortexExpr>,
+    io_dispatcher: IoDispatcher,
 }
 
 impl VortexExec {
@@ -40,6 +42,7 @@ impl VortexExec {
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: ContextRef,
         initial_read_cache: FileLayoutCache,
+        io_dispatcher: IoDispatcher,
     ) -> DFResult<Self> {
         let ConfigProjection {
             arrow_schema,
@@ -74,6 +77,7 @@ impl VortexExec {
             projected_statistics: statistics,
             projected_arrow_schema: arrow_schema,
             projection: projection_expr,
+            io_dispatcher,
         })
     }
 
@@ -133,6 +137,7 @@ impl ExecutionPlan for VortexExec {
             self.initial_read_cache.clone(),
             self.projected_arrow_schema.clone(),
             context.session_config().batch_size(),
+            self.io_dispatcher.clone(),
         )?;
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
 
