@@ -76,7 +76,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     >>> c = vx.io.read_path("a.vortex", projection = ["age"])
 ///     >>> c.to_arrow_array()
 ///     <pyarrow.lib.StructArray object at ...>
-///
 ///     -- is_valid: all not null
 ///     -- child 0 type: int64
 ///       [
