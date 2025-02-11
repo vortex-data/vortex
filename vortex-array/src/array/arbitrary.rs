@@ -11,7 +11,7 @@ use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
 
-use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
+use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
@@ -122,17 +122,12 @@ fn random_list(
     }
 }
 
-fn random_list_offset<O>(
+fn random_list_offset<O: OffsetPType>(
     u: &mut Unstructured,
     ldt: &Arc<DType>,
     n: &Nullability,
     chunk_len: Option<usize>,
-) -> Result<Array>
-where
-    O: PrimInt + NativePType,
-    Scalar: From<O>,
-    usize: AsPrimitive<O>,
-{
+) -> Result<Array> {
     let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
     let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 10);
     for _ in 0..list_len {
