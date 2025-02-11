@@ -1,9 +1,7 @@
-use std::fmt::{Debug, Display};
 use std::{iter, ptr};
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use serde::{Deserialize, Serialize};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -13,13 +11,13 @@ use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use crate::{impl_encoding, Array, Canonical, IntoArray, IntoCanonical, RkyvMetadata};
+use crate::{impl_encoding, Array, Canonical, EmptyMetadata, IntoArray, IntoCanonical};
 
 mod compute;
 mod patch;
@@ -29,36 +27,26 @@ impl_encoding!(
     "vortex.primitive",
     encoding_ids::PRIMITIVE,
     Primitive,
-    RkyvMetadata<PrimitiveMetadata>
+    EmptyMetadata
 );
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-#[repr(C)]
-pub struct PrimitiveMetadata {
-    pub(crate) validity: ValidityMetadata,
-}
-
-impl Display for PrimitiveMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
 
 impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         let len = buffer.len();
 
+        let dtype = DType::from(T::PTYPE).with_nullability(validity.nullability());
+        let children: Option<Box<[Array]>> = match validity {
+            Validity::Array(a) => Some([a].into()),
+            _ => None,
+        };
+
         Self::try_from_parts(
-            DType::from(T::PTYPE).with_nullability(validity.nullability()),
+            dtype,
             len,
-            RkyvMetadata(PrimitiveMetadata {
-                validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
-            }),
+            EmptyMetadata,
             Some([buffer.into_byte_buffer()].into()),
-            validity.into_array().map(|v| [v].into()),
+            children,
             StatsSet::default(),
         )
         .vortex_expect("Should not fail to create PrimitiveArray")
@@ -103,11 +91,18 @@ impl PrimitiveArray {
     }
 
     pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(0, &Validity::DTYPE, self.len())
-                .vortex_expect("PrimitiveArray: validity child")
-        })
+        if self.dtype().is_nullable() {
+            if self.nchildren() == 0 {
+                Validity::AllValid
+            } else {
+                Validity::Array(
+                    self.child(0, &Validity::DTYPE, self.len())
+                        .vortex_expect("PrimitiveArray: validity child"),
+                )
+            }
+        } else {
+            Validity::NonNullable
+        }
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {
