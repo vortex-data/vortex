@@ -11,17 +11,20 @@ use crate::IntoArrayVariant;
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let (_, _, patch_indices, patch_values) = patches.into_parts();
+        let (_, offset, patch_indices, patch_values) = patches.into_parts();
         let patch_indices = patch_indices.into_primitive()?;
         let patch_values = patch_values.into_primitive()?;
 
-        let patched_validity =
-            self.validity()
-                .patch(self.len(), patch_indices.as_ref(), patch_values.validity())?;
+        let patched_validity = self.validity().patch(
+            self.len(),
+            offset,
+            patch_indices.as_ref(),
+            patch_values.validity(),
+        )?;
 
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
-                self.patch_typed::<$T, $I>(patch_indices, patch_values, patched_validity)
+                self.patch_typed::<$T, $I>(patch_indices, offset, patch_values, patched_validity)
             })
         })
     }
@@ -29,6 +32,7 @@ impl PrimitiveArray {
     fn patch_typed<T, I>(
         self,
         patch_indices: PrimitiveArray,
+        patch_indices_offset: usize,
         patch_values: PrimitiveArray,
         patched_validity: Validity,
     ) -> VortexResult<Self>
@@ -41,7 +45,7 @@ impl PrimitiveArray {
         let patch_indices = patch_indices.as_slice::<I>();
         let patch_values = patch_values.as_slice::<T>();
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
-            own_values[idx.as_usize()] = *value;
+            own_values[idx.as_usize() - patch_indices_offset] = *value;
         }
         Ok(Self::new(own_values, patched_validity))
     }
