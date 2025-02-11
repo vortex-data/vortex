@@ -2,14 +2,16 @@ use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
+use datafusion::sql::sqlparser::ast::IndexType::Hash;
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
+use tokio::runtime::Handle;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::VortexOpenOptions;
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::cache::FileLayoutCache;
 
@@ -66,11 +68,22 @@ impl FileOpener for VortexFileOpener {
                 .open()
                 .await?;
 
-            let array_stream = vxf
+            // Vortex assumes that the caller can frequently poll the returned stream in order to
+            // drive underlying I/O. In the DataFusion model, where the Tokio runtime is used for
+            // compute, this is not the case.
+            // To bridge this gap, we poll the Vortex stream on a dedicated thread, and then post
+            // the results back to the DataFusion runtime.
+            let (send, recv) = futures::channel::mpsc::unbounded();
+
+            IoDispatcher::default()
+
+            let stream = vxf
                 .scan()
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
                 .into_array_stream()?;
+
+            Ok(stream
                 .map_ok(move |array| {
                     let st = array.into_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
