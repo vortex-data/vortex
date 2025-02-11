@@ -12,7 +12,6 @@ use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::LevelFilter;
 use tokio::runtime::Builder;
 use vortex::aliases::hash_map::HashMap;
 
