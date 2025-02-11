@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use futures::{FutureExt as _, StreamExt, TryStreamExt};
+use futures::{FutureExt as _, StreamExt};
 use object_store::ObjectStore;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
@@ -71,12 +71,12 @@ impl FileOpener for VortexFileOpener {
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
                 .into_array_stream()?
-                .map_ok(move |array| {
-                    let st = array.into_struct()?;
-                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                .map(move |array| {
+                    let st = array?.into_struct()?;
+                    let rb = st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?;
+
+                    Ok(rb)
                 })
-                .map(|r| r.and_then(|inner| inner))
-                .map_err(|e| e.into())
                 .boxed())
         }
         .boxed())
