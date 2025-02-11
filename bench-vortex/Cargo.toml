@@ -63,10 +63,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }
 tracing-futures = { workspace = true }
-tracing-subscriber = { workspace = true, features = [
-    "env-filter",
-    "tracing-log",
-] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
