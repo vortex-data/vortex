@@ -46,7 +46,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
 vortex-file = { workspace = true, features = ["object_store", "tokio"] }
-vortex-io = { workspace = true, features = ["object_store", "tokio", "compio"] }
+vortex-io = { workspace = true, features = ["object_store", "tokio"] }
 
 [features]
 tracing = ["dep:tracing", "dep:tracing-futures", "vortex-io/tracing"]

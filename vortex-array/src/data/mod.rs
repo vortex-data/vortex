@@ -101,7 +101,29 @@ impl Array {
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
-        let array = Self::try_new(InnerArray::Viewed(view))?;
+        Self::try_new(InnerArray::Viewed(view))
+    }
+
+    /// Shared constructor that performs common array validation.
+    fn try_new(inner: InnerArray) -> VortexResult<Self> {
+        let array = Array(inner);
+
+        // Sanity check that the encoding implements the correct array trait
+        debug_assert!(
+            match array.dtype() {
+                DType::Null => array.as_null_array().is_some(),
+                DType::Bool(_) => array.as_bool_array().is_some(),
+                DType::Primitive(..) => array.as_primitive_array().is_some(),
+                DType::Utf8(_) => array.as_utf8_array().is_some(),
+                DType::Binary(_) => array.as_binary_array().is_some(),
+                DType::Struct(..) => array.as_struct_array().is_some(),
+                DType::List(..) => array.as_list_array().is_some(),
+                DType::Extension(..) => array.as_extension_array().is_some(),
+            },
+            "Encoding {} does not implement the variant trait for {}",
+            array.encoding(),
+            array.dtype()
+        );
 
         // First, we validate the metadata.
         array.vtable().validate_metadata(array.metadata_bytes())?;
@@ -153,30 +175,6 @@ impl Array {
                 array.encoding(),
             );
         }
-
-        Ok(array)
-    }
-
-    /// Shared constructor that performs common array validation.
-    fn try_new(inner: InnerArray) -> VortexResult<Self> {
-        let array = Array(inner);
-
-        // Sanity check that the encoding implements the correct array trait
-        debug_assert!(
-            match array.dtype() {
-                DType::Null => array.as_null_array().is_some(),
-                DType::Bool(_) => array.as_bool_array().is_some(),
-                DType::Primitive(..) => array.as_primitive_array().is_some(),
-                DType::Utf8(_) => array.as_utf8_array().is_some(),
-                DType::Binary(_) => array.as_binary_array().is_some(),
-                DType::Struct(..) => array.as_struct_array().is_some(),
-                DType::List(..) => array.as_list_array().is_some(),
-                DType::Extension(..) => array.as_extension_array().is_some(),
-            },
-            "Encoding {} does not implement the variant trait for {}",
-            array.encoding(),
-            array.dtype()
-        );
 
         Ok(array)
     }
