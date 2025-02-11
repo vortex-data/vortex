@@ -49,17 +49,17 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     pub fn patch(&mut self, patches: Patches, starting_at: usize) -> VortexResult<()> {
         let (array_len, offset, indices, values) = patches.into_parts();
-        assert!(values.len() == array_len);
+        assert!(starting_at + array_len == self.len());
         let indices = indices.into_primitive()?;
         let values = values.into_primitive()?;
         let validity = values.validity_mask()?;
         let values = values.as_slice::<T>();
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
-            for index in indices.into_primitive()?.as_slice::<$P>() {
-                let index = *index as usize;
-                let out_index = starting_at + index - offset;
-                if validity.value(index) {
-                    self.values[out_index] = values[index]
+            for (compressed_index, decompressed_index) in indices.into_primitive()?.as_slice::<$P>().into_iter().enumerate() {
+                let decompressed_index = *decompressed_index as usize;
+                let out_index = starting_at + decompressed_index - offset;
+                if validity.value(compressed_index) {
+                    self.values[out_index] = values[compressed_index]
                 } else {
                     self.nulls.set_bit(out_index, false)
                 }
