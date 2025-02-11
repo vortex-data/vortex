@@ -16,7 +16,7 @@ use crate::array::{
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
@@ -233,6 +233,16 @@ impl Array {
             || self.is_encoding(PrimitiveEncoding.id())
             || self.is_encoding(VarBinEncoding.id())
             || self.is_encoding(VarBinViewEncoding.id())
+    }
+
+    /// A method that *cheaply* checks if the array is constant, might may return false when
+    /// the array is in-fact constant.
+    pub fn must_be_constant(&self) -> bool {
+        self.is_encoding(BoolEncoding.id())
+            || self
+                .statistics()
+                .get_as::<bool>(Stat::IsConstant)
+                .is_some_and(|p| p == Precision::Exact(true))
     }
 
     /// Return whether the array is constant.

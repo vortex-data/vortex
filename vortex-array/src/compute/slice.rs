@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, Canonical, IntoArray};
 
 /// Limit array to start...stop range
@@ -45,7 +45,9 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 
     check_slice_bounds(array, start, stop)?;
 
-    let derived_stats = derive_sliced_stats(array);
+    // We know that constant array don't need stats propagation, so we can avoid the overhead of
+    // computing derived stats and merging them in.
+    let derived_stats = (!array.must_be_constant()).then(|| derive_sliced_stats(array));
 
     let sliced = array
         .vtable()
@@ -58,10 +60,12 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
             ))
         })?;
 
-    let mut stats = sliced.stats_set();
-    stats.combine_sets(&derived_stats, array.dtype())?;
-    for (stat, val) in stats.into_iter() {
-        sliced.set_stat(stat, val)
+    if let Some(derived_stats) = derived_stats {
+        let mut stats = sliced.stats_set();
+        stats.combine_sets(&derived_stats, array.dtype())?;
+        for (stat, val) in stats.into_iter() {
+            sliced.set_stat(stat, val)
+        }
     }
 
     debug_assert_eq!(
@@ -83,17 +87,31 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 fn derive_sliced_stats(arr: &Array) -> StatsSet {
     let stats = arr.stats_set();
 
-    stats.keep_exact_inexact_stats(
-        &[Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted],
-        &[
-            Stat::Max,
-            Stat::Min,
-            Stat::RunCount,
-            Stat::TrueCount,
-            Stat::NullCount,
-            Stat::UncompressedSizeInBytes,
-        ],
-    )
+    // an array that is not constant can become constant after slicing
+    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+    let is_sorted = stats.get_as::<bool>(Stat::IsConstant);
+    let is_strict_sorted = stats.get_as::<bool>(Stat::IsConstant);
+
+    let mut stats = stats.keep_inexact_stats(&[
+        Stat::Max,
+        Stat::Min,
+        Stat::RunCount,
+        Stat::TrueCount,
+        Stat::NullCount,
+        Stat::UncompressedSizeInBytes,
+    ]);
+
+    if is_constant == Some(Precision::Exact(true)) {
+        stats.set(Stat::IsConstant, Precision::exact(true));
+    }
+    if is_sorted == Some(Precision::Exact(true)) {
+        stats.set(Stat::IsSorted, Precision::exact(true));
+    }
+    if is_strict_sorted == Some(Precision::Exact(true)) {
+        stats.set(Stat::IsStrictSorted, Precision::exact(true));
+    }
+
+    stats
 }
 
 fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<()> {

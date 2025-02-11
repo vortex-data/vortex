@@ -37,6 +37,8 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
+criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
+vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [lints]
@@ -44,3 +46,13 @@ workspace = true
 
 [features]
 arbitrary = ["dep:arbitrary"]
+
+[[bench]]
+name = "compressor_throughput"
+test = false
+harness = false
+
+[[bench]]
+name = "sel_vec"
+test = false
+harness = false

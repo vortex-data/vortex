@@ -14,15 +14,20 @@ impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
+        let segment_id = self
+            .layout()
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?;
+
+        log::debug!(
+            "Requesting segment {} for flat layout {} expr {}",
+            segment_id,
+            self.layout().name(),
+            expr
+        );
+
         // Fetch all the array segment.
-        let buffer = self
-            .segments()
-            .get(
-                self.layout()
-                    .segment_id(0)
-                    .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?,
-            )
-            .await?;
+        let buffer = self.segments().get(segment_id).await?;
         let row_count = usize::try_from(self.layout().row_count())
             .vortex_expect("FlatLayout row count does not fit within usize");
 

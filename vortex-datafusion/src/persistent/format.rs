@@ -184,6 +184,7 @@ impl FileFormat for VortexFormat {
         Ok(schema)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     async fn infer_stats(
         &self,
         _state: &SessionState,
@@ -192,13 +193,13 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+        let file_layout = self
+            .file_layout_cache
+            .try_get(object, store.clone())
+            .await?;
 
         let vxf = VortexOpenOptions::file(read_at)
-            .with_file_layout(
-                self.file_layout_cache
-                    .try_get(object, store.clone())
-                    .await?,
-            )
+            .with_file_layout(file_layout)
             .open()
             .await?;
 
