@@ -96,6 +96,7 @@ impl ALPArray {
         self.metadata().patches.as_ref().map(|p| {
             Patches::new(
                 self.len(),
+                p.offset(),
                 self.as_ref()
                     .child(1, &p.indices_dtype(), p.len())
                     .vortex_expect("ALPArray: patch indices"),
@@ -177,7 +178,7 @@ mod tests {
         check_metadata(
             "alp.metadata",
             SerdeMetadata(ALPMetadata {
-                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
                 exponents: Exponents {
                     e: u8::MAX,
                     f: u8::MAX,

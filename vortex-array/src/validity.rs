@@ -324,7 +324,7 @@ impl Validity {
             Validity::Array(a) => a.into_bool()?,
         };
 
-        let patches = Patches::new(len, indices.clone(), patch_values.into_array());
+        let patches = Patches::new(len, 0, indices.clone(), patch_values.into_array());
 
         Ok(Self::from_array(
             source.patch(patches)?.into_array(),
