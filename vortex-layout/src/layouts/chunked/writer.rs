@@ -4,7 +4,7 @@ use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::data::Layout;
 use crate::layouts::chunked::stats_table::StatsAccumulator;
@@ -75,6 +75,12 @@ impl LayoutWriter for ChunkedLayoutWriter {
         let mut children = vec![];
         for writer in self.chunks.iter_mut() {
             children.push(writer.finish(segments)?);
+        }
+
+        // If there's only one child, there's no point even writing a stats table since
+        // there's no pruning for us to do.
+        if children.len() == 1 {
+            return Ok(children.pop().vortex_expect("child layout"));
         }
 
         // Collect together the statistics
