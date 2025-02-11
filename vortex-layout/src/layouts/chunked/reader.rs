@@ -1,3 +1,5 @@
+use std::iter;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use arrow_buffer::BooleanBuffer;
@@ -30,6 +32,8 @@ pub struct ChunkedReader {
     stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    /// Row offset for each chunk
+    chunk_offsets: Vec<u64>,
 }
 
 impl ChunkedReader {
@@ -52,6 +56,19 @@ impl ChunkedReader {
         // Construct a lazy scan for each chunk of the layout.
         let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
 
+        // Generate the cumulative chunk offsets, relative to the layout's row offset, with an
+        // additional offset corresponding to the length.
+        let chunk_offsets = iter::once(0)
+            .chain(
+                (0..nchunks)
+                    .map(|i| layout.child_row_count(i))
+                    .scan(0, |state, x| {
+                        *state += x;
+                        Some(*state)
+                    }),
+            )
+            .collect();
+
         Ok(Self {
             layout,
             ctx,
@@ -59,6 +76,7 @@ impl ChunkedReader {
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
+            chunk_offsets,
         })
     }
 
@@ -137,11 +155,6 @@ impl ChunkedReader {
         .cloned()
     }
 
-    /// Return the number of chunks
-    pub(crate) fn nchunks(&self) -> usize {
-        self.chunk_readers.len()
-    }
-
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.chunk_readers[idx].get_or_try_init(|| {
@@ -150,6 +163,22 @@ impl ChunkedReader {
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
             child_layout.reader(self.executor.clone(), self.ctx.clone())
         })
+    }
+
+    pub(crate) fn chunk_offset(&self, idx: usize) -> u64 {
+        self.chunk_offsets[idx]
+    }
+
+    pub(crate) fn chunk_range(&self, row_range: Range<u64>) -> Range<usize> {
+        let start_chunk = self
+            .chunk_offsets
+            .binary_search(&row_range.start)
+            .unwrap_or_else(|x| x - 1);
+        let end_chunk = self
+            .chunk_offsets
+            .binary_search(&row_range.end)
+            .unwrap_or_else(|x| x);
+        start_chunk..end_chunk
     }
 }
 

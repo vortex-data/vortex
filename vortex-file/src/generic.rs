@@ -58,7 +58,7 @@ pub struct GenericScanOptions {
 
 impl Default for GenericScanOptions {
     fn default() -> Self {
-        Self { io_concurrency: 10 }
+        Self { io_concurrency: 16 }
     }
 }
 

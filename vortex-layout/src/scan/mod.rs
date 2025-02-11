@@ -73,7 +73,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 10,
+            concurrency: 32,
         }
     }
 
