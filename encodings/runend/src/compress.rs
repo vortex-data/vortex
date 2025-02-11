@@ -173,6 +173,8 @@ pub fn runend_decode_bools(
     })
 }
 
+use std::arch::aarch64::*;
+
 pub fn runend_decode_typed_primitive<T: NativePType>(
     run_ends: impl Iterator<Item = usize>,
     values: &[T],
@@ -182,14 +184,60 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     Ok(match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values) {
-                assert!(end <= length, "Runend end must be less than overall length");
-                // SAFETY:
-                // We preallocate enough capacity because we know the total length
-                unsafe { decoded.push_n_unchecked(*value, end - decoded.len()) };
+            #[cfg(target_arch = "aarch64")]
+            {
+                let mut decoded: BufferMut<T> = BufferMut::with_capacity(length + 32);
+                let mut current_pos = 0;
+
+                macro_rules! neon_fill_run {
+                    ($type:ty, $neon_dup:ident, $neon_store:ident, $vector_size:expr) => {
+                        for (end, &value) in run_ends.zip_eq(values) {
+                            unsafe {
+                                let neon_val = $neon_dup(*((&value as *const T) as *const $type));
+
+                                while current_pos < end {
+                                    let dst = decoded.as_mut_ptr().add(current_pos) as *mut $type;
+                                    $neon_store(dst, neon_val);
+                                    current_pos += $vector_size;
+                                }
+
+                                current_pos = end;
+                            }
+                        }
+                    };
+                }
+
+                match (size_of::<T>(), std::any::type_name::<T>()) {
+                    (8, "f64") => neon_fill_run!(f64, vdupq_n_f64, vst1q_f64, 2),
+                    (4, "f32") => neon_fill_run!(f32, vdupq_n_f32, vst1q_f32, 4),
+
+                    (8, "i64") => neon_fill_run!(i64, vdupq_n_s64, vst1q_s64, 2),
+                    (4, "i32") => neon_fill_run!(i32, vdupq_n_s32, vst1q_s32, 4),
+                    (2, "i16") => neon_fill_run!(i16, vdupq_n_s16, vst1q_s16, 8),
+                    (1, "i8") => neon_fill_run!(i8, vdupq_n_s8, vst1q_s8, 16),
+
+                    (8, "u64") => neon_fill_run!(u64, vdupq_n_u64, vst1q_u64, 2),
+                    (4, "u32") => neon_fill_run!(u32, vdupq_n_u32, vst1q_u32, 4),
+                    (2, "u16") => neon_fill_run!(u16, vdupq_n_u16, vst1q_u16, 8),
+                    (1, "u8") => neon_fill_run!(u8, vdupq_n_u8, vst1q_u8, 16),
+
+                    _ => {
+                        // Fallback
+                        for (end, &value) in run_ends.zip_eq(values) {
+                            while current_pos < end {
+                                decoded.push(value);
+                                current_pos += 1;
+                            }
+                        }
+                    }
+                }
+
+                unsafe {
+                    decoded.set_len(length);
+                }
+
+                PrimitiveArray::new(decoded, values_nullability.into())
             }
-            PrimitiveArray::new(decoded, values_nullability.into())
         }
         Mask::AllFalse(_) => PrimitiveArray::new(Buffer::<T>::zeroed(length), Validity::AllInvalid),
         Mask::Values(mask) => {
