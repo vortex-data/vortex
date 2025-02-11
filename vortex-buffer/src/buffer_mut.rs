@@ -413,6 +413,7 @@ impl<T> AsMut<[T]> for BufferMut<T> {
 }
 
 impl<T> Extend<T> for BufferMut<T> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let mut iterator = iter.into_iter();
 

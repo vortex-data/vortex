@@ -290,7 +290,13 @@ impl Validity {
         Ok(validity)
     }
 
-    pub fn patch(self, len: usize, indices: &Array, patches: Validity) -> VortexResult<Self> {
+    pub fn patch(
+        self,
+        len: usize,
+        indices_offset: usize,
+        indices: &Array,
+        patches: Validity,
+    ) -> VortexResult<Self> {
         match (&self, &patches) {
             (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
@@ -324,7 +330,12 @@ impl Validity {
             Validity::Array(a) => a.into_bool()?,
         };
 
-        let patches = Patches::new(len, 0, indices.clone(), patch_values.into_array());
+        let patches = Patches::new(
+            len,
+            indices_offset,
+            indices.clone(),
+            patch_values.into_array(),
+        );
 
         Ok(Self::from_array(
             source.patch(patches)?.into_array(),
@@ -511,14 +522,14 @@ mod tests {
     ) {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
-        assert_eq!(validity.patch(len, &indices, patches).unwrap(), expected);
+        assert_eq!(validity.patch(len, 0, &indices, patches).unwrap(), expected);
     }
 
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
         Validity::NonNullable
-            .patch(2, &buffer![4].into_array(), Validity::AllInvalid)
+            .patch(2, 0, &buffer![4].into_array(), Validity::AllInvalid)
             .unwrap();
     }
 

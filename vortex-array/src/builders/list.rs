@@ -1,32 +1,28 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use num_traits::{AsPrimitive, PrimInt};
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_scalar::{ListScalar, Scalar};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_mask::AllOr;
+use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
-use crate::array::ListArray;
-use crate::builders::{
-    builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder, PrimitiveBuilder,
-};
-use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::array::{ConstantArray, ListArray, OffsetPType};
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
+use crate::compute::{binary_numeric, slice, try_cast};
+use crate::{Array, IntoArray, IntoCanonical};
 
-pub struct ListBuilder<O: PrimInt + NativePType> {
+pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
     index_builder: PrimitiveBuilder<O>,
-    validity: BoolBuilder,
+    nulls: LazyNullBufferBuilder,
     nullability: Nullability,
     dtype: DType,
 }
 
-impl<O> ListBuilder<O>
-where
-    O: PrimInt + NativePType,
-    Scalar: From<O>,
-    usize: AsPrimitive<O>,
-{
+impl<O: OffsetPType> ListBuilder<O> {
+    // TODO(joe): add value + index capacity ctor.
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
@@ -34,7 +30,7 @@ where
     ) -> Self {
         // I would expect the list to have more than one value per index
         let value_builder = builder_with_capacity(value_dtype.as_ref(), 2 * capacity);
-        let mut index_builder = PrimitiveBuilder::with_capacity(Nullability::NonNullable, capacity);
+        let mut index_builder = PrimitiveBuilder::with_capacity(NonNullable, capacity);
 
         // The first index of the list, which is always 0 and represents an empty list.
         index_builder.append_zero();
@@ -42,7 +38,7 @@ where
         Self {
             value_builder,
             index_builder,
-            validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+            nulls: LazyNullBufferBuilder::new(capacity),
             nullability,
             dtype: DType::List(value_dtype, nullability),
         }
@@ -51,7 +47,7 @@ where
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         match value.elements() {
             None => {
-                if self.nullability == Nullability::NonNullable {
+                if self.nullability == NonNullable {
                     vortex_bail!("Cannot append null value to non-nullable list");
                 }
                 self.append_null();
@@ -63,23 +59,21 @@ where
                     // or the list scalar should hold an Array
                     self.value_builder.append_scalar(&scalar)?;
                 }
-                self.validity.append_value(true);
-                self.append_index(self.value_builder.len().as_())
+                self.nulls.append_non_null();
+                self.append_index(
+                    O::from_usize(self.value_builder.len())
+                        .vortex_expect("Failed to convert from usize to O"),
+                )
             }
         }
     }
 
     fn append_index(&mut self, index: O) -> VortexResult<()> {
-        self.index_builder.append_scalar(&Scalar::from(index))
+        self.index_builder.append_scalar(&index.into())
     }
 }
 
-impl<O> ArrayBuilder for ListBuilder<O>
-where
-    O: PrimInt + NativePType,
-    Scalar: From<O>,
-    usize: AsPrimitive<O>,
-{
+impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -93,17 +87,19 @@ where
     }
 
     fn len(&self) -> usize {
-        self.validity.len()
+        self.nulls.len()
     }
 
     fn append_zeros(&mut self, n: usize) {
         let count = self.value_builder.len();
         self.value_builder.append_zeros(n);
         for i in 0..n {
-            self.append_index((count + i + 1).as_())
-                .vortex_expect("Failed to append index");
+            self.append_index(
+                O::from_usize(count + i + 1).vortex_expect("Failed to convert from usize to <O>"),
+            )
+            .vortex_expect("Failed to append index");
         }
-        self.validity.append_values(true, n);
+        self.nulls.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -111,26 +107,51 @@ where
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.append_index(count.as_())
-                .vortex_expect("Failed to append index");
+            self.append_index(
+                O::from_usize(count).vortex_expect("Failed to convert from usize to <O>"),
+            )
+            .vortex_expect("Failed to append index");
         }
-        self.validity.append_values(false, n);
+        self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, _array: Array) -> VortexResult<()> {
-        todo!()
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        match array.validity_mask()?.boolean_buffer() {
+            AllOr::All => {
+                self.nulls.append_n_non_nulls(array.len());
+            }
+            AllOr::None => self.nulls.append_n_nulls(array.len()),
+            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
+        }
+
+        let list = array.into_canonical()?.into_list()?;
+
+        let offset = self.value_builder.len();
+        self.value_builder.extend_from_array(list.elements())?;
+
+        let offsets = binary_numeric(
+            &try_cast(
+                slice(list.offsets(), 1, list.offsets().len())?,
+                &DType::Primitive(O::PTYPE, NonNullable),
+            )?,
+            &ConstantArray::new(
+                O::from_usize(offset).ok_or_else(|| {
+                    vortex_err!("cannot convert offset {} to type {:?}", offset, O::PTYPE)
+                })?,
+                list.len(),
+            ),
+            BinaryNumericOperator::Add,
+        )?;
+        self.index_builder.extend_from_array(offsets)?;
+
+        Ok(())
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
-        let validity = match self.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::Array(self.validity.finish()?),
-        };
-
         ListArray::try_new(
             self.value_builder.finish()?,
             self.index_builder.finish()?,
-            validity,
+            self.nulls.finish_with_nullability(self.nullability)?,
         )
         .map(ListArray::into_array)
     }
@@ -140,18 +161,19 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
     use Nullability::{NonNullable, Nullable};
 
+    use crate::array::{ListArray, OffsetPType};
     use crate::builders::list::ListBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::IntoArrayVariant;
+    use crate::{IntoArrayVariant, IntoCanonical};
 
     #[test]
     fn test_empty() {
-        let mut builder =
-            ListBuilder::<u32>::with_capacity(Arc::new(PType::I32.into()), NonNullable, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0);
 
         let list = builder.finish().unwrap();
         assert_eq!(list.len(), 0);
@@ -159,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_values() {
-        let dtype: Arc<DType> = Arc::new(PType::I32.into());
+        let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         builder
@@ -195,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_non_null_fails() {
-        let dtype: Arc<DType> = Arc::new(PType::I32.into());
+        let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         assert!(builder
@@ -205,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_nullable_values() {
-        let dtype: Arc<DType> = Arc::new(PType::I32.into());
+        let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), Nullable, 0);
 
         builder
@@ -242,5 +264,70 @@ mod tests {
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.elements_at(1).unwrap().len(), 0);
         assert_eq!(list_array.elements_at(2).unwrap().len(), 3);
+    }
+
+    fn test_extend_builder_gen<O: OffsetPType>() {
+        let list = ListArray::from_iter_opt_slow::<O, _, _>(
+            [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
+            Arc::new(I32.into()),
+        )
+        .unwrap();
+
+        let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 6);
+
+        builder.extend_from_array(list.clone()).unwrap();
+        builder.extend_from_array(list).unwrap();
+
+        let expect = ListArray::from_iter_opt_slow::<O, _, _>(
+            [
+                Some(vec![0, 1, 2]),
+                None,
+                Some(vec![4, 5]),
+                Some(vec![0, 1, 2]),
+                None,
+                Some(vec![4, 5]),
+            ],
+            Arc::new(DType::Primitive(I32, NonNullable)),
+        )
+        .unwrap()
+        .into_list()
+        .unwrap();
+
+        let res = builder
+            .finish()
+            .unwrap()
+            .into_canonical()
+            .unwrap()
+            .into_list()
+            .unwrap();
+
+        assert_eq!(
+            res.elements().into_primitive().unwrap().as_slice::<i32>(),
+            expect
+                .elements()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>()
+        );
+
+        assert_eq!(
+            res.offsets().into_primitive().unwrap().as_slice::<O>(),
+            expect.offsets().into_primitive().unwrap().as_slice::<O>()
+        );
+
+        assert_eq!(res.validity(), expect.validity())
+    }
+
+    #[test]
+    fn test_extend_builder() {
+        test_extend_builder_gen::<i8>();
+        test_extend_builder_gen::<i16>();
+        test_extend_builder_gen::<i32>();
+        test_extend_builder_gen::<i64>();
+
+        test_extend_builder_gen::<u8>();
+        test_extend_builder_gen::<u16>();
+        test_extend_builder_gen::<u32>();
+        test_extend_builder_gen::<u64>();
     }
 }
