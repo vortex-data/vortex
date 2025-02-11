@@ -20,14 +20,13 @@ use bench_vortex::{
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
-use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
-use simplelog::*;
 use tokio::runtime::{Builder, Runtime};
+use tracing::level_filters::LevelFilter;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
@@ -153,16 +152,15 @@ fn benchmark_compress<F, U>(
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {
-        TermLogger::init(
-            env::var("RUST_LOG")
-                .ok()
-                .and_then(|s| LevelFilter::from_str(&s).ok())
-                .unwrap_or(LevelFilter::Off),
-            Config::default(),
-            TerminalMode::Mixed,
-            ColorChoice::Auto,
-        )
-        .unwrap();
+        let level = env::var("RUST_LOG")
+            .ok()
+            .and_then(|s| LevelFilter::from_str(&s).ok())
+            .unwrap_or(LevelFilter::OFF);
+
+        tracing_subscriber::fmt()
+            .with_max_level(level)
+            .with_writer(std::io::stderr)
+            .init();
     }
 
     ensure_dir_exists("benchmarked-files").unwrap();
