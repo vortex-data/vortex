@@ -200,7 +200,7 @@ pub async fn register_vortex_files(
     let table_path = vortex_dir
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
-    let table_path = format!("file://{table_path}/");
+    let table_path = format!("file://{table_path}/hits_0.vortex");
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)

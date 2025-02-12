@@ -264,6 +264,8 @@ impl<D: ScanDriver> Scan<D> {
         // We start with a stream of row masks
         let row_masks = stream::iter(self.row_masks);
 
+        // TODO(ngates): use the pruner here
+
         // If we have a filter expression, we set up a filter stream
         let row_masks: BoxStream<'static, VortexResult<RowMask>> =
             if let Some(filter) = self.filter.clone() {
@@ -312,6 +314,9 @@ impl<D: ScanDriver> Scan<D> {
                     //         }
                     //     }
                     // })
+                    // Instead of buffering, we should be smarter where we poll the stream until
+                    // the I/O queue has ~256MB of requests in it. Our working set size.
+                    // We then return Pending and the I/O thread is free to spawn the requests.
                     .buffered(self.concurrency)
                     .filter_map(|r| async move {
                         r.map(|r| r.filter_mask().all_false().then_some(r))

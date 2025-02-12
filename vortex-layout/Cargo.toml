@@ -19,6 +19,7 @@ async-once-cell = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
+exponential-decay-histogram = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
 itertools = { workspace = true }

@@ -2,14 +2,12 @@ use std::ops::{BitAnd, Sub};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use futures::future::{ready, try_join_all};
-use futures::FutureExt;
-use vortex_array::array::{ChunkedArray, ConstantArray};
+use futures::future::try_join_all;
+use vortex_array::array::ChunkedArray;
 use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 use vortex_scan::RowMask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
@@ -21,16 +19,16 @@ impl ExprEvaluator for ChunkedReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;
-
-        // First we need to compute the pruning mask
-        let pruning_mask = self.pruning_mask(&expr).await?;
-        log::debug!(
-            "Pruning mask for {}..{} expr {}: {:?}",
-            row_mask.begin(),
-            row_mask.end(),
-            expr,
-            pruning_mask
-        );
+        //
+        // // First we need to compute the pruning mask
+        // let pruning_mask = self.pruning_mask(&expr).await?;
+        // log::debug!(
+        //     "Pruning mask for {}..{} expr {}: {:?}",
+        //     row_mask.begin(),
+        //     row_mask.end(),
+        //     expr,
+        //     pruning_mask
+        // );
 
         // Figure out which chunks intersect the RowMask
         let chunk_range = self.chunk_range(row_mask.begin()..row_mask.end());
@@ -50,19 +48,19 @@ impl ExprEvaluator for ChunkedReader {
             if chunk_mask.true_count() == 0 {
                 continue;
             }
-
-            // If the pruning mask tells us the chunk is pruned (i.e. the expr is ALL false),
-            // then we can just return a constant array.
-            if let Some(pruning_mask) = &pruning_mask {
-                if pruning_mask.value(chunk_idx) {
-                    let false_array = ConstantArray::new(
-                        Scalar::bool(false, dtype.nullability()),
-                        chunk_mask.true_count(),
-                    );
-                    chunks.push(ready(Ok(false_array.into_array())).boxed());
-                    continue;
-                }
-            }
+            //
+            // // If the pruning mask tells us the chunk is pruned (i.e. the expr is ALL false),
+            // // then we can just return a constant array.
+            // if let Some(pruning_mask) = &pruning_mask {
+            //     if pruning_mask.value(chunk_idx) {
+            //         let false_array = ConstantArray::new(
+            //             Scalar::bool(false, dtype.nullability()),
+            //             chunk_mask.true_count(),
+            //         );
+            //         chunks.push(ready(Ok(false_array.into_array())).boxed());
+            //         continue;
+            //     }
+            // }
 
             // Otherwise, we need to read it. So we set up a mask for the chunk range.
             let chunk_reader = self.child(chunk_idx)?;
