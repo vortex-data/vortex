@@ -159,6 +159,7 @@ mod tests {
     }
 
     fn make_data_chunked() -> (ChunkedArray, Vec<Option<Vec<u8>>>) {
+        #[allow(clippy::type_complexity)]
         let (arr_vec, data_vec): (Vec<Array>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
