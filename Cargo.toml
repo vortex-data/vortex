@@ -239,7 +239,11 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
+lto = "fat"      # attempts to perform optimizations across all crates within the dependency graph
+
+[profile.release_debug]
+inherits = "release"
+debug = "full"
 
 [profile.bench]
 codegen-units = 16

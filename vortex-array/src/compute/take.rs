@@ -1,5 +1,6 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
+use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
 use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
 use crate::{Array, IntoArray, IntoCanonical};
@@ -24,6 +25,17 @@ pub trait TakeFn<A> {
     unsafe fn take_unchecked(&self, array: &A, indices: &Array) -> VortexResult<Array> {
         self.take(array, indices)
     }
+
+    /// Has the same semantics as `Self::take` but materializes the result into the provided
+    /// builder.
+    fn take_into(
+        &self,
+        array: &A,
+        indices: &Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(self.take(array, indices)?)
+    }
 }
 
 impl<E: Encoding> TakeFn<Array> for E
@@ -34,6 +46,16 @@ where
     fn take(&self, array: &Array, indices: &Array) -> VortexResult<Array> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         TakeFn::take(encoding, array_ref, indices)
+    }
+
+    fn take_into(
+        &self,
+        array: &Array,
+        indices: &Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        TakeFn::take_into(encoding, array_ref, indices, builder)
     }
 }
 
@@ -87,6 +109,46 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     );
 
     Ok(taken)
+}
+
+pub fn take_into(
+    array: impl AsRef<Array>,
+    indices: impl AsRef<Array>,
+    builder: &mut dyn ArrayBuilder,
+) -> VortexResult<()> {
+    let array = array.as_ref();
+    let indices = indices.as_ref();
+
+    debug_assert_eq!(
+        array.dtype(),
+        builder.dtype(),
+        "Take dtype mismatch {}",
+        array.encoding()
+    );
+
+    if !indices.dtype().is_int() {
+        vortex_bail!(
+            "Take indices must be an integer type, got {}",
+            indices.dtype()
+        );
+    }
+
+    let before_len = builder.len();
+
+    // We know that constant array don't need stats propagation, so we can avoid the overhead of
+    // computing derived stats and merging them in.
+    take_into_impl(array, indices, builder)?;
+
+    let after_len = builder.len();
+
+    debug_assert_eq!(
+        after_len - before_len,
+        indices.len(),
+        "Take length mismatch {}",
+        array.encoding()
+    );
+
+    Ok(())
 }
 
 fn derive_take_stats(arr: &Array) -> StatsSet {
@@ -144,4 +206,32 @@ fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexRes
     } else {
         canonical_take_fn.take(&canonical, indices)
     }
+}
+
+fn take_into_impl(
+    array: &Array,
+    indices: &Array,
+    builder: &mut dyn ArrayBuilder,
+) -> VortexResult<()> {
+    if array.dtype() != builder.dtype() {
+        vortex_bail!(
+            "TakeIntoFn {} had a builder with a different dtype {} to the array dtype {}",
+            array.encoding(),
+            array.dtype(),
+            builder.dtype()
+        );
+    }
+    if let Some(take_fn) = array.vtable().take_fn() {
+        return take_fn.take_into(array, indices, builder);
+    }
+
+    // Otherwise, flatten and try again.
+    log::debug!("No take implementation found for {}", array.encoding());
+    let canonical = array.clone().into_canonical()?.into_array();
+    let canonical_take_fn = canonical
+        .vtable()
+        .take_fn()
+        .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
+
+    canonical_take_fn.take_into(&canonical, indices, builder)
 }

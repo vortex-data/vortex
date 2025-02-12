@@ -42,3 +42,8 @@ harness = false
 [[bench]]
 name = "dict_compare"
 harness = false
+
+
+[[bench]]
+name = "chunked_dict_array_builder"
+harness = false

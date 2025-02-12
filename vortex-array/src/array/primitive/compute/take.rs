@@ -1,10 +1,12 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
+use vortex_mask::Mask;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
+use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -31,6 +33,10 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.clone().into_primitive()?;
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
 
+        if true {
+            panic!("not fair")
+        }
+
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive_unchecked(array.as_slice::<$T>(), indices.as_slice::<$I>());
@@ -38,7 +44,52 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
             })
         })
     }
+
+    fn take_into(
+        &self,
+        array: &PrimitiveArray,
+        indices: &Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        let indices = indices.clone().into_primitive()?;
+        // TODO(joe): impl take over mask and use `Array::validity_mask`, instead of `validity()`.
+        let validity = array.validity().take(indices.as_ref())?;
+        let mask = validity.to_logical(array.len())?;
+
+        match_each_native_ptype!(array.ptype(), |$T| {
+            match_each_integer_ptype!(indices.ptype(), |$I| {
+                take_into_impl::<$T, $I>(array, &indices, mask, builder)
+            })
+        })
+    }
 }
+
+fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
+    array: &PrimitiveArray,
+    indices: &PrimitiveArray,
+    mask: Mask,
+    builder: &mut dyn ArrayBuilder,
+) -> VortexResult<()> {
+    let array = array.as_slice::<T>();
+    let indices = indices.as_slice::<I>();
+    let builder = builder
+        .as_any_mut()
+        .downcast_mut::<PrimitiveBuilder<T>>()
+        .ok_or_else(|| {
+            vortex_err!(
+                "Failed to downcast builder to PrimitiveBuilder<{}>",
+                T::PTYPE
+            )
+        })?;
+    Ok(builder.extend_with_iterator(indices.into_iter().map(|idx| array[idx.as_()]), mask))
+}
+
+// fn take_into_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
+//     array: &[T],
+//     indices: &[I],
+//     builder: &mut PrimitiveBuilder<T>,
+// ) {
+// }
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],

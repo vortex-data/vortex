@@ -2,7 +2,8 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::compute::{scalar_at, take};
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::compute::{scalar_at, take, take_into};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
@@ -81,6 +82,26 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             }
             // Non-string case: take and then canonicalize
             _ => take(array.values(), array.codes())?.into_canonical(),
+        }
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: DictArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        match array.dtype() {
+            // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
+            // decompression to construct the views child array.
+            // For this case, it is *always* faster to decompress the values first and then create
+            // copies of the view pointers.
+            // TODO(joe): is the above still true?
+            DType::Utf8(_) | DType::Binary(_) => {
+                let canonical_values: Array = array.values().into_canonical()?.into_array();
+                take_into(canonical_values, array.codes(), builder)
+            }
+            // Non-string case: take and then canonicalize
+            _ => take_into(array.values(), array.codes(), builder),
         }
     }
 }

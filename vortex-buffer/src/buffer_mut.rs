@@ -438,7 +438,10 @@ impl<T> Extend<T> for BufferMut<T> {
         self.length += consumed;
         unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
 
-        iterator.for_each(|item| self.push(item));
+        iterator.for_each(|item| {
+            println!("over spill");
+            self.push(item)
+        });
     }
 }
 
