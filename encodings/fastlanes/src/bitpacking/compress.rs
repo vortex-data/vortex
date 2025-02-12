@@ -404,13 +404,44 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
     bit_width_freq[bit_width as usize + 1..].iter().sum()
 }
 
+#[cfg(feature = "test-harness")]
+pub mod test_harness {
+    use rand::rngs::StdRng;
+    use rand::Rng as _;
+    use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
+    use vortex_buffer::BufferMut;
+    use vortex_error::VortexResult;
+
+    use super::bitpack_encode;
+
+    pub fn make_array(rng: &mut StdRng, len: usize, fraction_patches: f64) -> VortexResult<Array> {
+        let values = (0..len)
+            .map(|_| {
+                let mut v = rng.gen_range(0..100i32);
+                if rng.gen_bool(fraction_patches) {
+                    v += 1 << 13
+                };
+                v
+            })
+            .collect::<BufferMut<i32>>()
+            .into_array()
+            .into_primitive()?;
+
+        bitpack_encode(values, 12).map(IntoArray::into_array)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use vortex_array::IntoArrayVariant;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng as _;
+    use vortex_array::array::ChunkedArray;
+    use vortex_array::{IntoArrayVariant, IntoCanonical as _};
     use vortex_error::VortexError;
 
     use super::*;
+    use crate::bitpacking::compress::test_harness::make_array;
 
     #[test]
     fn test_best_bit_width() {
@@ -484,5 +515,44 @@ mod test {
 
         let err = BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+    }
+
+    #[test]
+    fn canonicalize_chunked_of_bitpacked() {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let chunks = (0..10)
+            .map(|_| make_array(&mut rng, 100, 0.0).unwrap())
+            .collect::<Vec<_>>();
+        let chunked = ChunkedArray::from_iter(chunks).into_array();
+
+        let into_ca = chunked
+            .clone()
+            .into_canonical()
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        let mut primitive_builder =
+            PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
+        chunked
+            .clone()
+            .canonicalize_into(&mut primitive_builder)
+            .unwrap();
+        let ca_into = primitive_builder.finish().unwrap();
+
+        assert_eq!(
+            into_ca.as_slice::<i32>(),
+            ca_into.into_primitive().unwrap().as_slice::<i32>()
+        );
+
+        let mut primitive_builder =
+            PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
+        primitive_builder.extend_from_array(chunked).unwrap();
+        let ca_into = primitive_builder.finish().unwrap();
+
+        assert_eq!(
+            into_ca.as_slice::<i32>(),
+            ca_into.into_primitive().unwrap().as_slice::<i32>()
+        );
     }
 }

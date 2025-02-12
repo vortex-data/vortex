@@ -1,119 +1,91 @@
 use divan::Bencher;
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use vortex_array::array::ChunkedArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
-use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexUnwrap};
-use vortex_fastlanes::bitpack_to_best_bit_width;
+use vortex_array::{IntoArray, IntoCanonical};
+use vortex_error::{VortexExpect as _, VortexUnwrap};
+use vortex_fastlanes::test_harness::make_array;
 
 fn main() {
     divan::main();
 }
 
-fn make_array<T: NativePType>(len: usize) -> Array {
+#[divan::bench(
+    args = [
+        (100000, 1, 0.10),
+        (100000, 1, 0.01),
+        (100000, 1, 0.00),
+        (100000, 10, 0.10),
+        (100000, 10, 0.01),
+        (100000, 10, 0.00),
+        (100000, 100, 0.10),
+        (100000, 100, 0.01),
+        (100000, 100, 0.00),
+        (100000, 1000, 0.00),
+        (1000000, 100, 0.00),
+        (1000000, 1000, 0.00),
+        (10000000, 100, 0.00),
+    ]
+)]
+fn into_canonical(
+    bencher: Bencher,
+    (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
+) {
     let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..len)
-        .map(|_| T::from(rng.gen_range(0..100)).vortex_expect("valid value"))
-        .collect::<BufferMut<T>>()
-        .into_array()
-        .into_primitive()
-        .vortex_unwrap();
 
-    bitpack_to_best_bit_width(values)
-        .vortex_unwrap()
-        .into_array()
-}
+    let chunks = (0..chunk_count)
+        .map(|_| {
+            make_array(&mut rng, chunk_len, fraction_patched).vortex_expect("make_array works")
+        })
+        .collect::<Vec<_>>();
+    let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-#[divan::bench()]
-fn test() {
-    let chunks = (0..10).map(|_| make_array::<i32>(100)).collect::<Vec<_>>();
-    let arr = make_array::<i32>(1);
-    let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone())
-        .vortex_unwrap()
-        .into_array();
-
-    let into_ca = chunked
-        .clone()
-        .into_canonical()
-        .vortex_unwrap()
-        .into_primitive()
-        .vortex_unwrap();
-    let mut primitive_builder =
-        PrimitiveBuilder::<i32>::with_capacity(arr.dtype().nullability(), 10 * 100);
-    chunked
-        .clone()
-        .canonicalize_into(&mut primitive_builder)
-        .vortex_unwrap();
-    let ca_into = primitive_builder.finish().vortex_unwrap();
-
-    assert_eq!(
-        into_ca.as_slice::<i32>(),
-        ca_into.into_primitive().vortex_unwrap().as_slice::<i32>()
-    );
-
-    let mut primitive_builder =
-        PrimitiveBuilder::<i32>::with_capacity(arr.dtype().nullability(), 10 * 100);
-    primitive_builder.extend_from_array(chunked).vortex_unwrap();
-    let ca_into = primitive_builder.finish().vortex_unwrap();
-
-    assert_eq!(
-        into_ca.as_slice::<i32>(),
-        ca_into.into_primitive().vortex_unwrap().as_slice::<i32>()
-    );
+    bencher
+        .with_inputs(|| chunked.clone())
+        .bench_values(|chunked| chunked.into_canonical().vortex_unwrap());
 }
 
 #[divan::bench(
-    types = [u32],
     args = [
-        // (1000, 100),
-        // (100000, 100),
-        // (1000000, 100),
-        // (100000, 1000),
-        (100000, 3),
+        (100000, 1, 0.10),
+        (100000, 1, 0.01),
+        (100000, 1, 0.00),
+        (100000, 10, 0.10),
+        (100000, 10, 0.01),
+        (100000, 10, 0.00),
+        (100000, 100, 0.10),
+        (100000, 100, 0.01),
+        (100000, 100, 0.00),
+        (100000, 1000, 0.00),
+        (1000000, 100, 0.00),
+        (1000000, 1000, 0.00),
+        (10000000, 100, 0.00),
     ]
 )]
-fn into_canonical<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usize, usize)) {
-    let chunks = (0..chunk_count)
-        .map(|_| make_array::<T>(arr_len))
-        .collect::<Vec<_>>();
-    let arr = make_array::<T>(1);
-    let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone()).vortex_unwrap();
+fn canonical_into(
+    bencher: Bencher,
+    (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
+) {
+    let mut rng = StdRng::seed_from_u64(0);
 
-    bencher.bench(|| chunked.clone().into_canonical().vortex_unwrap().len());
-}
-
-#[divan::bench(
-    types = [u32],
-    args = [
-        // (1000, 100),
-        // (100000, 100),
-        // (1000000, 100),
-        // (100000, 1000),
-        (100000, 3),
-    ]
-)]
-fn canonical_into<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usize, usize)) {
     let chunks = (0..chunk_count)
-        .map(|_| make_array::<T>(arr_len))
+        .map(|_| {
+            make_array(&mut rng, chunk_len, fraction_patched).vortex_expect("make_array works")
+        })
         .collect::<Vec<_>>();
-    let arr = make_array::<T>(1);
-    let chunked = ChunkedArray::try_new(chunks, arr.dtype().clone())
-        .vortex_unwrap()
-        .into_array();
+    let chunked = ChunkedArray::from_iter(chunks).into_array();
 
     bencher
         .with_inputs(|| chunked.clone())
         .bench_values(|chunked| {
-            let mut primitive_builder = PrimitiveBuilder::<T>::with_capacity(
-                arr.dtype().nullability(),
-                arr_len * chunk_count + 1024,
+            let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
+                chunked.dtype().nullability(),
+                chunk_len * chunk_count + 1024,
             );
             chunked
                 .canonicalize_into(&mut primitive_builder)
                 .vortex_unwrap();
-            primitive_builder.finish().vortex_unwrap().len()
+            primitive_builder.finish().vortex_unwrap()
         });
 }
