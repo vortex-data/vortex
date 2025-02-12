@@ -28,7 +28,7 @@ dependencies = [
  "getrandom 0.2.15",
  "once_cell",
  "version_check",
- "zerocopy 0.7.35",
+ "zerocopy",
 ]
 
 [[package]]
@@ -488,7 +488,7 @@ dependencies = [
  "mimalloc",
  "object_store",
  "parquet",
- "rand 0.8.5",
+ "rand",
  "rand_distr",
  "rayon",
  "regex",
@@ -1386,7 +1386,7 @@ dependencies = [
  "object_store",
  "parking_lot",
  "parquet",
- "rand 0.8.5",
+ "rand",
  "regex",
  "sqlparser",
  "tempfile",
@@ -1472,7 +1472,7 @@ dependencies = [
  "log",
  "object_store",
  "parking_lot",
- "rand 0.8.5",
+ "rand",
  "tempfile",
  "url",
 ]
@@ -1529,7 +1529,7 @@ dependencies = [
  "hex",
  "itertools 0.14.0",
  "log",
- "rand 0.8.5",
+ "rand",
  "regex",
  "unicode-segmentation",
  "uuid",
@@ -1886,12 +1886,12 @@ dependencies = [
 
 [[package]]
 name = "exponential-decay-histogram"
-version = "0.1.12"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff373ad24ee004d915cb153b5b8fedb071d1cbfb239ed5573e841de11efb2f42"
+checksum = "c6e3cf07ea0090a7c89e580018f6abae6e6b77d2002b288a6e3d473ada20aff3"
 dependencies = [
  "ordered-float 4.6.0",
- "rand 0.9.0",
+ "rand",
 ]
 
 [[package]]
@@ -2196,7 +2196,7 @@ dependencies = [
  "parking_lot",
  "portable-atomic",
  "quanta",
- "rand 0.8.5",
+ "rand",
  "smallvec",
  "spinning_top",
 ]
@@ -3216,7 +3216,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "quick-xml",
- "rand 0.8.5",
+ "rand",
  "reqwest",
  "ring",
  "rustls-pemfile",
@@ -3421,7 +3421,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
 dependencies = [
  "phf_shared",
- "rand 0.8.5",
+ "rand",
 ]
 
 [[package]]
@@ -3535,7 +3535,7 @@ version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
 dependencies = [
- "zerocopy 0.7.35",
+ "zerocopy",
 ]
 
 [[package]]
@@ -3789,7 +3789,7 @@ checksum = "a2fe5ef3495d7d2e377ff17b1a8ce2ee2ec2a18cde8b6ad6619d65d0701c135d"
 dependencies = [
  "bytes",
  "getrandom 0.2.15",
- "rand 0.8.5",
+ "rand",
  "ring",
  "rustc-hash",
  "rustls",
@@ -3840,19 +3840,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
-dependencies = [
- "rand_chacha 0.9.0",
- "rand_core 0.9.0",
- "zerocopy 0.8.17",
+ "rand_chacha",
+ "rand_core",
 ]
 
 [[package]]
@@ -3862,17 +3851,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand_chacha"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
-dependencies = [
- "ppv-lite86",
- "rand_core 0.9.0",
+ "rand_core",
 ]
 
 [[package]]
@@ -3885,23 +3864,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_core"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b08f3c9802962f7e1b25113931d94f43ed9725bebc59db9d0c3e9a23b67e15ff"
-dependencies = [
- "getrandom 0.3.1",
- "zerocopy 0.8.17",
-]
-
-[[package]]
 name = "rand_distr"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand 0.8.5",
+ "rand",
 ]
 
 [[package]]
@@ -5199,7 +5168,7 @@ dependencies = [
  "divan",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.8.5",
+ "rand",
  "rstest",
  "serde",
  "vortex-array",
@@ -5241,7 +5210,7 @@ dependencies = [
  "num_enum 0.7.3",
  "paste",
  "pin-project",
- "rand 0.8.5",
+ "rand",
  "rkyv",
  "rstest",
  "serde",
@@ -5305,7 +5274,7 @@ dependencies = [
  "moka",
  "object_store",
  "pin-project",
- "rand 0.8.5",
+ "rand",
  "tempfile",
  "tokio",
  "tracing",
@@ -5356,7 +5325,7 @@ dependencies = [
  "codspeed-criterion-compat",
  "divan",
  "num-traits",
- "rand 0.8.5",
+ "rand",
  "rkyv",
  "rustc-hash",
  "serde",
@@ -5436,7 +5405,7 @@ dependencies = [
  "fastlanes",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.8.5",
+ "rand",
  "rkyv",
  "serde",
  "vortex-array",
@@ -5490,7 +5459,7 @@ dependencies = [
  "arrow-array",
  "divan",
  "fsst-rs",
- "rand 0.8.5",
+ "rand",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -5608,7 +5577,7 @@ dependencies = [
  "codspeed-criterion-compat",
  "itertools 0.14.0",
  "num-traits",
- "rand 0.8.5",
+ "rand",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -5628,7 +5597,7 @@ dependencies = [
  "fsst-rs",
  "itertools 0.14.0",
  "log",
- "rand 0.8.5",
+ "rand",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
@@ -6301,16 +6270,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
 dependencies = [
  "byteorder",
- "zerocopy-derive 0.7.35",
-]
-
-[[package]]
-name = "zerocopy"
-version = "0.8.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa91407dacce3a68c56de03abe2760159582b846c6a4acd2f456618087f12713"
-dependencies = [
- "zerocopy-derive 0.8.17",
+ "zerocopy-derive",
 ]
 
 [[package]]
@@ -6318,17 +6278,6 @@ name = "zerocopy-derive"
 version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.98",
-]
-
-[[package]]
-name = "zerocopy-derive"
-version = "0.8.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06718a168365cad3d5ff0bb133aad346959a2074bd4a85c121255a11304a8626"
 dependencies = [
  "proc-macro2",
  "quote",
