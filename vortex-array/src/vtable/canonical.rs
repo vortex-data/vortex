@@ -12,10 +12,7 @@ pub trait CanonicalVTable<Array> {
 
     fn canonicalize_into(&self, array: Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let canonical = self.into_canonical(array)?;
-        debug!(
-            "default impl canonicalize_into {}",
-            canonical.tree_display()
-        );
+        debug!("default impl canonicalize_into {}", canonical.encoding());
         builder.extend_from_array(canonical.into_array())
     }
 }
