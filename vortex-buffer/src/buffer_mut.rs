@@ -439,21 +439,6 @@ impl<T> Extend<T> for BufferMut<T> {
         }
 
         self.length += unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
-
-        // let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-        // let mut consumed = 0;
-        // while consumed < remaining {
-        //     if let Some(item) = iterator.next() {
-        //         // SAFETY: We know we have enough capacity to write the item.
-        //         unsafe { dst.add(consumed).write(item) };
-        //         consumed += 1;
-        //     } else {
-        //         break;
-        //     }
-        // }
-        //
-        // self.length += consumed;
-
         unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
 
         iterator.for_each(|item| self.push(item));
