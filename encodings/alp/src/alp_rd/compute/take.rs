@@ -11,7 +11,15 @@ impl TakeFn<ALPRDArray> for ALPRDEncoding {
             .left_parts_patches()
             .map(|patches| patches.take(indices))
             .transpose()?
-            .flatten();
+            .flatten()
+            .map(|p| {
+                let values_dtype = p
+                    .values()
+                    .dtype()
+                    .with_nullability(taken_left_parts.dtype().nullability());
+                p.cast_values(&values_dtype)
+            })
+            .transpose()?;
 
         Ok(ALPRDArray::try_new(
             if taken_left_parts.dtype().is_nullable() {

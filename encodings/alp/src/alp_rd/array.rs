@@ -82,11 +82,10 @@ impl ALPRDArray {
 
         let patches = left_parts_patches
             .map(|patches| {
-                if patches.values().dtype().is_nullable() {
-                    vortex_bail!("patches must be non-nullable: {}", patches.values());
+                if !patches.values().all_valid()? {
+                    vortex_bail!("patches must be all valid: {}", patches.values());
                 }
-                let metadata =
-                    patches.to_metadata(left_parts.len(), &left_parts.dtype().as_nonnullable());
+                let metadata = patches.to_metadata(left_parts.len(), left_parts.dtype());
                 let (_, _, indices, values) = patches.into_parts();
                 children.push(indices);
                 children.push(values);
