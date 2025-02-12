@@ -270,7 +270,6 @@ impl<D: ScanDriver> Scan<D> {
             if let Some(filter) = self.filter.clone() {
                 let reader = reader.clone();
 
-                // TODO(ngates): name this "FilterEvaluator"
                 let pruning = Arc::new(FilterExpr::try_new(
                     reader
                         .dtype()
