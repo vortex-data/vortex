@@ -244,27 +244,23 @@ impl FilterEvaluation {
         }
 
         // Then we loop over the conjuncts and evaluate them.
-        // TODO(ngates): it would be good to know if the pruning result was accurate, then we could
-        //  skip the conjunct entirely.
         loop {
-            if self
+            let Some(next_conjunct) = self
                 .filter_expr
                 .next_conjunct(&self.remaining, &self.field_arrays)
-                .is_none()
-            {
+            else {
                 // If there are no more conjuncts, then we've finished
                 return Ok(RowMask::new(self.mask.clone(), self.row_offset));
-            }
+            };
 
             // Figure out which fields are needed for the next conjunct.
             // TODO(ngates): convert this into a conjunct group, where a group should only be
             //  created if it has been observed to prune away to zero (therefore short-circuiting
             //  the subsequent conjunct groups).
-            let fields_to_read = self
-                .field_arrays
+            let fields_to_read = self.filter_expr.conjunct_fields[next_conjunct]
                 .iter()
-                .enumerate()
-                .filter_map(|(idx, field)| field.is_none().then_some(idx))
+                .filter(|&field_idx| self.field_arrays[*field_idx].is_none())
+                .copied()
                 .collect::<Vec<usize>>();
 
             // Construct futures to read the *full* field. We don't push down our mask as a
@@ -286,7 +282,9 @@ impl FilterEvaluation {
             }
 
             // Now we've fetched some fields, we find the _now_ preferred conjunct to evaluate based
-            // on the fields we actually have.
+            // on the fields we actually have. This may have changed from before, for example if
+            // we have `5 < X <= 10`, then we may have fetched X to evaluate `5 < X`, but now we
+            // know that `X <= 10` is more selective and worth running first.
             let next_conjunct = self
                 .filter_expr
                 .next_conjunct(&self.remaining, &self.field_arrays)
@@ -299,7 +297,6 @@ impl FilterEvaluation {
 
             // Evaluate the conjunct
             let conjunct = self.filter_expr.conjuncts[next_conjunct].clone();
-            self.remaining.set(next_conjunct, false);
 
             // If our mask selectivity is low, we can push down the selection into the expression
             // and only run the expression on the rows that are currently masked.
@@ -333,6 +330,7 @@ impl FilterEvaluation {
                     .report_selectivity(next_conjunct, conjunct_mask.density());
                 self.mask.bitand(&conjunct_mask)
             };
+            self.remaining.set(next_conjunct, false);
 
             if self.mask.all_false() {
                 // If the mask is all false, then we can stop evaluating.
