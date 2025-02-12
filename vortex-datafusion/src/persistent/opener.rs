@@ -6,7 +6,6 @@ use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
 use object_store::ObjectStore;
 use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;

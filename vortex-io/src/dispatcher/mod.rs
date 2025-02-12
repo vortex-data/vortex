@@ -84,7 +84,7 @@ impl IoDispatcher {
             if #[cfg(target_arch = "wasm32")] {
                 Self(Arc::new(Inner::Wasm(WasmDispatcher::new())))
             } else if #[cfg(not(feature = "compio"))] {
-                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(1))))
+                Self(Arc::new(Inner::Tokio(TokioDispatcher::new("tokio-dispatch", 1))))
             } else {
                 Self(Arc::new(Inner::Compio(CompioDispatcher::new(1))))
             }
@@ -98,7 +98,13 @@ impl IoDispatcher {
     /// perform dispatching across different threads.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new_tokio(num_thread: usize) -> Self {
-        Self(Arc::new(Inner::Tokio(TokioDispatcher::new(num_thread))))
+        Self::new_tokio_with_name("tokio-dispatch", num_thread)
+    }
+
+    pub fn new_tokio_with_name(name: &str, num_thread: usize) -> Self {
+        Self(Arc::new(Inner::Tokio(TokioDispatcher::new(
+            name, num_thread,
+        ))))
     }
 
     #[cfg(feature = "compio")]

@@ -22,12 +22,11 @@ pub(super) struct TokioDispatcher {
 }
 
 impl TokioDispatcher {
-    pub fn new(num_threads: usize) -> Self {
+    pub fn new(name: &str, num_threads: usize) -> Self {
         let (submitter, rx) = flume::unbounded();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
-                let worker_thread =
-                    std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
+                let worker_thread = std::thread::Builder::new().name(format!("{name}-{tid}"));
                 let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread
@@ -171,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tokio_dispatch_simple() {
-        let dispatcher = TokioDispatcher::new(4);
+        let dispatcher = TokioDispatcher::new("", 4);
         let atomic_number = Arc::new(AtomicU32::new(0));
         let atomic_number_clone = Arc::clone(&atomic_number);
         let rx = dispatcher

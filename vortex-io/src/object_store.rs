@@ -1,6 +1,6 @@
 use std::io;
 use std::ops::Range;
-use std::os::unix::prelude::FileExt;
+use std::os::unix::fs::FileExt as _;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -15,7 +15,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::{Dispatch as _, IoBuf, IoDispatcher, VortexReadAt, VortexWrite};
 
 thread_local! {
-    pub(crate) static IO_DISPATCHER: IoDispatcher = IoDispatcher::new_tokio(1);
+    pub(crate) static IO_DISPATCHER: IoDispatcher = IoDispatcher::new_tokio_with_name("object-store", 1);
 }
 
 #[derive(Clone)]
@@ -71,12 +71,18 @@ impl VortexReadAt for ObjectStoreReadAt {
         let buffer = match response.payload {
             GetResultPayload::File(file, _) => {
                 unsafe { buffer.set_len(len) };
-                tokio::task::spawn_blocking(move || {
-                    file.read_exact_at(&mut buffer, range.start)?;
-                    Ok::<_, io::Error>(buffer)
-                })
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+
+                io_dispatcher
+                    .dispatch(move || async move {
+                        tokio::task::spawn_blocking(move || {
+                            file.read_exact_at(&mut buffer, range.start)?;
+                            io::Result::Ok(buffer)
+                        })
+                        .await
+                    })
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                    .await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))???
             }
             GetResultPayload::Stream(byte_stream) => {
                 let mut byte_stream = io_dispatcher
