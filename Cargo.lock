@@ -5204,7 +5204,6 @@ dependencies = [
  "vortex-runend",
  "vortex-sampling-compressor",
  "vortex-scalar",
- "vortex-scan",
  "vortex-sparse",
  "vortex-zigzag",
 ]
@@ -5587,7 +5586,6 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "log",
- "oneshot",
  "pin-project-lite",
  "vortex-array",
  "vortex-buffer",
@@ -5597,7 +5595,6 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-scalar",
- "vortex-scan",
 ]
 
 [[package]]
@@ -5686,20 +5683,6 @@ dependencies = [
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
-]
-
-[[package]]
-name = "vortex-scan"
-version = "0.24.0"
-dependencies = [
- "log",
- "rstest",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-expr",
- "vortex-mask",
 ]
 
 [[package]]

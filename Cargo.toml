@@ -21,7 +21,6 @@ members = [
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
-    "vortex-scan",
     "vortex-tui",
     "xtask",
 ]
@@ -186,7 +185,6 @@ vortex-proto = { version = "0.24.0", path = "./vortex-proto" }
 vortex-runend = { version = "0.24.0", path = "./encodings/runend" }
 vortex-sampling-compressor = { version = "0.24.0", path = "./vortex-sampling-compressor" }
 vortex-scalar = { version = "0.24.0", path = "./vortex-scalar", default-features = false }
-vortex-scan = { version = "0.24.0", path = "./vortex-scan", default-features = false }
 vortex-sparse = { version = "0.24.0", path = "./encodings/sparse" }
 vortex-zigzag = { version = "0.24.0", path = "./encodings/zigzag" }
 # END crates published by this project

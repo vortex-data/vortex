@@ -24,7 +24,6 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
 itertools = { workspace = true }
 log = { workspace = true }
-oneshot = { workspace = true, features = ["async"] }
 pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -34,7 +33,6 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-scan = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
