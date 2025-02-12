@@ -3,18 +3,14 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::Stream;
-use futures_util::future::BoxFuture;
-use futures_util::stream::FuturesUnordered;
-use futures_util::{stream, StreamExt, TryStreamExt};
+use futures::stream::FuturesUnordered;
+use futures::{stream, Stream, StreamExt, TryStreamExt};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
-use vortex_layout::scan::unified::UnifiedDriverStream;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
-use crate::exec::ExecutionMode;
 use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
 use crate::segments::SegmentCache;
@@ -47,27 +43,14 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
 }
 
 impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
-    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
-        self.options.execution_mode = execution_mode;
-        self
-    }
-
-    pub fn with_execution_concurrency(mut self, execution_concurrency: usize) -> Self {
-        self.options.execution_concurrency = execution_concurrency;
-        self
-    }
-
     pub fn with_io_concurrency(mut self, io_concurrency: usize) -> Self {
         self.options.io_concurrency = io_concurrency;
         self
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GenericScanOptions {
-    /// The number of concurrent splits to process.
-    execution_concurrency: usize,
-    execution_mode: ExecutionMode,
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,
@@ -75,11 +58,7 @@ pub struct GenericScanOptions {
 
 impl Default for GenericScanOptions {
     fn default() -> Self {
-        Self {
-            execution_concurrency: 10,
-            execution_mode: ExecutionMode::default(),
-            io_concurrency: 10,
-        }
+        Self { io_concurrency: 16 }
     }
 }
 
@@ -95,21 +74,10 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
     type Options = GenericScanOptions;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
-        // This reader simply enqueues segment requests into the channel.
-        // Our driver polls the other end of this channel to drive the I/O requests.
         self.segment_channel.reader()
     }
 
-    fn drive_stream(
-        self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        let exec_driver = self
-            .options
-            .execution_mode
-            .into_driver(self.options.execution_concurrency);
-        let exec_stream = exec_driver.drive(stream.boxed());
-
+    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {
         // Now we set up the I/O stream to poll the other end of the segment channel.
         let io_stream = self.segment_channel.into_stream();
 
@@ -201,13 +169,7 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         });
 
         // Buffer some number of concurrent I/O operations.
-        let io_stream = io_stream.buffer_unordered(self.options.io_concurrency);
-
-        // Finally, we unify the stream to drive both the CPU and I/O requests.
-        UnifiedDriverStream {
-            exec_stream,
-            io_stream,
-        }
+        io_stream.buffer_unordered(self.options.io_concurrency)
     }
 }
 

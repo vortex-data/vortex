@@ -12,7 +12,8 @@ use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::context::LayoutContextRef;
 use crate::reader::LayoutReader;
-use crate::segments::{AsyncSegmentReader, SegmentId};
+use crate::scan::ScanExecutor;
+use crate::segments::SegmentId;
 use crate::vtable::LayoutVTableRef;
 use crate::LayoutId;
 
@@ -291,10 +292,10 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
-        segments: Arc<dyn AsyncSegmentReader>,
+        executor: Arc<ScanExecutor>,
         ctx: ContextRef,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx, segments)
+        self.encoding().reader(self.clone(), ctx, executor)
     }
 
     /// Register splits for this layout.

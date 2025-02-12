@@ -1,62 +1,62 @@
-use std::future::Future;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use futures::{stream, FutureExt, Stream};
+use futures::stream::BoxStream;
+use futures::{stream, Stream};
 use itertools::Itertools;
-use oneshot;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
+pub(crate) mod filter;
 mod split_by;
+mod task;
 pub mod unified;
 
 use futures::StreamExt;
 pub use split_by::*;
+pub use task::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
-use vortex_scan::{RowMask, Scanner};
 
+use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutReader};
-
-pub trait ScanTask {
-    fn execute(&self, segments: &dyn AsyncSegmentReader) -> BoxFuture<()>;
-}
+use crate::segments::{AsyncSegmentReader, SegmentId};
+use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
 
 pub trait ScanDriver: 'static + Sized {
     type Options: Default;
 
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
-    fn drive_future(
-        self,
-        future: impl Future<Output = VortexResult<()>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        self.drive_stream(stream::iter([future.boxed()]))
-    }
-
-    fn drive_stream(
-        self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static;
+    /// Return a future that drives the I/O stream for the segment reader.
+    /// The future should return when the stream is complete, and can return an error to
+    /// terminate the scan early.
+    ///
+    /// It is recommended that I/O is spawned and processed on its own thread, with this driver
+    /// serving only as a mechanism to signal completion or error. There is no guarantee around
+    /// how frequently this future will be polled, so it should not be used to drive I/O.
+    ///
+    /// TODO(ngates): make this a future
+    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static;
 }
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
     driver_options: Option<D::Options>,
+    task_executor: Option<Arc<dyn TaskExecutor>>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
     split_by: SplitBy,
+    canonicalize: bool,
+    // The number of splits to make progress on concurrently.
+    concurrency: usize,
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
@@ -64,12 +64,15 @@ impl<D: ScanDriver> ScanBuilder<D> {
         Self {
             driver,
             driver_options: None,
+            task_executor: None,
             layout,
             ctx,
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
             split_by: SplitBy::Layout,
+            canonicalize: false,
+            concurrency: 32,
         }
     }
 
@@ -100,6 +103,23 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
     pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
         self.split_by = split_by;
+        self
+    }
+
+    /// Set whether the scan should canonicalize the output.
+    pub fn with_canonicalize(mut self, canonicalize: bool) -> Self {
+        self.canonicalize = canonicalize;
+        self
+    }
+
+    /// The number of row splits to make progress on concurrently.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+
+    pub fn with_task_executor(mut self, task_executor: Arc<dyn TaskExecutor>) -> Self {
+        self.task_executor = Some(task_executor);
         self
     }
 
@@ -168,11 +188,16 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
         Ok(Scan {
             driver: self.driver,
+            task_executor: self
+                .task_executor
+                .unwrap_or_else(|| Arc::new(InlineTaskExecutor)),
             layout: self.layout,
             ctx: self.ctx,
             projection,
             filter,
             row_masks,
+            canonicalize: self.canonicalize,
+            concurrency: self.concurrency,
         })
     }
 
@@ -186,8 +211,32 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 }
 
+pub struct ScanExecutor {
+    segment_reader: Arc<dyn AsyncSegmentReader>,
+    task_executor: Arc<dyn TaskExecutor>,
+}
+
+impl ScanExecutor {
+    /// Mostly used for testing, this creates a ScanExecutor with an inline task executor.
+    pub fn inline(segments: Arc<dyn AsyncSegmentReader>) -> Arc<Self> {
+        Arc::new(Self {
+            segment_reader: segments,
+            task_executor: Arc::new(InlineTaskExecutor),
+        })
+    }
+
+    pub async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+        self.segment_reader.get(id).await
+    }
+
+    pub async fn evaluate(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
+        self.task_executor.execute(array, tasks).await
+    }
+}
+
 pub struct Scan<D> {
     driver: D,
+    task_executor: Arc<dyn TaskExecutor>,
     layout: Layout,
     ctx: ContextRef,
     // Guaranteed to be simplified
@@ -195,62 +244,99 @@ pub struct Scan<D> {
     // Guaranteed to be simplified
     filter: Option<ExprRef>,
     row_masks: Vec<RowMask>,
+    canonicalize: bool,
+    concurrency: usize,
 }
 
 impl<D: ScanDriver> Scan<D> {
     /// Perform the scan operation and return a stream of arrays.
+    ///
+    /// The returned stream should be considered to perform I/O-bound operations and requires
+    /// frequent polling to make progress.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        let scanner = Arc::new(Scanner::new(
-            self.layout.dtype().clone(),
-            self.projection,
-            self.filter,
-        )?);
-
-        let result_dtype = scanner.result_dtype().clone();
-
         // Create a single LayoutReader that is reused for the entire scan.
-        let reader: Arc<dyn LayoutReader> = self
-            .layout
-            .reader(self.driver.segment_reader(), self.ctx.clone())?;
-
-        let mut results = Vec::with_capacity(self.row_masks.len());
-        let mut tasks = Vec::with_capacity(self.row_masks.len());
-
-        for row_mask in self.row_masks.into_iter() {
-            let (send_result, recv_result) = oneshot::channel::<VortexResult<Option<Array>>>();
-            results.push(recv_result);
-
-            let reader = reader.clone();
-            let task: BoxFuture<'static, VortexResult<()>> = scanner
-                .clone()
-                .range_scanner(row_mask)?
-                .evaluate_async(move |row_mask, expr| {
-                    let reader = reader.clone();
-                    async move { reader.evaluate_expr(row_mask, expr).await }
-                })
-                .map(|result| {
-                    send_result
-                        .send(result)
-                        .map_err(|_| vortex_err!("Failed to send result, recv dead"))
-                })
-                .boxed();
-            tasks.push(task);
-        }
-
-        let array_stream = stream::iter(results).filter_map(|result| async move {
-            match result.await {
-                Ok(result) => result.transpose(),
-                Err(canceled) => Some(Err(vortex_err!("Scan task canceled: {}", canceled))),
-            }
+        let executor = Arc::new(ScanExecutor {
+            segment_reader: self.driver.segment_reader(),
+            task_executor: self.task_executor.clone(),
         });
-        let driver_stream = self.driver.drive_stream(stream::iter(tasks));
+        let reader: Arc<dyn LayoutReader> =
+            self.layout.reader(executor.clone(), self.ctx.clone())?;
 
-        let stream = UnifiedDriverStream {
+        // We start with a stream of row masks
+        let row_masks = stream::iter(self.row_masks);
+
+        // If we have a filter expression, we set up a filter stream
+        let row_masks: BoxStream<'static, VortexResult<RowMask>> =
+            if let Some(filter) = self.filter.clone() {
+                let reader = reader.clone();
+
+                let pruning = Arc::new(FilterExpr::try_new(
+                    reader
+                        .dtype()
+                        .as_struct()
+                        .ok_or_else(|| {
+                            vortex_err!("Vortex scan currently only works for struct arrays")
+                        })?
+                        .clone(),
+                    filter.clone(),
+                )?);
+
+                row_masks
+                    .map(move |row_mask| {
+                        let reader = reader.clone();
+                        let filter = filter.clone();
+                        let pruning = pruning.clone();
+
+                        log::debug!(
+                            "Evaluating filter {} for row mask {}..{} {}",
+                            &filter,
+                            row_mask.begin(),
+                            row_mask.end(),
+                            row_mask.filter_mask().density()
+                        );
+                        async move { pruning.new_evaluation(&row_mask).evaluate(reader).await }
+                    })
+                    // Instead of buffering, we should be smarter where we poll the stream until
+                    // the I/O queue has ~256MB of requests in it. Our working set size.
+                    // We then return Pending and the I/O thread is free to spawn the requests.
+                    .buffered(self.concurrency)
+                    .filter_map(|r| async move {
+                        r.map(|r| (!r.filter_mask().all_false()).then_some(r))
+                            .transpose()
+                    })
+                    .boxed()
+            } else {
+                row_masks.map(Ok).boxed()
+            };
+
+        // Setup a projection stream
+        let reader = reader.clone();
+        let projection = self.projection.clone();
+        let array_stream = row_masks
+            .map(move |row_mask| {
+                let reader = reader.clone();
+                let projection = projection.clone();
+                let executor = executor.clone();
+                async move {
+                    let row_mask = row_mask?;
+                    let mut array = reader.evaluate_expr(row_mask, projection).await?;
+                    if self.canonicalize {
+                        array = executor.evaluate(&array, &[ScanTask::Canonicalize]).await?;
+                    }
+                    Ok(array)
+                }
+            })
+            .buffered(self.concurrency);
+
+        let io_stream = self.driver.io_stream();
+
+        let unified = UnifiedDriverStream {
             exec_stream: array_stream,
-            io_stream: driver_stream,
+            io_stream,
         };
 
-        Ok(ArrayStreamAdapter::new(result_dtype, stream))
+        let result_dtype = self.projection.return_dtype(self.layout.dtype())?;
+        Ok(ArrayStreamAdapter::new(result_dtype, unified))
     }
 
     pub async fn into_array(self) -> VortexResult<Array> {

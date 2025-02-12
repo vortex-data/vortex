@@ -5,22 +5,15 @@ use num_traits::AsPrimitive;
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, Entry, HashMap, HashTable, RandomState};
-use vortex_array::array::{
-    BinaryView, ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray,
-};
+use vortex_array::array::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
-use vortex_scalar::Scalar;
-use vortex_sparse::SparseArray;
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 
 use crate::DictArray;
-
-/// Statically assigned code for a null value.
-pub const NULL_CODE: u64 = 0;
 
 mod private {
     use vortex_dtype::{half, NativePType};
@@ -80,7 +73,7 @@ mod private {
 pub fn dict_encode(array: &Array) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = PrimitiveArray::maybe_from(array) {
         match_each_native_ptype!(pa.ptype(), |$P| {
-            &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())
+            &mut PrimitiveDictBuilder::<$P>::new()
         })
     } else if let Some(vbv) = VarBinViewArray::maybe_from(array) {
         &mut BytesDictBuilder::new(vbv.dtype().clone())
@@ -104,24 +97,25 @@ pub trait DictEncoder {
 pub struct PrimitiveDictBuilder<T> {
     lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
-    nullability: Nullability,
+}
+
+impl<T: NativePType> Default for PrimitiveDictBuilder<T>
+where
+    private::Value<T>: Hash + Eq,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T: NativePType> PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    pub fn new(nullability: Nullability) -> Self {
-        let mut values = BufferMut::<T>::empty();
-
-        if nullability == Nullability::Nullable {
-            values.push(T::zero());
-        };
-
+    pub fn new() -> Self {
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
-            values,
-            nullability,
+            values: BufferMut::<T>::empty(),
         }
     }
 
@@ -144,24 +138,19 @@ where
     private::Value<T>: Hash + Eq,
 {
     fn encode_array(&mut self, array: &Array) -> VortexResult<Array> {
-        if array.dtype().is_nullable() && self.nullability == Nullability::NonNullable {
-            vortex_bail!("Cannot encode nullable array into non nullable dictionary")
-        }
-
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
 
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
         let primitive = array.clone().into_primitive()?;
-
         let (codes, validity) = if array.dtype().is_nullable() {
             let mut null_buf = NullBufferBuilder::new(array.len());
             primitive.with_iterator(|it| {
                 for value in it {
                     let (code, validity) = value
                         .map(|v| (self.encode_value(*v), true))
-                        .unwrap_or((NULL_CODE, false));
+                        .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
                 }
@@ -176,22 +165,19 @@ where
         } else {
             primitive.with_iterator(|it| {
                 for value in it {
-                    let code = value
-                        .map(|v| self.encode_value(*v))
-                        .ok_or_else(|| vortex_err!("Null value in non-nullable array"))?;
+                    let code = self.encode_value(
+                        *value.vortex_expect("Dict encode null value in non-nullable array"),
+                    );
                     unsafe { codes.push_unchecked(code) }
                 }
-                VortexResult::Ok(())
-            })??;
+            })?;
             (codes, Validity::NonNullable)
         };
         Ok(PrimitiveArray::new(codes, validity).into_array())
     }
 
     fn values(&mut self) -> Array {
-        let values_validity = dict_values_validity(self.nullability.into(), self.values.len());
-
-        PrimitiveArray::new(self.values.clone().freeze(), values_validity).into_array()
+        PrimitiveArray::new(self.values.clone().freeze(), Validity::NonNullable).into_array()
     }
 }
 
@@ -206,14 +192,9 @@ pub struct BytesDictBuilder {
 
 impl BytesDictBuilder {
     pub fn new(dtype: DType) -> Self {
-        let mut views = BufferMut::<BinaryView>::empty();
-        if dtype.is_nullable() {
-            views.push(BinaryView::empty_view());
-        }
-
         Self {
             lookup: Some(HashTable::new()),
-            views,
+            views: BufferMut::<BinaryView>::empty(),
             values: BufferMut::empty(),
             hasher: DefaultHashBuilder::default(),
             dtype,
@@ -271,7 +252,7 @@ impl BytesDictBuilder {
                 for value in it {
                     let (code, validity) = value
                         .map(|v| (self.encode_value(&mut local_lookup, v), true))
-                        .unwrap_or((NULL_CODE, false));
+                        .unwrap_or((0, false));
                     null_buf.append(validity);
                     unsafe { codes.push_unchecked(code) }
                 }
@@ -286,9 +267,10 @@ impl BytesDictBuilder {
         } else {
             accessor.with_iterator(|it| {
                 for value in it {
-                    let code = value
-                        .map(|v| self.encode_value(&mut local_lookup, v))
-                        .unwrap_or(NULL_CODE);
+                    let code = self.encode_value(
+                        &mut local_lookup,
+                        value.vortex_expect("Dict encode null value in non-nullable array"),
+                    );
                     unsafe { codes.push_unchecked(code) }
                 }
             })?;
@@ -303,10 +285,6 @@ impl BytesDictBuilder {
 
 impl DictEncoder for BytesDictBuilder {
     fn encode_array(&mut self, array: &Array) -> VortexResult<Array> {
-        if array.dtype().is_nullable() && !self.dtype.is_nullable() {
-            vortex_bail!("Cannot encode nullable array into non nullable dictionary")
-        }
-
         if !self.dtype.eq_ignore_nullability(array.dtype()) {
             vortex_bail!("Can only encode string or binary arrays");
         }
@@ -322,32 +300,14 @@ impl DictEncoder for BytesDictBuilder {
     }
 
     fn values(&mut self) -> Array {
-        let values_validity = dict_values_validity(self.dtype.is_nullable(), self.views.len());
         VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],
-            self.dtype.clone(),
-            values_validity,
+            self.dtype.as_nonnullable(),
+            Validity::NonNullable,
         )
         .vortex_unwrap()
         .into_array()
-    }
-}
-
-fn dict_values_validity(nullable: bool, len: usize) -> Validity {
-    if nullable {
-        Validity::Array(
-            SparseArray::try_new(
-                ConstantArray::new(0u64, 1).into_array(),
-                ConstantArray::new(false, 1).into_array(),
-                len,
-                Scalar::from(true),
-            )
-            .vortex_unwrap()
-            .into_array(),
-        )
-    } else {
-        Validity::NonNullable
     }
 }
 
@@ -359,8 +319,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::scalar_at;
     use vortex_array::IntoArrayVariant;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_scalar::Scalar;
 
     use crate::dict_encode;
@@ -394,20 +353,16 @@ mod test {
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().into_primitive().unwrap().as_slice::<u64>(),
-            &[1, 1, 0, 2, 2, 0, 2, 0]
+            &[0, 0, 0, 1, 1, 0, 1, 0]
         );
         let dict_values = dict.values();
         assert_eq!(
             scalar_at(&dict_values, 0).unwrap(),
-            Scalar::null(DType::Primitive(PType::I32, Nullable))
+            Scalar::primitive(1, NonNullable)
         );
         assert_eq!(
             scalar_at(&dict_values, 1).unwrap(),
-            Scalar::primitive(1, Nullable)
-        );
-        assert_eq!(
-            scalar_at(&dict_values, 2).unwrap(),
-            Scalar::primitive(3, Nullable)
+            Scalar::primitive(3, NonNullable)
         );
     }
 
@@ -450,11 +405,7 @@ mod test {
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().into_primitive().unwrap().as_slice::<u64>(),
-            &[1, 0, 2, 1, 0, 3, 2, 0]
-        );
-        assert_eq!(
-            str::from_utf8(&dict.values().into_varbinview().unwrap().bytes_at(0)).unwrap(),
-            ""
+            &[0, 0, 1, 0, 0, 2, 1, 0]
         );
         dict.values()
             .into_varbinview()
@@ -463,7 +414,7 @@ mod test {
                 assert_eq!(
                     iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
                         .collect::<Vec<_>>(),
-                    vec![None, Some("hello"), Some("world"), Some("again")]
+                    vec![Some("hello"), Some("world"), Some("again")]
                 );
             })
             .unwrap();

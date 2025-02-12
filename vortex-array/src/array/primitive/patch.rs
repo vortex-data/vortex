@@ -15,13 +15,9 @@ impl PrimitiveArray {
         let patch_indices = patch_indices.into_primitive()?;
         let patch_values = patch_values.into_primitive()?;
 
-        let patched_validity = self.validity().patch(
-            self.len(),
-            offset,
-            patch_indices.as_ref(),
-            patch_values.validity(),
-        )?;
-
+        let patched_validity =
+            self.validity()
+                .patch(self.len(), offset, &patch_indices, patch_values.validity())?;
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
                 self.patch_typed::<$T, $I>(patch_indices, offset, patch_values, patched_validity)

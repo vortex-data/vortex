@@ -59,34 +59,33 @@ impl ChunkedArray {
             }
         }
 
-        let mut chunk_offsets = BufferMut::<u64>::with_capacity(chunks.len() + 1);
-        chunk_offsets.extend(
-            [0u64]
-                .into_iter()
-                .chain(chunks.iter().map(|c| c.len() as u64))
-                .scan(0, |acc, c| {
-                    *acc += c;
-                    Some(*acc)
-                }),
-        );
+        Ok(Self::try_new_unchecked(chunks, dtype))
+    }
 
-        let nchunks = chunk_offsets.len() - 1;
-        let length = *chunk_offsets
-            .last()
-            .vortex_expect("Chunk ends is guaranteed to have at least one element");
+    pub fn try_new_unchecked(chunks: Vec<Array>, dtype: DType) -> Self {
+        let nchunks = chunks.len();
 
-        let mut children = Vec::with_capacity(chunks.len() + 1);
+        let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
+        unsafe { chunk_offsets.push_unchecked(0) }
+        let mut curr_offset = 0u64;
+        for c in &chunks {
+            curr_offset += c.len() as u64;
+            unsafe { chunk_offsets.push_unchecked(curr_offset) }
+        }
+
+        let mut children = Vec::with_capacity(nchunks + 1);
         children.push(PrimitiveArray::new(chunk_offsets, NonNullable).into_array());
         children.extend(chunks);
 
         Self::try_from_parts(
             dtype,
-            length.try_into().vortex_unwrap(),
+            curr_offset.try_into().vortex_unwrap(),
             RkyvMetadata(ChunkedMetadata { nchunks }),
             None,
             Some(children.into()),
             StatsSet::default(),
         )
+        .vortex_expect("Constructing chunked array")
     }
 
     #[inline]
@@ -172,7 +171,7 @@ impl ChunkedArray {
                 && !chunks_to_combine.is_empty()
             {
                 new_chunks.push(
-                    ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                    ChunkedArray::try_new_unchecked(chunks_to_combine, self.dtype().clone())
                         .into_canonical()?
                         .into(),
                 );
@@ -193,14 +192,14 @@ impl ChunkedArray {
 
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
-                ChunkedArray::try_new(chunks_to_combine, self.dtype().clone())?
+                ChunkedArray::try_new_unchecked(chunks_to_combine, self.dtype().clone())
                     .into_array()
                     .into_canonical()?
                     .into(),
             );
         }
 
-        Self::try_new(new_chunks, self.dtype().clone())
+        Ok(Self::try_new_unchecked(new_chunks, self.dtype().clone()))
     }
 }
 

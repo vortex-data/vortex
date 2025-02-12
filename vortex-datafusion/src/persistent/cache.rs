@@ -1,14 +1,18 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::aliases::DefaultHashBuilder;
+use vortex_array::stats::{Precision, Stat};
 use vortex_array::ContextRef;
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexResult};
-use vortex_file::{FileLayout, VortexOpenOptions};
+use vortex_file::{FileLayout, Segment, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
+use vortex_layout::segments::SegmentId;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileLayoutCache {
@@ -31,12 +35,37 @@ impl From<&ObjectMeta> for Key {
     }
 }
 
+/// Approximate the in-memory size of a layout
+fn estimate_layout_size(file_layout: &FileLayout) -> usize {
+    let segments_size = file_layout.segment_map().len() * size_of::<Segment>();
+    let stats_size = file_layout
+        .statistics()
+        .iter()
+        .map(|v| {
+            v.iter()
+                .map(|_| size_of::<Stat>() + size_of::<Precision<ScalarValue>>())
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+
+    let root_layout = file_layout.root_layout();
+    let layout_size = size_of::<DType>()
+        + root_layout.metadata().map(|b| b.len()).unwrap_or_default()
+        + root_layout.nsegments() * size_of::<SegmentId>();
+
+    segments_size + stats_size + layout_size
+}
+
 impl FileLayoutCache {
     pub fn new(size_mb: usize, context: ContextRef) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
-            .eviction_listener(|k: Arc<Key>, _v, cause| {
+            .eviction_listener(|k: Arc<Key>, _v: FileLayout, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);
+            })
+            .weigher(|_k, file_layout| {
+                let size = estimate_layout_size(file_layout);
+                u32::try_from(size).unwrap_or(u32::MAX)
             })
             .build_with_hasher(DefaultHashBuilder::default());
 
@@ -57,7 +86,7 @@ impl FileLayoutCache {
                     .with_file_size(object.size as u64)
                     .open()
                     .await?;
-                VortexResult::Ok(vxf.file_layout().clone())
+                Ok(vxf.file_layout().clone())
             })
             .await
             .map_err(|e: Arc<VortexError>| {

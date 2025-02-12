@@ -4,9 +4,8 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt};
+use futures::{pin_mut, StreamExt, TryStreamExt};
 use futures_executor::block_on;
-use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
@@ -714,8 +713,6 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .with_row_indices((0..500).collect::<Buffer<_>>())
         .into_array()
         .await
-        .unwrap()
-        .into_struct()
         .unwrap()
         .into_struct()
         .unwrap();

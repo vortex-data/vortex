@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Stream;
-use futures_util::future::BoxFuture;
-use futures_util::StreamExt;
+use futures::{stream, Stream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::scan::ScanDriver;
@@ -47,11 +45,8 @@ impl ScanDriver for InMemoryVortexFile {
         Arc::new(self.clone())
     }
 
-    fn drive_stream(
-        self,
-        stream: impl Stream<Item = BoxFuture<'static, VortexResult<()>>> + Send + 'static,
-    ) -> impl Stream<Item = VortexResult<()>> + 'static {
-        stream.then(|r| r)
+    fn io_stream(self) -> impl Stream<Item = VortexResult<()>> + 'static {
+        stream::repeat_with(|| Ok(()))
     }
 }
 

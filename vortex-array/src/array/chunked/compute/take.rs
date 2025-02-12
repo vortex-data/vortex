@@ -60,7 +60,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
             )?);
         }
 
-        Ok(ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array())
+        Ok(ChunkedArray::try_new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 }
 

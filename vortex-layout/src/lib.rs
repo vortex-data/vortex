@@ -11,6 +11,8 @@ pub use reader::*;
 pub use strategy::*;
 pub use vtable::*;
 pub use writer::*;
+mod row_mask;
+pub use row_mask::*;
 mod reader;
 pub mod scan;
 pub mod segments;

@@ -8,7 +8,7 @@ use object_store::ObjectStore;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
-use vortex_file::VortexOpenOptions;
+use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
@@ -21,6 +21,7 @@ pub(crate) struct VortexFileOpener {
     pub filter: Option<ExprRef>,
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
+    pub batch_size: usize,
 }
 
 impl VortexFileOpener {
@@ -31,6 +32,7 @@ impl VortexFileOpener {
         filter: Option<Arc<dyn VortexExpr>>,
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
+        batch_size: usize,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -39,6 +41,7 @@ impl VortexFileOpener {
             filter,
             file_layout_cache,
             projected_arrow_schema,
+            batch_size,
         })
     }
 }
@@ -54,6 +57,7 @@ impl FileOpener for VortexFileOpener {
         let file_layout_cache = self.file_layout_cache.clone();
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
+        let batch_size = self.batch_size;
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
@@ -70,12 +74,15 @@ impl FileOpener for VortexFileOpener {
                 .scan()
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
+                .with_canonicalize(true)
+                // DataFusion likes ~8k row batches. Ideally we would respect the config,
+                // but at the moment our scanner has too much overhead to process small
+                // batches efficiently.
+                .with_split_by(SplitBy::RowCount(8 * batch_size))
                 .into_array_stream()?
                 .map(move |array| {
                     let st = array?.into_struct()?;
-                    let rb = st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?;
-
-                    Ok(rb)
+                    Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
                 })
                 .boxed())
         }
