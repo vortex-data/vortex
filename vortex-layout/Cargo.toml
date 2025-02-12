@@ -36,6 +36,7 @@ vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
+rstest = { workspace = true }
 
 [lints]
 workspace = true

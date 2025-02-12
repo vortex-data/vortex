@@ -13,9 +13,8 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::{get_item, ident, lit, or, ExprRef};
 use vortex_mask::Mask;
-use vortex_scan::RowMask;
 
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 /// Perform a filter before evaluating the expression if the mask drops below this density.
 const DEFAULT_SELECTIVITY_THRESHOLD: f64 = 0.05;

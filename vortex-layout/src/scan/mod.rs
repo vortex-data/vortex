@@ -20,12 +20,11 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
-use vortex_scan::RowMask;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, SegmentId};
-use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt};
+use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
 
 pub trait ScanDriver: 'static + Sized {
     type Options: Default;

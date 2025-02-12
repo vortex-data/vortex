@@ -10,13 +10,12 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
-use vortex_scan::RowMask;
 
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::scan::ScanExecutor;
-use crate::{ExprEvaluator, Layout, LayoutVTable};
+use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
 
 type PruningCache = Arc<OnceCell<Option<Mask>>>;
 

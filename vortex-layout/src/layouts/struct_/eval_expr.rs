@@ -6,11 +6,10 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::scan::ScanTask;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -90,14 +89,13 @@ mod tests {
     use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::Layout;
+    use crate::{Layout, RowMask};
 
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<ScanExecutor>, Layout) {

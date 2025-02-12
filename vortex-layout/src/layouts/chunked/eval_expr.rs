@@ -8,11 +8,10 @@ use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
-use vortex_scan::RowMask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReaderExt;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
@@ -132,13 +131,12 @@ mod test {
     use vortex_dtype::{DType, PType};
     use vortex_error::VortexExpect;
     use vortex_expr::{gt, lit, Identity};
-    use vortex_scan::RowMask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::Layout;
+    use crate::{Layout, RowMask};
 
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<ScanExecutor>, Layout) {

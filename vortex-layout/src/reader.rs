@@ -5,9 +5,8 @@ use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_scan::RowMask;
 
-use crate::Layout;
+use crate::{Layout, RowMask};
 
 /// A [`LayoutReader`] is an instance of a [`Layout`] that can cache state across multiple
 /// operations.
