@@ -3,6 +3,7 @@ use std::any::Any;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -53,15 +54,23 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let values = values.into_primitive()?;
         let validity = values.validity_mask()?;
         let values = values.as_slice::<T>();
+        match validity {
+            Mask::AllFalse(len) => {
+                self.append_nulls(len);
+                return Ok(());
+            }
+            Mask::AllTrue(len) => {
+                self.nulls.append_n_non_nulls(len);
+            }
+            Mask::Values(_) => {
+                self.nulls.append_validity_mask(validity);
+            }
+        }
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
             for (compressed_index, decompressed_index) in indices.into_primitive()?.as_slice::<$P>().into_iter().enumerate() {
                 let decompressed_index = *decompressed_index as usize;
                 let out_index = starting_at + decompressed_index - offset;
-                if validity.value(compressed_index) {
-                    self.values[out_index] = values[compressed_index]
-                } else {
-                    self.nulls.set_bit(out_index, false)
-                }
+                self.values[out_index] = values[compressed_index]
             }
         });
 
