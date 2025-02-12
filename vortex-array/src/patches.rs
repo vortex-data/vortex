@@ -16,7 +16,7 @@ use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
     filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, take,
-    SearchResult, SearchSortedSide,
+    try_cast, SearchResult, SearchSortedSide,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -110,6 +110,19 @@ impl Patches {
             offset,
             array_len
         );
+        Self::new_unchecked(array_len, offset, indices, values)
+    }
+
+    /// Construct new patches without validating any of the arguments
+    ///
+    /// # Safety
+    ///
+    /// Users have to assert that
+    /// * Indices and values have the same length
+    /// * Indices is an unsigned integer type
+    /// * Indices must be sorted
+    /// * Last value in indices is smaller than array_len
+    pub fn new_unchecked(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
         Self {
             array_len,
             offset,
@@ -178,6 +191,15 @@ impl Patches {
             offset: self.offset,
             indices_ptype: PType::try_from(self.indices.dtype()).vortex_expect("primitive indices"),
         })
+    }
+
+    pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
+        Ok(Self::new_unchecked(
+            self.array_len,
+            self.offset,
+            self.indices,
+            try_cast(self.values, values_dtype)?,
+        ))
     }
 
     /// Get the patched value at a given index if it exists.

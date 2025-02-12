@@ -6,13 +6,13 @@ use crate::{ALPRDArray, ALPRDEncoding};
 
 impl TakeFn<ALPRDArray> for ALPRDEncoding {
     fn take(&self, array: &ALPRDArray, indices: &Array) -> VortexResult<Array> {
+        let taken_left_parts = take(array.left_parts(), indices)?;
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices))
             .transpose()?
             .flatten();
 
-        let taken_left_parts = take(array.left_parts(), indices)?;
         Ok(ALPRDArray::try_new(
             if taken_left_parts.dtype().is_nullable() {
                 array.dtype().as_nullable()
