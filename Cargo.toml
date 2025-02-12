@@ -44,7 +44,7 @@ include = [
     "README.md",
 ]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.84"
 readme = "README.md"
 categories = ["database-implementations", "data-structures", "compression"]
 

@@ -431,6 +431,8 @@ impl<T> Extend<T> for BufferMut<T> {
                 unsafe {
                     // SAFETY: We know we have enough capacity to write the item.
                     dst.write(item);
+                    // Note. we used to have dst.add(iteration).write(item), here.
+                    // however this was much slower than just incrementing dst.
                     dst = dst.add(1);
                 }
             } else {
@@ -438,6 +440,7 @@ impl<T> Extend<T> for BufferMut<T> {
             }
         }
 
+        // TODO(joe): replace with ptr_sub when stable
         self.length += unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
         unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
 
