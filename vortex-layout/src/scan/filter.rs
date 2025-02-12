@@ -24,10 +24,14 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// The multiplier to used to convert selectivity to i64 for the histogram.
 const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 
-/// A pruning expression can be used to refine a RowMask.
+/// A [`FilterExpr`] performs smart stateful evaluation of a filter expression across multiple
+/// row splits.
 ///
-/// It maintains statistics through a series of executions to optimize later evaluations.
-pub struct PruningExpr {
+/// Each split creates a new [`FilterEvaluation`] that first asks layouts to perform stats-based
+/// pruning, after which it loops over the conjunctions of the filter and evaluates them.
+/// Selectivity statistics are reported back to the parent [`FilterExpr`] to inform future
+/// evaluations.
+pub struct FilterExpr {
     /// The fields involved in the pruning expression.
     fields: Arc<[FieldName]>,
     /// The conjuncts involve in the pruning expression.
@@ -44,7 +48,7 @@ pub struct PruningExpr {
     selectivity_quantile: f64,
 }
 
-impl PruningExpr {
+impl FilterExpr {
     pub fn try_new(scope_dtype: StructDType, expr: ExprRef) -> VortexResult<Self> {
         // Find all the fields involved in the expression.
         let fields: Arc<[FieldName]> = immediate_scope_access(&expr, &scope_dtype)?
@@ -100,12 +104,12 @@ impl PruningExpr {
     }
 
     /// Create a new evaluation of the pruning expression.
-    pub fn new_evaluation(self: Arc<Self>, row_mask: &RowMask) -> PruningEvaluation {
+    pub fn new_evaluation(self: Arc<Self>, row_mask: &RowMask) -> FilterEvaluation {
         let field_arrays = vec![None; self.fields.len()];
         let remaining = BitVec::from_elem(self.conjuncts.len(), true);
-        PruningEvaluation {
+        FilterEvaluation {
             row_offset: row_mask.begin(),
-            pruning_expr: self,
+            filter_expr: self,
             field_arrays,
             remaining,
             mask: row_mask.filter_mask().clone(),
@@ -210,16 +214,12 @@ impl PruningExpr {
     }
 }
 
-/// A single instance of an evaluation.
-///
-/// Upon construction, the evaluation decides the first set of fields it requires.
-/// After the fields have been read, the evaluation uses the latest statistics to refine the row
-/// mask, before requesting the next set of fields.
-pub struct PruningEvaluation {
+/// A single evaluation instance of a [`FilterExpr`].
+pub struct FilterEvaluation {
     /// The row offset of this evaluation.
     row_offset: u64,
-    /// The parent pruning expression.
-    pruning_expr: Arc<PruningExpr>,
+    /// The parent filter expression.
+    filter_expr: Arc<FilterExpr>,
     /// The fields that have been read.
     field_arrays: Vec<Option<Array>>,
     /// The conjunctions remaining to be evaluated.
@@ -228,18 +228,18 @@ pub struct PruningEvaluation {
     mask: Mask,
 }
 
-impl PruningEvaluation {
+impl FilterEvaluation {
     pub async fn evaluate<E: ExprEvaluator>(&mut self, evaluator: E) -> VortexResult<RowMask> {
         // First, we run all conjuncts through the evaluators pruning function. This helps trim
         // down the mask based on cheap statistics.
-        let pruning_masks = try_join_all(self.pruning_expr.conjuncts.iter().map(|expr| {
+        let pruning_masks = try_join_all(self.filter_expr.conjuncts.iter().map(|expr| {
             evaluator.prune_mask(
                 RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
                 expr.clone(),
             )
         }))
         .await?;
-        for (conjunct, mask) in self.pruning_expr.conjuncts.iter().zip_eq(pruning_masks) {
+        for (conjunct, mask) in self.filter_expr.conjuncts.iter().zip_eq(pruning_masks) {
             let pruning_mask = mask.filter_mask();
             log::debug!(
                 "Conjunct {} pruned to {:?}",
@@ -259,7 +259,7 @@ impl PruningEvaluation {
         //  skip the conjunct entirely.
         loop {
             if self
-                .pruning_expr
+                .filter_expr
                 .next_conjunct(&self.remaining, &self.field_arrays)
                 .is_none()
             {
@@ -282,7 +282,7 @@ impl PruningEvaluation {
             // selection mask here, perhaps we should?
             let field_readers = fields_to_read
                 .iter()
-                .map(|&field_idx| self.pruning_expr.fields[field_idx].clone())
+                .map(|&field_idx| self.filter_expr.fields[field_idx].clone())
                 .map(|field_name| {
                     evaluator.evaluate_expr(
                         RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
@@ -299,22 +299,22 @@ impl PruningEvaluation {
             // Now we've fetched some fields, we find the _now_ preferred conjunct to evaluate based
             // on the fields we actually have.
             let next_conjunct = self
-                .pruning_expr
+                .filter_expr
                 .next_conjunct(&self.remaining, &self.field_arrays)
                 .vortex_expect("we know there is another conjunct");
 
             log::debug!(
                 "Evaluating conjunct {}",
-                self.pruning_expr.conjuncts[next_conjunct],
+                self.filter_expr.conjuncts[next_conjunct],
             );
 
             // Evaluate the conjunct
-            let conjunct = self.pruning_expr.conjuncts[next_conjunct].clone();
+            let conjunct = self.filter_expr.conjuncts[next_conjunct].clone();
             self.remaining.set(next_conjunct, false);
 
             // If our mask selectivity is low, we can push down the selection into the expression
             // and only run the expression on the rows that are currently masked.
-            self.mask = if self.mask.density() < self.pruning_expr.selectivity_threshold {
+            self.mask = if self.mask.density() < self.filter_expr.selectivity_threshold {
                 // NOTE: since we push down the filter mask, we cannot infer anything about the
                 // selectivity of the conjunction.
                 // TODO(ngates): we already have the arrays, we could use our own?
@@ -331,7 +331,7 @@ impl PruningEvaluation {
                     )
                     .await?;
                 let conjunct_mask = Mask::try_from(result)?;
-                self.pruning_expr
+                self.filter_expr
                     .report_selectivity(next_conjunct, conjunct_mask.density());
                 self.mask.bitand(&conjunct_mask)
             };

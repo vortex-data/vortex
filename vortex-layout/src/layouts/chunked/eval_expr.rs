@@ -27,15 +27,10 @@ impl ExprEvaluator for ChunkedReader {
         let mut chunks = Vec::new();
 
         for chunk_idx in chunk_range {
-            // Figure out the row range of the chunk
-            let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+            let chunk_mask = self.chunk_mask(chunk_idx, &row_mask)?;
 
-            let chunk_mask = row_mask
-                .slice(chunk_row_range.start, chunk_row_range.end)?
-                .shift(chunk_row_range.start)?;
-
-            // If the chunk is empty skip `evaluate_expr` on child and omit chunk from array
             if chunk_mask.true_count() == 0 {
+                // If the chunk is empty skip `evaluate_expr` on child and omit chunk from array
                 continue;
             }
 
@@ -105,10 +100,23 @@ impl ExprEvaluator for ChunkedReader {
 
                 // Update the pruning mask.
                 mask = mask.bitand(&chunk_mask);
+            } else {
+                // TODO(ngates): we could push-down the pruning request to the child. This
+                //  would be used for chunk-of-chunk layouts.
             }
         }
 
         Ok(RowMask::new(mask, row_mask.begin()))
+    }
+}
+
+impl ChunkedReader {
+    /// Adjust the row mask for the specific chunk.
+    fn chunk_mask(&self, chunk_idx: usize, row_mask: &RowMask) -> VortexResult<RowMask> {
+        let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+        row_mask
+            .slice(chunk_row_range.start, chunk_row_range.end)?
+            .shift(chunk_row_range.start)
     }
 }
 

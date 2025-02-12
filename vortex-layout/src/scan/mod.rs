@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
-pub(crate) mod pruning;
+pub(crate) mod filter;
 mod split_by;
 mod task;
 pub mod unified;
@@ -22,7 +22,7 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
 use vortex_scan::RowMask;
 
-use crate::scan::pruning::PruningExpr;
+use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt};
@@ -272,7 +272,7 @@ impl<D: ScanDriver> Scan<D> {
                 let reader = reader.clone();
 
                 // TODO(ngates): name this "FilterEvaluator"
-                let pruning = Arc::new(PruningExpr::try_new(
+                let pruning = Arc::new(FilterExpr::try_new(
                     reader
                         .dtype()
                         .as_struct()
