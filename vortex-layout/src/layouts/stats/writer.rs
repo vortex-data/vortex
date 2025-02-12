@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
 use vortex_buffer::ByteBufferMut;
@@ -7,12 +8,11 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::data::Layout;
-use crate::layouts::flat::writer::FlatLayoutWriter;
-use crate::layouts::stats::stats_table::StatsAccumulator;
+use crate::layouts::stats::stats_table::{StatsAccumulator, StatsTable};
 use crate::layouts::stats::StatsLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
-use crate::LayoutVTableRef;
+use crate::{LayoutStrategy, LayoutVTableRef};
 
 pub struct StatsLayoutOptions {
     /// The size of a statistics block
@@ -32,7 +32,8 @@ impl Default for StatsLayoutOptions {
 
 pub struct StatsLayoutWriter {
     options: StatsLayoutOptions,
-    child: Box<dyn LayoutWriter>,
+    child_writer: Box<dyn LayoutWriter>,
+    stats_writer: Box<dyn LayoutWriter>,
     stats_accumulator: StatsAccumulator,
     dtype: DType,
 
@@ -42,16 +43,29 @@ pub struct StatsLayoutWriter {
 }
 
 impl StatsLayoutWriter {
-    pub fn new(dtype: &DType, child: Box<dyn LayoutWriter>, options: StatsLayoutOptions) -> Self {
-        let stats_accumulator = StatsAccumulator::new(dtype.clone(), options.stats.clone());
-        Self {
+    pub fn try_new(
+        dtype: &DType,
+        // TODO(ngates): we should arrive at a convention on this. I think we should maybe just
+        //  impl LayoutStrategy for StatsLayoutStrategy, which holds options, and options contain
+        //  other layout strategies?
+        child_writer: Box<dyn LayoutWriter>,
+        stats_strategy: &dyn LayoutStrategy,
+        options: StatsLayoutOptions,
+    ) -> VortexResult<Self> {
+        let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
+        let stats_writer =
+            stats_strategy.new_writer(&StatsTable::dtype_for_stats_table(dtype, &present_stats))?;
+        let stats_accumulator = StatsAccumulator::new(dtype.clone(), present_stats);
+
+        Ok(Self {
             options,
-            child,
+            child_writer,
+            stats_writer,
             stats_accumulator,
             dtype: dtype.clone(),
             nblocks: 0,
             final_block: false,
-        }
+        })
     }
 }
 
@@ -71,11 +85,11 @@ impl LayoutWriter for StatsLayoutWriter {
 
         self.nblocks += 1;
         self.stats_accumulator.push_chunk(&chunk)?;
-        self.child.push_chunk(segments, chunk)
+        self.child_writer.push_chunk(segments, chunk)
     }
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        let child = self.child.finish(segments)?;
+        let child = self.child_writer.finish(segments)?;
 
         // Collect together the statistics
         let Some(stats_table) = self.stats_accumulator.as_stats_table() else {
@@ -84,9 +98,10 @@ impl LayoutWriter for StatsLayoutWriter {
             return Ok(child);
         };
 
-        let stats_layout =
-            FlatLayoutWriter::new(stats_table.array().dtype().clone(), Default::default())
-                .push_one(segments, stats_table.array().clone())?;
+        let stats_layout = self
+            .stats_writer
+            .as_mut()
+            .push_one(segments, stats_table.array().clone())?;
 
         let mut metadata = ByteBufferMut::empty();
 
@@ -101,7 +116,8 @@ impl LayoutWriter for StatsLayoutWriter {
             "stats".into(),
             LayoutVTableRef::from_static(&StatsLayout),
             self.dtype.clone(),
-            self.nblocks as u64,
+            // We report our child data's row count, not the stats table.
+            child.row_count(),
             vec![],
             vec![child, stats_layout],
             Some(metadata.freeze().into_inner()),

@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::stats::stats_from_bitset_bytes;
+use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
 use vortex_dtype::TryFromBytes;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -25,12 +25,16 @@ pub struct StatsReader {
     ctx: ContextRef,
     executor: Arc<ScanExecutor>,
 
+    /// The number of blocks
+    nblocks: usize,
     /// The size of each block (except possibly the last)
     block_size: usize,
+    /// The stats present in the layout
+    present_stats: Arc<[Stat]>,
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
     /// Shared stats table
-    stats_table: Arc<OnceCell<Option<StatsTable>>>,
+    stats_table: Arc<OnceCell<StatsTable>>,
     /// Child layout reader
     child: Arc<dyn LayoutReader>,
 }
@@ -49,18 +53,22 @@ impl StatsReader {
             .child(0, layout.dtype().clone(), "data")?
             .reader(executor.clone(), ctx.clone())?;
 
-        let block_size = u32::try_from_le_bytes(
-            layout
-                .metadata()
-                .vortex_expect("Stats layout must have metadata")
-                .as_ref(),
-        )? as usize;
+        let metadata = layout
+            .metadata()
+            .vortex_expect("Stats layout must have metadata");
+
+        let block_size = u32::try_from_le_bytes(&metadata[0..4])? as usize;
+        let present_stats = stats_from_bitset_bytes(&metadata[4..]).into();
+        let nblocks =
+            usize::try_from((layout.row_count() + block_size as u64 - 1) / block_size as u64)?;
 
         Ok(Self {
             layout,
             ctx,
             executor,
+            nblocks,
             block_size,
+            present_stats,
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             child,
@@ -71,45 +79,36 @@ impl StatsReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    pub(crate) async fn stats_table(&self) -> VortexResult<Option<&StatsTable>> {
+    pub(crate) async fn stats_table(&self) -> VortexResult<&StatsTable> {
         self.stats_table
             .get_or_try_init(async {
-                Ok(match self.layout.metadata() {
-                    None => None,
-                    Some(metadata) => {
-                        // The final child is the statistics table.
-                        let nchunks = self.layout.nchildren() - 1;
+                let layout_dtype = self.layout.dtype();
+                let stats_dtype =
+                    StatsTable::dtype_for_stats_table(layout_dtype, &self.present_stats);
+                let stats_layout = self.layout.child(1, stats_dtype.clone(), "stats_table")?;
 
-                        // Figure out which stats are present
-                        let present_stats = stats_from_bitset_bytes(metadata.as_ref());
+                let stats_array = stats_layout
+                    .reader(self.executor.clone(), self.ctx.clone())?
+                    .evaluate_expr(
+                        RowMask::new_valid_between(0, self.nblocks as u64),
+                        Identity::new_expr(),
+                    )
+                    .await?;
 
-                        let layout_dtype = self.layout.dtype();
-                        let stats_dtype =
-                            StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone(), "stats")?;
+                if &stats_dtype != stats_array.dtype() {
+                    vortex_bail!(
+                        "Expected stats DType {stats_dtype} doesn't match read stats dtype {}",
+                        stats_array.dtype()
+                    )
+                }
 
-                        let stats_array = stats_layout
-                            .reader(self.executor.clone(), self.ctx.clone())?
-                            .evaluate_expr(
-                                RowMask::new_valid_between(0, nchunks as u64),
-                                Identity::new_expr(),
-                            )
-                            .await?;
-
-                        if &stats_dtype != stats_array.dtype() {
-                            vortex_bail!("Expected stats DType {stats_dtype} doesn't match read stats dtype {}", stats_array.dtype())
-                        }
-
-                        // SAFETY: This is only fine to call because we perfrorm validation above
-                        Some(StatsTable::unchecked_new(
-                            stats_array,
-                            present_stats.into(),
-                        ))
-                    }
-                })
+                // SAFETY: This is only fine to call because we perform validation above
+                Ok(StatsTable::unchecked_new(
+                    stats_array,
+                    self.present_stats.clone(),
+                ))
             })
             .await
-            .map(|opt| opt.as_ref())
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
@@ -127,15 +126,13 @@ impl StatsReader {
             if let Some(p) = &pruning_predicate {
                 log::debug!("Constructed pruning predicate for expr: {}: {}", expr, p);
             }
-            Ok(if let Some(stats_table) = self.stats_table().await? {
-                if let Some(predicate) = pruning_predicate {
-                    predicate
-                        .evaluate(stats_table.array())?
-                        .map(Mask::try_from)
-                        .transpose()?
-                } else {
-                    None
-                }
+
+            let stats_table = self.stats_table().await?;
+            Ok(if let Some(predicate) = pruning_predicate {
+                predicate
+                    .evaluate(stats_table.array())?
+                    .map(Mask::try_from)
+                    .transpose()?
             } else {
                 None
             })
@@ -158,7 +155,7 @@ impl StatsReader {
 
     /// Return the row offset of a given block.
     pub(crate) fn block_offset(&self, block_idx: usize) -> u64 {
-        ((block_idx * self.block_size) as u64).min(self.layout.row_count())
+        ((block_idx * self.block_size) as u64).min(self.layout.child_row_count(0))
     }
 }
 

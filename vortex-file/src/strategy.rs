@@ -8,9 +8,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
 use vortex_layout::layouts::flat::writer::FlatLayoutOptions;
+use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
-use vortex_layout::stats::StatsLayoutWriter;
 use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 use vortex_sampling_compressor::compressors::CompressionTree;
@@ -61,7 +62,16 @@ impl LayoutStrategy for VortexLayoutStrategy {
         // Prior to repartitioning, we record statistics
         let writer = RepartitionWriter::new(
             dtype.clone(),
-            StatsLayoutWriter::new(writer, dtype, PRUNING_STATS.into())?.boxed(),
+            StatsLayoutWriter::try_new(
+                dtype,
+                writer,
+                &FlatLayout,
+                StatsLayoutOptions {
+                    block_size: 8192,
+                    stats: PRUNING_STATS.into(),
+                },
+            )?
+            .boxed(),
             RepartitionWriterOptions {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
