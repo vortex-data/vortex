@@ -229,7 +229,6 @@ mod test {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn take_nullable_with_nullables() {
         let start =
             BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
