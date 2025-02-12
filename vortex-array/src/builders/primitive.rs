@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
@@ -48,7 +49,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     pub fn patch(&mut self, patches: Patches, starting_at: usize) -> VortexResult<()> {
-        let (array_len, offset, indices, values) = patches.into_parts();
+        let (array_len, indices_offset, indices, values) = patches.into_parts();
         assert!(starting_at + array_len == self.len());
         let indices = indices.into_primitive()?;
         let values = values.into_primitive()?;
@@ -67,12 +68,27 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             }
         }
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
-            for (compressed_index, decompressed_index) in indices.into_primitive()?.as_slice::<$P>().into_iter().enumerate() {
-                let decompressed_index = *decompressed_index as usize;
-                let out_index = starting_at + decompressed_index - offset;
-                self.values[out_index] = values[compressed_index]
-            }
-        });
+            self.insert_values_at_indices::<$P>(indices, values, starting_at, indices_offset)
+        })
+    }
+
+    fn insert_values_at_indices<IndexT: NativePType + AsPrimitive<usize>>(
+        &mut self,
+        indices: PrimitiveArray,
+        values: &[T],
+        starting_at: usize,
+        indices_offset: usize,
+    ) -> VortexResult<()> {
+        for (compressed_index, decompressed_index) in indices
+            .into_primitive()?
+            .as_slice::<IndexT>()
+            .iter()
+            .enumerate()
+        {
+            let decompressed_index = decompressed_index.as_();
+            let out_index = starting_at + decompressed_index - indices_offset;
+            self.values[out_index] = values[compressed_index]
+        }
 
         Ok(())
     }
