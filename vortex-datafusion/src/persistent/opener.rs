@@ -25,7 +25,6 @@ pub(crate) struct VortexFileOpener {
 }
 
 impl VortexFileOpener {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ctx: ContextRef,
         object_store: Arc<dyn ObjectStore>,
@@ -34,8 +33,8 @@ impl VortexFileOpener {
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
-    ) -> VortexResult<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             ctx,
             object_store,
             projection,
@@ -43,7 +42,7 @@ impl VortexFileOpener {
             file_layout_cache,
             projected_arrow_schema,
             batch_size,
-        })
+        }
     }
 }
 
