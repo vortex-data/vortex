@@ -13,7 +13,7 @@ impl PrimitiveArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
         let (_, offset, patch_indices, patch_values) = patches.into_parts();
         let patch_indices = patch_indices.into_primitive()?;
-        let patch_values = patch_values.clone().into_primitive()?;
+        let patch_values = patch_values.into_primitive()?;
 
         let patched_validity =
             self.validity()
