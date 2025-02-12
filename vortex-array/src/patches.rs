@@ -635,6 +635,9 @@ mod test {
         let primitive_values = taken.values().clone().into_primitive().unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_eq!(primitive_values.as_slice::<i32>(), [44]);
-        assert_eq!(primitive_values.validity_mask().unwrap(), Mask::from_iter(vec![true]));
+        assert_eq!(
+            primitive_values.validity_mask().unwrap(),
+            Mask::from_iter(vec![true])
+        );
     }
 }
