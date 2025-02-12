@@ -2,9 +2,9 @@ use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::validity::Validity;
-use crate::IntoArrayVariant as _;
 
 /// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`
 /// method to append a boolean buffer directly.
@@ -73,28 +73,24 @@ impl LazyNullBufferBuilder {
     }
 
     #[inline]
-    pub fn append_buffer(&mut self, bool_buffer: BooleanBuffer) {
+    pub fn append_buffer(&mut self, bool_buffer: &BooleanBuffer) {
         self.materialize_if_needed();
         self.inner
             .as_mut()
             .vortex_expect("buffer just materialized")
-            .append_buffer(&bool_buffer);
+            .append_buffer(bool_buffer);
+    }
+
+    pub fn append_validity_mask(&mut self, validity_mask: Mask) {
+        match validity_mask {
+            Mask::AllTrue(len) => self.append_n_non_nulls(len),
+            Mask::AllFalse(len) => self.append_n_nulls(len),
+            Mask::Values(is_valid) => self.append_buffer(is_valid.boolean_buffer()),
+        }
     }
 
     pub fn append_validity(&mut self, validity: Validity, length: usize) -> VortexResult<()> {
-        match validity {
-            Validity::NonNullable => {}
-            Validity::AllValid => {
-                self.append_n_non_nulls(length);
-            }
-            Validity::AllInvalid => {
-                self.append_n_nulls(length);
-            }
-            Validity::Array(array) => {
-                self.append_buffer(array.into_bool()?.boolean_buffer());
-            }
-        }
-
+        self.append_validity_mask(validity.to_logical(length)?);
         Ok(())
     }
 
