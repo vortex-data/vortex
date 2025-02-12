@@ -3,9 +3,10 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::array::{ConstantArray, VarBinArray};
+use vortex_array::array::{ChunkedArray, ConstantArray, VarBinArray};
+use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::compute::{compare, Operator};
-use vortex_array::IntoCanonical;
+use vortex_array::{IntoArray, IntoCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 use vortex_scalar::Scalar;
@@ -33,6 +34,21 @@ fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> 
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
     )
+}
+
+fn generate_chunked_test_data(
+    chunk_size: usize,
+    string_count: usize,
+    avg_len: usize,
+    unique_chars: u8,
+) -> ChunkedArray {
+    (0..chunk_size)
+        .map(|_| {
+            let array = generate_test_data(string_count, avg_len, unique_chars).into_array();
+            let compressor = fsst_train_compressor(&array).unwrap();
+            fsst_compress(&array, &compressor).unwrap().into_array()
+        })
+        .collect::<ChunkedArray>()
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -84,6 +100,37 @@ fn canonicalize_compare(bencher: Bencher, args: (usize, usize, u8)) {
         });
 }
 
+#[divan::bench(args = CHUNKED_BENCH_ARGS)]
+fn chunked_canonicalize_into(
+    bencher: Bencher,
+    (chunk_size, string_count, avg_len, unique_chars): (usize, usize, usize, u8),
+) {
+    let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
+
+    bencher
+        .with_inputs(|| array.clone())
+        .bench_local_values(|array| {
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Binary(Nullability::NonNullable),
+                array.len(),
+            );
+            array.canonicalize_into(&mut builder).unwrap();
+            builder.finish().unwrap()
+        });
+}
+
+#[divan::bench(args = CHUNKED_BENCH_ARGS)]
+fn chunked_into_canonical(
+    bencher: Bencher,
+    (chunk_size, string_count, avg_len, unique_chars): (usize, usize, usize, u8),
+) {
+    let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
+
+    bencher
+        .with_inputs(|| array.clone())
+        .bench_local_values(|array| array.into_canonical().unwrap());
+}
+
 fn main() {
     divan::main();
 }
@@ -102,4 +149,20 @@ const BENCH_ARGS: &[(usize, usize, u8)] = &[
     (100_000, 4, 8),
     (100_000, 16, 8),
     (100_000, 64, 8),
+];
+
+// [(chunk_size, string_count, avg_len, unique_chars)]
+const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = &[
+    (1000, 100, 16, 4),
+    (1000, 100, 16, 16),
+    (1000, 100, 16, 64),
+    (1000, 1000, 8, 4),
+    (1000, 1000, 8, 16),
+    (1000, 1000, 8, 64),
+    (1000, 50, 8, 4),
+    (1000, 50, 8, 16),
+    (1000, 50, 8, 64),
+    (10, 100_000, 4, 4),
+    (10, 100_000, 16, 4),
+    (10, 100_000, 64, 4),
 ];

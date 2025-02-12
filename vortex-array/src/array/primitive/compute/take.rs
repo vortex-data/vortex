@@ -13,7 +13,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &Array) -> VortexResult<Array> {
         let indices = indices.clone().into_primitive()?;
-        let validity = array.validity().take(indices.as_ref())?;
+        let validity = array.validity().take(&indices)?;
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {

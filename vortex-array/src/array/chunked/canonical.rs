@@ -251,28 +251,24 @@ fn pack_views(
     let mut views = BufferMut::with_capacity(total_len);
     let mut buffers = Vec::new();
     for chunk in chunks {
-        // Each chunk's views have buffer IDs that are zero-referenced.
-        // As part of the packing operation, we need to rewrite them to be referenced to the global
-        // merged buffers list.
         let buffers_offset = u32::try_from(buffers.len())?;
         let canonical_chunk = chunk.clone().into_varbinview()?;
         buffers.extend(canonical_chunk.buffers());
 
-        for view in canonical_chunk.views().iter() {
+        views.extend(canonical_chunk.views().into_iter().map(|view| {
             if view.is_inlined() {
-                // Inlined views can be copied directly into the output
-                views.push(*view);
+                view
             } else {
                 // Referencing views must have their buffer_index adjusted with new offsets
                 let view_ref = view.as_view();
-                views.push(BinaryView::new_view(
+                BinaryView::new_view(
                     view.len(),
                     *view_ref.prefix(),
                     buffers_offset + view_ref.buffer_index(),
                     view_ref.offset(),
-                ));
+                )
             }
-        }
+        }));
     }
 
     VarBinViewArray::try_new(views.freeze(), buffers, dtype.clone(), validity)

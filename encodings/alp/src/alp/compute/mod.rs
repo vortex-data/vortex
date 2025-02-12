@@ -60,7 +60,6 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
 
 impl TakeFn<ALPArray> for ALPEncoding {
     fn take(&self, array: &ALPArray, indices: &Array) -> VortexResult<Array> {
-        // TODO(ngates): wrap up indices in an array that caches decompression?
         Ok(ALPArray::try_new(
             take(array.encoded(), indices)?,
             array.exponents(),

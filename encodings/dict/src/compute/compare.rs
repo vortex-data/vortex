@@ -17,7 +17,7 @@ impl CompareFn<DictArray> for DictEncoding {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs_c) = rhs.as_constant() {
             let compare_result = compare(
-                lhs.values(),
+                try_cast(lhs.values(), lhs.dtype())?,
                 ConstantArray::new(rhs_c, lhs.values().len()),
                 operator,
             )?;
