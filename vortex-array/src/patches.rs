@@ -622,4 +622,19 @@ mod test {
             SearchResult::NotFound(1)
         );
     }
+
+    #[rstest]
+    fn take_wit_nulls(patches: Patches) {
+        let taken = patches
+            .take(
+                &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
+                    .into_array(),
+            )
+            .unwrap()
+            .unwrap();
+        let primitive_values = taken.values().clone().into_primitive().unwrap();
+        assert_eq!(taken.array_len(), 2);
+        assert_eq!(primitive_values.as_slice::<i32>(), [44]);
+        assert_eq!(primitive_values.validity_mask().unwrap(), Mask::from_iter(vec![true]));
+    }
 }
