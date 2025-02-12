@@ -39,6 +39,8 @@ impl CanonicalVTable<FSSTArray> for FSSTEncoding {
     }
 }
 
+// Decompresses a fsst encoded array into a varbinview, a block_offset can be passed if the decoding
+// if happening as part of the larger view and is used to set the block_offset in each view.
 fn fsst_into_varbin_view(
     decompressor: Decompressor,
     fsst_array: &FSSTArray,
