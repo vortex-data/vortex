@@ -101,6 +101,7 @@ impl IoDispatcher {
         Self::new_tokio_with_name("tokio-dispatch", num_thread)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new_tokio_with_name(name: &str, num_thread: usize) -> Self {
         Self(Arc::new(Inner::Tokio(TokioDispatcher::new(
             name, num_thread,
