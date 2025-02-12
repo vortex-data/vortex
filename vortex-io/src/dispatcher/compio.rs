@@ -4,10 +4,10 @@ use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
 use futures::channel::{mpsc, oneshot};
-use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::{SinkExt, Stream, StreamExt};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
-use super::{Dispatch, JoinHandle as VortexJoinHandle};
+use super::{Dispatch, JoinHandle as VortexJoinHandle, StreamHandle};
 
 trait CompioSpawn {
     fn spawn(self: Box<Self>) -> CompioJoinHandle<()>;
@@ -129,10 +129,7 @@ impl Dispatch for CompioDispatcher {
         Ok(())
     }
 
-    fn drive_stream<S, T, E>(
-        &self,
-        stream: S,
-    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    fn drive_stream<S, T, E>(&self, stream: S) -> VortexResult<StreamHandle<Result<T, E>>>
     where
         T: Send + 'static,
         E: Send + 'static,
@@ -143,7 +140,7 @@ impl Dispatch for CompioDispatcher {
         let stream_task = Box::new(CompioStreamTask { stream, sender: tx });
 
         match self.submitter.send(stream_task) {
-            Ok(()) => Ok(rx.into_stream()),
+            Ok(()) => Ok(StreamHandle(rx)),
             Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
         }
     }

@@ -3,11 +3,11 @@
 use std::future::Future;
 
 use futures::channel::{mpsc, oneshot};
-use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::{SinkExt, Stream, StreamExt};
 use vortex_error::{vortex_panic, VortexResult};
 use wasm_bindgen_futures::wasm_bindgen::__rt::Start;
 
-use super::{Dispatch, JoinHandle as VortexJoinHandle};
+use super::{Dispatch, JoinHandle as VortexJoinHandle, StreamHandle};
 
 /// `Dispatch`able type that is available when running Vortex in the browser or other WASM env.
 #[derive(Debug, Clone)]
@@ -38,10 +38,7 @@ impl Dispatch for WasmDispatcher {
         Ok(VortexJoinHandle(rx))
     }
 
-    fn drive_stream<S, T, E>(
-        &self,
-        stream: S,
-    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    fn drive_stream<S, T, E>(&self, stream: S) -> VortexResult<StreamHandle<Result<T, E>>>
     where
         T: Send + 'static,
         E: Send + 'static,
@@ -60,7 +57,7 @@ impl Dispatch for WasmDispatcher {
         })
         .start();
 
-        Ok(rx.into_stream())
+        Ok(StreamHandle(rx))
     }
 
     fn shutdown(self) -> VortexResult<()> {

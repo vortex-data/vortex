@@ -83,7 +83,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                     .drive_stream(byte_stream)
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-                let buffer = io_dispatcher
+                io_dispatcher
                     .dispatch::<_, _, object_store::Result<ByteBufferMut>>(|| async move {
                         while let Some(bytes) = byte_stream.next().await {
                             buffer.extend_from_slice(&bytes?);
@@ -92,9 +92,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                     })
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
                     .await
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??;
-
-                buffer
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
             }
         };
 

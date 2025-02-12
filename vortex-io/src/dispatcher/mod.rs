@@ -10,8 +10,8 @@ use std::sync::{Arc, LazyLock};
 use std::task::Poll;
 
 use cfg_if::cfg_if;
-use futures::channel::oneshot;
-use futures::{FutureExt, Stream};
+use futures::channel::{mpsc, oneshot};
+use futures::{FutureExt, Stream, StreamExt};
 use vortex_error::{vortex_err, VortexResult};
 
 static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
@@ -53,10 +53,7 @@ pub trait Dispatch: sealed::Sealed {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static;
 
-    fn drive_stream<S, T, E>(
-        &self,
-        stream: S,
-    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    fn drive_stream<S, T, E>(&self, stream: S) -> VortexResult<StreamHandle<Result<T, E>>>
     where
         T: Send + 'static,
         E: Send + 'static,
@@ -139,6 +136,19 @@ impl<R> Future for JoinHandle<R> {
     }
 }
 
+pub struct StreamHandle<R>(mpsc::Receiver<R>);
+
+impl<R> Stream for StreamHandle<R> {
+    type Item = R;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        self.0.poll_next_unpin(cx)
+    }
+}
+
 #[derive(Debug)]
 enum Inner {
     #[cfg(not(target_arch = "wasm32"))]
@@ -167,10 +177,7 @@ impl Dispatch for IoDispatcher {
         }
     }
 
-    fn drive_stream<S, T, E>(
-        &self,
-        stream: S,
-    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    fn drive_stream<S, T, E>(&self, stream: S) -> VortexResult<StreamHandle<Result<T, E>>>
     where
         T: Send + 'static,
         E: Send + 'static,

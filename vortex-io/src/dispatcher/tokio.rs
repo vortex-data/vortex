@@ -3,11 +3,11 @@ use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
 use futures::channel::{mpsc, oneshot};
-use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::{SinkExt, Stream, StreamExt};
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
-use super::{Dispatch, JoinHandle as VortexJoinHandle};
+use super::{Dispatch, JoinHandle as VortexJoinHandle, StreamHandle};
 
 trait TokioSpawn {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()>;
@@ -144,10 +144,7 @@ impl Dispatch for TokioDispatcher {
         Ok(())
     }
 
-    fn drive_stream<S, T, E>(
-        &self,
-        stream: S,
-    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    fn drive_stream<S, T, E>(&self, stream: S) -> VortexResult<StreamHandle<Result<T, E>>>
     where
         T: Send + 'static,
         E: Send + 'static,
@@ -158,7 +155,7 @@ impl Dispatch for TokioDispatcher {
         let stream_task = Box::new(TokioStreamTask { stream, sender: tx }) as _;
 
         match self.submitter.send(stream_task) {
-            Ok(()) => Ok(rx.into_stream()),
+            Ok(()) => Ok(StreamHandle(rx)),
             Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
         }
     }
