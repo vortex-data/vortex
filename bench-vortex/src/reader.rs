@@ -27,7 +27,7 @@ use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::io::{IoDispatcher, ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
+use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Array, IntoCanonical};
 
@@ -116,8 +116,7 @@ pub async fn take_vortex_object_store(
     path: object_store::path::Path,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
-    let io = IoDispatcher::new_tokio(1);
-    take_vortex(ObjectStoreReadAt::new(fs.clone(), path, io), indices).await
+    take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
 }
 
 pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<Array> {

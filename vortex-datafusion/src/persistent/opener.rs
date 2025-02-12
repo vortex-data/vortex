@@ -11,7 +11,7 @@ use vortex_array::{Array, ContextRef, IntoArrayVariant};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::{ScanTask, SplitBy, TaskExecutor, VortexOpenOptions};
-use vortex_io::{IoDispatcher, ObjectStoreReadAt};
+use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
 
@@ -24,7 +24,6 @@ pub(crate) struct VortexFileOpener {
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
-    pub io_dispatcher: IoDispatcher,
 }
 
 impl VortexFileOpener {
@@ -37,7 +36,6 @@ impl VortexFileOpener {
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
-        io_dispatcher: IoDispatcher,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -47,18 +45,14 @@ impl VortexFileOpener {
             file_layout_cache,
             projected_arrow_schema,
             batch_size,
-            io_dispatcher,
         })
     }
 }
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let read_at = ObjectStoreReadAt::new(
-            self.object_store.clone(),
-            file_meta.location().clone(),
-            self.io_dispatcher.clone(),
-        );
+        let read_at =
+            ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
 
         let filter = self.filter.clone();
         let projection = self.projection.clone();
@@ -67,14 +61,13 @@ impl FileOpener for VortexFileOpener {
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
-        let io_dispatcher = self.io_dispatcher.clone();
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
                 .with_file_layout(
                     file_layout_cache
-                        .try_get(&file_meta.object_meta, object_store, io_dispatcher.clone())
+                        .try_get(&file_meta.object_meta, object_store)
                         .await?,
                 )
                 .open()

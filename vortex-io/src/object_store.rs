@@ -9,28 +9,26 @@ use object_store::path::Path;
 use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, PutPayload,
 };
-use vortex_buffer::{Alignment, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{Dispatch as _, IoBuf, IoDispatcher, VortexReadAt, VortexWrite};
+
+thread_local! {
+    pub(crate) static IO_DISPATCHER: IoDispatcher = IoDispatcher::new_tokio(1);
+}
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
-    io_dispatcher: IoDispatcher,
 }
 
 impl ObjectStoreReadAt {
-    pub fn new(
-        object_store: Arc<dyn ObjectStore>,
-        location: Path,
-        io_dispatcher: IoDispatcher,
-    ) -> Self {
+    pub fn new(object_store: Arc<dyn ObjectStore>, location: Path) -> Self {
         Self {
             object_store,
             location,
-            io_dispatcher,
         }
     }
 }
@@ -52,16 +50,23 @@ impl VortexReadAt for ObjectStoreReadAt {
         // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
         // into the aligned buffer.
         let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+        let io_dispatcher = IO_DISPATCHER.with(|io| io.clone());
 
-        let response = object_store
-            .get_opts(
-                &location,
-                GetOptions {
-                    range: Some(GetRange::Bounded(start..end)),
-                    ..Default::default()
-                },
-            )
-            .await?;
+        let response = io_dispatcher
+            .dispatch(move || async move {
+                object_store
+                    .get_opts(
+                        &location,
+                        GetOptions {
+                            range: Some(GetRange::Bounded(start..end)),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+            })
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??;
 
         let buffer = match response.payload {
             GetResultPayload::File(file, _) => {
@@ -73,17 +78,24 @@ impl VortexReadAt for ObjectStoreReadAt {
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
             }
-            GetResultPayload::Stream(mut byte_stream) => self
-                .io_dispatcher
-                .dispatch::<_, _, object_store::Result<BufferMut<u8>>>(|| async move {
-                    while let Some(bytes) = byte_stream.next().await {
-                        buffer.extend_from_slice(&bytes?);
-                    }
-                    object_store::Result::Ok(buffer)
-                })
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??,
+            GetResultPayload::Stream(byte_stream) => {
+                let mut byte_stream = io_dispatcher
+                    .drive_stream(byte_stream)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                let buffer = io_dispatcher
+                    .dispatch::<_, _, object_store::Result<ByteBufferMut>>(|| async move {
+                        while let Some(bytes) = byte_stream.next().await {
+                            buffer.extend_from_slice(&bytes?);
+                        }
+                        object_store::Result::Ok(buffer)
+                    })
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                    .await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??;
+
+                buffer
+            }
         };
 
         Ok(buffer.freeze())

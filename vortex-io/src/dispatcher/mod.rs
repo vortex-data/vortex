@@ -11,7 +11,7 @@ use std::task::Poll;
 
 use cfg_if::cfg_if;
 use futures::channel::oneshot;
-use futures::FutureExt;
+use futures::{FutureExt, Stream};
 use vortex_error::{vortex_err, VortexResult};
 
 static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
@@ -52,6 +52,15 @@ pub trait Dispatch: sealed::Sealed {
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
         R: Send + 'static;
+
+    fn drive_stream<S, T, E>(
+        &self,
+        stream: S,
+    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        S: Stream<Item = Result<T, E>> + Send + 'static;
 
     /// Gracefully shutdown the dispatcher, consuming it.
     ///
@@ -155,6 +164,25 @@ impl Dispatch for IoDispatcher {
             Inner::Compio(ref compio_dispatch) => compio_dispatch.dispatch(task),
             #[cfg(target_arch = "wasm32")]
             Inner::Wasm(ref wasm_dispatch) => wasm_dispatch.dispatch(task),
+        }
+    }
+
+    fn drive_stream<S, T, E>(
+        &self,
+        stream: S,
+    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        S: Stream<Item = Result<T, E>> + Send + 'static,
+    {
+        match self.0.as_ref() {
+            #[cfg(not(target_arch = "wasm32"))]
+            Inner::Tokio(ref tokio_dispatch) => tokio_dispatch.drive_stream(stream),
+            #[cfg(feature = "compio")]
+            Inner::Compio(ref compio_dispatch) => compio_dispatch.drive_stream(stream),
+            #[cfg(target_arch = "wasm32")]
+            Inner::Wasm(ref wasm_dispatch) => wasm_dispatch.drive_stream(stream),
         }
     }
 

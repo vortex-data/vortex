@@ -3,7 +3,9 @@ use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
+use futures::{Stream, StreamExt};
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
+use tokio_stream::wrappers::ReceiverStream;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
@@ -83,6 +85,31 @@ where
     }
 }
 
+struct TokioStreamTask<F, R> {
+    stream: F,
+    sender: tokio::sync::mpsc::Sender<R>,
+}
+
+impl<F, R> TokioSpawn for TokioStreamTask<F, R>
+where
+    F: Stream<Item = R> + Unpin + 'static,
+    R: 'static,
+{
+    fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
+        let Self { mut stream, sender } = *self;
+
+        tokio::task::spawn_local(async move {
+            while let Some(v) = stream.next().await {
+                let r = sender.send(v).await;
+                // If the channel is closed, we return early
+                if r.is_err() {
+                    return;
+                }
+            }
+        })
+    }
+}
+
 impl Dispatch for TokioDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<VortexJoinHandle<R>>
     where
@@ -113,6 +140,25 @@ impl Dispatch for TokioDispatcher {
         }
 
         Ok(())
+    }
+
+    fn drive_stream<S, T, E>(
+        &self,
+        stream: S,
+    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        S: Stream<Item = Result<T, E>> + Send + 'static,
+    {
+        let (tx, rx) = tokio::sync::mpsc::channel(1024);
+        let stream = Box::pin(stream);
+        let stream_task = Box::new(TokioStreamTask { stream, sender: tx }) as _;
+
+        match self.submitter.send(stream_task) {
+            Ok(()) => Ok(ReceiverStream::new(rx)),
+            Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
+        }
     }
 }
 
