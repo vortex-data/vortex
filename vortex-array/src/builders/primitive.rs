@@ -55,19 +55,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let values = values.into_primitive()?;
         let validity = values.validity_mask()?;
         let values = values.as_slice::<T>();
-        match validity {
-            Mask::AllFalse(len) => {
-                self.append_nulls(len);
-                return Ok(());
-            }
-            Mask::AllTrue(len) => {
-                self.nulls.append_n_non_nulls(len);
-            }
-            Mask::Values(_) => {
-                self.nulls.append_validity_mask(validity);
-            }
-        }
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
+            self.insert_validity_at_indices::<$P>(indices.clone(), validity, starting_at, indices_offset)?;
             self.insert_values_at_indices::<$P>(indices, values, starting_at, indices_offset)
         })
     }
@@ -79,15 +68,28 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         starting_at: usize,
         indices_offset: usize,
     ) -> VortexResult<()> {
-        for (compressed_index, decompressed_index) in indices
-            .into_primitive()?
-            .as_slice::<IndexT>()
-            .iter()
-            .enumerate()
+        for (compressed_index, decompressed_index) in
+            indices.as_slice::<IndexT>().iter().enumerate()
         {
             let decompressed_index = decompressed_index.as_();
             let out_index = starting_at + decompressed_index - indices_offset;
-            self.values[out_index] = values[compressed_index]
+            self.values[out_index] = values[compressed_index];
+        }
+
+        Ok(())
+    }
+
+    fn insert_validity_at_indices<IndexT: NativePType + AsPrimitive<usize>>(
+        &mut self,
+        indices: PrimitiveArray,
+        validity: Mask,
+        starting_at: usize,
+        indices_offset: usize,
+    ) -> VortexResult<()> {
+        for decompressed_index in indices.as_slice::<IndexT>().iter() {
+            let decompressed_index = decompressed_index.as_();
+            let out_index = starting_at + decompressed_index - indices_offset;
+            self.nulls.set_bit(out_index, validity.value(out_index));
         }
 
         Ok(())
