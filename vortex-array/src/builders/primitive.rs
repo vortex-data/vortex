@@ -56,7 +56,9 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let validity = values.validity_mask()?;
         let values = values.as_slice::<T>();
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
-            self.insert_validity_at_indices::<$P>(indices.clone(), validity, starting_at, indices_offset)?;
+            if !matches!(validity, Mask::AllTrue(_)) {
+                self.insert_validity_at_indices::<$P>(indices.clone(), validity, starting_at, indices_offset)?;
+            }
             self.insert_values_at_indices::<$P>(indices, values, starting_at, indices_offset)
         })
     }
