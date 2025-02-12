@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
@@ -23,6 +23,15 @@ impl ExprEvaluator for StructReader {
             .map(|name| self.child(name))
             .try_collect()?;
 
+        // Short-circuit if there is only one partition
+        if partitioned.partitions.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .evaluate_expr(row_mask, partitioned.partitions[0].clone())
+                .await;
+        }
+
+        // Otherwise, evaluate all partitions concurrently
         let arrays = try_join_all(
             field_readers
                 .iter()
@@ -49,14 +58,23 @@ impl ExprEvaluator for StructReader {
             .await
     }
 
-    async fn prune_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
-        let mut pruning_evaluation = self
-            .pruning_expr(&expr)?
-            .new_evaluation(row_mask.filter_mask().clone());
-        let mask = pruning_evaluation
-            .evaluate(|expr, mask| self.evaluate_expr(RowMask::new(mask, row_mask.begin()), expr))
-            .await?;
-        Ok(RowMask::new(mask, row_mask.begin()))
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        // We currently can only perform pruning if the expression references a single field.
+        // Otherwise, we have no good way to recombine the results.
+        let partitioned = self.partition_expr(expr.clone())?;
+        if partitioned.partitions.len() != 1 {
+            log::debug!("Cannot push-down pruning for multi-field expr {}", expr);
+            return Ok(row_mask);
+        }
+
+        let field_name = partitioned
+            .partition_names
+            .iter()
+            .next()
+            .vortex_expect("one partition");
+        self.child(field_name)?
+            .prune_mask(row_mask, partitioned.partitions[0].clone())
+            .await
     }
 }
 

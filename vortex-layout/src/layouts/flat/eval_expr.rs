@@ -38,6 +38,11 @@ impl ExprEvaluator for FlatReader {
 
         self.executor().evaluate(&array, &tasks).await
     }
+
+    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+        // No cheap pruning for us to do without fetching data.
+        Ok(row_mask)
+    }
 }
 
 #[cfg(test)]

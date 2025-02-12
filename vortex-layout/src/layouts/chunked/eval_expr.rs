@@ -19,16 +19,6 @@ impl ExprEvaluator for ChunkedReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;
-        //
-        // // First we need to compute the pruning mask
-        // let pruning_mask = self.pruning_mask(&expr).await?;
-        // log::debug!(
-        //     "Pruning mask for {}..{} expr {}: {:?}",
-        //     row_mask.begin(),
-        //     row_mask.end(),
-        //     expr,
-        //     pruning_mask
-        // );
 
         // Figure out which chunks intersect the RowMask
         let chunk_range = self.chunk_range(row_mask.begin()..row_mask.end());
@@ -48,19 +38,6 @@ impl ExprEvaluator for ChunkedReader {
             if chunk_mask.true_count() == 0 {
                 continue;
             }
-            //
-            // // If the pruning mask tells us the chunk is pruned (i.e. the expr is ALL false),
-            // // then we can just return a constant array.
-            // if let Some(pruning_mask) = &pruning_mask {
-            //     if pruning_mask.value(chunk_idx) {
-            //         let false_array = ConstantArray::new(
-            //             Scalar::bool(false, dtype.nullability()),
-            //             chunk_mask.true_count(),
-            //         );
-            //         chunks.push(ready(Ok(false_array.into_array())).boxed());
-            //         continue;
-            //     }
-            // }
 
             // Otherwise, we need to read it. So we set up a mask for the chunk range.
             let chunk_reader = self.child(chunk_idx)?;
@@ -80,18 +57,23 @@ impl ExprEvaluator for ChunkedReader {
         Ok(ChunkedArray::try_new_unchecked(chunks, dtype).into_array())
     }
 
-    async fn prune_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
         // First we need to compute the pruning mask
         let Some(pruning_mask) = self.pruning_mask(&expr).await? else {
             // If there is no pruning mask, then we can't prune anything!
+            log::debug!(
+                "Cannot prune {} in chunked reader, returning mask {}",
+                expr,
+                row_mask.filter_mask().density()
+            );
             return Ok(row_mask);
         };
 
         log::debug!(
-            "Pruning mask for {}..{} expr {}: {:?}",
+            "Pruning mask for {} {}..{}: {:?}",
+            expr,
             row_mask.begin(),
             row_mask.end(),
-            expr,
             pruning_mask
         );
 
@@ -123,8 +105,6 @@ impl ExprEvaluator for ChunkedReader {
 
                 // Update the pruning mask.
                 mask = mask.bitand(&chunk_mask);
-            } else {
-                // Otherwise, we need to evaluate the pruning expr in the child reader.
             }
         }
 

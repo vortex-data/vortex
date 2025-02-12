@@ -30,11 +30,12 @@ impl LayoutReader for Arc<dyn LayoutReader + 'static> {
 /// FIXME(ngates): what if this was evaluating_predicate(mask, expr) -> mask,
 ///  evaluate_filter(mask, scan) -> Array, and evaluate_projection(mask, expr) -> Array?
 #[async_trait]
-pub trait ExprEvaluator {
+pub trait ExprEvaluator: Send + Sync {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array>;
 
-    /// Refine the row mask by approximately evaluating the expression.
-    async fn prune_expr(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+    /// Refine the row mask by evaluating any pruning. This should be relatively cheap, statistics
+    /// based evaluation, and returns an approximate result.
+    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
         Ok(row_mask)
     }
 }
@@ -46,8 +47,8 @@ impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
     }
 
     /// Refine the row mask by approximately evaluating the expression.
-    async fn prune_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
-        self.as_ref().prune_expr(row_mask, expr).await
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        self.as_ref().prune_mask(row_mask, expr).await
     }
 }
 

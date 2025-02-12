@@ -6,6 +6,7 @@ use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
+pub(crate) mod pruning;
 mod split_by;
 mod task;
 pub mod unified;
@@ -15,15 +16,16 @@ pub use split_by::*;
 pub use task::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
 use vortex_scan::RowMask;
 
+use crate::scan::pruning::PruningExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, SegmentId};
-use crate::{ExprEvaluator, Layout, LayoutReader};
+use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt};
 
 pub trait ScanDriver: 'static + Sized {
     type Options: Default;
@@ -264,16 +266,28 @@ impl<D: ScanDriver> Scan<D> {
         // We start with a stream of row masks
         let row_masks = stream::iter(self.row_masks);
 
-        // TODO(ngates): use the pruner here
-
         // If we have a filter expression, we set up a filter stream
         let row_masks: BoxStream<'static, VortexResult<RowMask>> =
             if let Some(filter) = self.filter.clone() {
                 let reader = reader.clone();
+
+                // TODO(ngates): name this "FilterEvaluator"
+                let pruning = Arc::new(PruningExpr::try_new(
+                    reader
+                        .dtype()
+                        .as_struct()
+                        .ok_or_else(|| {
+                            vortex_err!("Vortex scan currently only works for struct arrays")
+                        })?
+                        .clone(),
+                    filter.clone(),
+                )?);
+
                 row_masks
                     .map(move |row_mask| {
                         let reader = reader.clone();
                         let filter = filter.clone();
+                        let pruning = pruning.clone();
 
                         log::debug!(
                             "Evaluating filter {} for row mask {}..{} {}",
@@ -282,44 +296,14 @@ impl<D: ScanDriver> Scan<D> {
                             row_mask.end(),
                             row_mask.filter_mask().density()
                         );
-
-                        async move { reader.prune_expr(row_mask, filter.clone()).await }
+                        async move { pruning.new_evaluation(&row_mask).evaluate(reader).await }
                     })
-                    // .map(move |row_mask| {
-                    //     let reader = reader.clone();
-                    //     let filter = filter.clone();
-                    //
-                    //     log::debug!(
-                    //         "Evaluating filter {} for row mask {}..{} {}",
-                    //         &filter,
-                    //         row_mask.begin(),
-                    //         row_mask.end(),
-                    //         row_mask.filter_mask().density()
-                    //     );
-                    //
-                    //     let row_offset = row_mask.begin();
-                    //     let range_scanner = scanner.clone().range_scanner(row_mask);
-                    //
-                    //     async move {
-                    //         let mask = range_scanner
-                    //             .evaluate_async(move |mask, expr| {
-                    //                 let reader = reader.clone();
-                    //                 async move { reader.evaluate_expr(mask, expr).await }
-                    //             })
-                    //             .await?;
-                    //         if mask.all_false() {
-                    //             Ok(None)
-                    //         } else {
-                    //             Ok(Some(RowMask::new(mask, row_offset)))
-                    //         }
-                    //     }
-                    // })
                     // Instead of buffering, we should be smarter where we poll the stream until
                     // the I/O queue has ~256MB of requests in it. Our working set size.
                     // We then return Pending and the I/O thread is free to spawn the requests.
                     .buffered(self.concurrency)
                     .filter_map(|r| async move {
-                        r.map(|r| r.filter_mask().all_false().then_some(r))
+                        r.map(|r| (!r.filter_mask().all_false()).then_some(r))
                             .transpose()
                     })
                     .boxed()

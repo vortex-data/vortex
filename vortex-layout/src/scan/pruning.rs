@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::iter;
 use std::ops::BitAnd;
 use std::sync::{Arc, RwLock};
@@ -14,9 +13,16 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::{get_item, ident, lit, or, ExprRef};
 use vortex_mask::Mask;
+use vortex_scan::RowMask;
+
+use crate::ExprEvaluator;
 
 /// Perform a filter before evaluating the expression if the mask drops below this density.
 const DEFAULT_SELECTIVITY_THRESHOLD: f64 = 0.05;
+/// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
+const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
+/// The multiplier to used to convert selectivity to i64 for the histogram.
+const SELECTIVITY_MULTIPLIER: f64 = 1_000_000.0;
 
 /// A pruning expression can be used to refine a RowMask.
 ///
@@ -34,6 +40,8 @@ pub struct PruningExpr {
     ordering: RwLock<Vec<usize>>,
     /// The threshold of selectivity below which the filter is pushed down.
     selectivity_threshold: f64,
+    /// The quantile to use from the selectivity histogram of each conjunct.
+    selectivity_quantile: f64,
 }
 
 impl PruningExpr {
@@ -87,18 +95,20 @@ impl PruningExpr {
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..nconjuncts).collect()),
             selectivity_threshold: DEFAULT_SELECTIVITY_THRESHOLD,
+            selectivity_quantile: DEFAULT_SELECTIVITY_QUANTILE,
         })
     }
 
     /// Create a new evaluation of the pruning expression.
-    pub fn new_evaluation(self: Arc<Self>, mask: Mask) -> PruningEvaluation {
+    pub fn new_evaluation(self: Arc<Self>, row_mask: &RowMask) -> PruningEvaluation {
         let field_arrays = vec![None; self.fields.len()];
         let remaining = BitVec::from_elem(self.conjuncts.len(), true);
         PruningEvaluation {
+            row_offset: row_mask.begin(),
             pruning_expr: self,
             field_arrays,
             remaining,
-            mask,
+            mask: row_mask.filter_mask().clone(),
         }
     }
 
@@ -137,6 +147,12 @@ impl PruningExpr {
             vortex_panic!("selectivity must be in the range [0.0, 1.0]");
         }
 
+        log::debug!(
+            "Reporting selectivity {} for {}",
+            selectivity,
+            self.conjuncts[conjunct_idx]
+        );
+
         {
             let mut histogram = self.conjunct_selectivity[conjunct_idx]
                 .write()
@@ -144,8 +160,32 @@ impl PruningExpr {
                 .vortex_expect("lock poisoned");
 
             // Since our histogram only supports i64, we map our f64 into a 0-1m range.
-            let selectivity = (selectivity * 1_000_000.0).round() as i64;
+            let selectivity = (selectivity * SELECTIVITY_MULTIPLIER).round() as i64;
             histogram.update(selectivity);
+        }
+
+        let all_selectivity = self
+            .conjunct_selectivity
+            .iter()
+            .map(|histogram| {
+                histogram
+                    .read()
+                    .map_err(|_| vortex_err!("poisoned lock"))
+                    .vortex_expect("poisoned lock")
+                    .snapshot()
+                    .value(self.selectivity_quantile)
+            })
+            .collect::<Vec<_>>();
+
+        {
+            let ordering = self
+                .ordering
+                .read()
+                .map_err(|_| vortex_err!("poisoned lock"))
+                .vortex_expect("lock poisoned");
+            if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
+                return;
+            }
         }
 
         // Re-sort our conjuncts based on the new statistics.
@@ -154,16 +194,19 @@ impl PruningExpr {
             .write()
             .map_err(|_| vortex_err!("poisoned lock"))
             .vortex_expect("lock poisoned");
+        ordering.sort_unstable_by_key(|&idx| all_selectivity[idx]);
 
-        // Sort by the 10th percentile of the histogram (90th percentile selectivity).
-        ordering.sort_unstable_by_key(|&idx| {
-            self.conjunct_selectivity[idx]
-                .read()
-                .map_err(|_| vortex_err!("poisoned lock"))
-                .vortex_expect("poisoned lock")
-                .snapshot()
-                .value(0.1)
-        });
+        log::debug!(
+            "Reordered conjuncts based on new selectivity {:?}",
+            ordering
+                .iter()
+                .map(|&idx| format!(
+                    "({}) => {}",
+                    self.conjuncts[idx],
+                    all_selectivity[idx] as f64 / SELECTIVITY_MULTIPLIER
+                ))
+                .join(", ")
+        );
     }
 }
 
@@ -173,6 +216,8 @@ impl PruningExpr {
 /// After the fields have been read, the evaluation uses the latest statistics to refine the row
 /// mask, before requesting the next set of fields.
 pub struct PruningEvaluation {
+    /// The row offset of this evaluation.
+    row_offset: u64,
     /// The parent pruning expression.
     pruning_expr: Arc<PruningExpr>,
     /// The fields that have been read.
@@ -184,11 +229,34 @@ pub struct PruningEvaluation {
 }
 
 impl PruningEvaluation {
-    pub async fn evaluate<E, F>(&mut self, evaluator: E) -> VortexResult<Mask>
-    where
-        E: Fn(ExprRef, Mask) -> F,
-        F: Future<Output = VortexResult<Array>>,
-    {
+    pub async fn evaluate<E: ExprEvaluator>(&mut self, evaluator: E) -> VortexResult<RowMask> {
+        // First, we run all conjuncts through the evaluators pruning function. This helps trim
+        // down the mask based on cheap statistics.
+        let pruning_masks = try_join_all(self.pruning_expr.conjuncts.iter().map(|expr| {
+            evaluator.prune_mask(
+                RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
+                expr.clone(),
+            )
+        }))
+        .await?;
+        for (conjunct, mask) in self.pruning_expr.conjuncts.iter().zip_eq(pruning_masks) {
+            let pruning_mask = mask.filter_mask();
+            log::debug!(
+                "Conjunct {} pruned to {:?}",
+                conjunct,
+                pruning_mask.density()
+            );
+            self.mask = self.mask.bitand(mask.filter_mask());
+        }
+
+        if self.mask.all_false() {
+            // If the mask is all false, then we can stop evaluating.
+            return Ok(RowMask::new(self.mask.clone(), self.row_offset));
+        }
+
+        // Then we loop over the conjuncts and evaluate them.
+        // TODO(ngates): it would be good to know if the pruning result was accurate, then we could
+        //  skip the conjunct entirely.
         loop {
             if self
                 .pruning_expr
@@ -196,7 +264,7 @@ impl PruningEvaluation {
                 .is_none()
             {
                 // If there are no more conjuncts, then we've finished
-                return Ok(self.mask.clone());
+                return Ok(RowMask::new(self.mask.clone(), self.row_offset));
             }
 
             // Figure out which fields are needed for the next conjunct.
@@ -210,14 +278,15 @@ impl PruningEvaluation {
                 .filter_map(|(idx, field)| field.is_none().then_some(idx))
                 .collect::<Vec<usize>>();
 
-            // Construct futures to read the *full* field. We don't do partial reads yet.
+            // Construct futures to read the *full* field. We don't push down our mask as a
+            // selection mask here, perhaps we should?
             let field_readers = fields_to_read
                 .iter()
                 .map(|&field_idx| self.pruning_expr.fields[field_idx].clone())
                 .map(|field_name| {
-                    evaluator(
+                    evaluator.evaluate_expr(
+                        RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
                         get_item(field_name, ident()),
-                        Mask::new_true(self.mask.len()),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -229,12 +298,15 @@ impl PruningEvaluation {
 
             // Now we've fetched some fields, we find the _now_ preferred conjunct to evaluate based
             // on the fields we actually have.
-            let Some(next_conjunct) = self
+            let next_conjunct = self
                 .pruning_expr
                 .next_conjunct(&self.remaining, &self.field_arrays)
-            else {
-                return Ok(self.mask.clone());
-            };
+                .vortex_expect("we know there is another conjunct");
+
+            log::debug!(
+                "Evaluating conjunct {}",
+                self.pruning_expr.conjuncts[next_conjunct],
+            );
 
             // Evaluate the conjunct
             let conjunct = self.pruning_expr.conjuncts[next_conjunct].clone();
@@ -245,17 +317,20 @@ impl PruningEvaluation {
             self.mask = if self.mask.density() < self.pruning_expr.selectivity_threshold {
                 // NOTE: since we push down the filter mask, we cannot infer anything about the
                 // selectivity of the conjunction.
-                let result = evaluator(conjunct, self.mask.clone()).await?;
+                // TODO(ngates): we already have the arrays, we could use our own?
+                let result = evaluator
+                    .evaluate_expr(RowMask::new(self.mask.clone(), self.row_offset), conjunct)
+                    .await?;
                 // Use a rank-intersection to explode the result into the full mask.
                 self.mask.intersect_by_rank(&Mask::try_from(result)?)
             } else {
-                let result = evaluator(conjunct, Mask::new_true(self.mask.len())).await?;
+                let result = evaluator
+                    .evaluate_expr(
+                        RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
+                        conjunct,
+                    )
+                    .await?;
                 let conjunct_mask = Mask::try_from(result)?;
-                log::debug!(
-                    "PruningEvaluation: conjunct {} density: {}",
-                    self.pruning_expr.conjuncts[next_conjunct],
-                    conjunct_mask.density(),
-                );
                 self.pruning_expr
                     .report_selectivity(next_conjunct, conjunct_mask.density());
                 self.mask.bitand(&conjunct_mask)
@@ -263,7 +338,7 @@ impl PruningEvaluation {
 
             if self.mask.all_false() {
                 // If the mask is all false, then we can stop evaluating.
-                return Ok(self.mask.clone());
+                return Ok(RowMask::new(self.mask.clone(), self.row_offset));
             }
         }
     }

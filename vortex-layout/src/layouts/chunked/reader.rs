@@ -138,7 +138,7 @@ impl ChunkedReader {
         cell.get_or_try_init(async {
             let pruning_predicate = PruningPredicate::try_new(expr);
             if let Some(p) = &pruning_predicate {
-                log::debug!("Constructed pruning mask for expr: {}: {}", expr, p);
+                log::debug!("Constructed pruning predicate for expr: {}: {}", expr, p);
             }
             Ok(if let Some(stats_table) = self.stats_table().await? {
                 if let Some(predicate) = pruning_predicate {
