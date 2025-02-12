@@ -146,12 +146,6 @@ impl FilterExpr {
             vortex_panic!("selectivity must be in the range [0.0, 1.0]");
         }
 
-        log::debug!(
-            "Reporting selectivity {} for {}",
-            selectivity,
-            self.conjuncts[conjunct_idx]
-        );
-
         {
             let mut histogram = self.conjunct_selectivity[conjunct_idx]
                 .write()
@@ -322,10 +316,19 @@ impl FilterEvaluation {
                 let result = evaluator
                     .evaluate_expr(
                         RowMask::new(Mask::new_true(self.mask.len()), self.row_offset),
-                        conjunct,
+                        conjunct.clone(),
                     )
                     .await?;
                 let conjunct_mask = Mask::try_from(result)?;
+
+                log::debug!(
+                    "Reporting selectivity {} for {}..{} {}",
+                    conjunct_mask.density(),
+                    self.row_offset,
+                    self.row_offset + conjunct_mask.len() as u64,
+                    conjunct,
+                );
+
                 self.filter_expr
                     .report_selectivity(next_conjunct, conjunct_mask.density());
                 self.mask.bitand(&conjunct_mask)
