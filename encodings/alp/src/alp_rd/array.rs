@@ -71,9 +71,6 @@ impl ALPRDArray {
             PType::try_from(left_parts.dtype()).vortex_expect("left_parts dtype must be uint");
 
         // we enforce right_parts to be non-nullable uint
-        if right_parts.dtype().is_nullable() {
-            vortex_bail!("right_parts dtype must be non-nullable");
-        }
         if !right_parts.dtype().is_unsigned_int() || right_parts.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable uint", right_parts.dtype());
         }
@@ -82,11 +79,11 @@ impl ALPRDArray {
 
         let patches = left_parts_patches
             .map(|patches| {
-                if patches.values().dtype().is_nullable() {
-                    vortex_bail!("patches must be non-nullable: {}", patches.values());
+                if !patches.values().all_valid()? {
+                    vortex_bail!("patches must be all valid: {}", patches.values());
                 }
-                let metadata =
-                    patches.to_metadata(left_parts.len(), &left_parts.dtype().as_nonnullable());
+                let patches = patches.cast_values(left_parts.dtype())?;
+                let metadata = patches.to_metadata(left_parts.len(), left_parts.dtype());
                 let (_, _, indices, values) = patches.into_parts();
                 children.push(indices);
                 children.push(values);
@@ -146,7 +143,7 @@ impl ALPRDArray {
     /// The dtype of the patches of the left parts of the array.
     #[inline]
     fn left_parts_patches_dtype(&self) -> DType {
-        DType::Primitive(self.metadata().left_parts_ptype, Nullability::NonNullable)
+        DType::Primitive(self.metadata().left_parts_ptype, self.dtype().nullability())
     }
 
     /// The leftmost (most significant) bits of the floating point values stored in the array.

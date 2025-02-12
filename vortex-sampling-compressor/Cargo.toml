@@ -36,8 +36,8 @@ vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
-chrono = { workspace = true }
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
+jiff = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 

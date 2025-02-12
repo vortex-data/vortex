@@ -13,6 +13,10 @@ use vortex_scalar::Scalar;
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ComputeVTable for ALPEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
@@ -26,10 +30,6 @@ impl ComputeVTable for ALPEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
-        Some(self)
-    }
-
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
 }
@@ -60,16 +60,21 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
 
 impl TakeFn<ALPArray> for ALPEncoding {
     fn take(&self, array: &ALPArray, indices: &Array) -> VortexResult<Array> {
-        Ok(ALPArray::try_new(
-            take(array.encoded(), indices)?,
-            array.exponents(),
-            array
-                .patches()
-                .map(|p| p.take(indices))
-                .transpose()?
-                .flatten(),
-        )?
-        .into_array())
+        let taken_encoded = take(array.encoded(), indices)?;
+        let taken_patches = array
+            .patches()
+            .map(|p| p.take(indices))
+            .transpose()?
+            .flatten()
+            .map(|p| {
+                p.cast_values(
+                    &array
+                        .dtype()
+                        .with_nullability(taken_encoded.dtype().nullability()),
+                )
+            })
+            .transpose()?;
+        Ok(ALPArray::try_new(taken_encoded, array.exponents(), taken_patches)?.into_array())
     }
 }
 
