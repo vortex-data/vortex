@@ -1,19 +1,16 @@
 use std::sync::Arc;
 
-use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, ToBytes};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::data::Layout;
 use crate::layouts::chunked::stats_table::StatsAccumulator;
-use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::stats::StatsLayout;
 use crate::segments::SegmentWriter;
-use crate::strategy::LayoutStrategy;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 use crate::LayoutVTableRef;
 
