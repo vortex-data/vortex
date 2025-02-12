@@ -128,24 +128,20 @@ impl FilterExpr {
             .vortex_expect("lock poisoned");
 
         // First try to find a conjunct that we've already fetched fields for.
-        if let Some(next) = read
-            .iter()
-            .filter(|&idx| remaining[*idx])
-            .filter(|&idx| {
-                self.conjunct_fields[*idx]
-                    .iter()
-                    .all(|&field_idx| fetched_fields[field_idx].is_some())
-            })
-            .next()
-        {
+        if let Some(next) = read.iter().filter(|&idx| remaining[*idx]).find(|&idx| {
+            self.conjunct_fields[*idx]
+                .iter()
+                .all(|&field_idx| fetched_fields[field_idx].is_some())
+        }) {
             return Some(*next);
         }
 
         // Otherwise, just take the first conjunct that we prefer.
-        read.iter().filter(|&idx| remaining[*idx]).next().copied()
+        read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
+    #[allow(clippy::cast_possible_truncation)]
     fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
             vortex_panic!("selectivity must be in the range [0.0, 1.0]");
