@@ -32,12 +32,22 @@ impl LayoutReader for Arc<dyn LayoutReader + 'static> {
 #[async_trait]
 pub trait ExprEvaluator {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array>;
+
+    /// Refine the row mask by approximately evaluating the expression.
+    async fn prune_expr(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+        Ok(row_mask)
+    }
 }
 
 #[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         self.as_ref().evaluate_expr(row_mask, expr).await
+    }
+
+    /// Refine the row mask by approximately evaluating the expression.
+    async fn prune_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        self.as_ref().prune_expr(row_mask, expr).await
     }
 }
 

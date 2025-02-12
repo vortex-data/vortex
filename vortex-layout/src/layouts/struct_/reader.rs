@@ -8,6 +8,7 @@ use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{partition, PartitionedExpr};
 use vortex_expr::ExprRef;
 
+use crate::layouts::struct_::pruning::PruningExpr;
 use crate::layouts::struct_::StructLayout;
 use crate::scan::ScanExecutor;
 use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
@@ -20,7 +21,8 @@ pub struct StructReader {
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: Option<HashMap<FieldName, usize>>,
-    expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    partitioned_expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    pruning_expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PruningExpr>>>>,
 }
 
 impl StructReader {
@@ -58,7 +60,8 @@ impl StructReader {
             executor,
             field_readers,
             field_lookup,
-            expr_cache: Arc::new(Default::default()),
+            partitioned_expr_cache: Arc::new(Default::default()),
+            pruning_expr_cache: Arc::new(Default::default()),
         })
     }
 
@@ -95,7 +98,7 @@ impl StructReader {
     pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
         Ok(
             match self
-                .expr_cache
+                .partitioned_expr_cache
                 .write()
                 .map_err(|_| vortex_err!("poisoned lock"))?
                 .entry(ExactExpr(expr.clone()))
@@ -103,6 +106,29 @@ impl StructReader {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => entry
                     .insert(Arc::new(partition(expr, self.dtype())?))
+                    .clone(),
+            },
+        )
+    }
+
+    /// Returned the cached [`PruningExpr`] for the given expression.
+    pub(crate) fn pruning_expr(&self, expr: &ExprRef) -> VortexResult<Arc<PruningExpr>> {
+        Ok(
+            match self
+                .pruning_expr_cache
+                .write()
+                .map_err(|_| vortex_err!("poisoned lock"))?
+                .entry(ExactExpr(expr.clone()))
+            {
+                Entry::Occupied(entry) => entry.get().clone(),
+                Entry::Vacant(entry) => entry
+                    .insert(Arc::new(PruningExpr::try_new(
+                        self.dtype()
+                            .as_struct()
+                            .vortex_expect("StructReader should have struct DType")
+                            .clone(),
+                        expr.clone(),
+                    )?))
                     .clone(),
             },
         )

@@ -17,6 +17,7 @@ categories = { workspace = true }
 arrow-buffer = { workspace = true }
 async-once-cell = { workspace = true }
 async-trait = { workspace = true }
+bit-vec = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }

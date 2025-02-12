@@ -17,7 +17,6 @@ impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;
-
         let field_readers: Vec<_> = partitioned
             .partition_names
             .iter()
@@ -48,6 +47,16 @@ impl ExprEvaluator for StructReader {
         self.executor()
             .evaluate(&root_scope, &[ScanTask::Expr(partitioned.root.clone())])
             .await
+    }
+
+    async fn prune_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        let mut pruning_evaluation = self
+            .pruning_expr(&expr)?
+            .new_evaluation(row_mask.filter_mask().clone());
+        let mask = pruning_evaluation
+            .evaluate(|expr, mask| self.evaluate_expr(RowMask::new(mask, row_mask.begin()), expr))
+            .await?;
+        Ok(RowMask::new(mask, row_mask.begin()))
     }
 }
 
