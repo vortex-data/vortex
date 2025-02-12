@@ -70,15 +70,6 @@ impl FileOpener for VortexFileOpener {
                 .open()
                 .await?;
 
-            // Vortex assumes that the caller can frequently poll the returned stream in order to
-            // drive underlying I/O. In the DataFusion model, where the Tokio runtime is used for
-            // compute, this is not the case.
-            // To bridge this gap, we poll the Vortex stream on a dedicated thread, and then post
-            // the results back to the DataFusion runtime.
-
-            // TODO(ngates): we may want to do something to also poll this handle and propagate
-            //  any errors back into DataFusion.
-
             Ok(vxf
                 .scan()
                 .with_projection(projection.clone())
