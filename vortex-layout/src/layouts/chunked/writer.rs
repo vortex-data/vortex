@@ -7,10 +7,10 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::data::Layout;
-use crate::layouts::chunked::stats_table::StatsAccumulator;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::{LayoutWriter, LayoutWriterExt};

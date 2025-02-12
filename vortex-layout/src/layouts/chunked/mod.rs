@@ -1,6 +1,5 @@
 mod eval_expr;
 mod reader;
-pub mod stats_table;
 pub mod writer;
 
 use std::collections::BTreeSet;

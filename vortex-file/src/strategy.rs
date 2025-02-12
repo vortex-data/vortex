@@ -1,14 +1,11 @@
 //! This module defines the default layout strategy for a Vortex file.
 
-use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::array::ChunkedArray;
-use vortex_array::compute::slice;
 use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
-use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
 use vortex_layout::layouts::flat::writer::FlatLayoutOptions;
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
@@ -64,7 +61,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
         // Prior to repartitioning, we record statistics
         let writer = RepartitionWriter::new(
             dtype.clone(),
-            StatsLayoutWriter::new(writer, dtype, PRUNING_STATS.into()).boxed(),
+            StatsLayoutWriter::new(writer, dtype, PRUNING_STATS.into())?.boxed(),
             RepartitionWriterOptions {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
@@ -74,7 +71,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
         )
         .boxed();
 
-        writer
+        Ok(writer)
     }
 }
 

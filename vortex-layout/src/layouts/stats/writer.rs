@@ -3,12 +3,12 @@ use std::sync::Arc;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::{DType, ToBytes};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::data::Layout;
-use crate::layouts::chunked::stats_table::StatsAccumulator;
 use crate::layouts::flat::writer::FlatLayoutWriter;
+use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::layouts::stats::StatsLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
@@ -104,7 +104,7 @@ impl LayoutWriter for StatsLayoutWriter {
             self.nblocks as u64,
             vec![],
             vec![child, stats_layout],
-            Some(metadata.into()),
+            Some(metadata.freeze().into_inner()),
         ))
     }
 }

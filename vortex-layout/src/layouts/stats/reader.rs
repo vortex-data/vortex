@@ -1,6 +1,5 @@
-use std::iter;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
@@ -12,8 +11,7 @@ use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::chunked::stats_table::StatsTable;
-use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::stats::stats_table::StatsTable;
 use crate::layouts::stats::StatsLayout;
 use crate::reader::LayoutReader;
 use crate::scan::ScanExecutor;

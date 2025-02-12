@@ -1,19 +1,13 @@
-use std::future::ready;
 use std::ops::{BitAnd, Sub};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use futures::future::try_join_all;
-use futures::FutureExt;
-use vortex_array::array::{ChunkedArray, ConstantArray};
-use vortex_array::{Array, IntoArray};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::Array;
+use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::layouts::stats::reader::StatsReader;
-use crate::reader::LayoutReaderExt;
 use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]

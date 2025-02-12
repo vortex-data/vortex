@@ -11,8 +11,8 @@ use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
 use crate::scan::ScanExecutor;
 use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
