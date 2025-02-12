@@ -104,15 +104,16 @@ fn canonical_into<T: NativePType>(bencher: Bencher, (arr_len, chunk_count): (usi
         .vortex_unwrap()
         .into_array();
 
-    bencher.bench(|| {
-        let mut primitive_builder = PrimitiveBuilder::<T>::with_capacity(
-            arr.dtype().nullability(),
-            arr_len * chunk_count + 1024,
-        );
-        chunked
-            .clone()
-            .canonicalize_into(&mut primitive_builder)
-            .vortex_unwrap();
-        primitive_builder.finish().vortex_unwrap().len()
-    });
+    bencher
+        .with_inputs(|| chunked.clone())
+        .bench_values(|chunked| {
+            let mut primitive_builder = PrimitiveBuilder::<T>::with_capacity(
+                arr.dtype().nullability(),
+                arr_len * chunk_count + 1024,
+            );
+            chunked
+                .canonicalize_into(&mut primitive_builder)
+                .vortex_unwrap();
+            primitive_builder.finish().vortex_unwrap().len()
+        });
 }
