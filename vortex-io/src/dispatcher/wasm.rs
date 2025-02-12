@@ -2,7 +2,8 @@
 
 use std::future::Future;
 
-use futures::channel::oneshot;
+use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use vortex_error::{vortex_panic, VortexResult};
 use wasm_bindgen_futures::wasm_bindgen::__rt::Start;
 
@@ -35,6 +36,31 @@ impl Dispatch for WasmDispatcher {
         .start();
 
         Ok(VortexJoinHandle(rx))
+    }
+
+    fn drive_stream<S, T, E>(
+        &self,
+        stream: S,
+    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        S: Stream<Item = Result<T, E>> + Send + 'static,
+    {
+        let (mut tx, rx) = mpsc::channel(1024);
+        let mut stream = Box::pin(stream);
+
+        wasm_bindgen_futures::spawn_local(async move {
+            while let Some(v) = stream.next().await {
+                let r = tx.send(v).await;
+                if r.is_err() {
+                    return;
+                }
+            }
+        })
+        .start();
+
+        Ok(rx.into_stream())
     }
 
     fn shutdown(self) -> VortexResult<()> {

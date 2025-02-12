@@ -3,7 +3,8 @@ use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
-use futures::channel::oneshot;
+use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
@@ -12,9 +13,14 @@ trait CompioSpawn {
     fn spawn(self: Box<Self>) -> CompioJoinHandle<()>;
 }
 
-struct CompioTask<F, R> {
-    task: F,
+struct CompioTask<S, R> {
+    task: S,
     result: oneshot::Sender<R>,
+}
+
+struct CompioStreamTask<S, R> {
+    stream: S,
+    sender: mpsc::Sender<R>,
 }
 
 impl<F, Fut, R> CompioSpawn for CompioTask<F, R>
@@ -29,6 +35,31 @@ where
             rt.spawn(async move {
                 let task_output = task().await;
                 result.send(task_output).ok();
+            })
+        })
+    }
+}
+
+impl<S, R> CompioSpawn for CompioStreamTask<S, R>
+where
+    S: Stream<Item = R> + Unpin + 'static,
+    R: 'static,
+{
+    fn spawn(self: Box<Self>) -> CompioJoinHandle<()> {
+        let Self {
+            mut stream,
+            mut sender,
+        } = *self;
+
+        Runtime::with_current(|rt| {
+            rt.spawn(async move {
+                while let Some(v) = stream.next().await {
+                    let r = sender.send(v).await;
+
+                    if r.is_err() {
+                        return;
+                    }
+                }
             })
         })
     }
@@ -96,5 +127,24 @@ impl Dispatch for CompioDispatcher {
         }
 
         Ok(())
+    }
+
+    fn drive_stream<S, T, E>(
+        &self,
+        stream: S,
+    ) -> VortexResult<impl Stream<Item = Result<T, E>> + Send + 'static>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        S: Stream<Item = Result<T, E>> + Send + 'static,
+    {
+        let (tx, rx) = mpsc::channel(1024);
+        let stream = Box::pin(stream);
+        let stream_task = Box::new(CompioStreamTask { stream, sender: tx });
+
+        match self.submitter.send(stream_task) {
+            Ok(()) => Ok(rx.into_stream()),
+            Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
+        }
     }
 }
