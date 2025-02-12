@@ -58,12 +58,7 @@ impl FilterExpr {
         let conjuncts = cnf(expr)?;
         let conjuncts: Vec<ExprRef> = conjuncts
             .into_iter()
-            .map(|disjunction| {
-                disjunction
-                    .into_iter()
-                    .reduce(or)
-                    .unwrap_or_else(|| lit(false))
-            })
+            .filter_map(|disjunction| disjunction.into_iter().reduce(or))
             .collect();
 
         // Find which fields are referenced by each conjunct.
