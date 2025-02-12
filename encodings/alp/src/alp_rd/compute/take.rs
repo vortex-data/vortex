@@ -97,6 +97,6 @@ mod test {
 
         assert_eq!(taken.as_slice::<T>()[0], a);
         assert_eq!(taken.as_slice::<T>()[1], outlier);
-        assert_eq!(taken.validity_mask().unwrap().value(2), false);
+        assert!(!taken.validity_mask().unwrap().value(2));
     }
 }
