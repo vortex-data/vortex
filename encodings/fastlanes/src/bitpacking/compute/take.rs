@@ -235,7 +235,7 @@ mod test {
 
         let taken_primitive = take(
             &start,
-            &PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]),
+            PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]),
         )
         .unwrap()
         .into_primitive()
