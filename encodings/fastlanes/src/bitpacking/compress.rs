@@ -408,13 +408,20 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 pub mod test_harness {
     use rand::rngs::StdRng;
     use rand::Rng as _;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
     use super::bitpack_encode;
 
-    pub fn make_array(rng: &mut StdRng, len: usize, fraction_patches: f64) -> VortexResult<Array> {
+    pub fn make_array(
+        rng: &mut StdRng,
+        len: usize,
+        fraction_patches: f64,
+        fraction_null: f64,
+    ) -> VortexResult<Array> {
         let values = (0..len)
             .map(|_| {
                 let mut v = rng.gen_range(0..100i32);
@@ -423,9 +430,14 @@ pub mod test_harness {
                 };
                 v
             })
-            .collect::<BufferMut<i32>>()
-            .into_array()
-            .into_primitive()?;
+            .collect::<BufferMut<i32>>();
+
+        let values = if fraction_null == 0.0 {
+            values.into_array().into_primitive()?
+        } else {
+            let validity = Validity::from_iter((0..len).map(|_| !rng.gen_bool(fraction_null)));
+            PrimitiveArray::new(values, validity)
+        };
 
         bitpack_encode(values, 12).map(IntoArray::into_array)
     }
