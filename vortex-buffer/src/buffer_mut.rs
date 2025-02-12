@@ -358,6 +358,41 @@ impl<T> BufferMut<T> {
             Self::copy_from_aligned(self, alignment)
         }
     }
+
+    #[inline]
+    fn extend2<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let mut iterator = iter.into_iter();
+
+        // Attempt to reserve enough memory up-front, although this is only a lower bound.
+        let (lower, _upper) = iterator.size_hint();
+        self.reserve(lower);
+
+        let remaining = self.capacity() - self.len();
+
+        let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut consumed = 0;
+        while consumed < remaining {
+            if let Some(item) = iterator.next() {
+                // unsafe {
+                //     dst.write(item);
+                //     dst = dst.add(1);
+                // }
+                // SAFETY: We know we have enough capacity to write the item.
+                unsafe { dst.add(consumed).write(item) };
+                consumed += 1;
+            } else {
+                break;
+            }
+        }
+
+        self.length += consumed;
+        unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
+
+        iterator.for_each(|item| {
+            println!("over spill");
+            self.push(item)
+        });
+    }
 }
 
 impl<T> Clone for BufferMut<T> {
@@ -423,19 +458,33 @@ impl<T> Extend<T> for BufferMut<T> {
 
         let remaining = self.capacity() - self.len();
 
-        let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-        let mut consumed = 0;
-        while consumed < remaining {
+        let start: *const T = self.bytes.spare_capacity_mut().as_ptr().cast();
+        let mut dst: *mut T = start.cast_mut();
+        let end: *const T = unsafe { dst.add(remaining) };
+        // let mut consumed = 0;
+        while dst.addr() < end.addr() {
             if let Some(item) = iterator.next() {
+                unsafe {
+                    dst.write(item);
+                    dst = dst.add(1);
+                }
                 // SAFETY: We know we have enough capacity to write the item.
-                unsafe { dst.add(consumed).write(item) };
-                consumed += 1;
+                // unsafe { dst.add(consumed).write(item) };
+                // consumed += 1;
             } else {
                 break;
             }
         }
 
-        self.length += consumed;
+        // let distance = unsafe { dst.byte_offset_from(start) };
+        // println!(
+        //     "distance {}, {}, consumed {}",
+        //     distance,
+        //     distance as usize / size_of::<T>(),
+        //     consumed
+        // );
+
+        self.length += unsafe { dst.byte_offset_from(start) as usize / size_of::<T>() };
         unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
 
         iterator.for_each(|item| {
@@ -449,7 +498,7 @@ impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         // We don't infer the capacity here and just let the first call to `extend` do it for us.
         let mut buffer = Self::with_capacity(0);
-        buffer.extend(iter);
+        buffer.extend2(iter);
         debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
     }

@@ -180,11 +180,18 @@ impl VisitorVTable<DictArray> for DictEncoding {
 
 #[cfg(test)]
 mod test {
+    use rand::distributions::{Distribution, Standard};
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
+    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::builders::builder_with_capacity;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::SerdeMetadata;
-    use vortex_dtype::PType;
+    use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical, SerdeMetadata};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, NativePType, PType};
+    use vortex_error::{VortexExpect, VortexUnwrap};
 
-    use crate::DictMetadata;
+    use crate::{DictArray, DictMetadata};
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -195,6 +202,59 @@ mod test {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
             }),
+        );
+    }
+
+    fn make_dict_primitive_chunks<T: NativePType, U: NativePType>(
+        len: usize,
+        unique_values: usize,
+        chunk_count: usize,
+    ) -> Array
+    where
+        Standard: Distribution<T>,
+    {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        (0..chunk_count)
+            .map(|_| {
+                let values = (0..unique_values)
+                    .map(|_| rng.gen::<T>())
+                    .collect::<PrimitiveArray>();
+                let codes = (0..len)
+                    .map(|_| U::from(rng.gen_range(0..unique_values)).vortex_expect("valid value"))
+                    .collect::<PrimitiveArray>();
+
+                DictArray::try_new(codes.into_array(), values.into_array())
+                    .vortex_unwrap()
+                    .into_array()
+            })
+            .collect::<ChunkedArray>()
+            .into_array()
+    }
+
+    #[test]
+    fn test_dict_array_from_primitive_chunks() {
+        let len = 2;
+        let chunk_count = 2;
+        let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
+        println!(
+            "{:?}",
+            array.clone().into_primitive().unwrap().as_slice::<u64>()
+        );
+
+        let mut builder = builder_with_capacity(
+            &DType::Primitive(PType::U64, NonNullable),
+            len * chunk_count,
+        );
+        array.canonicalize_into(builder.as_mut()).vortex_unwrap();
+        println!(
+            "{:?}",
+            builder
+                .finish()
+                .vortex_unwrap()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<u64>()
         );
     }
 }
