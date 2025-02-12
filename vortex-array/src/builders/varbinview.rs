@@ -4,7 +4,7 @@ use std::cmp::max;
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::AllOr;
+use vortex_mask::{AllOr, Mask};
 
 use crate::array::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -18,8 +18,6 @@ pub struct VarBinViewBuilder {
     in_progress: Vec<u8>,
     nullability: Nullability,
     dtype: DType,
-
-    raw_push_buffers: bool,
 }
 
 impl VarBinViewBuilder {
@@ -34,7 +32,6 @@ impl VarBinViewBuilder {
             in_progress: vec![],
             nullability: dtype.nullability(),
             dtype,
-            raw_push_buffers: false,
         }
     }
 
@@ -99,21 +96,36 @@ impl VarBinViewBuilder {
         self.completed.len()
     }
 
-    pub fn push_buffer(&mut self, buffer: impl Iterator<Item = ByteBuffer>) {
+    // Pushes an array of values into the buffer, where the buffers are sections of a
+    // VarBinView and the views are the BinaryView's of the VarBinView *already with their*
+    // buffers adjusted.
+    // The views must all point to sections of the buffers and the validity length must match
+    // the view length.
+    pub fn push_buffer_and_adjusted_views(
+        &mut self,
+        buffer: impl IntoIterator<Item = ByteBuffer>,
+        views: impl IntoIterator<Item = BinaryView>,
+        validity_mask: Mask,
+    ) {
         self.flush_in_progress();
 
-        assert!(!self.raw_push_buffers);
         self.completed.extend(buffer);
+        self.views_builder.extend(views);
+        self.push_only_validity_mask(validity_mask);
 
-        self.raw_push_buffers = true;
+        debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
     }
 
-    pub fn push_adjusted_views(&mut self, views: impl Iterator<Item = BinaryView>) {
-        assert!(self.raw_push_buffers);
-
-        self.views_builder.extend(views);
-
-        self.raw_push_buffers = false;
+    // Pushes a validity mask into the builder not affecting the views or buffers
+    fn push_only_validity_mask(&mut self, validity_mask: Mask) {
+        match validity_mask.boolean_buffer() {
+            AllOr::All => {
+                self.null_buffer_builder
+                    .append_n_non_nulls(validity_mask.len());
+            }
+            AllOr::None => self.null_buffer_builder.append_n_nulls(validity_mask.len()),
+            AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
+        }
     }
 }
 
@@ -180,13 +192,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                 }
             }));
 
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.null_buffer_builder.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.null_buffer_builder.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
-        }
+        self.push_only_validity_mask(array.validity_mask()?);
 
         Ok(())
     }

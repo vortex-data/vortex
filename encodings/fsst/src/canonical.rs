@@ -8,7 +8,6 @@ use vortex_array::{Canonical, IntoArray, IntoArrayVariant};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -31,17 +30,11 @@ impl CanonicalVTable<FSSTArray> for FSSTEncoding {
             fsst_into_varbin_view(decompressor, &array, builder.completed_block_count())
         })?;
 
-        builder.push_buffer(view.buffers());
-        builder.push_adjusted_views(view.views().into_iter());
-
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                builder.null_buffer_builder.append_n_non_nulls(array.len());
-            }
-            AllOr::None => builder.null_buffer_builder.append_n_nulls(array.len()),
-            AllOr::Some(validity) => builder.null_buffer_builder.append_buffer(validity.clone()),
-        }
-
+        builder.push_buffer_and_adjusted_views(
+            view.buffers(),
+            view.views(),
+            array.validity_mask()?,
+        );
         Ok(())
     }
 }
