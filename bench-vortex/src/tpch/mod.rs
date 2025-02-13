@@ -46,12 +46,10 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
 fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
         "s3" => {
-            // Get bucket name.
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
             let s3 = Arc::new(
                 AmazonS3Builder::from_env()
                     .with_bucket_name(bucket_name)
-                    // .with_s3_express(true)
                     .build()
                     .unwrap(),
             );
@@ -60,7 +58,6 @@ fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dy
         }
         "gs" => {
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-
             let gcs = Arc::new(
                 GoogleCloudStorageBuilder::from_env()
                     .with_bucket_name(bucket_name)
@@ -71,7 +68,6 @@ fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dy
             Ok(gcs)
         }
         _ => {
-            // Just use local object store
             let fs = Arc::new(LocalFileSystem::default());
             df.register_object_store(&Url::parse("file:/")?, fs.clone());
             Ok(fs)
