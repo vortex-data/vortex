@@ -16,7 +16,6 @@ impl BinaryNumericFn<DictArray> for DictEncoding {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };
-
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
         DictArray::try_new(
@@ -25,5 +24,34 @@ impl BinaryNumericFn<DictArray> for DictEncoding {
         )
         .map(IntoArray::into_array)
         .map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::slice;
+    use vortex_array::compute::test_harness::test_binary_numeric;
+    use vortex_array::Array;
+
+    use crate::builders::dict_encode;
+
+    fn sliced_dict_array() -> Array {
+        let reference = PrimitiveArray::from_option_iter([
+            Some(42),
+            Some(-9),
+            None,
+            Some(42),
+            Some(1),
+            Some(5),
+        ]);
+        let dict = dict_encode(reference.as_ref()).unwrap();
+        slice(dict, 1, 4).unwrap()
+    }
+
+    #[test]
+    fn test_dict_binary_numeric() {
+        let array = sliced_dict_array();
+        test_binary_numeric::<i32>(array)
     }
 }

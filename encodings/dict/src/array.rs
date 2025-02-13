@@ -2,9 +2,9 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
+use vortex_array::compute::{scalar_at, take, try_cast, take_into};
+use vortex_array::stats::StatsSet;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::compute::{scalar_at, take, take_into};
-use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
@@ -14,7 +14,7 @@ use vortex_array::{
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-use vortex_mask::Mask;
+use vortex_mask::{AllOr, Mask};
 
 impl_encoding!(
     "vortex.dict",
@@ -30,12 +30,29 @@ pub struct DictMetadata {
 }
 
 impl DictArray {
-    pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
+    pub fn try_new(mut codes: Array, values: Array) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
+
+        let dtype = values.dtype();
+        if dtype.is_nullable() {
+            // If the values are nullable, we force codes to be nullable as well.
+            codes = try_cast(&codes, &codes.dtype().as_nullable())?;
+        } else {
+            // If the values are non-nullable, we assert the codes are non-nullable as well.
+            if codes.dtype().is_nullable() {
+                vortex_bail!("Cannot have nullable codes for non-nullable dict array");
+            }
+        }
+        assert_eq!(
+            codes.dtype().nullability(),
+            values.dtype().nullability(),
+            "Mismatched nullability between codes and values"
+        );
+
         Self::try_from_parts(
-            values.dtype().clone(),
+            dtype.clone(),
             codes.len(),
             SerdeMetadata(DictMetadata {
                 codes_ptype: PType::try_from(codes.dtype())
@@ -126,47 +143,47 @@ impl ValidityVTable<DictArray> for DictEncoding {
     }
 
     fn all_valid(&self, array: &DictArray) -> VortexResult<bool> {
-        // If the values are all valid, then the dictionary must be all valid
-        if array.values().all_valid()? {
+        if !array.dtype().is_nullable() {
             return Ok(true);
         }
 
-        // Otherwise, find the null code.
-        // For now, we assume this must be code zero.
-        assert!(scalar_at(array.values(), 0)?.is_null());
+        Ok(array.codes().all_valid()? && array.values().all_valid()?)
+    }
 
-        // Attempt to short-circuit with a min statistic
-        if let Some(min) = array.codes().statistics().compute_as::<u64>(Stat::Min) {
-            return Ok(min > 0);
+    fn all_invalid(&self, array: &DictArray) -> VortexResult<bool> {
+        if !array.dtype().is_nullable() {
+            return Ok(false);
         }
 
-        // Otherwise, check each code
-        let primitive_codes = array.codes().into_primitive()?;
-        match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-            for code in primitive_codes.as_slice::<$P>() {
-                if *code == 0 {
-                    return Ok(false);
-                }
-            }
-        });
-
-        Ok(true)
+        Ok(array.codes().all_invalid()? || array.values().all_invalid()?)
     }
 
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
-        if array.dtype().is_nullable() {
-            let primitive_codes = array.codes().into_primitive()?;
-            match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-                // This is correct since the code will be 0 if the value is null.
-                let is_valid = primitive_codes
-                    .as_slice::<$P>();
-                let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
-                    is_valid[idx] != 0
+        let codes_validity = array.codes().validity_mask()?;
+        match codes_validity.boolean_buffer() {
+            AllOr::All => {
+                let primitive_codes = array.codes().into_primitive()?;
+                let values_mask = array.values().validity_mask()?;
+                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+                    let codes_slice = primitive_codes.as_slice::<$P>();
+                    BooleanBuffer::collect_bool(array.len(), |idx| {
+                       values_mask.value(codes_slice[idx] as usize)
+                    })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
-            })
-        } else {
-            Ok(Mask::AllTrue(array.len()))
+            }
+            AllOr::None => Ok(Mask::AllFalse(array.len())),
+            AllOr::Some(validity_buff) => {
+                let primitive_codes = array.codes().into_primitive()?;
+                let values_mask = array.values().validity_mask()?;
+                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
+                    let codes_slice = primitive_codes.as_slice::<$P>();
+                    BooleanBuffer::collect_bool(array.len(), |idx| {
+                       validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
+                    })
+                });
+                Ok(Mask::from_buffer(is_valid_buffer))
+            }
         }
     }
 }
@@ -180,12 +197,20 @@ impl VisitorVTable<DictArray> for DictEncoding {
 
 #[cfg(test)]
 mod test {
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::array::PrimitiveArray;
     use rand::distributions::{Distribution, Standard};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::array::{ChunkedArray, PrimitiveArray};
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::validity::Validity;
+    use vortex_array::{IntoArray, SerdeMetadata};
+    use vortex_buffer::buffer;
+    use vortex_dtype::PType;
+    use vortex_error::vortex_panic;
+    use vortex_mask::AllOr;
     use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical, SerdeMetadata};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};
@@ -203,6 +228,64 @@ mod test {
                 values_len: usize::MAX,
             }),
         );
+    }
+
+    #[test]
+    fn nullable_codes_validity() {
+        let dict = DictArray::try_new(
+            PrimitiveArray::new(
+                buffer![0u32, 1, 2, 2, 1],
+                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+            )
+            .into_array(),
+            PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
+        )
+        .unwrap();
+        let mask = dict.validity_mask().unwrap();
+        let AllOr::Some(indices) = mask.indices() else {
+            vortex_panic!("Expected indices from mask")
+        };
+        assert_eq!(indices, [0, 2, 4]);
+    }
+
+    #[test]
+    fn nullable_values_validity() {
+        let dict = DictArray::try_new(
+            buffer![0u32, 1, 2, 2, 1].into_array(),
+            PrimitiveArray::new(
+                buffer![3, 6, 9],
+                Validity::from(BooleanBuffer::from(vec![true, false, false])),
+            )
+            .into_array(),
+        )
+        .unwrap();
+        let mask = dict.validity_mask().unwrap();
+        let AllOr::Some(indices) = mask.indices() else {
+            vortex_panic!("Expected indices from mask")
+        };
+        assert_eq!(indices, [0]);
+    }
+
+    #[test]
+    fn nullable_codes_and_values() {
+        let dict = DictArray::try_new(
+            PrimitiveArray::new(
+                buffer![0u32, 1, 2, 2, 1],
+                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+            )
+            .into_array(),
+            PrimitiveArray::new(
+                buffer![3, 6, 9],
+                Validity::from(BooleanBuffer::from(vec![false, true, true])),
+            )
+            .into_array(),
+        )
+        .unwrap();
+        let mask = dict.validity_mask().unwrap();
+        let AllOr::Some(indices) = mask.indices() else {
+            vortex_panic!("Expected indices from mask")
+        };
+        assert_eq!(indices, [2, 4]);
     }
 
     fn make_dict_primitive_chunks<T: NativePType, U: NativePType>(

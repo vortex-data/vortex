@@ -1,4 +1,3 @@
-use std::ops::BitAnd;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
@@ -7,8 +6,8 @@ use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_expr::{ExprRef, Identity};
+pub(crate) mod filter;
 mod split_by;
-use futures::FutureExt;
 mod task;
 pub mod unified;
 
@@ -17,19 +16,17 @@ pub use split_by::*;
 pub use task::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
-use vortex_scan::RowMask;
 
+use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, SegmentId};
-use crate::{ExprEvaluator, Layout, LayoutReader};
+use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
 
 pub trait ScanDriver: 'static + Sized {
-    type Options: Default;
-
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
     /// Return a future that drives the I/O stream for the segment reader.
@@ -47,7 +44,6 @@ pub trait ScanDriver: 'static + Sized {
 /// A struct for building a scan operation.
 pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
-    driver_options: Option<D::Options>,
     task_executor: Option<Arc<dyn TaskExecutor>>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
@@ -64,7 +60,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
         Self {
             driver,
-            driver_options: None,
             task_executor: None,
             layout,
             ctx,
@@ -121,11 +116,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
     pub fn with_task_executor(mut self, task_executor: Arc<dyn TaskExecutor>) -> Self {
         self.task_executor = Some(task_executor);
-        self
-    }
-
-    pub fn with_options(mut self, options: D::Options) -> Self {
-        self.driver_options = Some(options);
         self
     }
 
@@ -263,40 +253,48 @@ impl<D: ScanDriver> Scan<D> {
         let reader: Arc<dyn LayoutReader> =
             self.layout.reader(executor.clone(), self.ctx.clone())?;
 
-        // Setup a filter stream
+        // We start with a stream of row masks
         let row_masks = stream::iter(self.row_masks);
+
+        // If we have a filter expression, we set up a filter stream
         let row_masks: BoxStream<'static, VortexResult<RowMask>> =
             if let Some(filter) = self.filter.clone() {
                 let reader = reader.clone();
+
+                let pruning = Arc::new(FilterExpr::try_new(
+                    reader
+                        .dtype()
+                        .as_struct()
+                        .ok_or_else(|| {
+                            vortex_err!("Vortex scan currently only works for struct arrays")
+                        })?
+                        .clone(),
+                    filter.clone(),
+                )?);
+
                 row_masks
                     .map(move |row_mask| {
                         let reader = reader.clone();
                         let filter = filter.clone();
-                        async move {
-                            log::debug!(
-                                "Evaluating filter {} for row mask {}..{} {}",
-                                &filter,
-                                row_mask.begin(),
-                                row_mask.end(),
-                                row_mask.filter_mask().density()
-                            );
-                            let array = reader
-                                .evaluate_expr(
-                                    RowMask::new_valid_between(row_mask.begin(), row_mask.end()),
-                                    filter.clone(),
-                                )
-                                .await?;
-                            let mask = Mask::try_from(array)?.bitand(row_mask.filter_mask());
-                            if mask.all_false() {
-                                Ok(None)
-                            } else {
-                                Ok(Some(RowMask::new(mask, row_mask.begin())))
-                            }
-                        }
-                        .map(|r| r.transpose())
+                        let pruning = pruning.clone();
+
+                        log::debug!(
+                            "Evaluating filter {} for row mask {}..{} {}",
+                            &filter,
+                            row_mask.begin(),
+                            row_mask.end(),
+                            row_mask.filter_mask().density()
+                        );
+                        async move { pruning.new_evaluation(&row_mask).evaluate(reader).await }
                     })
+                    // Instead of buffering, we should be smarter where we poll the stream until
+                    // the I/O queue has ~256MB of requests in it. Our working set size.
+                    // We then return Pending and the I/O thread is free to spawn the requests.
                     .buffered(self.concurrency)
-                    .filter_map(|r| async move { r })
+                    .filter_map(|r| async move {
+                        r.map(|r| (!r.filter_mask().all_false()).then_some(r))
+                            .transpose()
+                    })
                     .boxed()
             } else {
                 row_masks.map(Ok).boxed()

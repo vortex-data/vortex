@@ -2,11 +2,10 @@ use async_trait::async_trait;
 use vortex_array::Array;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
-use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
 use crate::scan::ScanTask;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
@@ -38,6 +37,11 @@ impl ExprEvaluator for FlatReader {
 
         self.executor().evaluate(&array, &tasks).await
     }
+
+    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+        // No cheap pruning for us to do without fetching data.
+        Ok(row_mask)
+    }
 }
 
 #[cfg(test)]
@@ -51,12 +55,12 @@ mod test {
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
+    use crate::RowMask;
 
     #[test]
     fn flat_identity() {

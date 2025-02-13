@@ -20,7 +20,7 @@ pub struct StructReader {
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: Option<HashMap<FieldName, usize>>,
-    expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    partitioned_expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
 }
 
 impl StructReader {
@@ -58,7 +58,7 @@ impl StructReader {
             executor,
             field_readers,
             field_lookup,
-            expr_cache: Arc::new(Default::default()),
+            partitioned_expr_cache: Arc::new(Default::default()),
         })
     }
 
@@ -95,7 +95,7 @@ impl StructReader {
     pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
         Ok(
             match self
-                .expr_cache
+                .partitioned_expr_cache
                 .write()
                 .map_err(|_| vortex_err!("poisoned lock"))?
                 .entry(ExactExpr(expr.clone()))

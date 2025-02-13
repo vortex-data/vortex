@@ -86,7 +86,7 @@ impl FileLayoutCache {
                     .with_file_size(object.size as u64)
                     .open()
                     .await?;
-                VortexResult::Ok(vxf.file_layout().clone())
+                Ok(vxf.file_layout().clone())
             })
             .await
             .map_err(|e: Arc<VortexError>| {

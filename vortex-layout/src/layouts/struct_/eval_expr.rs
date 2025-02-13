@@ -4,26 +4,33 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::scan::ScanTask;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;
-
         let field_readers: Vec<_> = partitioned
             .partition_names
             .iter()
             .map(|name| self.child(name))
             .try_collect()?;
 
+        // Short-circuit if there is only one partition
+        if partitioned.partitions.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .evaluate_expr(row_mask, partitioned.partitions[0].clone())
+                .await;
+        }
+
+        // Otherwise, evaluate all partitions concurrently
         let arrays = try_join_all(
             field_readers
                 .iter()
@@ -49,6 +56,25 @@ impl ExprEvaluator for StructReader {
             .evaluate(&root_scope, &[ScanTask::Expr(partitioned.root.clone())])
             .await
     }
+
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        // We currently can only perform pruning if the expression references a single field.
+        // Otherwise, we have no good way to recombine the results.
+        let partitioned = self.partition_expr(expr.clone())?;
+        if partitioned.partitions.len() != 1 {
+            log::debug!("Cannot push-down pruning for multi-field expr {}", expr);
+            return Ok(row_mask);
+        }
+
+        let field_name = partitioned
+            .partition_names
+            .iter()
+            .next()
+            .vortex_expect("one partition");
+        self.child(field_name)?
+            .prune_mask(row_mask, partitioned.partitions[0].clone())
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -63,14 +89,13 @@ mod tests {
     use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::Layout;
+    use crate::{Layout, RowMask};
 
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<ScanExecutor>, Layout) {

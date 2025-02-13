@@ -39,8 +39,6 @@ impl FileType for InMemoryVortexFile {
 }
 
 impl ScanDriver for InMemoryVortexFile {
-    type Options = ();
-
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         Arc::new(self.clone())
     }

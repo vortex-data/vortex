@@ -1,16 +1,20 @@
+use std::future::ready;
+use std::ops::{BitAnd, Sub};
+
+use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use futures::future::{ready, try_join_all};
+use futures::future::try_join_all;
 use futures::FutureExt;
 use vortex_array::array::{ChunkedArray, ConstantArray};
 use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_scan::RowMask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReaderExt;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
@@ -18,7 +22,9 @@ impl ExprEvaluator for ChunkedReader {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;
 
-        // First we need to compute the pruning mask
+        // If the expression is prune-able, it means we're evaluating a boolean. Even for
+        // projections, we can short-circuit the evaluation of the expression and use the pruning
+        // mask to return a ConstantArray.
         let pruning_mask = self.pruning_mask(&expr).await?;
 
         // Figure out which chunks intersect the RowMask
@@ -28,15 +34,10 @@ impl ExprEvaluator for ChunkedReader {
         let mut chunks = Vec::new();
 
         for chunk_idx in chunk_range {
-            // Figure out the row range of the chunk
-            let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+            let chunk_mask = self.chunk_mask(chunk_idx, &row_mask)?;
 
-            let chunk_mask = row_mask
-                .slice(chunk_row_range.start, chunk_row_range.end)?
-                .shift(chunk_row_range.start)?;
-
-            // If the chunk is empty skip `evaluate_expr` on child and omit chunk from array
             if chunk_mask.true_count() == 0 {
+                // If the chunk is empty skip `evaluate_expr` on child and omit chunk from array
                 continue;
             }
 
@@ -70,6 +71,73 @@ impl ExprEvaluator for ChunkedReader {
         let chunks = try_join_all(chunks).await?;
         Ok(ChunkedArray::try_new_unchecked(chunks, dtype).into_array())
     }
+
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        // First we need to compute the pruning mask
+        let Some(pruning_mask) = self.pruning_mask(&expr).await? else {
+            // If there is no pruning mask, then we can't prune anything!
+            log::debug!(
+                "Cannot prune {} in chunked reader, returning mask {}",
+                expr,
+                row_mask.filter_mask().density()
+            );
+            return Ok(row_mask);
+        };
+
+        log::debug!(
+            "Pruning mask for {} {}..{}: {:?}",
+            expr,
+            row_mask.begin(),
+            row_mask.end(),
+            pruning_mask
+        );
+
+        // Figure out which chunks intersect the RowMask
+        let chunk_range = self.chunk_range(row_mask.begin()..row_mask.end());
+
+        // Extract the range mask from the RowMask
+        let mut mask = row_mask.filter_mask().clone();
+
+        for chunk_idx in chunk_range {
+            if pruning_mask.value(chunk_idx) {
+                // Figure out the range in the mask that corresponds to the chunk
+                let start = usize::try_from(
+                    self.chunk_offset(chunk_idx)
+                        .saturating_sub(row_mask.begin()),
+                )?;
+                let end = usize::try_from(
+                    self.chunk_offset(chunk_idx + 1)
+                        .sub(row_mask.begin())
+                        .min(mask.len() as u64),
+                )?;
+
+                // Build a mask that's *false* for the chunk range
+                let mut chunk_mask = BooleanBufferBuilder::new(mask.len());
+                chunk_mask.append_n(start, true);
+                chunk_mask.append_n(end - start, false);
+                chunk_mask.append_n(mask.len() - end, true);
+                let chunk_mask = Mask::from_buffer(chunk_mask.finish());
+
+                // Update the pruning mask.
+                mask = mask.bitand(&chunk_mask);
+            } else {
+                // TODO(ngates): we could push-down the pruning request to the child. This
+                //  would be used for chunk-of-chunk layouts.
+            }
+        }
+
+        Ok(RowMask::new(mask, row_mask.begin()))
+    }
+}
+
+impl ChunkedReader {
+    /// Adjust the row mask for the specific chunk.
+    fn chunk_mask(&self, chunk_idx: usize, row_mask: &RowMask) -> VortexResult<RowMask> {
+        let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+        row_mask
+            .slice(chunk_row_range.start, chunk_row_range.end)?
+            .shift(chunk_row_range.start)
+    }
 }
 
 #[cfg(test)]
@@ -84,13 +152,12 @@ mod test {
     use vortex_dtype::{DType, PType};
     use vortex_error::VortexExpect;
     use vortex_expr::{gt, lit, Identity};
-    use vortex_scan::RowMask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
-    use crate::Layout;
+    use crate::{Layout, RowMask};
 
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<ScanExecutor>, Layout) {

@@ -45,7 +45,7 @@ Use :func:`~vortex.compress` to compress the Vortex array and check the relative
 
    >>> cvtx = vx.compress(vtx)
    >>> cvtx.nbytes
-   15446
+   15061
    >>> cvtx.nbytes / vtx.nbytes
    0.10...
 

@@ -423,15 +423,16 @@ impl<T> Extend<T> for BufferMut<T> {
 
         let remaining = self.capacity() - self.len();
 
-        let start: *const T = self.bytes.spare_capacity_mut().as_ptr().cast();
-        let mut dst: *mut T = start.cast_mut();
-        let end: *const T = unsafe { dst.add(remaining) };
-        // let mut consumed = 0;
-        while dst.addr() < end.addr() {
+        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = begin.cast_mut();
+        let buffer_end: *const T = unsafe { dst.add(remaining) };
+        while dst.addr() < buffer_end.addr() {
             if let Some(item) = iterator.next() {
                 unsafe {
                     // SAFETY: We know we have enough capacity to write the item.
                     dst.write(item);
+                    // Note. we used to have dst.add(iteration).write(item), here.
+                    // however this was much slower than just incrementing dst.
                     dst = dst.add(1);
                 }
             } else {
@@ -439,7 +440,8 @@ impl<T> Extend<T> for BufferMut<T> {
             }
         }
 
-        self.length += unsafe { dst.byte_offset_from(start) as usize / size_of::<T>() };
+        // TODO(joe): replace with ptr_sub when stable
+        self.length += unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
         unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
 
         iterator.for_each(|item| self.push(item));

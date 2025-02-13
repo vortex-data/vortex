@@ -1,4 +1,3 @@
-mod binary;
 mod bool;
 mod extension;
 mod lazy_validity_builder;
@@ -6,18 +5,16 @@ mod list;
 mod null;
 mod primitive;
 mod struct_;
-mod utf8;
-mod varbinview_builder;
+mod varbinview;
 
 use std::any::Any;
 
-pub use binary::*;
 pub use bool::*;
 pub use extension::*;
 pub use list::*;
 pub use null::*;
 pub use primitive::*;
-pub use utf8::*;
+pub use varbinview::*;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::{
@@ -72,8 +69,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 Box::new(PrimitiveBuilder::<$P>::with_capacity(*n, capacity))
             })
         }
-        DType::Utf8(n) => Box::new(Utf8Builder::with_capacity(*n, capacity)),
-        DType::Binary(n) => Box::new(BinaryBuilder::with_capacity(*n, capacity)),
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
+            DType::Binary(*n),
+            capacity,
+        )),
         DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
             struct_dtype.clone(),
             *n,
@@ -124,12 +124,12 @@ pub trait ArrayBuilderExt: ArrayBuilder {
             }
             DType::Utf8(_) => self
                 .as_any_mut()
-                .downcast_mut::<Utf8Builder>()
+                .downcast_mut::<VarBinViewBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append utf8 scalar to non-utf8 builder"))?
                 .append_option(Utf8Scalar::try_from(scalar)?.value()),
             DType::Binary(_) => self
                 .as_any_mut()
-                .downcast_mut::<BinaryBuilder>()
+                .downcast_mut::<VarBinViewBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append binary scalar to non-binary builder"))?
                 .append_option(BinaryScalar::try_from(scalar)?.value()),
             DType::Struct(..) => self

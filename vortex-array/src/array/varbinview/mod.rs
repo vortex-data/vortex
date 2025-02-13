@@ -491,6 +491,10 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &VarBinViewArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }

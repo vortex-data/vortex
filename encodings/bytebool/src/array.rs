@@ -122,6 +122,10 @@ impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &ByteBoolArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &ByteBoolArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }

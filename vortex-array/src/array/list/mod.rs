@@ -200,6 +200,10 @@ impl ValidityVTable<ListArray> for ListEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &ListArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &ListArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
