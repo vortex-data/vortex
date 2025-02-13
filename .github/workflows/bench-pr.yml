@@ -29,6 +29,7 @@ jobs:
       BENCH_TARGETS: >
         dict_compare
         dict_compress
+        chunked_dict_array_builder
         bitpacking_take
         run_end_filter
         run_end_null_count
