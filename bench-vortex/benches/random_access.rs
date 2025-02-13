@@ -42,7 +42,9 @@ fn random_access_vortex(c: &mut Criterion) {
         b.to_async(Runtime::new().unwrap()).iter_with_setup(
             || (local_fs.clone(), local_fs_path.clone(), indices.clone()),
             |(fs, path, indices)| async {
-                take_vortex_object_store(fs, path, indices).await.unwrap()
+                take_vortex_object_store(object_store::ObjectStoreScheme::Local, fs, path, indices)
+                    .await
+                    .unwrap()
             },
         )
     });
@@ -70,7 +72,14 @@ fn random_access_vortex(c: &mut Criterion) {
             b.to_async(Runtime::new().unwrap()).iter_with_setup(
                 || (r2_fs.clone(), r2_path.clone(), indices.clone()),
                 |(fs, path, indices)| async {
-                    take_vortex_object_store(fs, path, indices).await.unwrap()
+                    take_vortex_object_store(
+                        object_store::ObjectStoreScheme::AmazonS3,
+                        fs,
+                        path,
+                        indices,
+                    )
+                    .await
+                    .unwrap()
                 },
             )
         });
