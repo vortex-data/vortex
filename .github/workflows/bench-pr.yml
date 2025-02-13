@@ -26,6 +26,7 @@ jobs:
     name: Run Criterion benchmarks with Codspeed
     needs: label_trigger
     env:
+      # TODO(joe): replace this list with a off-list instead of the current on-list.
       BENCH_TARGETS: >
         dict_compare
         dict_compress
