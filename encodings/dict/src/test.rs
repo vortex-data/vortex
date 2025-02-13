@@ -22,7 +22,7 @@ where
         .map(|_| rng.gen::<T>())
         .collect::<Vec<T>>();
     let data = (0..len)
-        .map(|_| values.choose(rng).vortex_expect("not empty").clone())
+        .map(|_| *values.choose(rng).vortex_expect("not empty"))
         .collect::<Buffer<_>>();
     PrimitiveArray::new(data, Validity::NonNullable)
 }
