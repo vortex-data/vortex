@@ -823,6 +823,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "codspeed-divan-compat"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae9da137ea5f911fec2e88f03d6040b36eeebcd66385ebaa041c4d2965778fdb"
+dependencies = [
+ "codspeed",
+ "codspeed-divan-compat-macros",
+ "codspeed-divan-compat-walltime",
+]
+
+[[package]]
+name = "codspeed-divan-compat-macros"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "566adb03248996f1a6d22ddd0fcbf7fb4c9f1b6cc111268e8a0de59e68c238f8"
+dependencies = [
+ "divan-macros",
+ "itertools 0.14.0",
+ "proc-macro-crate 3.2.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
+name = "codspeed-divan-compat-walltime"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c75d912d1b2eebbe9be806eaf8baddc6004e2b0483ba0f2047c8b04d8e6c0ae"
+dependencies = [
+ "cfg-if",
+ "clap",
+ "codspeed",
+ "condtype",
+ "divan-macros",
+ "libc",
+ "regex-lite",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1775,20 +1815,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.98",
-]
-
-[[package]]
-name = "divan"
-version = "0.1.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0583193020b29b03682d8d33bb53a5b0f50df6daacece12ca99b904cfdcb8c4"
-dependencies = [
- "cfg-if",
- "clap",
- "condtype",
- "divan-macros",
- "libc",
- "regex-lite",
 ]
 
 [[package]]
@@ -5167,7 +5193,7 @@ dependencies = [
 name = "vortex-alp"
 version = "0.24.0"
 dependencies = [
- "divan",
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "rand",
@@ -5197,7 +5223,7 @@ dependencies = [
  "arrow-string",
  "backtrace",
  "codspeed-criterion-compat",
- "divan",
+ "codspeed-divan-compat",
  "enum-iterator",
  "flatbuffers 25.2.10",
  "flexbuffers",
@@ -5233,8 +5259,8 @@ version = "0.24.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
+ "codspeed-divan-compat",
  "compio",
- "divan",
  "log",
  "rkyv",
  "vortex-error",
@@ -5325,7 +5351,7 @@ version = "0.24.0"
 dependencies = [
  "arrow-buffer",
  "codspeed-criterion-compat",
- "divan",
+ "codspeed-divan-compat",
  "num-traits",
  "rand",
  "rkyv",
@@ -5403,7 +5429,7 @@ dependencies = [
  "arrayref",
  "arrow-buffer",
  "codspeed-criterion-compat",
- "divan",
+ "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
  "num-traits",
@@ -5459,7 +5485,7 @@ name = "vortex-fsst"
 version = "0.24.0"
 dependencies = [
  "arrow-array",
- "divan",
+ "codspeed-divan-compat",
  "fsst-rs",
  "rand",
  "serde",
