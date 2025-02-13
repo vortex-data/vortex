@@ -31,8 +31,8 @@ jobs:
 
 
   codspeed_bench:
-    name: Benchmark with Codspeed
-    runs-on: ubuntu-latest-large
+    name: Run Criterion benchmarks with Codspeed
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
@@ -46,15 +46,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native"
         # We want to run micro-benchmarks with release profile.
         # We run with all features since we feature gate bench utils.
-        run: |
-          cargo codspeed build --features test-harness \
-            --exclude bench-vortex \
-            --exclude vortex-datafusion \
-            --exclude vortex-tui \
-            --exclude vortex-fuzz \
-            --exclude pyvortex \
-            --exclude xtask \
-            --workspace --profile release
+        run: cargo codspeed build --exclude bench-vortex --workspace --profile release
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
