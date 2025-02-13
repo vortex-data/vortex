@@ -94,11 +94,8 @@ impl VortexReadAt for ObjectStoreReadAt {
 
     fn performance_hint(&self) -> PerformanceHint {
         match &self.scheme {
-            None => PerformanceHint::default(),
-            Some(s) => match s {
-                ObjectStoreScheme::Local | ObjectStoreScheme::Memory => PerformanceHint::local(),
-                _ => PerformanceHint::default(),
-            },
+            Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
+            _ => PerformanceHint::default(),
         }
     }
 }

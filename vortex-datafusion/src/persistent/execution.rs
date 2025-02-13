@@ -126,7 +126,7 @@ impl ExecutionPlan for VortexExec {
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
         let (scheme, _) = ObjectStoreScheme::parse(self.file_scan_config.object_store_url.as_ref())
-            .expect("Can not fail to parse already parsed url");
+            .map_err(object_store::Error::from)?;
 
         let opener = VortexFileOpener::new(
             self.ctx.clone(),
