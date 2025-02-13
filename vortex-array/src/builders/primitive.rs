@@ -53,7 +53,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         assert!(starting_at + array_len == self.len());
         let indices = indices.into_primitive()?;
         let values = values.into_primitive()?;
-        let validity = values.validity_mask()?;
+        let validity = values.validity();
         let values = values.as_slice::<T>();
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
             self.insert_values_and_validity_at_indices::<$P>(indices, values, validity, starting_at, indices_offset)
@@ -64,50 +64,25 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         &mut self,
         indices: PrimitiveArray,
         values: &[T],
-        validity: Mask,
+        validity: Validity,
         starting_at: usize,
         indices_offset: usize,
     ) -> VortexResult<()> {
-        if !matches!(validity, Mask::AllTrue(_)) {
-            self.insert_validity_at_indices::<IndexT>(
-                indices.clone(),
-                validity,
-                starting_at,
-                indices_offset,
-            )?;
+        if !matches!(validity, Validity::NonNullable) {
+            let validity = validity.to_logical(indices.len())?;
+            for decompressed_index in indices.as_slice::<IndexT>().iter() {
+                let decompressed_index = decompressed_index.as_();
+                let out_index = starting_at + decompressed_index - indices_offset;
+                self.nulls.set_bit(out_index, validity.value(out_index));
+            }
         }
-        self.insert_values_at_indices::<IndexT>(indices, values, starting_at, indices_offset)
-    }
 
-    fn insert_values_at_indices<IndexT: NativePType + AsPrimitive<usize>>(
-        &mut self,
-        indices: PrimitiveArray,
-        values: &[T],
-        starting_at: usize,
-        indices_offset: usize,
-    ) -> VortexResult<()> {
         for (compressed_index, decompressed_index) in
             indices.as_slice::<IndexT>().iter().enumerate()
         {
             let decompressed_index = decompressed_index.as_();
             let out_index = starting_at + decompressed_index - indices_offset;
             self.values[out_index] = values[compressed_index];
-        }
-
-        Ok(())
-    }
-
-    fn insert_validity_at_indices<IndexT: NativePType + AsPrimitive<usize>>(
-        &mut self,
-        indices: PrimitiveArray,
-        validity: Mask,
-        starting_at: usize,
-        indices_offset: usize,
-    ) -> VortexResult<()> {
-        for decompressed_index in indices.as_slice::<IndexT>().iter() {
-            let decompressed_index = decompressed_index.as_();
-            let out_index = starting_at + decompressed_index - indices_offset;
-            self.nulls.set_bit(out_index, validity.value(out_index));
         }
 
         Ok(())
