@@ -139,14 +139,8 @@ fn random_list_offset<O: OffsetPType>(
     let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
     let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), n, 10);
     for _ in 0..list_len {
-        if n == Nullability::Nullable {
-            if u.arbitrary::<bool>()? {
-                builder
-                    .append_value(random_list_scalar(u, ldt, n)?.as_list())
-                    .vortex_expect("can append value");
-            } else {
-                builder.append_null();
-            }
+        if n == Nullability::Nullable && u.arbitrary::<bool>()? {
+            builder.append_null();
         } else {
             builder
                 .append_value(random_list_scalar(u, ldt, n)?.as_list())
