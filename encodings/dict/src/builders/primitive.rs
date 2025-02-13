@@ -9,20 +9,20 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::BufferMut;
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::builders::DictEncoder;
-use crate::DictArray;
 
 impl<T: NativePType> PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    pub fn new() -> Self {
+    pub fn new(nullability: Nullability) -> Self {
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
             values: BufferMut::<T>::empty(),
+            nullability,
         }
     }
 
@@ -45,22 +45,14 @@ where
 pub struct PrimitiveDictBuilder<T> {
     lookup: HashMap<private::Value<T>, u64, FxBuildHasher>,
     values: BufferMut<T>,
-}
-
-impl<T: NativePType> Default for PrimitiveDictBuilder<T>
-where
-    private::Value<T>: Hash + Eq,
-{
-    fn default() -> Self {
-        Self::new()
-    }
+    nullability: Nullability,
 }
 
 impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    fn encode(&mut self, array: &Array) -> VortexResult<DictArray> {
+    fn encode(&mut self, array: &Array) -> VortexResult<Array> {
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
@@ -98,13 +90,11 @@ where
             PrimitiveArray::new(codes, Validity::NonNullable)
         };
 
-        let values = PrimitiveArray::new(
-            self.values.clone().freeze(),
-            array.dtype().nullability().into(),
-        )
-        .into_array();
+        Ok(codes.into_array())
+    }
 
-        DictArray::try_new(codes.into_array(), values)
+    fn values(&mut self) -> VortexResult<Array> {
+        Ok(PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array())
     }
 }
 
