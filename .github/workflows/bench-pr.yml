@@ -52,7 +52,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native"
         # We want to run micro-benchmarks with release profile.
         # We run with all features since we feature gate bench utils.
-        run: cargo codspeed build --all-features --profile release $BENCH_TARGETS
+        run: cargo codspeed build --features test-harness --profile release $BENCH_TARGETS
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
