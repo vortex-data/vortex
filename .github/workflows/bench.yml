@@ -55,15 +55,13 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
 
-  bench:
+  bench-criterion:
     strategy:
       matrix:
         benchmark:
-          - id: random_access
-            name: Random Access
           - id: compress
             name: Vortex Compression
-    runs-on: [self-hosted, gcp]
+    runs-on: [ self-hosted, gcp ]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -109,7 +107,48 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
+  bench:
+    runs-on: [ self-hosted, gcp ]
+    strategy:
+      matrix:
+        benchmark:
+          - id: random_access
+            bin: random_access
+            name: Random Access
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+      - name: Install DuckDB
+        uses: opt-nc/setup-duckdb-action@v1.0.10
+        if: runner.environment != 'self-hosted'
+        with:
+          version: v1.0.0
 
+      - name: Set tempdir
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "TMPDIR=/work" >> $GITHUB_ENV
+
+      - name: Run ${{ matrix.benchmark.name }} benchmark
+        shell: bash
+        env:
+          BENCH_VORTEX_RATIOS: '.*'
+          RUSTFLAGS: '-C target-cpu=native'
+        run: |
+          cargo run --bin ${{ matrix.benchmark.bin }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Upload Benchmark Results
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
     with:

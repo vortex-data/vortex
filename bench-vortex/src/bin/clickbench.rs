@@ -1,5 +1,3 @@
-#![feature(exit_status_error)]
-
 use std::fs::{self, File};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -8,7 +6,7 @@ use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
     default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
-    idempotent, physical_plan, Format, IdempotentPath as _, Measurement,
+    idempotent, physical_plan, Format, IdempotentPath as _,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -18,6 +16,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
+use bench_vortex::measurements::QueryMeasurement;
 use vortex::error::{vortex_panic, VortexExpect};
 
 feature_flagged_allocator!();
@@ -217,7 +216,7 @@ fn main() {
 
             progress_bar.inc(1);
 
-            all_measurements.push(Measurement {
+            all_measurements.push(QueryMeasurement {
                 query_idx,
                 time: fastest_result,
                 format: *format,

@@ -3,12 +3,11 @@ use std::sync;
 use std::time::Instant;
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
-use bench_vortex::{
-    default_env_filter, feature_flagged_allocator, setup_logger, Format, Measurement,
-};
-use clap::{ArgAction, Parser};
+use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
+use clap::Parser;
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -30,8 +29,6 @@ struct Args {
     threads: Option<usize>,
     #[arg(long)]
     use_remote_data_dir: Option<String>,
-    #[arg(short, long, default_value_t = true, default_missing_value = "true", action = ArgAction::Set)]
-    warmup: bool,
     #[arg(short, long, default_value = "5")]
     iterations: usize,
     #[arg(long, value_delimiter = ',')]
@@ -90,9 +87,9 @@ fn main() -> ExitCode {
             }
             eprintln!(
                 concat!(
-                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                    "If it does not, you should kill this command, locally generate the files (by running without\n",
-                    "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
+                "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                "If it does not, you should kill this command, locally generate the files (by running without\n",
+                "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
                 ),
                 tpch_benchmark_remote_data_dir,
             );
@@ -108,7 +105,6 @@ fn main() -> ExitCode {
         args.queries,
         args.exclude_queries,
         args.iterations,
-        args.warmup,
         args.formats,
         args.display_format,
         args.emulate_object_store,
@@ -121,7 +117,6 @@ async fn bench_main(
     queries: Option<Vec<usize>>,
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
-    warmup: bool,
     formats: Option<Vec<String>>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
@@ -191,12 +186,10 @@ async fn bench_main(
         let formats = formats.clone();
 
         for (ctx, format) in ctxs.iter().zip(formats.iter()) {
-            if warmup {
-                for i in 0..2 {
-                    let row_count = run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
-                    if i == 0 {
-                        count_tx.send((query_idx, *format, row_count)).unwrap();
-                    }
+            for i in 0..2 {
+                let row_count = run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
+                if i == 0 {
+                    count_tx.send((query_idx, *format, row_count)).unwrap();
                 }
             }
 
@@ -209,7 +202,7 @@ async fn bench_main(
             }
             let fastest = measures.iter().cloned().min().unwrap();
 
-            tx.send(Measurement {
+            tx.send(QueryMeasurement {
                 query_idx,
                 time: fastest,
                 format: *format,
