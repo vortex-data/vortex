@@ -267,26 +267,30 @@ async fn register_vortex_file(
     file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let mut vortex_dir_segments = file
+    let csv_basename = file
+        .path_segments()
+        .vortex_expect("url path not empty")
+        .last();
+    let vortex_basename = csv_basename
+        .unwrap()
+        .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref());
+
+    let csv_path_split = file
         .path_segments()
         .vortex_expect("url path not empty")
         .map(|x| x.to_string())
         .collect::<Vec<_>>();
-    let n_file_path_segments = vortex_dir_segments.len();
-    vortex_dir_segments[n_file_path_segments - 1] = "vortex_compressed".to_string();
+    let n_path_segments = csv_path_split.len();
+    let vortex_dir_path =
+        csv_path_split[0..(n_path_segments - 1)].join("/") + "/vortex_compressed/";
+
     let mut vortex_dir = file.clone();
-    vortex_dir.set_path((vortex_dir_segments.join("/") + "/").as_ref());
+    vortex_dir.set_path(&vortex_dir_path);
     if vortex_dir.scheme() == "file" {
         create_dir_all(vortex_dir.path())?;
     }
-    let vtx_file = &vortex_dir.join(
-        file.path_segments()
-            .vortex_expect("url path not empty")
-            .last()
-            .unwrap()
-            .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref())
-            .as_ref(),
-    )?;
+
+    let vtx_file = &vortex_dir.join(vortex_basename.as_ref())?;
 
     if object_store
         .head(&ObjectStorePath::parse(vtx_file.path())?)
