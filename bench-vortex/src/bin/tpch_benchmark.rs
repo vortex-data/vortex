@@ -40,16 +40,10 @@ struct Args {
     formats: Option<Vec<String>>,
     #[arg(long, default_value_t = 1)]
     scale_factor: u8,
-    #[arg(short, long)]
+    #[arg(long)]
     only_vortex: bool,
-    /// Allow specifying verbosity of logging.
-    ///
-    /// None: WARN
-    /// -v:   INFO
-    /// -vv:  DEBUG
-    /// -vvv: TRACE
-    #[arg(short, action = ArgAction::Count)]
-    verbosity: u8,
+    #[arg(short)]
+    verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(long, default_value = "false")]
