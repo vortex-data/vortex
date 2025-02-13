@@ -58,7 +58,7 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (32_000, 1000, 1000),
 ];
 
-#[divan::bench(types = [u32], args=BENCH_ARGS)]
+#[divan::bench(types = [u32, u64, f32, f64], args=BENCH_ARGS)]
 fn chunked_dict_primitive_canonical_into<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -76,7 +76,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
         })
 }
 
-#[divan::bench(types = [u32], args=BENCH_ARGS)]
+#[divan::bench(types = [u32, u64, f32, f64], args=BENCH_ARGS)]
 fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
