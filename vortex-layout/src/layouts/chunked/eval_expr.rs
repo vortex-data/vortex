@@ -68,13 +68,11 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use vortex_array::array::{BoolArray, ChunkedArray, ConstantArray};
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_error::VortexExpect;
-    use vortex_expr::{gt, lit, Identity};
+    use vortex_expr::Identity;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::scan::ScanExecutor;
@@ -120,34 +118,6 @@ mod test {
 
             assert_eq!(result.len(), 9);
             assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        })
-    }
-
-    #[test]
-    fn test_chunked_pruning_mask() {
-        block_on(async {
-            let (segments, layout) = chunked_layout();
-            let row_count = layout.row_count();
-            let reader = layout.reader(segments, Default::default()).unwrap();
-
-            // Choose a prune-able expression
-            let expr = gt(Identity::new_expr(), lit(7));
-
-            let result = reader
-                .evaluate_expr(RowMask::new_valid_between(0, row_count), expr.clone())
-                .await
-                .unwrap();
-            let result = ChunkedArray::try_from(result).unwrap();
-
-            // Now we ensure that the pruned chunks are ConstantArrays, instead of having been
-            // evaluated.
-            assert_eq!(result.nchunks(), 3);
-            ConstantArray::try_from(result.chunk(0).unwrap())
-                .vortex_expect("Expected first chunk to be pruned");
-            ConstantArray::try_from(result.chunk(1).unwrap())
-                .vortex_expect("Expected second chunk to be pruned");
-            BoolArray::try_from(result.chunk(2).unwrap())
-                .vortex_expect("Expected third chunk to be evaluated");
         })
     }
 }

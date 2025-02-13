@@ -41,7 +41,6 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 ChunkedLayoutOptions {
                     // ...and write each chunk as a flat layout.
                     chunk_strategy: Arc::new(FlatLayoutOptions::default()),
-                    ..Default::default()
                 },
             )
             .boxed(),
@@ -53,8 +52,8 @@ impl LayoutStrategy for VortexLayoutStrategy {
             dtype.clone(),
             writer,
             RepartitionWriterOptions {
-                block_size_minimum: 1 << 20, // 1 MB
-                block_len_multiple: 8192,    // 8K rows
+                block_size_minimum: 8 * (1 << 20), // 1 MB
+                block_len_multiple: 8192,          // 8K rows
             },
         )
         .boxed();
