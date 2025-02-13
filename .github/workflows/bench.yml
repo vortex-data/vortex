@@ -63,7 +63,7 @@ jobs:
             name: Random Access
           - id: compress
             name: Vortex Compression
-    runs-on: self-hosted
+    runs-on: [self-hosted, gcp]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -110,7 +110,7 @@ jobs:
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
   tpch:
-    runs-on: self-hosted
+    runs-on: [self-hosted, gcp]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -145,7 +145,7 @@ jobs:
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
   clickbench:
-    runs-on: self-hosted
+    runs-on: [self-hosted, gcp]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
