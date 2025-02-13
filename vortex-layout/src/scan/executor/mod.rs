@@ -2,33 +2,15 @@
 mod tokio;
 
 use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
-use futures::channel::oneshot;
+use futures::future::BoxFuture;
 use futures::FutureExt as _;
 #[cfg(feature = "tokio")]
 pub use tokio::*;
-use vortex_error::{vortex_err, VortexResult};
-
-pub struct JoinHandle<T> {
-    inner: oneshot::Receiver<T>,
-}
-
-impl<T> Future for JoinHandle<T> {
-    type Output = VortexResult<T>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.inner.poll_unpin(cx) {
-            Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(vortex_err!("Task was canceled"))),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
+use vortex_error::VortexResult;
 
 pub trait Spawn {
-    fn spawn<F>(&self, f: F) -> JoinHandle<F::Output>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static;
@@ -39,18 +21,12 @@ pub struct InlineExecutor;
 
 #[async_trait::async_trait]
 impl Spawn for InlineExecutor {
-    fn spawn<F>(&self, f: F) -> JoinHandle<F::Output>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,
     {
-        let (tx, rx) = oneshot::channel();
-        // This is very hacky and probably not a great idea, but I don't have a much better idea on how to have a sane default here.
-        futures::executor::block_on(async move {
-            _ = tx.send(f.await);
-        });
-
-        JoinHandle { inner: rx }
+        async move { Ok(f.await) }.boxed()
     }
 }
 
@@ -63,7 +39,7 @@ pub enum Executor {
 
 #[async_trait::async_trait]
 impl Spawn for Executor {
-    fn spawn<F>(&self, f: F) -> JoinHandle<F::Output>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,
