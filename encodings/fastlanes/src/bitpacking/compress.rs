@@ -534,7 +534,7 @@ mod test {
         let mut rng = StdRng::seed_from_u64(0);
 
         let chunks = (0..10)
-            .map(|_| make_array(&mut rng, 100, 0.0).unwrap())
+            .map(|_| make_array(&mut rng, 100, 0.0, 0.0).unwrap())
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
