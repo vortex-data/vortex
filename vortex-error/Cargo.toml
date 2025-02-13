@@ -35,6 +35,7 @@ rancor = { workspace = true, optional = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 worker = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["rt"] }
 
 [lints]
 workspace = true

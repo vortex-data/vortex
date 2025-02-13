@@ -285,15 +285,20 @@ impl<D: ScanDriver> Scan<D> {
                             row_mask.end(),
                             row_mask.filter_mask().density()
                         );
-                        async move { pruning.new_evaluation(&row_mask).evaluate(reader).await }
+                        tokio::task::spawn(async move {
+                            pruning.new_evaluation(&row_mask).evaluate(reader).await
+                        })
                     })
                     // Instead of buffering, we should be smarter where we poll the stream until
                     // the I/O queue has ~256MB of requests in it. Our working set size.
                     // We then return Pending and the I/O thread is free to spawn the requests.
                     .buffered(self.concurrency)
                     .filter_map(|r| async move {
-                        r.map(|r| (!r.filter_mask().all_false()).then_some(r))
-                            .transpose()
+                        match r {
+                            Ok(Ok(r)) => (!r.filter_mask().all_false()).then_some(Ok(r)),
+                            Ok(Err(e)) => Some(Err(e)),
+                            Err(e) => Some(Err(e.into())),
+                        }
                     })
                     .boxed()
             } else {
@@ -308,16 +313,17 @@ impl<D: ScanDriver> Scan<D> {
                 let reader = reader.clone();
                 let projection = projection.clone();
                 let executor = executor.clone();
-                async move {
+                tokio::task::spawn(async move {
                     let row_mask = row_mask?;
                     let mut array = reader.evaluate_expr(row_mask, projection).await?;
                     if self.canonicalize {
                         array = executor.evaluate(&array, &[ScanTask::Canonicalize]).await?;
                     }
                     Ok(array)
-                }
+                })
             })
-            .buffered(self.concurrency);
+            .buffered(self.concurrency)
+            .map(|v| v?);
 
         let io_stream = self.driver.io_stream();
 

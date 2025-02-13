@@ -212,6 +212,14 @@ pub enum VortexError {
         #[backtrace]
         TryFromIntError,
     ),
+    /// A wrapper for Tokio join error.
+    #[cfg(feature = "tokio")]
+    #[error(transparent)]
+    JoinError(
+        #[from]
+        #[backtrace]
+        tokio::task::JoinError,
+    ),
 }
 
 impl VortexError {
