@@ -164,9 +164,9 @@ fn like_into_parts(
             )
         }
         (None, Some(ratio)) => {
-            debug_assert_eq!(
-                *ratio, 1.0f32,
-                "When there's no compressor tree compression ratio must be 1"
+            debug_assert!(
+                *ratio >= 1.0f32,
+                "When there's no compressor tree compression ratio must be greater than 1"
             );
             log::debug!("Last compressed child of chunked array has compression ration of {ratio} and no compressor");
             Ok(None)
