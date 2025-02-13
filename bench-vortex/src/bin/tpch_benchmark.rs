@@ -147,7 +147,7 @@ async fn bench_main(
             .collect::<Vec<_>>(),
     };
 
-    println!(
+    eprintln!(
         "Benchmarking against these formats: {}.",
         formats.iter().join(", ")
     );
