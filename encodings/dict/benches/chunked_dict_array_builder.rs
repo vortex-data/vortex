@@ -1,19 +1,19 @@
 use divan::Bencher;
 use rand::distributions::{Distribution, Standard};
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use vortex_array::array::{ChunkedArray, PrimitiveArray};
+use rand::SeedableRng;
+use vortex_array::array::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::{Array, IntoArray, IntoCanonical};
-use vortex_dict::DictArray;
+use vortex_dict::test::gen_primitive_dict;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexUnwrap};
+use vortex_error::VortexUnwrap;
 
 fn main() {
     divan::main();
 }
 
-fn make_dict_primitive_chunks<T: NativePType, U: NativePType>(
+fn make_dict_primitive_chunks<T: NativePType, O: NativePType>(
     len: usize,
     unique_values: usize,
     chunk_count: usize,
@@ -25,14 +25,7 @@ where
 
     (0..chunk_count)
         .map(|_| {
-            let values = (0..unique_values)
-                .map(|_| rng.gen::<T>())
-                .collect::<PrimitiveArray>();
-            let codes = (0..len)
-                .map(|_| U::from(rng.gen_range(0..unique_values)).vortex_expect("valid value"))
-                .collect::<PrimitiveArray>();
-
-            DictArray::try_new(codes.into_array(), values.into_array())
+            gen_primitive_dict::<T, O>(&mut rng, len, unique_values)
                 .vortex_unwrap()
                 .into_array()
         })
