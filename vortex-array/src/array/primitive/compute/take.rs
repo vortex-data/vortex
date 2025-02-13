@@ -77,7 +77,8 @@ fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
                 T::PTYPE
             )
         })?;
-    Ok(builder.extend_with_iterator(indices.into_iter().map(|idx| array[idx.as_()]), mask))
+    builder.extend_with_iterator(indices.iter().map(|idx| array[idx.as_()]), mask);
+    Ok(())
 }
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
