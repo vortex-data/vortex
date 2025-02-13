@@ -1,3 +1,5 @@
+#![feature(portable_simd)]
+
 //! Implementation of Dictionary encoding.
 //!
 //! Expose a [DictArray] which is zero-copy equivalent to Arrow's
