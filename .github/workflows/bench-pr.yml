@@ -38,8 +38,8 @@ jobs:
       - name: Build benchmark targets
         env:
           RUSTFLAGS: "-C target-cpu=native"
-          # We want to run micro-benchmarks with release profile.
-          # We run with all features since we feature gate bench utils.
+        # We want to run micro-benchmarks with release profile.
+        # We run with all features since we feature gate bench utils.
         run: cargo codspeed build --exclude bench-vortex --workspace --features test-harness --profile release
 
       - name: Run the benchmarks
