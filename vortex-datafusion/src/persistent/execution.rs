@@ -12,6 +12,7 @@ use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
+use object_store::ObjectStoreScheme;
 use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{and, VortexExpr};
@@ -124,9 +125,12 @@ impl ExecutionPlan for VortexExec {
         let object_store = context
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
+        let (scheme, _) = ObjectStoreScheme::parse(self.file_scan_config.object_store_url.as_ref())
+            .map_err(object_store::Error::from)?;
 
         let opener = VortexFileOpener::new(
             self.ctx.clone(),
+            scheme,
             object_store,
             self.projection.clone(),
             self.predicate.clone(),

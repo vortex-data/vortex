@@ -14,7 +14,7 @@ use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
 use log::info;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreScheme};
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
@@ -112,11 +112,16 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub async fn take_vortex_object_store(
+    scheme: ObjectStoreScheme,
     fs: Arc<dyn ObjectStore>,
     path: object_store::path::Path,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
-    take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
+    take_vortex(
+        ObjectStoreReadAt::new(fs.clone(), path, Some(scheme)),
+        indices,
+    )
+    .await
 }
 
 pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<Array> {

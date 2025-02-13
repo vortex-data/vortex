@@ -77,6 +77,13 @@ impl ValidityVTable<Array> for OpaqueEncoding {
         )
     }
 
+    fn all_invalid(&self, _array: &Array) -> VortexResult<bool> {
+        vortex_panic!(
+            "OpaqueEncoding: all_invalid cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+
     fn validity_mask(&self, _array: &Array) -> VortexResult<Mask> {
         vortex_panic!(
             "OpaqueEncoding: validity_mask cannot be called for opaque array ({})",

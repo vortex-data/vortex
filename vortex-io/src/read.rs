@@ -43,29 +43,46 @@ pub trait VortexReadAt: Clone + 'static {
 
 pub struct PerformanceHint {
     coalescing_window: u64,
+    max_read: Option<u64>,
 }
 
 impl Default for PerformanceHint {
     fn default() -> Self {
         Self {
             coalescing_window: 2 << 20, //1MB,
+            max_read: None,
         }
     }
 }
 
 impl PerformanceHint {
-    pub fn new(coalescing_window: u64) -> Self {
-        Self { coalescing_window }
+    pub fn new(coalescing_window: u64, max_read: Option<u64>) -> Self {
+        Self {
+            coalescing_window,
+            max_read,
+        }
     }
 
     /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
     pub fn local() -> Self {
-        Self::new(0)
+        Self::new(0, None)
+    }
+
+    pub fn object_storage() -> Self {
+        Self::new(
+            2 << 20,        //1MB,
+            Some(16 << 20), //16MB,
+        )
     }
 
     /// The maximum distance between two reads that should coalesced into a single operation.
     pub fn coalescing_window(&self) -> u64 {
         self.coalescing_window
+    }
+
+    /// Maximum number of bytes in a coalesced read.
+    pub fn max_read(&self) -> Option<u64> {
+        self.max_read
     }
 }
 

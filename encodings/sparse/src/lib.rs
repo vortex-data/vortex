@@ -199,6 +199,16 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
         array.patches().values().all_valid()
     }
 
+    fn all_invalid(&self, array: &SparseArray) -> VortexResult<bool> {
+        if !array.fill_scalar().is_null() {
+            // We need _all_ values to be patched, and all patches to be invalid
+            return Ok(array.patches().values().len() == array.len()
+                && array.patches().values().all_invalid()?);
+        }
+
+        array.patches().values().all_invalid()
+    }
+
     fn validity_mask(&self, array: &SparseArray) -> VortexResult<Mask> {
         let indices = array.patches().indices().clone().into_primitive()?;
 

@@ -25,18 +25,6 @@ jobs:
   codspeed_bench:
     name: Run Criterion benchmarks with Codspeed
     needs: label_trigger
-    env:
-      BENCH_TARGETS: >
-        dict_compare
-        dict_compress
-        bitpacking_take
-        run_end_filter
-        run_end_null_count
-        search_sorted
-        scalar_subtract
-        compare
-        take_strings
-        take_patches
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,14 +38,14 @@ jobs:
       - name: Build benchmark targets
         env:
           RUSTFLAGS: "-C target-cpu=native"
-        # The profile needs to be set explicitly to bench
-        # as codspeed by default compiles with the release profile.
-        run: cargo codspeed build --profile bench $BENCH_TARGETS
+        # We want to run micro-benchmarks with release profile.
+        # We run with all features since we feature gate bench utils.
+        run: cargo codspeed build --exclude bench-vortex --workspace --profile release
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v3
         with:
-          run: cargo codspeed run $BENCH_TARGETS
+          run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   bench:
@@ -69,7 +57,7 @@ jobs:
             name: Random Access
           - id: compress
             name: Vortex Compression
-    runs-on: self-hosted
+    runs-on: [self-hosted, gcp]
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
@@ -139,7 +127,7 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
   tpch:
     needs: label_trigger
-    runs-on: self-hosted
+    runs-on: [self-hosted, gcp]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -195,7 +183,7 @@ jobs:
           comment-tag: bench-pr-comment-tpch
   clickbench:
     needs: label_trigger
-    runs-on: self-hosted
+    runs-on: [self-hosted, gcp]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup

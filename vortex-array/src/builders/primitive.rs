@@ -4,6 +4,7 @@ use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::Mask;
 
 use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -119,6 +120,15 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             validity,
         ))
     }
+
+    pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
+        self.values.extend(iter);
+        self.extend_with_validity_mask(mask)
+    }
+
+    fn extend_with_validity_mask(&mut self, validity_mask: Mask) {
+        self.nulls.append_validity_mask(validity_mask);
+    }
 }
 
 impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
@@ -156,7 +166,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         self.values.extend_from_slice(array.as_slice::<T>());
 
-        self.nulls.append_validity_mask(array.validity_mask()?);
+        self.extend_with_validity_mask(array.validity_mask()?);
 
         Ok(())
     }

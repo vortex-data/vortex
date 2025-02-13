@@ -240,6 +240,11 @@ impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
         array.left_parts().all_valid()
     }
 
+    fn all_invalid(&self, array: &ALPRDArray) -> VortexResult<bool> {
+        // Use validity from left_parts
+        array.left_parts().all_invalid()
+    }
+
     fn validity_mask(&self, array: &ALPRDArray) -> VortexResult<Mask> {
         // Use validity from left_parts
         array.left_parts().validity_mask()
