@@ -5,8 +5,10 @@ mod execution;
 mod format;
 mod opener;
 mod sink;
+mod source;
 
 pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
+pub use source::VortexSource;
 
 #[cfg(test)]
 /// Utility function to register Vortex with a [`SessionStateBuilder`]

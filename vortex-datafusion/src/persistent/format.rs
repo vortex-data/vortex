@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
+use datafusion::catalog::Session;
+use datafusion::datasource::data_source::FileSource;
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
 use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
 use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
-use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common::{
@@ -86,7 +87,7 @@ impl FileFormatFactory for VortexFormatFactory {
     #[allow(clippy::disallowed_types)]
     fn create(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
         if !format_options.is_empty() {
@@ -152,9 +153,13 @@ impl FileFormat for VortexFormat {
         }
     }
 
+    fn file_source(&self) -> Arc<dyn FileSource> {
+        todo!()
+    }
+
     async fn infer_schema(
         &self,
-        state: &SessionState,
+        state: &dyn Session,
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
@@ -187,7 +192,7 @@ impl FileFormat for VortexFormat {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     async fn infer_stats(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         store: &Arc<dyn ObjectStore>,
         table_schema: SchemaRef,
         object: &ObjectMeta,
@@ -273,7 +278,7 @@ impl FileFormat for VortexFormat {
 
     async fn create_physical_plan(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
@@ -311,7 +316,7 @@ impl FileFormat for VortexFormat {
     async fn create_writer_physical_plan(
         &self,
         input: Arc<dyn ExecutionPlan>,
-        _state: &SessionState,
+        _state: &dyn Session,
         conf: FileSinkConfig,
         order_requirements: Option<LexRequirement>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
