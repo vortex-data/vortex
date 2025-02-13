@@ -4,7 +4,7 @@ use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreScheme};
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
@@ -16,6 +16,7 @@ use super::cache::FileLayoutCache;
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
     pub ctx: ContextRef,
+    pub scheme: ObjectStoreScheme,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
@@ -25,8 +26,10 @@ pub(crate) struct VortexFileOpener {
 }
 
 impl VortexFileOpener {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ctx: ContextRef,
+        scheme: ObjectStoreScheme,
         object_store: Arc<dyn ObjectStore>,
         projection: Arc<dyn VortexExpr>,
         filter: Option<Arc<dyn VortexExpr>>,
@@ -36,6 +39,7 @@ impl VortexFileOpener {
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
+            scheme,
             object_store,
             projection,
             filter,
@@ -48,8 +52,11 @@ impl VortexFileOpener {
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let read_at =
-            ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
+        let read_at = ObjectStoreReadAt::new(
+            self.object_store.clone(),
+            file_meta.location().clone(),
+            Some(self.scheme.clone()),
+        );
 
         let filter = self.filter.clone();
         let projection = self.projection.clone();

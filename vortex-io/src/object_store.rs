@@ -7,24 +7,31 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{
-    GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, PutPayload,
+    GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
+    PutPayload,
 };
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{IoBuf, VortexReadAt, VortexWrite};
+use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
+    scheme: Option<ObjectStoreScheme>,
 }
 
 impl ObjectStoreReadAt {
-    pub fn new(object_store: Arc<dyn ObjectStore>, location: Path) -> Self {
+    pub fn new(
+        object_store: Arc<dyn ObjectStore>,
+        location: Path,
+        scheme: Option<ObjectStoreScheme>,
+    ) -> Self {
         Self {
             object_store,
             location,
+            scheme,
         }
     }
 }
@@ -83,6 +90,13 @@ impl VortexReadAt for ObjectStoreReadAt {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
         Ok(object_store.head(&location).await?.size as u64)
+    }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        match &self.scheme {
+            Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
+            _ => PerformanceHint::default(),
+        }
     }
 }
 
