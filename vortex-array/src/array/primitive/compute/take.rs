@@ -33,10 +33,6 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.clone().into_primitive()?;
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
 
-        if true {
-            panic!("not fair")
-        }
-
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive_unchecked(array.as_slice::<$T>(), indices.as_slice::<$I>());
@@ -83,13 +79,6 @@ fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
         })?;
     Ok(builder.extend_with_iterator(indices.into_iter().map(|idx| array[idx.as_()]), mask))
 }
-
-// fn take_into_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-//     array: &[T],
-//     indices: &[I],
-//     builder: &mut PrimitiveBuilder<T>,
-// ) {
-// }
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],
