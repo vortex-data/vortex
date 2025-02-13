@@ -1,6 +1,7 @@
 mod compare;
 
 use vortex_array::array::varbin_scalar;
+use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
@@ -61,6 +62,15 @@ impl TakeFn<FSSTArray> for FSSTEncoding {
             take(array.uncompressed_lengths(), indices)?,
         )?
         .into_array())
+    }
+
+    fn take_into(
+        &self,
+        array: &FSSTArray,
+        indices: &Array,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(take(array, indices)?)
     }
 }
 

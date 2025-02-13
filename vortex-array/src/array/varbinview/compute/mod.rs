@@ -14,6 +14,7 @@ use super::BinaryView;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
+use crate::builders::ArrayBuilder;
 use crate::compute::{CastFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -113,6 +114,19 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
             validity,
         )?
         .into_array())
+    }
+
+    fn take_into(
+        &self,
+        array: &VarBinViewArray,
+        indices: &Array,
+        _builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        todo!(
+            "VarBinViewArray take into {} {}",
+            array.tree_display(),
+            indices.tree_display()
+        )
     }
 }
 
