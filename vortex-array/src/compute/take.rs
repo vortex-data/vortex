@@ -48,7 +48,7 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     let array = array.as_ref();
     let indices = indices.as_ref();
 
-    if indices.validity_mask()?.all_false() {
+    if indices.all_invalid()? {
         return Ok(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
                 .into_array(),
@@ -90,14 +90,14 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     );
     #[cfg(debug_assertions)]
     {
-        if indices.invalid_count()? > 0 && taken.dtype() != &array.dtype().as_nullable() {
-            vortex_bail!(
-                "TakeFn {} returned wrong array dtype from {} to {}",
-                array.encoding(),
-                array.dtype(),
-                taken.dtype()
-            );
-        }
+        // If either the indices or the array are nullable, the result should be nullable.
+        let expected_nullability =
+            (indices.dtype().is_nullable() || array.dtype().is_nullable()).into();
+        assert_eq!(
+            taken.dtype(),
+            &array.dtype().with_nullability(expected_nullability),
+            "Take result should be nullable if either the indices or the array are nullable"
+        );
     }
 
     Ok(taken)

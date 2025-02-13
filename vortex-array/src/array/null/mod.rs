@@ -46,6 +46,10 @@ impl ValidityVTable<NullArray> for NullEncoding {
         Ok(array.len() == 0)
     }
 
+    fn all_invalid(&self, array: &NullArray) -> VortexResult<bool> {
+        Ok(array.len() > 0)
+    }
+
     fn validity_mask(&self, array: &NullArray) -> VortexResult<Mask> {
         Ok(Mask::AllFalse(array.len()))
     }

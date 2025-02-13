@@ -21,17 +21,15 @@ impl TakeFn<ALPRDArray> for ALPRDEncoding {
                 p.cast_values(&values_dtype)
             })
             .transpose()?;
-
         let right_parts = fill_null(
             take(array.right_parts(), indices)?,
             Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
         )?;
+
         Ok(ALPRDArray::try_new(
-            if taken_left_parts.dtype().is_nullable() {
-                array.dtype().as_nullable()
-            } else {
-                array.dtype().clone()
-            },
+            array
+                .dtype()
+                .with_nullability(taken_left_parts.dtype().nullability()),
             taken_left_parts,
             array.left_parts_dict(),
             right_parts,

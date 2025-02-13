@@ -9,7 +9,7 @@ use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoCanonical;
 use vortex_buffer::Buffer;
-use vortex_dict::dict_encode;
+use vortex_dict::builders::dict_encode;
 
 pub fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
     let mut rng = thread_rng();

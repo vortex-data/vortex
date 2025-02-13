@@ -140,6 +140,10 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
         array.encoded().all_valid()
     }
 
+    fn all_invalid(&self, array: &ALPArray) -> VortexResult<bool> {
+        array.encoded().all_invalid()
+    }
+
     fn validity_mask(&self, array: &ALPArray) -> VortexResult<Mask> {
         array.encoded().validity_mask()
     }

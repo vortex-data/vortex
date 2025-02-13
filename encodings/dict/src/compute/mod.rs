@@ -47,7 +47,7 @@ impl ComputeVTable for DictEncoding {
 impl ScalarAtFn<DictArray> for DictEncoding {
     fn scalar_at(&self, array: &DictArray, index: usize) -> VortexResult<Scalar> {
         let dict_index: usize = scalar_at(array.codes(), index)?.as_ref().try_into()?;
-        scalar_at(array.values(), dict_index)?.cast(array.dtype())
+        scalar_at(array.values(), dict_index)
     }
 }
 
@@ -85,7 +85,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::dict_encode;
+    use crate::builders::dict_encode;
 
     #[test]
     fn canonicalise_nullable_primitive() {

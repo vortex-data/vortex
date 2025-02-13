@@ -15,6 +15,10 @@ impl ValidityVTable<VarBinArray> for VarBinEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &VarBinArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &VarBinArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }

@@ -92,6 +92,10 @@ impl ValidityVTable<FoRArray> for FoREncoding {
         array.encoded().all_valid()
     }
 
+    fn all_invalid(&self, array: &FoRArray) -> VortexResult<bool> {
+        array.encoded().all_invalid()
+    }
+
     fn validity_mask(&self, array: &FoRArray) -> VortexResult<Mask> {
         array.encoded().validity_mask()
     }

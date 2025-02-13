@@ -11,7 +11,7 @@ use vortex_array::{
     encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
     SerdeMetadata,
 };
-use vortex_dtype::{match_each_integer_ptype, DType, Nullability, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask};
 
@@ -22,85 +22,41 @@ impl_encoding!(
     SerdeMetadata<DictMetadata>
 );
 
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::Portable,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    rkyv::bytecheck::CheckBytes,
-)]
-#[rkyv(as = DictNullability)]
-#[bytecheck(crate = rkyv::bytecheck)]
-#[repr(u8)]
-enum DictNullability {
-    NonNullable,
-    NullableCodes,
-    NullableValues,
-    BothNullable,
-}
-
-impl DictNullability {
-    fn from_dtypes(codes_dtype: &DType, values_dtype: &DType) -> Self {
-        match (codes_dtype.is_nullable(), values_dtype.is_nullable()) {
-            (true, true) => Self::BothNullable,
-            (true, false) => Self::NullableCodes,
-            (false, true) => Self::NullableValues,
-            (false, false) => Self::NonNullable,
-        }
-    }
-
-    fn codes_nullability(&self) -> Nullability {
-        match self {
-            DictNullability::NonNullable => Nullability::NonNullable,
-            DictNullability::NullableCodes => Nullability::Nullable,
-            DictNullability::NullableValues => Nullability::NonNullable,
-            DictNullability::BothNullable => Nullability::Nullable,
-        }
-    }
-
-    fn values_nullability(&self) -> Nullability {
-        match self {
-            DictNullability::NonNullable => Nullability::NonNullable,
-            DictNullability::NullableCodes => Nullability::NonNullable,
-            DictNullability::NullableValues => Nullability::Nullable,
-            DictNullability::BothNullable => Nullability::Nullable,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictMetadata {
     codes_ptype: PType,
     values_len: usize, // TODO(ngates): make this a u32
-    dict_nullability: DictNullability,
 }
 
 impl DictArray {
-    pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
+    pub fn try_new(mut codes: Array, values: Array) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
 
-        let dtype = if codes.dtype().is_nullable() {
-            values.dtype().as_nullable()
+        let dtype = values.dtype();
+        if dtype.is_nullable() {
+            // If the values are nullable, we force codes to be nullable as well.
+            codes = try_cast(&codes, &codes.dtype().as_nullable())?;
         } else {
-            values.dtype().clone()
-        };
-        let dict_nullability = DictNullability::from_dtypes(codes.dtype(), values.dtype());
+            // If the values are non-nullable, we assert the codes are non-nullable as well.
+            if codes.dtype().is_nullable() {
+                vortex_bail!("Cannot have nullable codes for non-nullable dict array");
+            }
+        }
+        assert_eq!(
+            codes.dtype().nullability(),
+            values.dtype().nullability(),
+            "Mismatched nullability between codes and values"
+        );
 
         Self::try_from_parts(
-            dtype,
+            dtype.clone(),
             codes.len(),
             SerdeMetadata(DictMetadata {
                 codes_ptype: PType::try_from(codes.dtype())
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
-                dict_nullability,
             }),
             None,
             Some([codes, values].into()),
@@ -113,10 +69,7 @@ impl DictArray {
         self.as_ref()
             .child(
                 0,
-                &DType::Primitive(
-                    self.metadata().codes_ptype,
-                    self.metadata().dict_nullability.codes_nullability(),
-                ),
+                &DType::Primitive(self.metadata().codes_ptype, self.dtype().nullability()),
                 self.len(),
             )
             .vortex_expect("DictArray is missing its codes child array")
@@ -125,13 +78,7 @@ impl DictArray {
     #[inline]
     pub fn values(&self) -> Array {
         self.as_ref()
-            .child(
-                1,
-                &self
-                    .dtype()
-                    .with_nullability(self.metadata().dict_nullability.values_nullability()),
-                self.metadata().values_len,
-            )
+            .child(1, self.dtype(), self.metadata().values_len)
             .vortex_expect("DictArray is missing its values child array")
     }
 }
@@ -147,10 +94,10 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: Array = array.values().into_canonical()?.into_array();
-                try_cast(take(canonical_values, array.codes())?, array.dtype())?.into_canonical()
+                take(canonical_values, array.codes())?.into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => try_cast(take(array.values(), array.codes())?, array.dtype())?.into_canonical(),
+            _ => take(array.values(), array.codes())?.into_canonical(),
         }
     }
 }
@@ -180,6 +127,14 @@ impl ValidityVTable<DictArray> for DictEncoding {
         }
 
         Ok(array.codes().all_valid()? && array.values().all_valid()?)
+    }
+
+    fn all_invalid(&self, array: &DictArray) -> VortexResult<bool> {
+        if !array.dtype().is_nullable() {
+            return Ok(false);
+        }
+
+        Ok(array.codes().all_invalid()? || array.values().all_invalid()?)
     }
 
     fn validity_mask(&self, array: &DictArray) -> VortexResult<Mask> {
@@ -231,7 +186,6 @@ mod test {
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
 
-    use crate::array::DictNullability::BothNullable;
     use crate::{DictArray, DictMetadata};
 
     #[cfg_attr(miri, ignore)]
@@ -242,7 +196,6 @@ mod test {
             SerdeMetadata(DictMetadata {
                 codes_ptype: PType::U64,
                 values_len: usize::MAX,
-                dict_nullability: BothNullable,
             }),
         );
     }
@@ -255,7 +208,7 @@ mod test {
                 Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
             )
             .into_array(),
-            buffer![3, 6, 9].into_array(),
+            PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
         )
         .unwrap();
         let mask = dict.validity_mask().unwrap();
