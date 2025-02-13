@@ -59,8 +59,7 @@ impl StatsReader {
 
         let block_size = u32::try_from_le_bytes(&metadata[0..4])? as usize;
         let present_stats = stats_from_bitset_bytes(&metadata[4..]).into();
-        let nblocks =
-            usize::try_from((layout.row_count() + block_size as u64 - 1) / block_size as u64)?;
+        let nblocks = usize::try_from(layout.row_count().div_ceil(block_size as u64))?;
 
         Ok(Self {
             layout,
@@ -148,9 +147,11 @@ impl StatsReader {
 
     /// Return the block range covered by a row mask.
     pub(crate) fn block_range(&self, row_mask: &RowMask) -> Range<usize> {
-        let block_start = row_mask.begin() / self.block_size as u64;
-        let block_end = (row_mask.end() + self.block_size as u64 - 1) / self.block_size as u64;
-        block_start as usize..block_end as usize
+        let block_start = usize::try_from(row_mask.begin() / self.block_size as u64)
+            .vortex_expect("Invalid block start");
+        let block_end = usize::try_from(row_mask.end().div_ceil(self.block_size as u64))
+            .vortex_expect("Invalid block end");
+        block_start..block_end
     }
 
     /// Return the row offset of a given block.
