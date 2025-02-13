@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-use async_trait::async_trait;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::{filter, slice};
 use vortex_array::Array;
@@ -36,17 +35,14 @@ impl ScanTask {
     }
 }
 
-/// A trait used to spawn and execute blocking tasks.
-#[async_trait]
 pub trait TaskExecutor: 'static + Send + Sync {
-    async fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array>;
+    fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array>;
 }
 
 pub struct InlineTaskExecutor;
 
-#[async_trait]
 impl TaskExecutor for InlineTaskExecutor {
-    async fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
+    fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
         let mut array = array.clone();
         for task in tasks {
             array = task.execute(&array)?;

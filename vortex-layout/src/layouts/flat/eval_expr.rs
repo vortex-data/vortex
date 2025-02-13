@@ -35,7 +35,7 @@ impl ExprEvaluator for FlatReader {
             tasks.push(ScanTask::Expr(expr));
         }
 
-        self.executor().evaluate(&array, &tasks).await
+        self.executor().evaluate(&array, &tasks)
     }
 
     async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {

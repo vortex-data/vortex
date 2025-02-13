@@ -54,7 +54,6 @@ impl ExprEvaluator for StructReader {
 
         self.executor()
             .evaluate(&root_scope, &[ScanTask::Expr(partitioned.root.clone())])
-            .await
     }
 
     async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {

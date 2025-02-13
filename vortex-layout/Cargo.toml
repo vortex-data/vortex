@@ -21,7 +21,7 @@ bit-vec = { workspace = true }
 bytes = { workspace = true }
 exponential-decay-histogram = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true, features = ["alloc"] }
+futures = { workspace = true, features = ["alloc", "executor"] }
 itertools = { workspace = true }
 log = { workspace = true }
 pin-project-lite = { workspace = true }
@@ -33,7 +33,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
