@@ -368,7 +368,7 @@ mod test {
         assert_eq!(result, vec![0..11]);
 
         // Should not merge due to max_read limit
-        let result = merge_ranges(ranges.clone(), 2, Some(5));
+        let result = merge_ranges(ranges, 2, Some(5));
         assert_eq!(result, vec![0..3, 4..7, 8..11]);
     }
 
@@ -381,7 +381,7 @@ mod test {
         assert_eq!(result, vec![0..10]);
 
         // Should merge partially with max_read
-        let result = merge_ranges(ranges.clone(), 1, Some(9));
+        let result = merge_ranges(ranges, 1, Some(9));
         assert_eq!(result, vec![0..8, 7..10]);
     }
 }
