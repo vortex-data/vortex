@@ -13,8 +13,6 @@ use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Builder;
-use tracing::{info, Level};
-use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect as _;
