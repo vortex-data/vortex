@@ -351,8 +351,7 @@ impl<D: ScanDriver> Scan<D> {
                     }
                 }
             })
-            .buffered(self.concurrency)
-            .map(|v| v);
+            .buffered(self.concurrency);
 
         let io_stream = self.driver.io_stream();
 
