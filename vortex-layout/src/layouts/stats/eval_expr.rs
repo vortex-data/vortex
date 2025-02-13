@@ -49,7 +49,7 @@ impl ExprEvaluator for StatsReader {
                     .sub(row_mask.begin())
                     .min(row_mask.len() as u64),
             )?;
-            builder.append_n(end - start, pruning_mask.value(block_idx));
+            builder.append_n(end - start, !pruning_mask.value(block_idx));
         }
 
         let mask = Mask::from(builder.finish());

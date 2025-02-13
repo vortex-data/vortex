@@ -270,7 +270,7 @@ impl<D: ScanDriver> Scan<D> {
             if let Some(filter) = self.filter.clone() {
                 let reader = reader.clone();
 
-                let pruning = Arc::new(FilterExpr::try_new(
+                let filter_eval = Arc::new(FilterExpr::try_new(
                     reader
                         .dtype()
                         .as_struct()
@@ -285,7 +285,7 @@ impl<D: ScanDriver> Scan<D> {
                     .map(move |row_mask| {
                         let reader = reader.clone();
                         let filter = filter.clone();
-                        let pruning = pruning.clone();
+                        let filter_expr = filter_eval.clone();
 
                         log::debug!(
                             "Evaluating filter {} for row mask {}..{} {}",
@@ -294,7 +294,7 @@ impl<D: ScanDriver> Scan<D> {
                             row_mask.end(),
                             row_mask.filter_mask().density()
                         );
-                        async move { pruning.new_evaluation(&row_mask).evaluate(reader).await }
+                        async move { filter_expr.new_evaluation(&row_mask).evaluate(reader).await }
                     })
                     // Instead of buffering, we should be smarter where we poll the stream until
                     // the I/O queue has ~256MB of requests in it. Our working set size.
