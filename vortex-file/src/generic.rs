@@ -71,8 +71,6 @@ pub struct GenericScanDriver<R> {
 }
 
 impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
-    type Options = GenericScanOptions;
-
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader> {
         self.segment_channel.reader()
     }
