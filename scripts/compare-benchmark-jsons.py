@@ -19,7 +19,13 @@ base_commit_id = next(iter(base_commit_id))
 assert len(pr_commit_id) == 1, pr_commit_id
 pr_commit_id = next(iter(pr_commit_id))
 
-df3 = pd.merge(base, pr, on="name", how="inner", suffixes=("_base", "_pr"))
+if "storage" not in base:
+    base["storage"] = "nvme"
+
+if "storage" not in pr:
+    pr["storage"] = "nvme"
+
+df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base", "_pr"))
 
 assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
 

@@ -296,6 +296,8 @@ pub async fn physical_plan(
 #[derive(Clone, Debug)]
 pub struct Measurement {
     pub query_idx: usize,
+    /// The storage backend against which this test was run. One of: s3, gcs, nvme.
+    pub storage: String,
     pub time: Duration,
     pub format: Format,
     pub dataset: String,
@@ -304,6 +306,7 @@ pub struct Measurement {
 #[derive(Serialize)]
 pub struct JsonValue {
     pub name: String,
+    pub storage: String,
     pub unit: String,
     pub value: u128,
     pub commit_id: String,
@@ -333,6 +336,7 @@ impl Measurement {
 
         JsonValue {
             name,
+            storage: self.storage.to_string(),
             unit: "ns".to_string(),
             value: self.time.as_nanos(),
             commit_id: GIT_COMMIT_ID.to_string(),

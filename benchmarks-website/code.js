@@ -3,12 +3,15 @@ window.initAndRender = (function () {
     function stringToColor(str) {
         // Random colours are generally pretty disgusting...
         const MAP = {
-            "vortex-file-uncompressed": '#98da8d',
-            "vortex-file-compressed": '#23d100',
-            "vortex-in-memory-no-pushdown": '#79a6df',
-            "vortex-in-memory-pushdown": '#0c53ae',
             "arrow": '#58067e',
+
             "parquet": '#ef7f1d',
+            "parquet (nvme)": '#ef7f1d',
+            "parquet (s3)": '#f0b078',
+
+            "vortex-file-compressed": '#23d100',
+            "vortex-file-compressed (nvme)": '#23d100',
+            "vortex-file-compressed (s3)": '#7ad169',
         };
 
         if (MAP[str]) {
@@ -60,6 +63,7 @@ window.initAndRender = (function () {
             }
 
             let {name, unit, value, commit} = benchmark_result;
+            let storage = benchmark_result.storage;
             let group = undefined;
 
             if (name.startsWith("random-access/")) {
@@ -68,12 +72,16 @@ window.initAndRender = (function () {
                 group = groups["Compression"];
             } else if (name.startsWith("tpch_q")) {
                 group = groups["TPC-H"];
+                if (storage === undefined && (name.includes("parquet") || name.includes("vortex"))) {
+                    storage = "nvme"
+                }
             } else if (name.startsWith("clickbench")) {
                 group = groups["Clickbench"];
             } else {
                 uncategorizable_names.add(name)
                 continue
             }
+
 
             // Normalize name and units
             let [q, seriesName] = name.split("/");
@@ -84,6 +92,11 @@ window.initAndRender = (function () {
                 seriesName = seriesName.slice(0, seriesName.length - "throughput".length);
                 q = q.replace("time", "throughput");
             }
+
+            if (storage !== undefined) {
+                seriesName += " (" + storage + ")"
+            }
+
             let prettyQ = q.replace("_", " ")
                 .toUpperCase()
                 .replace("VORTEX:RAW SIZE", "VORTEX COMPRESSION RATIO");

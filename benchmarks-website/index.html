@@ -42,15 +42,20 @@
               "keptCharts": undefined,
               "hiddenDatasets": undefined,
               "removedDatasets": new Set([
-                  "vortex-in-memory-no-pushdown",
-                  "vortex-in-memory-pushdown",
-                  "vortex-file-uncompressed",
+                  "vortex-in-memory-no-pushdown (nvme)",
+                  "vortex-in-memory-pushdown (nvme)",
+                  "vortex-file-uncompressed (nvme)",
               ]),
               "renamedDatasets": {
-                  "vortex-file-compressed": "vortex",
+                  "vortex-file-compressed (nvme)": "vortex (nvme)",
+                  "vortex-file-compressed (s3)": "vortex (s3)",
               },
           }],
-          ["Clickbench", undefined],
+          ["Clickbench", {
+             "renamedDatasets" : {
+                 "vortex-file-compressed": "vortex",
+             }
+          }],
       ]);
     </script>
   </head>
