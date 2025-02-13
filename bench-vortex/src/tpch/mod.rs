@@ -250,8 +250,6 @@ async fn register_parquet(
                     .await?;
             } else {
                 anyhow::bail!("Writing to S3 does not seem to work!");
-                // df.write_parquet(pq_file.as_str(), DataFrameWriteOptions::default(), None)
-                //     .await?;
             };
 
             anyhow::Ok(())
@@ -331,14 +329,6 @@ async fn register_vortex_file(
                 VortexWriteOptions::default().write(f, array_stream).await?;
             } else {
                 anyhow::bail!("Writing to S3 does not seem to work!");
-                // let writer = ObjectStoreWriter::new(
-                //     object_store.clone(),
-                //     ObjectStorePath::from(vtx_file.path()),
-                // )
-                // .await?;
-                // VortexWriteOptions::default()
-                //     .write(writer, array_stream)
-                //     .await?;
             };
 
             anyhow::Ok(())
