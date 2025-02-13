@@ -247,6 +247,10 @@ impl ValidityVTable<DeltaArray> for DeltaEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &DeltaArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &DeltaArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }

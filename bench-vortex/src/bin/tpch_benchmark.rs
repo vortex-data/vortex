@@ -5,7 +5,9 @@ use std::time::Instant;
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
-use bench_vortex::{feature_flagged_allocator, Format, Measurement};
+use bench_vortex::{
+    default_env_filter, feature_flagged_allocator, setup_logger, Format, Measurement,
+};
 use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
@@ -57,20 +59,8 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    let (enabled, max_level) = match args.verbosity {
-        0 => (false, Level::WARN),
-        1 => (true, Level::INFO),
-        2 => (true, Level::DEBUG),
-        _ => (true, Level::TRACE),
-    };
-
-    if enabled {
-        tracing_subscriber::fmt()
-            .with_max_level(max_level)
-            .with_span_events(FmtSpan::CLOSE)
-            .init();
-        info!("logging enabled");
-    }
+    let filter = default_env_filter(args.verbose);
+    setup_logger(filter);
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -145,6 +135,10 @@ async fn bench_main(
     emulate_object_store: bool,
     url: Url,
 ) -> ExitCode {
+    // uncomment the below to enable trace logging of datafusion execution
+    // let filter = default_env_filter(true);
+    // setup_logger(filter);
+
     // Run TPC-H data gen.
 
     // The formats to run against (vs the baseline)

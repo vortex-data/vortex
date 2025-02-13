@@ -7,16 +7,17 @@ use std::time::{Duration, Instant};
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, feature_flagged_allocator, get_session_with_cache, idempotent, physical_plan,
-    setup_logger, Format, IdempotentPath as _, Measurement,
+    default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
+    idempotent, physical_plan, Format, IdempotentPath as _, Measurement,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
+use tracing::info_span;
+use tracing_futures::Instrument;
 use vortex::error::{vortex_panic, VortexExpect};
 
 feature_flagged_allocator!();
@@ -45,11 +46,34 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    setup_logger(if args.verbose {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    });
+    // Capture `RUST_LOG` configuration
+    let filter = default_env_filter(args.verbose);
+
+    #[cfg(not(feature = "tracing"))]
+    bench_vortex::setup_logger(filter);
+
+    // We need the guard to live to the end of the function, so can't create it in the if-block
+    #[cfg(feature = "tracing")]
+    let _trace_guard = {
+        use tracing_subscriber::prelude::*;
+
+        let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .include_args(true)
+            .file("clickbench.trace.json")
+            .build();
+
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_level(true)
+            .with_line_number(true);
+
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(layer)
+            .with(fmt_layer)
+            .init();
+        _guard
+    };
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -171,13 +195,14 @@ fn main() {
             }
 
             let mut fastest_result = Duration::from_millis(u64::MAX);
-            for _ in 0..args.iterations {
+            for iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
                     let context = context.clone();
                     let query = query.clone();
                     tokio::task::spawn(async move {
                         execute_query(&context, &query)
+                            .instrument(info_span!("execute_query", query_idx, iteration))
                             .await
                             .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
                     })

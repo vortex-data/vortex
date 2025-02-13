@@ -8,11 +8,7 @@ use crate::{Array, IntoArray};
 impl CastFn<BoolArray> for BoolEncoding {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<Array> {
         if !matches!(dtype, DType::Bool(_)) {
-            vortex_bail!(
-                "Cannot cast {} to {}",
-                array.dtype().to_string(),
-                dtype.to_string()
-            );
+            vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
         }
 
         // If the types are the same, return the array,
@@ -41,9 +37,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-
-        assert!(try_cast(bool, &DType::Bool(Nullability::NonNullable)).is_err());
+        try_cast(bool, &DType::Bool(Nullability::NonNullable)).unwrap();
     }
 }

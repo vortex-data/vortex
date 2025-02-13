@@ -1,4 +1,4 @@
-use futures_util::StreamExt;
+use futures::StreamExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -47,7 +47,7 @@ impl VortexWriteOptions {
         )?;
 
         // First we write the magic number
-        let mut write = futures_util::io::Cursor::new(write);
+        let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
         // Our buffered message writer accumulates messages for each batch so we can flush them
@@ -112,7 +112,7 @@ impl VortexWriteOptions {
 
     async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(
         &self,
-        write: &mut futures_util::io::Cursor<W>,
+        write: &mut futures::io::Cursor<W>,
         flatbuffer: &F,
     ) -> VortexResult<Segment> {
         let layout_offset = write.position();

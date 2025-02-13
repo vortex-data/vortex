@@ -1,7 +1,9 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_scalar::Scalar;
 
+use crate::array::ConstantArray;
 use crate::encoding::Encoding;
-use crate::stats::{Max, Stat, Statistics, StatsSet};
+use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
 use crate::{Array, IntoArray, IntoCanonical};
 
 pub trait TakeFn<A> {
@@ -46,6 +48,13 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     let array = array.as_ref();
     let indices = indices.as_ref();
 
+    if indices.all_invalid()? {
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                .into_array(),
+        );
+    }
+
     if !indices.dtype().is_int() {
         vortex_bail!(
             "Take indices must be an integer type, got {}",
@@ -59,16 +68,18 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
         .get_as_bound::<Max, usize>()
         .is_some_and(|max| max < array.len());
 
-    let derived_stats = derive_take_stats(array);
+    // We know that constant array don't need stats propagation, so we can avoid the overhead of
+    // computing derived stats and merging them in.
+    let derived_stats = (!array.must_be_constant()).then(|| derive_take_stats(array));
 
     let taken = take_impl(array, indices, checked_indices)?;
 
-    let mut stats = taken.stats_set();
-    stats.combine_sets(&derived_stats, array.dtype())?;
-    // TODO(joe): add
-    // taken.inherit_statistics(&stats)?;
-    for (stat, val) in stats.into_iter() {
-        taken.set_stat(stat, val)
+    if let Some(derived_stats) = derived_stats {
+        let mut stats = taken.stats_set();
+        stats.combine_sets(&derived_stats, array.dtype())?;
+        for (stat, val) in stats.into_iter() {
+            taken.set_stat(stat, val)
+        }
     }
 
     debug_assert_eq!(
@@ -77,12 +88,17 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
         "Take length mismatch {}",
         array.encoding()
     );
-    debug_assert_eq!(
-        array.dtype(),
-        taken.dtype(),
-        "Take dtype mismatch {}",
-        array.encoding()
-    );
+    #[cfg(debug_assertions)]
+    {
+        // If either the indices or the array are nullable, the result should be nullable.
+        let expected_nullability =
+            (indices.dtype().is_nullable() || array.dtype().is_nullable()).into();
+        assert_eq!(
+            taken.dtype(),
+            &array.dtype().with_nullability(expected_nullability),
+            "Take result should be nullable if either the indices or the array are nullable"
+        );
+    }
 
     Ok(taken)
 }
@@ -90,15 +106,20 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 fn derive_take_stats(arr: &Array) -> StatsSet {
     let stats = arr.stats_set();
 
-    stats.keep_exact_inexact_stats(
+    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+
+    let mut stats = stats.keep_inexact_stats(&[
+        // Cannot create values smaller than min or larger than max
+        Stat::Min,
+        Stat::Max,
+    ]);
+
+    if is_constant == Some(Precision::Exact(true)) {
         // Any combination of elements from a constant array is still const
-        &[Stat::IsConstant],
-        &[
-            // Cannot create values smaller than min or larger than max
-            Stat::Min,
-            Stat::Max,
-        ],
-    )
+        stats.set(Stat::IsConstant, Precision::exact(true));
+    }
+
+    stats
 }
 
 fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {
@@ -112,14 +133,6 @@ fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexRes
         } else {
             take_fn.take(array, indices)
         }?;
-        if array.dtype() != result.dtype() {
-            vortex_bail!(
-                "TakeFn {} changed array dtype from {} to {}",
-                array.encoding(),
-                array.dtype(),
-                result.dtype()
-            );
-        }
         return Ok(result);
     }
 

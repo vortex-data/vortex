@@ -4,14 +4,13 @@ use std::sync::Arc;
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
-use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
 
-use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
+use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
@@ -22,6 +21,15 @@ impl<'a> Arbitrary<'a> for Array {
         let dtype = u.arbitrary()?;
         random_array(u, &dtype, None)
     }
+}
+
+fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
+    let reminder = n % parts;
+    let division = (n - reminder) / parts;
+    iter::repeat(division)
+        .take(parts - reminder)
+        .chain(iter::repeat(division + 1).take(reminder))
+        .collect()
 }
 
 fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Array> {
@@ -87,7 +95,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .vortex_unwrap()
                     .into_array())
                 }
-                DType::List(ldt, n) => random_list(u, ldt, n, chunk_len),
+                DType::List(ldt, n) => random_list(u, ldt, *n, chunk_len),
                 DType::Extension(..) => {
                     todo!("Extension arrays are not implemented")
                 }
@@ -108,7 +116,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
 fn random_list(
     u: &mut Unstructured,
     ldt: &Arc<DType>,
-    n: &Nullability,
+    n: Nullability,
     chunk_len: Option<usize>,
 ) -> Result<Array> {
     match u.int_in_range(0..=5)? {
@@ -122,42 +130,36 @@ fn random_list(
     }
 }
 
-fn random_list_offset<O>(
+fn random_list_offset<O: OffsetPType>(
     u: &mut Unstructured,
     ldt: &Arc<DType>,
-    n: &Nullability,
+    n: Nullability,
     chunk_len: Option<usize>,
-) -> Result<Array>
-where
-    O: PrimInt + NativePType,
-    Scalar: From<O>,
-    usize: AsPrimitive<O>,
-{
+) -> Result<Array> {
     let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 10);
+    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), n, 10);
     for _ in 0..list_len {
-        if matches!(n, Nullability::Nullable) || u.arbitrary::<bool>()? {
-            let elem_len = u.int_in_range(0..=20)?;
-            let elem = (0..elem_len)
-                .map(|_| random_scalar(u, ldt))
-                .collect::<Result<Vec<_>>>()?;
-            builder
-                .append_value(Scalar::list(ldt.clone(), elem, *n).as_list())
-                .vortex_expect("can append value");
-        } else {
+        if n == Nullability::Nullable && u.arbitrary::<bool>()? {
             builder.append_null();
+        } else {
+            builder
+                .append_value(random_list_scalar(u, ldt, n)?.as_list())
+                .vortex_expect("can append value");
         }
     }
     Ok(builder.finish().vortex_expect("builder cannot error"))
 }
 
-fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
-    let reminder = n % parts;
-    let division = (n - reminder) / parts;
-    iter::repeat(division)
-        .take(parts - reminder)
-        .chain(iter::repeat(division + 1).take(reminder))
-        .collect()
+fn random_list_scalar(
+    u: &mut Unstructured,
+    elem_dtype: &Arc<DType>,
+    n: Nullability,
+) -> Result<Scalar> {
+    let elem_len = u.int_in_range(0..=20)?;
+    let elems = (0..elem_len)
+        .map(|_| random_scalar(u, elem_dtype))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Scalar::list(elem_dtype.clone(), elems, n))
 }
 
 fn random_string(

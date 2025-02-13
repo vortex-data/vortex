@@ -1,12 +1,12 @@
 use std::any::Any;
 
-use arrow_buffer::NullBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::AllOr;
 
 use crate::array::{BoolArray, PrimitiveArray};
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -14,7 +14,7 @@ use crate::{Array, IntoArray, IntoCanonical};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     values: BufferMut<T>,
-    validity: NullBufferBuilder,
+    nulls: LazyNullBufferBuilder,
     dtype: DType,
 }
 
@@ -26,21 +26,21 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
-            validity: NullBufferBuilder::new(capacity),
+            nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
 
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
-        self.validity.append(true);
+        self.nulls.append(true);
     }
 
     pub fn append_option(&mut self, value: Option<T>) {
         match value {
             Some(value) => {
                 self.values.push(value);
-                self.validity.append(true);
+                self.nulls.append(true);
             }
             None => self.append_null(),
         }
@@ -66,12 +66,12 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
     fn append_zeros(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
-        self.validity.append_n_non_nulls(n);
+        self.nulls.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
-        self.validity.append_n_nulls(n);
+        self.nulls.append_n_nulls(n);
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
@@ -80,26 +80,21 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             vortex_bail!("Cannot extend from array with different ptype");
         }
 
+        self.values.extend_from_slice(array.as_slice::<T>());
+
         match array.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                self.values.extend_from_slice(array.as_slice::<T>());
-                self.validity.append_n_non_nulls(array.len());
+                self.nulls.append_n_non_nulls(array.len());
             }
-            AllOr::None => {
-                self.append_nulls(array.len());
-            }
-            AllOr::Some(validity) => {
-                self.values.push_n(T::default(), validity.len());
-                // TODO(ngates): this is slow
-                validity.iter().for_each(|v| self.validity.append(v));
-            }
+            AllOr::None => self.nulls.append_n_nulls(array.len()),
+            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
         }
 
         Ok(())
     }
 
     fn finish(&mut self) -> VortexResult<Array> {
-        let validity = match (self.validity.finish(), self.dtype().nullability()) {
+        let validity = match (self.nulls.finish(), self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,
             (Some(_), Nullability::NonNullable) => {
                 vortex_bail!("Non-nullable builder has null values")

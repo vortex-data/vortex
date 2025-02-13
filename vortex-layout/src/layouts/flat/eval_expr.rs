@@ -1,42 +1,46 @@
 use async_trait::async_trait;
-use vortex_array::compute::{filter, slice};
 use vortex_array::Array;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::ExprRef;
-use vortex_scan::RowMask;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_expr::{ExprRef, Identity};
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::reader::LayoutReaderExt;
-use crate::{ExprEvaluator, LayoutReader};
+use crate::scan::ScanTask;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
-        // Fetch all the array segment.
-        let buffer = self
-            .segments()
-            .get(
-                self.layout()
-                    .segment_id(0)
-                    .ok_or_else(|| vortex_err!("FlatLayout missing segment"))?,
-            )
-            .await?;
-        let row_count = usize::try_from(self.layout().row_count())
-            .vortex_expect("FlatLayout row count does not fit within usize");
-
-        let array = Array::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)?;
+        let array = self.array().await?.clone();
 
         // TODO(ngates): what's the best order to apply the filter mask / expression?
-
-        // Filter the array based on the row mask.
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
-        let array = slice(array, begin, begin + row_mask.len())?;
-        let array = filter(&array, row_mask.filter_mask())?;
-        // Then apply the expression
-        expr.evaluate(&array)
+
+        let mut tasks = Vec::with_capacity(3);
+
+        // Slice the array based on the row mask.
+        if begin > 0 || (begin + row_mask.len()) < array.len() {
+            tasks.push(ScanTask::Slice(begin..begin + row_mask.len()));
+        }
+
+        // Filter the array based on the row mask.
+        if !row_mask.filter_mask().all_true() {
+            tasks.push(ScanTask::Filter(row_mask.filter_mask().clone()));
+        }
+
+        // Evaluate the projection expression.
+        if !expr.as_any().is::<Identity>() {
+            tasks.push(ScanTask::Expr(expr));
+        }
+
+        self.executor().evaluate(&array, &tasks).await
+    }
+
+    async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
+        // No cheap pruning for us to do without fetching data.
+        Ok(row_mask)
     }
 }
 
@@ -51,11 +55,12 @@ mod test {
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
+    use crate::RowMask;
 
     #[test]
     fn flat_identity() {
@@ -67,7 +72,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
                 .unwrap()
                 .evaluate_expr(
                     RowMask::new_valid_between(0, layout.row_count()),
@@ -93,7 +98,7 @@ mod test {
 
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
@@ -118,7 +123,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
                 .await

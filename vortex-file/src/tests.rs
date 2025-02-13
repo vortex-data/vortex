@@ -4,9 +4,8 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use futures::{pin_mut, StreamExt};
+use futures::{pin_mut, StreamExt, TryStreamExt};
 use futures_executor::block_on;
-use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
@@ -89,12 +88,12 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let lists = ChunkedArray::from_iter([
-        ListArray::from_iter_slow(
+        ListArray::from_iter_slow::<i16, _>(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
         .unwrap(),
-        ListArray::from_iter_slow(
+        ListArray::from_iter_slow::<i8, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
@@ -714,8 +713,6 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .with_row_indices((0..500).collect::<Buffer<_>>())
         .into_array()
         .await
-        .unwrap()
-        .into_struct()
         .unwrap()
         .into_struct()
         .unwrap();

@@ -44,7 +44,6 @@ vortex-proto = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
 vortex-scalar = { workspace = true, default-features = true }
-vortex-scan = { workspace = true, default-features = true }
 vortex-sparse = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
 

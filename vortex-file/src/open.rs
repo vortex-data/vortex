@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use flatbuffers::root;
-use futures_util::stream::FuturesUnordered;
-use futures_util::{stream, StreamExt, TryStreamExt};
+use futures::stream::FuturesUnordered;
+use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_array::stats::StatsSet;
@@ -306,6 +306,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
             Layout::new_viewed_unchecked(
+                "$".into(),
                 root_encoding,
                 dtype,
                 bytes.clone(),

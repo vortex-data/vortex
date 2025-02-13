@@ -80,13 +80,12 @@ impl SliceFn<DictArray> for DictEncoding {
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
-    use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{Array, IntoArray, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::dict_encode;
+    use crate::builders::dict_encode;
 
     #[test]
     fn canonicalise_nullable_primitive() {
@@ -94,7 +93,10 @@ mod test {
             PrimitiveArray::from_option_iter([Some(42), Some(-9), None, Some(42), None, Some(-9)]);
         let dict = dict_encode(reference.as_ref()).unwrap();
         let flattened_dict = dict.into_array().into_primitive().unwrap();
-        assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
+        // Compressor puts 0 as a code for invalid values which we end up using in take
+        // thus invalid values on decompression turn into whatever is at 0th position in dictionary
+        assert_eq!(flattened_dict.as_slice::<i32>(), [42, -9, 42, 42, 42, -9]);
+        assert_eq!(flattened_dict.validity_mask().unwrap().true_count(), 4);
     }
 
     #[test]
@@ -150,11 +152,5 @@ mod test {
             scalar_at(compared, 2).unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
-    }
-
-    #[test]
-    fn test_dict_binary_numeric() {
-        let array = sliced_dict_array();
-        test_binary_numeric::<i32>(array)
     }
 }

@@ -197,6 +197,7 @@ impl BitPackedArray {
         self.metadata().patches.as_ref().map(|patches| {
             Patches::new(
                 self.len(),
+                patches.offset(),
                 self.as_ref()
                     .child(0, &patches.indices_dtype(), patches.len())
                     .vortex_expect("BitPackedArray: patch indices"),
@@ -277,6 +278,10 @@ impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &BitPackedArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &BitPackedArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
@@ -325,7 +330,7 @@ mod test {
         check_metadata(
             "bitpacked.metadata",
             RkyvMetadata(BitPackedMetadata {
-                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
                 validity: ValidityMetadata::AllValid,
                 offset: u16::MAX,
                 bit_width: u8::MAX,

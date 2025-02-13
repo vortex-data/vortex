@@ -5,8 +5,8 @@ pub mod inline;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
-use futures_util::future::BoxFuture;
-use futures_util::stream::BoxStream;
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 
 /// An execution driver is used to drive the execution of the scan operation.

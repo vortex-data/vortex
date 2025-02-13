@@ -71,6 +71,7 @@ impl LayoutWriter for FlatLayoutWriter {
         let segment_id = segments.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
+            "flat".into(),
             LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
@@ -99,11 +100,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
+    use crate::RowMask;
 
     #[test]
     fn flat_stats() {
@@ -117,7 +119,7 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
                 .await
