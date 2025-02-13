@@ -69,7 +69,7 @@ fn main() -> ExitCode {
         None => {
             let db_gen_options = DBGenOptions::default().with_scale_factor(args.scale_factor);
             let data_dir = DBGen::new(db_gen_options).generate().unwrap();
-            println!(
+            eprintln!(
                 "Using existing or generating new files located at {}.",
                 data_dir.display()
             );
@@ -86,9 +86,9 @@ fn main() -> ExitCode {
             //
             // The folder must already be populated with data!
             if !tpch_benchmark_remote_data_dir.ends_with("/") {
-                println!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
+                eprintln!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
             }
-            println!(
+            eprintln!(
                 concat!(
                     "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                     "If it does not, you should kill this command, locally generate the files (by running without\n",
