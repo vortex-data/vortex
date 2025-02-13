@@ -240,6 +240,10 @@ use_debug = "deny"
 codegen-units = 1
 lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
 
+[profile.release_debug]
+inherits = "release"
+debug = "full"
+
 [profile.bench]
 codegen-units = 16
 debug = "full"
