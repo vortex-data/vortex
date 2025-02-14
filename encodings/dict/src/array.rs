@@ -112,13 +112,10 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
-            // TODO(joe): is the above still true?
+            // TODO(joe): is the above still true?, investigate this.
             // (DType::Utf8(_) | DType::Binary(_) && !(array.values().encoding().code() == FSST) => {
             DType::Utf8(_) | DType::Binary(_) => {
-                println!("values {}", array.values().tree_display());
                 let canonical_values: Array = array.values().into_canonical()?.into_array();
-                println!("canonical_values {}", canonical_values.tree_display());
-                // let canonical_values: Array = array.values();
                 take_into(canonical_values, array.codes(), builder)
             }
             // Non-string case: take and then canonicalize
