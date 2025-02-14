@@ -118,9 +118,11 @@ fn generate_test_data(
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
     );
-    let compressor = fsst_train_compressor(&varbin).unwrap();
+    let compressor = fsst_train_compressor(&varbin).vortex_unwrap();
 
-    fsst_compress(&varbin, &compressor).unwrap().into_array()
+    fsst_compress(&varbin, &compressor)
+        .vortex_unwrap()
+        .into_array()
 }
 
 fn make_dict_fsst_chunks<O: NativePType>(

@@ -3,7 +3,6 @@ mod min_max;
 mod take;
 mod to_arrow;
 
-
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
