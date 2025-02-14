@@ -24,7 +24,7 @@ use vortex_error::vortex_panic;
 /// # Returns
 /// A `PrimitiveArray` containing the decoded values where each code has been replaced with its
 /// corresponding value from the dictionary.
-pub fn dict_decode_typed_primitive<C, V, const LANE_COUNT: usize>(
+pub(crate) fn dict_decode_typed_primitive<C, V, const LANE_COUNT: usize>(
     codes: &[C],
     values: &[V],
 ) -> PrimitiveArray
