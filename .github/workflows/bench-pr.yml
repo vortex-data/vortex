@@ -127,6 +127,11 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
   sql:
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: write
+      id-token: write
     needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
     with:
