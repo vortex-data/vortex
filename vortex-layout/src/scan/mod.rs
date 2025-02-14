@@ -318,8 +318,7 @@ impl<D: ScanDriver> Scan<D> {
             };
 
             async move {
-                let processed_array =
-                    ResultExt::flatten(task_executor.spawn(process_split_task)?.await)?;
+                let processed_array = task_executor.spawn(process_split_task)?.await.unnest()?;
 
                 Ok(processed_array)
             }
