@@ -3,9 +3,8 @@ use std::simd;
 use num_traits::AsPrimitive;
 use simd::num::SimdUint;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::validity::Validity;
 use vortex_buffer::{Alignment, BufferMut};
-use vortex_dtype::NativePType;
+use vortex_dtype::{NativePType, Nullability};
 
 /// Decodes a dictionary by mapping codes to their corresponding values.
 ///
@@ -24,6 +23,7 @@ use vortex_dtype::NativePType;
 pub(crate) fn dict_decode_typed_primitive<C, V, const LANE_COUNT: usize>(
     codes: &[C],
     values: &[V],
+    nullability: Nullability,
 ) -> PrimitiveArray
 where
     C: simd::SimdElement + AsPrimitive<usize>,
@@ -66,5 +66,5 @@ where
     }
 
     // TOOD(alex): handle nullable values & codes
-    PrimitiveArray::new(buffer.freeze(), Validity::NonNullable)
+    PrimitiveArray::new(buffer.freeze(), nullability.into())
 }
