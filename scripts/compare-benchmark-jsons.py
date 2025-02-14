@@ -20,10 +20,21 @@ assert len(pr_commit_id) == 1, pr_commit_id
 pr_commit_id = next(iter(pr_commit_id))
 
 if "storage" not in base:
-    base["storage"] = "nvme"
-
-if "storage" not in pr:
-    pr["storage"] = "nvme"
+    # This means the base commit was generated in the pre-object-store days. We cannot give a true
+    # diff because we're comparing different storage systems.
+    pr
+    print(
+        pd.DataFrame(
+            {
+                "name": pr["name"],
+                f"PR {pr_commit_id[:8]}": pr["value"],
+                f"base {base_commit_id[:8]} (no S3 results found)": pd.NA,
+                "ratio (PR/base)": pd.NA,
+                "unit": pr["unit"],
+            }
+        ).to_markdown(index=False)
+    )
+    sys.exit(0)
 
 df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base", "_pr"))
 
