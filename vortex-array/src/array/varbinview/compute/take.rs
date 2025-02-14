@@ -104,6 +104,8 @@ fn take_views_into<I: AsPrimitive<usize>>(
         buffers,
         indices.iter().map(|i| {
             let view = views_ref[i.as_()];
+            // TODO(joe): can we make this branchless creating new value of bianry view and bit something
+            // with is_inline?
             if view.is_inlined() {
                 view
             } else {
