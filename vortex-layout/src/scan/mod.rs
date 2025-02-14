@@ -241,7 +241,7 @@ pub struct Scan<D> {
     filter: Option<ExprRef>,
     row_masks: Vec<RowMask>,
     canonicalize: bool,
-    #[allow(dead_code)] //TODO(adam): bake this into the executors?
+    //TODO(adam): bake this into the executors?
     concurrency: usize,
 }
 
