@@ -170,7 +170,9 @@ impl BinaryView {
         unsafe { u128::from_le_bytes(self.le_bytes) }
     }
 
-    #[inline]
+    /// Shifts the buffer reference by the view by a given offset, useful when merging many
+    /// varbinview arrays into one.
+    #[inline(always)]
     pub fn offset_view(self, offset: u32) -> Self {
         if self.is_inlined() {
             self
