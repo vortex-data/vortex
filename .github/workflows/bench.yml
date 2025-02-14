@@ -111,11 +111,6 @@ jobs:
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
 
   sql:
-    permissions:
-      actions: write
-      contents: read
-      pull-requests: write
-      id-token: write
     uses: ./.github/workflows/sql-benchmarks.yml
     with:
       mode: 'develop'
