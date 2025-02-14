@@ -63,12 +63,11 @@ impl Inner {
         let (tx, rx) = flume::unbounded::<Box<dyn Task + Send>>();
         (0..num_threads.get()).for_each(|_| {
             let rx = rx.clone();
-            std::thread::spawn(move || loop {
-                match rx.recv() {
-                    Ok(task) => task.run(),
-                    // we error if all senders dropped, which means we probably don't care about the task anymore,
-                    // and we can break and let the thread end.
-                    Err(_e) => break,
+            std::thread::spawn(move || {
+                // The channel errors if all senders are dropped, which means we probably don't care about the task anymore,
+                // and we can break and let the thread end.
+                while let Ok(task) = rx.recv() {
+                    task.run()
                 }
             });
         });
