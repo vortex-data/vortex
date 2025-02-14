@@ -169,6 +169,22 @@ impl BinaryView {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
     }
+
+    #[inline]
+    pub fn offset_view(self, offset: u32) -> Self {
+        if self.is_inlined() {
+            self
+        } else {
+            // Referencing views must have their buffer_index adjusted with new offsets
+            let view_ref = self.as_view();
+            BinaryView::new_view(
+                self.len(),
+                *view_ref.prefix(),
+                offset + view_ref.buffer_index(),
+                view_ref.offset(),
+            )
+        }
+    }
 }
 
 impl From<u128> for BinaryView {
