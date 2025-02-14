@@ -11,23 +11,24 @@ fn main() {
     divan::main();
 }
 
-#[divan::bench(
-    args = [
-        (100000, 1, 0.10),
-        (100000, 1, 0.01),
-        (100000, 1, 0.00),
-        (100000, 10, 0.10),
-        (100000, 10, 0.01),
-        (100000, 10, 0.00),
-        (100000, 100, 0.10),
-        (100000, 100, 0.01),
-        (100000, 100, 0.00),
-        (100000, 1000, 0.00),
-        // (1000000, 100, 0.00),
-        // (1000000, 1000, 0.00),
-        // (10000000, 100, 0.00),
-    ]
-)]
+const BENCH_ARGS: [(usize, usize, f64); 10] = [
+    (100000, 1, 0.10),
+    (100000, 1, 0.01),
+    (100000, 1, 0.00),
+    (100000, 10, 0.10),
+    (100000, 10, 0.01),
+    (100000, 10, 0.00),
+    (100000, 100, 0.10),
+    (100000, 100, 0.01),
+    (100000, 100, 0.00),
+    (100000, 1000, 0.00),
+    // Too slow for 1000 samples. Try 10 samples.
+    // (1000000, 100, 0.00),
+    // (1000000, 1000, 0.00),
+    // (10000000, 100, 0.00),
+];
+
+#[divan::bench(args = BENCH_ARGS)]
 fn into_canonical_non_nullable(
     bencher: Bencher,
     (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
@@ -46,23 +47,7 @@ fn into_canonical_non_nullable(
         .bench_values(|chunked| chunked.into_canonical().vortex_unwrap());
 }
 
-#[divan::bench(
-    args = [
-        (100000, 1, 0.10),
-        (100000, 1, 0.01),
-        (100000, 1, 0.00),
-        (100000, 10, 0.10),
-        (100000, 10, 0.01),
-        (100000, 10, 0.00),
-        (100000, 100, 0.10),
-        (100000, 100, 0.01),
-        (100000, 100, 0.00),
-        (100000, 1000, 0.00),
-        // (1000000, 100, 0.00),
-        // (1000000, 1000, 0.00),
-        // (10000000, 100, 0.00),
-    ]
-)]
+#[divan::bench(args = BENCH_ARGS)]
 fn canonical_into_non_nullable(
     bencher: Bencher,
     (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
@@ -90,16 +75,16 @@ fn canonical_into_non_nullable(
         });
 }
 
-#[divan::bench(
-    args = [
-        (100000, 1, 0.10),
-        (100000, 1, 0.00),
-        (100000, 10, 0.10),
-        (100000, 10, 0.00),
-        (100000, 100, 0.10),
-        (100000, 100, 0.00),
-    ]
-)]
+const NULLABLE_BENCH_ARGS: [(usize, usize, f64); 6] = [
+    (100000, 1, 0.10),
+    (100000, 1, 0.00),
+    (100000, 10, 0.10),
+    (100000, 10, 0.00),
+    (100000, 100, 0.10),
+    (100000, 100, 0.00),
+];
+
+#[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn into_canonical_nullable(
     bencher: Bencher,
     (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
@@ -119,16 +104,7 @@ fn into_canonical_nullable(
         .bench_values(|chunked| chunked.into_canonical().vortex_unwrap());
 }
 
-#[divan::bench(
-    args = [
-        (100000, 1, 0.10),
-        (100000, 1, 0.00),
-        (100000, 10, 0.10),
-        (100000, 10, 0.00),
-        (100000, 100, 0.10),
-        (100000, 100, 0.00),
-    ]
-)]
+#[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn canonical_into_nullable(
     bencher: Bencher,
     (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
