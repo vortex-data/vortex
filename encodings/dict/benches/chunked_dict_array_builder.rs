@@ -93,7 +93,7 @@ fn make_dict_fsst_chunks<O: NativePType>(
 
     (0..chunk_count)
         .map(|_| {
-            generate_dict_fsst_test_data::<u32>(&mut rng, len, unique_values, 20, 30).into_array()
+            generate_dict_fsst_test_data::<O>(&mut rng, len, unique_values, 20, 30).into_array()
         })
         .collect::<ChunkedArray>()
         .into_array()
