@@ -28,7 +28,7 @@ pub struct StatsReader {
     /// The number of blocks
     nblocks: usize,
     /// The size of each block (except possibly the last)
-    block_size: usize,
+    block_len: usize,
     /// The stats present in the layout
     present_stats: Arc<[Stat]>,
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
@@ -57,16 +57,16 @@ impl StatsReader {
             .metadata()
             .vortex_expect("Stats layout must have metadata");
 
-        let block_size = u32::try_from_le_bytes(&metadata[0..4])? as usize;
+        let block_len = u32::try_from_le_bytes(&metadata[0..4])? as usize;
         let present_stats = stats_from_bitset_bytes(&metadata[4..]).into();
-        let nblocks = usize::try_from(layout.row_count().div_ceil(block_size as u64))?;
+        let nblocks = usize::try_from(layout.row_count().div_ceil(block_len as u64))?;
 
         Ok(Self {
             layout,
             ctx,
             executor,
             nblocks,
-            block_size,
+            block_len,
             present_stats,
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
@@ -147,16 +147,16 @@ impl StatsReader {
 
     /// Return the block range covered by a row mask.
     pub(crate) fn block_range(&self, row_mask: &RowMask) -> Range<usize> {
-        let block_start = usize::try_from(row_mask.begin() / self.block_size as u64)
+        let block_start = usize::try_from(row_mask.begin() / self.block_len as u64)
             .vortex_expect("Invalid block start");
-        let block_end = usize::try_from(row_mask.end().div_ceil(self.block_size as u64))
+        let block_end = usize::try_from(row_mask.end().div_ceil(self.block_len as u64))
             .vortex_expect("Invalid block end");
         block_start..block_end
     }
 
     /// Return the row offset of a given block.
     pub(crate) fn block_offset(&self, block_idx: usize) -> u64 {
-        ((block_idx * self.block_size) as u64).min(self.layout.child_row_count(0))
+        ((block_idx * self.block_len) as u64).min(self.layout.child_row_count(0))
     }
 }
 
