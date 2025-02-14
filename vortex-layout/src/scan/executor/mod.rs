@@ -12,7 +12,7 @@ pub use tokio::*;
 use vortex_error::VortexResult;
 
 pub trait Spawn {
-    // Spawns a future to run on a different runtime. The returning future should be polled to ensure its running.
+    /// Spawns a future to run on a different runtime. The shouldn't be polled to make progress.
     fn spawn<F>(&self, f: F) -> VortexResult<BoxFuture<'static, VortexResult<F::Output>>>
     where
         F: Future + Send + 'static,

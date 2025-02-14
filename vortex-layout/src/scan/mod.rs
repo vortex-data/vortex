@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use executor::{Executor, Spawn, ThreadsExecutor};
+use executor::{Executor, Spawn as _, ThreadsExecutor};
 use futures::stream::BoxStream;
 use futures::{stream, Stream};
 use itertools::Itertools;

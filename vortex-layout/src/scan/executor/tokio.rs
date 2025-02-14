@@ -7,6 +7,7 @@ use vortex_error::{VortexError, VortexResult};
 
 use super::Spawn;
 
+/// Tokio-based async task executor, runs task on the provided runtime.
 #[derive(Clone)]
 pub struct TokioExecutor(Handle);
 

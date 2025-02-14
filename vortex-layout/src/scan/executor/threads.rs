@@ -32,6 +32,7 @@ where
     }
 }
 
+/// Multithreaded task executor, runs tasks on a dedicated thread pool.
 #[derive(Clone, Default)]
 pub struct ThreadsExecutor {
     inner: Arc<Inner>,
