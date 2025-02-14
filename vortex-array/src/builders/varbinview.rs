@@ -179,18 +179,6 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.views_builder
             .extend(array.views().into_iter().map(|view| {
                 view.offset_view(buffers_offset)
-                // if view.is_inlined() {
-                //     view
-                // } else {
-                //     // Referencing views must have their buffer_index adjusted with new offsets
-                //     let view_ref = view.as_view();
-                //     BinaryView::new_view(
-                //         view.len(),
-                //         *view_ref.prefix(),
-                //         buffers_offset + view_ref.buffer_index(),
-                //         view_ref.offset(),
-                //     )
-                // }
             }));
 
         self.push_only_validity_mask(array.validity_mask()?);
