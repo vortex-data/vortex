@@ -94,11 +94,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         Ok(())
     }
 
-    pub fn truncate(&mut self, len: usize) {
-        self.values.truncate(len);
-        self.nulls.truncate(len);
-    }
-
     pub fn finish_into_primitive(&mut self) -> VortexResult<PrimitiveArray> {
         let validity = match (self.nulls.finish(), self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,

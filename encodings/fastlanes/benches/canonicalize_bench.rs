@@ -81,7 +81,7 @@ fn canonical_into_non_nullable(
         .bench_values(|chunked| {
             let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
                 chunked.dtype().nullability(),
-                chunk_len * chunk_count + 1024,
+                chunk_len * chunk_count,
             );
             chunked
                 .canonicalize_into(&mut primitive_builder)
@@ -148,7 +148,7 @@ fn canonical_into_nullable(
         .bench_values(|chunked| {
             let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity(
                 chunked.dtype().nullability(),
-                chunk_len * chunk_count + 1024,
+                chunk_len * chunk_count,
             );
             chunked
                 .canonicalize_into(&mut primitive_builder)

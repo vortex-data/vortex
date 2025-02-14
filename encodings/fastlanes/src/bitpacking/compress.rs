@@ -238,6 +238,7 @@ where
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
+    let last_chunk_length = (offset + length) % 1024;
 
     builder.nulls.append_validity(array.validity(), length)?;
 
@@ -248,7 +249,9 @@ where
 
     let packed = array.packed_slice::<UnsignedT>();
     let builder_current_length = builder.len();
-    builder.values.reserve((length + 1023) / 1024 * 1024);
+    builder
+        .values
+        .reserve(packed.len() - offset - (1024 - last_chunk_length));
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
@@ -262,22 +265,21 @@ where
         num_chunks * elems_per_chunk
     );
 
-    // Handle first chunk if offset is non 0. We have to decode the chunk and skip first offset elements
-    let first_full_chunk = if offset != 0 {
-        let chunk = &packed[0..elems_per_chunk];
+    let first_chunk_is_sliced = offset != 0;
+    let last_chunk_is_sliced = (offset + length) % 1024 != 0;
+    let full_chunks_range =
+        (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
+
+    if first_chunk_is_sliced {
+        let chunk = &packed[..elems_per_chunk];
         let mut decoded = [UnsignedT::zero(); 1024];
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
         builder
             .values
             .extend_from_slice(transmute(&decoded[offset..]));
-        1
-    } else {
-        0
-    };
-
-    // Loop over all the chunks.
-    for i in first_full_chunk..num_chunks {
-        let chunk = &packed[i * elems_per_chunk..][0..elems_per_chunk];
+    }
+    for i in full_chunks_range {
+        let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
 
         // SAFETY:
         //
@@ -295,9 +297,15 @@ where
             );
         }
     }
-
-    // The final chunk may have had padding
-    builder.truncate(builder_current_length + length);
+    if last_chunk_is_sliced {
+        let i = num_chunks - 1;
+        let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
+        let mut decoded = [UnsignedT::zero(); 1024];
+        unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+        builder
+            .values
+            .extend_from_slice(transmute(&decoded[..last_chunk_length]));
+    }
 
     if let Some(patches) = array.patches() {
         builder.patch(patches, builder_current_length)?;
