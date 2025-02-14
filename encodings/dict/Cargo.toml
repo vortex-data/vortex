@@ -29,7 +29,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-fsst = { workspace = true }
+
 
 [lints]
 workspace = true
@@ -39,6 +39,7 @@ criterion = { workspace = true }
 divan = { workspace = true }
 rand = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
+vortex-fsst = { workspace = true }
 
 [[bench]]
 name = "dict_compress"

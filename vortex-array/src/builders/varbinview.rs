@@ -176,10 +176,12 @@ impl ArrayBuilder for VarBinViewBuilder {
         let buffers_offset = u32::try_from(self.completed.len())?;
         self.completed.extend(array.buffers());
 
-        self.views_builder
-            .extend(array.views().into_iter().map(|view| {
-                view.offset_view(buffers_offset)
-            }));
+        self.views_builder.extend(
+            array
+                .views()
+                .into_iter()
+                .map(|view| view.offset_view(buffers_offset)),
+        );
 
         self.push_only_validity_mask(array.validity_mask()?);
 
