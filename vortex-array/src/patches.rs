@@ -110,7 +110,7 @@ impl Patches {
             offset,
             array_len
         );
-        Self::new_unchecked(array_len, offset, indices, values)
+        unsafe { Self::new_unchecked(array_len, offset, indices, values) }
     }
 
     /// Construct new patches without validating any of the arguments
@@ -122,7 +122,12 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
-    pub fn new_unchecked(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
+    pub unsafe fn new_unchecked(
+        array_len: usize,
+        offset: usize,
+        indices: Array,
+        values: Array,
+    ) -> Self {
         Self {
             array_len,
             offset,
@@ -194,12 +199,8 @@ impl Patches {
     }
 
     pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
-        Ok(Self::new_unchecked(
-            self.array_len,
-            self.offset,
-            self.indices,
-            try_cast(self.values, values_dtype)?,
-        ))
+        let casted = try_cast(self.values, values_dtype)?;
+        Ok(unsafe { Self::new_unchecked(self.array_len, self.offset, self.indices, casted) })
     }
 
     /// Get the patched value at a given index if it exists.
