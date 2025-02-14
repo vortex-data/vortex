@@ -95,12 +95,12 @@ fn take_views_into<I: AsPrimitive<usize>>(
     buffers: impl Iterator<Item = ByteBuffer>,
     indices: &[I],
     mask: Mask,
-    _builder: &mut VarBinViewBuilder,
+    builder: &mut VarBinViewBuilder,
 ) -> VortexResult<()> {
-    let buffers_offset = u32::try_from(_builder.completed_block_count())?;
+    let buffers_offset = u32::try_from(builder.completed_block_count())?;
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
-    _builder.push_buffer_and_adjusted_views(
+    builder.push_buffer_and_adjusted_views(
         buffers,
         indices.iter().map(|i| {
             let view = views_ref[i.as_()];
