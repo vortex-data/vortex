@@ -15,6 +15,12 @@ pub struct DuckdbTpchOptions {
     pub base_dir: PathBuf,
 }
 
+impl DuckdbTpchOptions {
+    pub fn csvs_dir(&self) -> PathBuf {
+        self.base_dir.join(self.scale_factor.to_string())
+    }
+}
+
 impl Default for DuckdbTpchOptions {
     fn default() -> Self {
         Self {
@@ -43,10 +49,10 @@ impl DuckdbTpchOptions {
 pub fn generate_tpch(opts: DuckdbTpchOptions) -> Result<PathBuf> {
     let sh = Shell::new()?;
 
-    let scale_factor = opts.scale_factor.to_string();
+    let scale_factor = opts.scale_factor;
 
     // mkdir -p the output directory
-    let output_dir = opts.base_dir.join(scale_factor.as_str());
+    let output_dir = opts.csvs_dir();
     sh.create_dir(&output_dir)?;
 
     // See if the success file has been written. If so, do not run expensive generator

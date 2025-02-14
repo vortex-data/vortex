@@ -6257,8 +6257,12 @@ name = "xtask"
 version = "0.24.0"
 dependencies = [
  "anyhow",
+ "bench-vortex",
  "clap",
+ "datafusion",
  "prost-build",
+ "tokio",
+ "url",
  "xshell",
 ]
 
