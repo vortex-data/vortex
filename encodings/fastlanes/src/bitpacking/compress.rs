@@ -208,8 +208,8 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
 pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
     array: BitPackedArray,
 ) -> VortexResult<PrimitiveArray> {
-    let mut builder =
-        PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len() + 1024);
+    let n = array.len();
+    let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
     assert!(size_of::<T>() == size_of::<UnsignedT>());
     unpack_into::<T, UnsignedT, _, _>(
         array,
@@ -221,6 +221,7 @@ pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
         // &mut [UnsignedT] is therefore safe.
         |x| unsafe { std::mem::transmute(x) },
     )?;
+    assert!(builder.len() == n, "{} {}", builder.len(), n);
     builder.finish_into_primitive()
 }
 
@@ -238,7 +239,10 @@ where
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
-    let last_chunk_length = (offset + length) % 1024;
+    let last_chunk_length = match (offset + length) % 1024 {
+        0 => 1024,
+        last_chunk_length => last_chunk_length,
+    };
 
     builder.nulls.append_validity(array.validity(), length)?;
 
@@ -247,11 +251,10 @@ where
         return Ok(());
     }
 
-    let packed = array.packed_slice::<UnsignedT>();
+    builder.values.reserve(array.len());
+
     let builder_current_length = builder.len();
-    builder
-        .values
-        .reserve(packed.len() - offset - (1024 - last_chunk_length));
+    let packed = array.packed_slice::<UnsignedT>();
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
@@ -265,46 +268,63 @@ where
         num_chunks * elems_per_chunk
     );
 
-    let first_chunk_is_sliced = offset != 0;
-    let last_chunk_is_sliced = (offset + length) % 1024 != 0;
-    let full_chunks_range =
-        (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
-
-    if first_chunk_is_sliced {
+    if num_chunks == 1 {
         let chunk = &packed[..elems_per_chunk];
         let mut decoded = [UnsignedT::zero(); 1024];
-        unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        builder
-            .values
-            .extend_from_slice(transmute(&decoded[offset..]));
-    }
-    for i in full_chunks_range {
-        let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
-
         // SAFETY:
-        //
-        // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
-        // have been written to.
-        //
-        // 2. The output buffer is exactly size 1024.
-        unsafe {
-            builder.values.set_len(builder.values.len() + 1024);
-            BitPacking::unchecked_unpack(
-                bit_width,
-                chunk,
-                &mut transmute_mut(builder.values.deref_mut())
-                    [builder_current_length + i * 1024 - offset..][..1024],
-            );
-        }
-    }
-    if last_chunk_is_sliced {
-        let i = num_chunks - 1;
-        let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
-        let mut decoded = [UnsignedT::zero(); 1024];
+        // 1. chunk is elems_per_chunk.
+        // 2. decoded is exactly 1024.
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
         builder
             .values
-            .extend_from_slice(transmute(&decoded[..last_chunk_length]));
+            .extend_from_slice(transmute(&decoded[offset..][..length]));
+    } else {
+        let first_chunk_is_sliced = offset != 0;
+        let last_chunk_is_sliced = last_chunk_length != 1024;
+        let full_chunks_range =
+            (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
+
+        if first_chunk_is_sliced {
+            let chunk = &packed[..elems_per_chunk];
+            let mut decoded = [UnsignedT::zero(); 1024];
+            // SAFETY:
+            // 1. chunk is elems_per_chunk.
+            // 2. decoded is exactly 1024.
+            unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+            builder
+                .values
+                .extend_from_slice(transmute(&decoded[offset..]));
+        }
+        for i in full_chunks_range {
+            let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
+
+            // SAFETY:
+            //
+            // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
+            // have been written to.
+            //
+            // 2. The output buffer is exactly size 1024.
+            unsafe {
+                builder.values.set_len(builder.values.len() + 1024);
+                BitPacking::unchecked_unpack(
+                    bit_width,
+                    chunk,
+                    &mut transmute_mut(builder.values.deref_mut())
+                        [builder_current_length + i * 1024 - offset..][..1024],
+                );
+            }
+        }
+        if last_chunk_is_sliced {
+            let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
+            let mut decoded = [UnsignedT::zero(); 1024];
+            // SAFETY:
+            // 1. chunk is elems_per_chunk.
+            // 2. decoded is exactly 1024.
+            unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+            builder
+                .values
+                .extend_from_slice(transmute(&decoded[..last_chunk_length]));
+        }
     }
 
     if let Some(patches) = array.patches() {
