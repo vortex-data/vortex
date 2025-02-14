@@ -36,6 +36,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+      - name: Install uv
+        if: inputs.mode == 'pr'
+        uses: astral-sh/setup-uv@v5
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
@@ -90,6 +93,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+      - name: Install uv
+        if: inputs.mode == 'pr'
+        uses: astral-sh/setup-uv@v5
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
