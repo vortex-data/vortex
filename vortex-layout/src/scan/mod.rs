@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
@@ -69,9 +68,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: std::thread::available_parallelism()
-                .map(NonZeroUsize::get)
-                .unwrap_or(32),
+            concurrency: 32,
         }
     }
 
