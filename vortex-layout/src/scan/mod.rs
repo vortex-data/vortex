@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 pub use split_by::*;
 pub use task::*;
@@ -283,14 +283,13 @@ impl<D: ScanDriver> Scan<D> {
         let exec_stream = row_masks
             .map(move |row_mask| {
                 let reader = reader.clone();
-                let task_executor = task_executor.clone();
                 let projection = projection.clone();
                 let pruning = pruning.clone();
                 let reader = reader.clone();
                 let scan_executor = scan_executor.clone();
 
-                // spawn this
-                let process_split_task = async move {
+                // This future is a processing task
+                async move {
                     let row_mask = match pruning {
                         None => row_mask,
                         Some(pruning_filter) => {
@@ -312,17 +311,14 @@ impl<D: ScanDriver> Scan<D> {
 
                         VortexResult::Ok(Some(array))
                     }
-                };
-
-                async move {
-                    let processed_array =
-                        task_executor.spawn(process_split_task)?.await.unnest()?;
-
-                    VortexResult::Ok(processed_array)
                 }
             })
-            .buffered(self.concurrency)
-            .filter_map(|v| async move { v.transpose() });
+            .then(move |processing_task| {
+                let task_executor = task_executor.clone();
+                async move { task_executor.spawn(processing_task) }
+            })
+            .try_buffered(self.concurrency)
+            .filter_map(|v| async move { v.unnest().transpose() });
 
         let io_stream = self.driver.io_stream();
 
