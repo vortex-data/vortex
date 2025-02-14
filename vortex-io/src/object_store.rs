@@ -95,6 +95,11 @@ impl VortexReadAt for ObjectStoreReadAt {
     fn performance_hint(&self) -> PerformanceHint {
         match &self.scheme {
             Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
+            Some(
+                ObjectStoreScheme::AmazonS3
+                | ObjectStoreScheme::MicrosoftAzure
+                | ObjectStoreScheme::GoogleCloudStorage,
+            ) => PerformanceHint::object_storage(),
             _ => PerformanceHint::default(),
         }
     }

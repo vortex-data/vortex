@@ -3,7 +3,7 @@ use std::any::Any;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_mask::AllOr;
+use vortex_mask::{AllOr, Mask};
 
 use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -45,6 +45,21 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             None => self.append_null(),
         }
     }
+
+    pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
+        self.values.extend(iter);
+        self.extend_with_validity_mask(mask)
+    }
+
+    fn extend_with_validity_mask(&mut self, validity_mask: Mask) {
+        match validity_mask.boolean_buffer() {
+            AllOr::All => {
+                self.nulls.append_n_non_nulls(validity_mask.len());
+            }
+            AllOr::None => self.nulls.append_n_nulls(validity_mask.len()),
+            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
+        }
+    }
 }
 
 impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
@@ -82,13 +97,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         self.values.extend_from_slice(array.as_slice::<T>());
 
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.nulls.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.nulls.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
-        }
+        self.extend_with_validity_mask(array.validity_mask()?);
 
         Ok(())
     }

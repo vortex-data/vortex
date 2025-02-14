@@ -13,7 +13,11 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 readme = { workspace = true }
 
+[features]
+test-harness = ["rand"]
+
 [dependencies]
+rand = { workspace = true, optional = true }
 arrow-buffer = { workspace = true }
 num-traits = { workspace = true }
 rkyv = { workspace = true }
@@ -25,6 +29,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+
 
 [lints]
 workspace = true
@@ -38,7 +43,14 @@ vortex-array = { workspace = true, features = ["test-harness"] }
 [[bench]]
 name = "dict_compress"
 harness = false
+required-features = ["test-harness"]
 
 [[bench]]
 name = "dict_compare"
 harness = false
+required-features = ["test-harness"]
+
+[[bench]]
+name = "chunked_dict_array_builder"
+harness = false
+required-features = ["test-harness"]

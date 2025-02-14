@@ -13,7 +13,9 @@ use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Builder;
+use url::Url;
 use vortex::aliases::hash_map::HashMap;
+use vortex::error::VortexExpect as _;
 
 feature_flagged_allocator!();
 
@@ -26,13 +28,19 @@ struct Args {
     exclude_queries: Option<Vec<usize>>,
     #[arg(short, long)]
     threads: Option<usize>,
+    #[arg(long)]
+    use_remote_data_dir: Option<String>,
     #[arg(short, long, default_value_t = true, default_missing_value = "true", action = ArgAction::Set)]
     warmup: bool,
     #[arg(short, long, default_value = "5")]
     iterations: usize,
+    #[arg(long, value_delimiter = ',')]
+    formats: Option<Vec<String>>,
+    #[arg(long, default_value_t = 1)]
+    scale_factor: u8,
     #[arg(long)]
     only_vortex: bool,
-    #[arg(short, long)]
+    #[arg(short)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
@@ -57,45 +65,98 @@ fn main() -> ExitCode {
     }
     .expect("Failed building the Runtime");
 
+    let url = match args.use_remote_data_dir {
+        None => {
+            let db_gen_options = DBGenOptions::default().with_scale_factor(args.scale_factor);
+            let data_dir = DBGen::new(db_gen_options).generate().unwrap();
+            eprintln!(
+                "Using existing or generating new files located at {}.",
+                data_dir.display()
+            );
+            Url::parse(
+                ("file:".to_owned() + data_dir.to_str().vortex_expect("path should be utf8") + "/")
+                    .as_ref(),
+            )
+            .unwrap()
+        }
+        Some(tpch_benchmark_remote_data_dir) => {
+            // e.g. "s3://vortex-bench-dev/parquet/"
+            //
+            // The trailing slash is significant!
+            //
+            // The folder must already be populated with data!
+            if !tpch_benchmark_remote_data_dir.ends_with("/") {
+                eprintln!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
+            }
+            eprintln!(
+                concat!(
+                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                    "If it does not, you should kill this command, locally generate the files (by running without\n",
+                    "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
+                ),
+                tpch_benchmark_remote_data_dir,
+            );
+            Url::parse(&tpch_benchmark_remote_data_dir).unwrap()
+        }
+    };
+
+    if args.only_vortex {
+        panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
+    }
+
     runtime.block_on(bench_main(
         args.queries,
         args.exclude_queries,
         args.iterations,
         args.warmup,
-        args.only_vortex,
+        args.formats,
         args.display_format,
         args.emulate_object_store,
+        url,
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     warmup: bool,
-    only_vortex: bool,
+    formats: Option<Vec<String>>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
+    url: Url,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
     // let filter = default_env_filter(true);
     // setup_logger(filter);
 
     // Run TPC-H data gen.
-    let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
     // The formats to run against (vs the baseline)
-    let formats = if only_vortex {
-        vec![Format::Arrow, Format::OnDiskVortex]
-    } else {
-        vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex]
+    let formats = match formats {
+        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
+        Some(formats) => formats
+            .into_iter()
+            .map(|format| match format.as_ref() {
+                "arrow" => Format::Arrow,
+                "parquet" => Format::Parquet,
+                "vortex" => Format::OnDiskVortex,
+                _ => panic!("unrecognized format: {}", format),
+            })
+            .collect::<Vec<_>>(),
     };
+
+    eprintln!(
+        "Benchmarking against these formats: {}.",
+        formats.iter().join(", ")
+    );
 
     // Load datasets
     let ctxs = try_join_all(
         formats
             .iter()
-            .map(|format| load_datasets(&data_dir, *format, emulate_object_store)),
+            .map(|format| load_datasets(&url, *format, emulate_object_store)),
     )
     .await
     .unwrap();

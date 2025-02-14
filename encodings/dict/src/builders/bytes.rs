@@ -12,7 +12,6 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::builders::DictEncoder;
-use crate::DictArray;
 
 /// Dictionary encode varbin array. Specializes for primitive byte arrays to avoid double copying
 pub struct BytesDictBuilder {
@@ -117,7 +116,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode(&mut self, array: &Array) -> VortexResult<DictArray> {
+    fn encode(&mut self, array: &Array) -> VortexResult<Array> {
         if &self.dtype != array.dtype() {
             vortex_bail!(
                 "Array DType {} does not match builder dtype {}",
@@ -135,16 +134,17 @@ impl DictEncoder for BytesDictBuilder {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
         };
 
-        let values = VarBinViewArray::try_new(
+        Ok(codes)
+    }
+
+    fn values(&mut self) -> VortexResult<Array> {
+        VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],
-            array.dtype().clone(),
-            array.dtype().nullability().into(),
+            self.dtype.clone(),
+            self.dtype.nullability().into(),
         )
-        .vortex_unwrap()
-        .into_array();
-
-        DictArray::try_new(codes, values)
+        .map(|a| a.into_array())
     }
 }
 

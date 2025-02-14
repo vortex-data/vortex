@@ -12,16 +12,24 @@ use datafusion::datasource::listing::{
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use futures::StreamExt;
+use named_locks::with_lock;
+use object_store::aws::AmazonS3Builder;
+use object_store::gcp::GoogleCloudStorageBuilder;
+use object_store::local::LocalFileSystem;
+use object_store::path::Path as ObjectStorePath;
+use object_store::ObjectStore;
 use tokio::fs::OpenOptions;
+use url::Url;
 use vortex::array::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
+use vortex::error::VortexExpect as _;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
 use vortex::{Array, IntoArray};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{get_session_with_cache, idempotent_async, Format, CTX};
+use crate::{get_session_with_cache, Format, CTX};
 
 pub mod dbgen;
 mod execute;
@@ -35,23 +43,56 @@ pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
 ];
 
+fn make_object_store(df: &SessionContext, source: &Url) -> anyhow::Result<Arc<dyn ObjectStore>> {
+    match source.scheme() {
+        "s3" => {
+            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
+            let s3 = Arc::new(
+                AmazonS3Builder::from_env()
+                    .with_bucket_name(bucket_name)
+                    .build()
+                    .unwrap(),
+            );
+            df.register_object_store(&Url::parse(&format!("s3://{}/", bucket_name))?, s3.clone());
+            Ok(s3)
+        }
+        "gs" => {
+            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
+            let gcs = Arc::new(
+                GoogleCloudStorageBuilder::from_env()
+                    .with_bucket_name(bucket_name)
+                    .build()
+                    .unwrap(),
+            );
+            df.register_object_store(&Url::parse(&format!("gs://{}/", bucket_name))?, gcs.clone());
+            Ok(gcs)
+        }
+        _ => {
+            let fs = Arc::new(LocalFileSystem::default());
+            df.register_object_store(&Url::parse("file:/")?, fs.clone());
+            Ok(fs)
+        }
+    }
+}
+
 // Generate table dataset.
-pub async fn load_datasets<P: AsRef<Path>>(
-    base_dir: P,
+pub async fn load_datasets(
+    base_dir: &Url,
     format: Format,
     emulate_object_store: bool,
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_with_cache(emulate_object_store);
-    let base_dir = base_dir.as_ref();
 
-    let customer = base_dir.join("customer.tbl");
-    let lineitem = base_dir.join("lineitem.tbl");
-    let nation = base_dir.join("nation.tbl");
-    let orders = base_dir.join("orders.tbl");
-    let part = base_dir.join("part.tbl");
-    let partsupp = base_dir.join("partsupp.tbl");
-    let region = base_dir.join("region.tbl");
-    let supplier = base_dir.join("supplier.tbl");
+    let object_store = make_object_store(&context, base_dir)?;
+
+    let customer = base_dir.join("customer.tbl")?;
+    let lineitem = base_dir.join("lineitem.tbl")?;
+    let nation = base_dir.join("nation.tbl")?;
+    let orders = base_dir.join("orders.tbl")?;
+    let part = base_dir.join("part.tbl")?;
+    let partsupp = base_dir.join("partsupp.tbl")?;
+    let region = base_dir.join("region.tbl")?;
+    let supplier = base_dir.join("supplier.tbl")?;
 
     macro_rules! register_table {
         ($name:ident, $schema:expr) => {
@@ -59,13 +100,27 @@ pub async fn load_datasets<P: AsRef<Path>>(
                 Format::Csv => register_csv(&context, stringify!($name), &$name, $schema).await,
                 Format::Arrow => register_arrow(&context, stringify!($name), &$name, $schema).await,
                 Format::Parquet => {
-                    register_parquet(&context, stringify!($name), &$name, $schema).await
+                    register_parquet(
+                        &context,
+                        object_store.clone(),
+                        stringify!($name),
+                        &$name,
+                        $schema,
+                    )
+                    .await
                 }
                 Format::InMemoryVortex => {
                     register_vortex(&context, stringify!($name), &$name, $schema).await
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(&context, stringify!($name), &$name, $schema).await
+                    register_vortex_file(
+                        &context,
+                        object_store.clone(),
+                        stringify!($name),
+                        &$name,
+                        $schema,
+                    )
+                    .await
                 }
             }
         };
@@ -83,16 +138,44 @@ pub async fn load_datasets<P: AsRef<Path>>(
     Ok(context)
 }
 
+mod named_locks {
+    use std::future::Future;
+    use std::sync::{Arc, LazyLock};
+
+    use tokio::sync::Mutex;
+    use vortex::aliases::hash_map::HashMap;
+
+    type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
+    static NAMED_LOCKS: NamedLocksMap = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    pub async fn get(name: String) -> Arc<Mutex<()>> {
+        let named_locks = &mut *NAMED_LOCKS.lock().await;
+        let mutex: &Arc<Mutex<()>> = named_locks
+            .entry(name)
+            .or_insert_with(|| Arc::new(Mutex::new(())));
+        mutex.clone()
+    }
+
+    pub async fn with_lock<F, T, E>(name: String, f: impl FnOnce() -> F) -> Result<T, E>
+    where
+        F: Future<Output = Result<T, E>>,
+    {
+        let lock = get(name).await;
+        let _guard = lock.lock().await;
+        f().await
+    }
+}
+
 async fn register_csv(
     session: &SessionContext,
     name: &str,
-    file: &Path,
+    file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
     session
         .register_csv(
             name,
-            file.to_str().unwrap(),
+            file.as_str(),
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
@@ -107,13 +190,13 @@ async fn register_csv(
 async fn register_arrow(
     session: &SessionContext,
     name: &str,
-    file: &Path,
+    file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
     // Read CSV file into a set of Arrow RecordBatch.
     let record_batches = session
         .read_csv(
-            file.to_str().unwrap(),
+            file.as_str(),
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
@@ -132,14 +215,21 @@ async fn register_arrow(
 
 async fn register_parquet(
     session: &SessionContext,
+    object_store: Arc<dyn ObjectStore>,
     name: &str,
-    file: &Path,
+    file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let csv_file = file.to_str().unwrap();
-    let pq_file = idempotent_async(
-        &file.with_extension("").with_extension("parquet"),
-        |pq_file| async move {
+    let csv_file = file.as_str();
+    let mut pq_file = file.clone();
+    pq_file.set_path(&pq_file.path().to_owned().replace(".tbl", ".parquet"));
+
+    if object_store
+        .head(&ObjectStorePath::parse(pq_file.path())?)
+        .await
+        .is_err()
+    {
+        with_lock(pq_file.path().to_owned(), async || {
             let df = session
                 .read_csv(
                     csv_file,
@@ -151,74 +241,103 @@ async fn register_parquet(
                 )
                 .await?;
 
-            df.write_parquet(
-                pq_file.as_path().as_os_str().to_str().unwrap(),
-                DataFrameWriteOptions::default(),
-                None,
-            )
-            .await?;
+            if pq_file.scheme() == "file" {
+                df.write_parquet(pq_file.path(), DataFrameWriteOptions::default(), None)
+                    .await?;
+            } else {
+                anyhow::bail!("Writing to S3 does not seem to work!");
+            };
 
-            Ok::<(), anyhow::Error>(())
-        },
-    )
-    .await?;
+            anyhow::Ok(())
+        })
+        .await?;
+    }
 
-    Ok(session
-        .register_parquet(
-            name,
-            pq_file.as_os_str().to_str().unwrap(),
-            ParquetReadOptions::default(),
-        )
-        .await?)
+    session
+        .register_parquet(name, pq_file.as_str(), ParquetReadOptions::default())
+        .await?;
+
+    Ok(())
 }
 
 async fn register_vortex_file(
     session: &SessionContext,
+    object_store: Arc<dyn ObjectStore>,
     table_name: &str,
-    file: &Path,
+    file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let vortex_dir = file.parent().unwrap().join("vortex_compressed");
-    create_dir_all(&vortex_dir)?;
-    let output_file = &vortex_dir
-        .join(file.file_name().unwrap())
-        .with_extension(VORTEX_FILE_EXTENSION);
-    let vtx_file = idempotent_async(output_file, |vtx_file| async move {
-        let record_batches = session
-            .read_csv(
-                file.to_str().unwrap(),
-                CsvReadOptions::default()
-                    .delimiter(b'|')
-                    .has_header(false)
-                    .file_extension("tbl")
-                    .schema(schema),
-            )
-            .await?
-            .execute_stream()
-            .await?;
+    let csv_basename = file
+        .path_segments()
+        .vortex_expect("url path not empty")
+        .last();
+    let vortex_basename = csv_basename
+        .unwrap()
+        .replace(".tbl", (".".to_owned() + VORTEX_FILE_EXTENSION).as_ref());
 
-        // Convert the arrow schema to a Vortex DType
-        let array_stream = ArrayStreamAdapter::new(
-            // TODO(ngates): or should we use the provided schema?
-            DType::from_arrow(record_batches.schema()),
-            record_batches.map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
-        );
+    let csv_path_split = file
+        .path_segments()
+        .vortex_expect("url path not empty")
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let n_path_segments = csv_path_split.len();
+    let vortex_dir_path =
+        csv_path_split[0..(n_path_segments - 1)].join("/") + "/vortex_compressed/";
 
-        let f = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&vtx_file)
-            .await?;
+    let mut vortex_dir = file.clone();
+    vortex_dir.set_path(&vortex_dir_path);
+    if vortex_dir.scheme() == "file" {
+        create_dir_all(vortex_dir.path())?;
+    }
 
-        VortexWriteOptions::default().write(f, array_stream).await?;
+    let vtx_file = &vortex_dir.join(vortex_basename.as_ref())?;
 
-        anyhow::Ok(())
-    })
-    .await?;
+    if object_store
+        .head(&ObjectStorePath::parse(vtx_file.path())?)
+        .await
+        .is_err()
+    {
+        with_lock(vtx_file.path().to_owned(), async || {
+            let record_batches = session
+                .read_csv(
+                    file.as_str(),
+                    CsvReadOptions::default()
+                        .delimiter(b'|')
+                        .has_header(false)
+                        .file_extension("tbl")
+                        .schema(schema),
+                )
+                .await?
+                .execute_stream()
+                .await?;
+
+            // Convert the arrow schema to a Vortex DType
+            let array_stream = ArrayStreamAdapter::new(
+                // TODO(ngates): or should we use the provided schema?
+                DType::from_arrow(record_batches.schema()),
+                record_batches
+                    .map(|batch| batch.map_err(VortexError::from).and_then(Array::try_from)),
+            );
+
+            if vtx_file.scheme() == "file" {
+                let f = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(vtx_file.path())
+                    .await?;
+                VortexWriteOptions::default().write(f, array_stream).await?;
+            } else {
+                anyhow::bail!("Writing to S3 does not seem to work!");
+            };
+
+            anyhow::Ok(())
+        })
+        .await?;
+    }
 
     let format = Arc::new(VortexFormat::new(CTX.clone()));
-    let table_url = ListingTableUrl::parse(vtx_file.to_str().unwrap())?;
+    let table_url = ListingTableUrl::parse(vtx_file.as_str())?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
         .infer_schema(&session.state())
@@ -234,12 +353,12 @@ async fn register_vortex_file(
 async fn register_vortex(
     session: &SessionContext,
     name: &str,
-    file: &Path,
+    file: &Url,
     schema: &Schema,
 ) -> anyhow::Result<()> {
     let record_batches = session
         .read_csv(
-            file.to_str().unwrap(),
+            file.as_str(),
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
