@@ -1,30 +1,30 @@
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{stream, Stream};
+use futures::{stream, Stream, StreamExt};
 use itertools::Itertools;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_expr::{ExprRef, Identity};
-pub mod executor;
-pub(crate) mod filter;
-mod split_by;
-mod task;
-pub mod unified;
-
 pub use split_by::*;
 pub use task::*;
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{Array, ContextRef};
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
+use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
 use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
+
+pub mod executor;
+pub(crate) mod filter;
+mod split_by;
+mod task;
+pub mod unified;
 
 pub trait ScanDriver: 'static + Sized {
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
@@ -279,8 +279,6 @@ impl<D: ScanDriver> Scan<D> {
         // We start with a stream of row masks
         let row_masks = stream::iter(self.row_masks);
         let projection = self.projection.clone();
-
-        use futures::StreamExt;
 
         let exec_stream = row_masks
             .map(move |row_mask| {
