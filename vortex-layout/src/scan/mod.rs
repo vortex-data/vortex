@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use executor::{Executor, InlineExecutor, Spawn};
+use executor::{Executor, Spawn, ThreadsExecutor};
 use futures::stream::BoxStream;
 use futures::{stream, Stream};
 use itertools::Itertools;
@@ -191,7 +191,9 @@ impl<D: ScanDriver> ScanBuilder<D> {
             task_executor: self
                 .task_executor
                 .unwrap_or_else(|| Arc::new(InlineTaskExecutor)),
-            executor: self.executor.unwrap_or(Executor::Inline(InlineExecutor)),
+            executor: self
+                .executor
+                .unwrap_or(Executor::Threads(ThreadsExecutor::default())),
             layout: self.layout,
             ctx: self.ctx,
             projection,
@@ -304,7 +306,7 @@ impl<D: ScanDriver> Scan<D> {
                             executor
                                 .spawn(async move {
                                     pruning.new_evaluation(&row_mask).evaluate(reader).await
-                                })
+                                })?
                                 .await
                         }
                     })
@@ -342,7 +344,7 @@ impl<D: ScanDriver> Scan<D> {
                                     scan_executor.evaluate(&array, &[ScanTask::Canonicalize])?;
                             }
                             Ok(array)
-                        })
+                        })?
                         .await;
 
                     match r {

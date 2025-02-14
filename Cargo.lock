@@ -5567,6 +5567,7 @@ dependencies = [
  "bytes",
  "exponential-decay-histogram",
  "flatbuffers 25.2.10",
+ "flume",
  "futures",
  "itertools 0.14.0",
  "log",

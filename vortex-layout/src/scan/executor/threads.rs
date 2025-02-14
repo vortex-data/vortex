@@ -1,0 +1,96 @@
+use std::future::Future;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+
+use futures::channel::oneshot;
+use futures::future::BoxFuture;
+use futures::{FutureExt as _, TryFutureExt as _};
+use vortex_error::{vortex_err, VortexResult};
+
+use super::Spawn;
+
+trait Task {
+    fn run(self: Box<Self>);
+}
+
+struct ExecutorTask<F, R> {
+    task: F,
+    result: oneshot::Sender<R>,
+}
+
+impl<F, R> Task for ExecutorTask<F, R>
+where
+    F: Future<Output = R> + Send,
+    R: Send,
+{
+    fn run(self: Box<Self>) {
+        let Self { task, result } = *self;
+        futures::executor::block_on(async move {
+            let output = task.await;
+            _ = result.send(output);
+        })
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct ThreadsExecutor {
+    inner: Arc<Inner>,
+}
+
+impl ThreadsExecutor {
+    pub fn new(num_threads: NonZeroUsize) -> Self {
+        Self {
+            inner: Arc::new(Inner::new(num_threads)),
+        }
+    }
+}
+
+struct Inner {
+    submitter: flume::Sender<Box<dyn Task + Send>>,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        // Safety:
+        // 1 isn't 0
+        Self::new(unsafe { NonZeroUsize::new_unchecked(1) })
+    }
+}
+
+impl Inner {
+    fn new(num_threads: NonZeroUsize) -> Self {
+        let (tx, rx) = flume::unbounded::<Box<dyn Task + Send>>();
+        (0..num_threads.get()).for_each(|_| {
+            let rx = rx.clone();
+            std::thread::spawn(move || loop {
+                match rx.recv() {
+                    Ok(task) => task.run(),
+                    // we error if all senders dropped, which means we probably don't care about the task anymore,
+                    // and we can break and let the thread end.
+                    Err(_e) => break,
+                }
+            });
+        });
+
+        Self { submitter: tx }
+    }
+}
+
+impl Spawn for ThreadsExecutor {
+    fn spawn<F>(&self, f: F) -> VortexResult<BoxFuture<'static, VortexResult<F::Output>>>
+    where
+        F: Future + Send + 'static,
+        <F as Future>::Output: Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        let task = Box::new(ExecutorTask {
+            task: f,
+            result: tx,
+        });
+        self.inner
+            .submitter
+            .send(task)
+            .map_err(|e| vortex_err!("Failed to submit work: {e}"))?;
+        Ok(rx.map_err(|e| vortex_err!("Future canceled: {e}")).boxed())
+    }
+}

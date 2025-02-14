@@ -21,6 +21,7 @@ bit-vec = { workspace = true }
 bytes = { workspace = true }
 exponential-decay-histogram = { workspace = true }
 flatbuffers = { workspace = true }
+flume = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
 itertools = { workspace = true }
 log = { workspace = true }
