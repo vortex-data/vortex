@@ -43,11 +43,6 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
-      - name: Upload Benchmark Results
-        if: inputs.mode == 'develop'
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
@@ -73,6 +68,11 @@ jobs:
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-tpch
+      - name: Upload Benchmark Results
+        if: inputs.mode == 'develop'
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
 
   clickbench:
     runs-on: [self-hosted, gcp]
