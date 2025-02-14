@@ -12,9 +12,14 @@ use vortex_array::{
     encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
     SerdeMetadata,
 };
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_dtype::{
+    match_each_integer_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
+    DType, PType,
+};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask};
+
+use crate::compress::dict_decode_typed_primitive;
 
 impl_encoding!(
     "vortex.dict",
@@ -97,8 +102,27 @@ impl CanonicalVTable<DictArray> for DictEncoding {
                 let canonical_values: Array = array.values().into_canonical()?.into_array();
                 take(canonical_values, array.codes())?.into_canonical()
             }
-            // Non-string case: take and then canonicalize
-            _ => take(array.values(), array.codes())?.into_canonical(),
+            DType::Primitive(ptype, _)
+                // TODO(alex): handle nullable codes & values
+                if *ptype != PType::F16
+                    && array.codes().all_valid()?
+                    && array.values().all_valid()? =>
+            {
+                let codes = array.codes().into_primitive()?;
+                let values = array.values().into_primitive()?;
+
+                match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
+                    match_each_native_simd_ptype!(values.ptype(), |$V| {
+                        // SIMD types larger than the SIMD register size are beneficial for
+                        // performance as this leads to better instruction level parallelism.
+                        let decoded = dict_decode_typed_primitive::<$C, $V, 64>(codes.as_slice(),
+                                                                                values.as_slice(),
+                                                                                array.dtype().nullability());
+                        decoded.into_canonical()
+                    })
+                })
+            }
+            _ => take(array.values(), array.codes())?.into_canonical()
         }
     }
 
@@ -112,7 +136,7 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
-            // TODO(joe): is the above still true?
+            // TODO(joe): is the above still true?, investigate this.
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: Array = array.values().into_canonical()?.into_array();
                 take_into(canonical_values, array.codes(), builder)

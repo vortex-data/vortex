@@ -1,0 +1,128 @@
+name: "SQL-related benchmarks"
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  tpch:
+    runs-on: [self-hosted, gcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - name: Set tempdir
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "TMPDIR=/work" >> $GITHUB_ENV
+      - name: Run TPC-H benchmark
+        shell: bash
+        env:
+          BENCH_VORTEX_RATIOS: ".*"
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Install uv
+        if: inputs.mode == 'pr'
+        uses: astral-sh/setup-uv@v5
+      - name: Compare results
+        if: inputs.mode == 'pr'
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=${{ github.event.pull_request.base.sha }}
+
+          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+            | grep $base_commit_sha \
+            > base.json
+
+          echo '# Benchmarks: TPC-H' > comment.md
+          echo '<details>' >> comment.md
+          echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json tpch.json \
+            >> comment.md
+          echo '</details>' >> comment.md
+      - name: Comment PR
+        if: inputs.mode == 'pr'
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-tpch
+      - name: Upload Benchmark Results
+        if: inputs.mode == 'develop'
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
+
+  clickbench:
+    runs-on: [self-hosted, gcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - name: Set tempdir
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "TMPDIR=/work" >> $GITHUB_ENV
+      - name: Run Clickbench benchmark
+        shell: bash
+        env:
+          BENCH_VORTEX_RATIOS: ".*"
+          RUSTFLAGS: "-C target-cpu=native"
+          HOME: /home/ci-runner
+        run: |
+          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Install uv
+        if: inputs.mode == 'pr'
+        uses: astral-sh/setup-uv@v5
+      - name: Compare results
+        if: inputs.mode == 'pr'
+        shell: bash
+        run: |
+            set -Eeu -o pipefail -x
+  
+            base_commit_sha=${{ github.event.pull_request.base.sha }}
+  
+            aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+              | grep $base_commit_sha \
+              > base.json
+  
+            echo '# Benchmarks: Clickbench' > comment.md
+            echo '<details>' >> comment.md
+            echo '<summary>Table of Results</summary>' >> comment.md
+            echo '' >> comment.md
+            uv run --no-project scripts/compare-benchmark-jsons.py base.json clickbench.json \
+              >> comment.md
+            echo '</details>' >> comment.md
+      - name: Comment PR
+        if: inputs.mode == 'pr'
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-clickbench
+      - name: Upload Benchmark Results
+        if: inputs.mode == 'develop'
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json clickbench.json

@@ -1,13 +1,17 @@
+use std::ops::DerefMut as _;
+
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArray;
-use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
+    match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
+    match_each_unsigned_integer_ptype, NativePType, PType,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -196,38 +200,61 @@ pub fn gather_patches(
 }
 
 pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype_with_unsigned_type!(array.ptype(), |$P, $UnsignedT| {
+        unpack_primitive::<$P, $UnsignedT>(array)
+    })
+}
+
+pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
+    array: BitPackedArray,
+) -> VortexResult<PrimitiveArray> {
+    let n = array.len();
+    let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
+    assert!(size_of::<T>() == size_of::<UnsignedT>());
+    unpack_into::<T, UnsignedT, _, _>(
+        array,
+        &mut builder,
+        // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &[UnsignedT] to
+        // &[T] is therefore safe.
+        |x| unsafe { std::mem::transmute(x) },
+        // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &mut [T] to
+        // &mut [UnsignedT] is therefore safe.
+        |x| unsafe { std::mem::transmute(x) },
+    )?;
+    assert!(builder.len() == n, "{} {}", builder.len(), n);
+    builder.finish_into_primitive()
+}
+
+pub(crate) fn unpack_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(
+    array: BitPackedArray,
+    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
+    builder: &mut PrimitiveBuilder<T>,
+    transmute: F,
+    transmute_mut: G,
+) -> VortexResult<()>
+where
+    F: Fn(&[UnsignedT]) -> &[T],
+    G: Fn(&mut [T]) -> &mut [UnsignedT],
+{
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
-    let ptype = array.ptype();
-    let mut unpacked = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$P| {
-        PrimitiveArray::new(
-            unpack_primitive::<$P>(array.packed_slice::<$P>(), bit_width, offset, length),
-            array.validity(),
-        )
-    });
+    let last_chunk_length = match (offset + length) % 1024 {
+        0 => 1024,
+        last_chunk_length => last_chunk_length,
+    };
 
-    // Cast to signed if necessary
-    if ptype.is_signed_int() {
-        unpacked = unpacked.reinterpret_cast(ptype);
-    }
+    builder.nulls.append_validity(array.validity(), length)?;
 
-    if let Some(patches) = array.patches() {
-        unpacked.patch(patches)
-    } else {
-        Ok(unpacked)
-    }
-}
-
-pub fn unpack_primitive<T: NativePType + BitPacking>(
-    packed: &[T],
-    bit_width: usize,
-    offset: usize,
-    length: usize,
-) -> Buffer<T> {
     if bit_width == 0 {
-        return buffer![T::zero(); length];
+        builder.append_zeros(length);
+        return Ok(());
     }
+
+    builder.values.reserve(array.len());
+
+    let builder_current_length = builder.len();
+    let packed = array.packed_slice::<UnsignedT>();
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
@@ -241,42 +268,70 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
         num_chunks * elems_per_chunk
     );
 
-    // Allocate a result vector.
-    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
-    let mut output = BufferMut::with_capacity(num_chunks * 1024 - offset);
-
-    // Handle first chunk if offset is non 0. We have to decode the chunk and skip first offset elements
-    let first_full_chunk = if offset != 0 {
-        let chunk: &[T] = &packed[0..elems_per_chunk];
-        let mut decoded = [T::zero(); 1024];
+    if num_chunks == 1 {
+        let chunk = &packed[..elems_per_chunk];
+        let mut decoded = [UnsignedT::zero(); 1024];
+        // SAFETY:
+        // 1. chunk is elems_per_chunk.
+        // 2. decoded is exactly 1024.
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        output.extend_from_slice(&decoded[offset..]);
-        1
+        builder
+            .values
+            .extend_from_slice(transmute(&decoded[offset..][..length]));
     } else {
-        0
-    };
+        let first_chunk_is_sliced = offset != 0;
+        let last_chunk_is_sliced = last_chunk_length != 1024;
+        let full_chunks_range =
+            (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
 
-    // Loop over all the chunks.
-    (first_full_chunk..num_chunks).for_each(|i| {
-        let chunk: &[T] = &packed[i * elems_per_chunk..][0..elems_per_chunk];
-        unsafe {
-            let output_len = output.len();
-            output.set_len(output_len + 1024);
-            BitPacking::unchecked_unpack(bit_width, chunk, &mut output[output_len..][0..1024]);
+        if first_chunk_is_sliced {
+            let chunk = &packed[..elems_per_chunk];
+            let mut decoded = [UnsignedT::zero(); 1024];
+            // SAFETY:
+            // 1. chunk is elems_per_chunk.
+            // 2. decoded is exactly 1024.
+            unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+            builder
+                .values
+                .extend_from_slice(transmute(&decoded[offset..]));
         }
-    });
+        for i in full_chunks_range {
+            let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
 
-    // The final chunk may have had padding
-    output.truncate(length);
+            // SAFETY:
+            //
+            // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
+            // have been written to.
+            //
+            // 2. The output buffer is exactly size 1024.
+            unsafe {
+                builder.values.set_len(builder.values.len() + 1024);
+                BitPacking::unchecked_unpack(
+                    bit_width,
+                    chunk,
+                    &mut transmute_mut(builder.values.deref_mut())
+                        [builder_current_length + i * 1024 - offset..][..1024],
+                );
+            }
+        }
+        if last_chunk_is_sliced {
+            let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
+            let mut decoded = [UnsignedT::zero(); 1024];
+            // SAFETY:
+            // 1. chunk is elems_per_chunk.
+            // 2. decoded is exactly 1024.
+            unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+            builder
+                .values
+                .extend_from_slice(transmute(&decoded[..last_chunk_length]));
+        }
+    }
 
-    assert_eq!(
-        output.len(),
-        length,
-        "Expected unpacked array to be of length {} but got {}",
-        length,
-        output.len()
-    );
-    output.freeze()
+    if let Some(patches) = array.patches() {
+        builder.patch(patches, builder_current_length)?;
+    }
+
+    Ok(())
 }
 
 pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
@@ -381,13 +436,56 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
     bit_width_freq[bit_width as usize + 1..].iter().sum()
 }
 
+#[cfg(feature = "test-harness")]
+pub mod test_harness {
+    use rand::rngs::StdRng;
+    use rand::Rng as _;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
+    use vortex_buffer::BufferMut;
+    use vortex_error::VortexResult;
+
+    use super::bitpack_encode;
+
+    pub fn make_array(
+        rng: &mut StdRng,
+        len: usize,
+        fraction_patches: f64,
+        fraction_null: f64,
+    ) -> VortexResult<Array> {
+        let values = (0..len)
+            .map(|_| {
+                let mut v = rng.gen_range(0..100i32);
+                if rng.gen_bool(fraction_patches) {
+                    v += 1 << 13
+                };
+                v
+            })
+            .collect::<BufferMut<i32>>();
+
+        let values = if fraction_null == 0.0 {
+            values.into_array().into_primitive()?
+        } else {
+            let validity = Validity::from_iter((0..len).map(|_| !rng.gen_bool(fraction_null)));
+            PrimitiveArray::new(values, validity)
+        };
+
+        bitpack_encode(values, 12).map(IntoArray::into_array)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use vortex_array::IntoArrayVariant;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng as _;
+    use vortex_array::array::ChunkedArray;
+    use vortex_array::{IntoArrayVariant, IntoCanonical as _};
     use vortex_error::VortexError;
 
     use super::*;
+    use crate::bitpacking::compress::test_harness::make_array;
 
     #[test]
     fn test_best_bit_width() {
@@ -461,5 +559,44 @@ mod test {
 
         let err = BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+    }
+
+    #[test]
+    fn canonicalize_chunked_of_bitpacked() {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let chunks = (0..10)
+            .map(|_| make_array(&mut rng, 100, 0.0, 0.0).unwrap())
+            .collect::<Vec<_>>();
+        let chunked = ChunkedArray::from_iter(chunks).into_array();
+
+        let into_ca = chunked
+            .clone()
+            .into_canonical()
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        let mut primitive_builder =
+            PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
+        chunked
+            .clone()
+            .canonicalize_into(&mut primitive_builder)
+            .unwrap();
+        let ca_into = primitive_builder.finish().unwrap();
+
+        assert_eq!(
+            into_ca.as_slice::<i32>(),
+            ca_into.into_primitive().unwrap().as_slice::<i32>()
+        );
+
+        let mut primitive_builder =
+            PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
+        primitive_builder.extend_from_array(chunked).unwrap();
+        let ca_into = primitive_builder.finish().unwrap();
+
+        assert_eq!(
+            into_ca.as_slice::<i32>(),
+            ca_into.into_primitive().unwrap().as_slice::<i32>()
+        );
     }
 }

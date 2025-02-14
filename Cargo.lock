@@ -5362,6 +5362,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fsst",
  "vortex-mask",
  "vortex-scalar",
 ]
@@ -5442,6 +5443,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
 ]

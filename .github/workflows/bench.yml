@@ -109,74 +109,8 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
-  tpch:
-    runs-on: [self-hosted, gcp]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
-
-      - name: Run TPC-H benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-        run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Upload Benchmark Results
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
-  clickbench:
-    runs-on: [self-hosted, gcp]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
-
-      - name: Run Clickbench benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-          HOME: /home/ci-runner
-        run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Upload Benchmark Results
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json clickbench.json
+  sql:
+    uses: ./.github/workflows/sql-benchmarks.yml
+    with:
+      mode: 'develop'

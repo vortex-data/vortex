@@ -4,7 +4,6 @@ use std::cmp::max;
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::AllOr;
 
 use crate::array::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -156,13 +155,8 @@ impl ArrayBuilder for VarBinViewBuilder {
                 }
             }));
 
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.null_buffer_builder.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.null_buffer_builder.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
-        }
+        self.null_buffer_builder
+            .append_validity_mask(array.validity_mask()?);
 
         Ok(())
     }

@@ -38,10 +38,17 @@ fn decode(c: &mut Criterion) {
 
     let mut rng = StdRng::seed_from_u64(334);
 
-    let primitive_arr = gen_primitive_for_dict::<i32>(&mut rng, 1_000_000, 50);
+    let primitive_arr = gen_primitive_for_dict::<u8>(&mut rng, 1_000_000, 32);
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     group.throughput(Throughput::Bytes(primitive_arr.nbytes() as u64));
-    group.bench_function("dict_decode_primitives", |b| {
+    group.bench_function("dict_decode_primitives_u8", |b| {
+        b.iter_with_setup(|| dict.clone(), |dict| dict.into_canonical().unwrap())
+    });
+
+    let primitive_arr = gen_primitive_for_dict::<i32>(&mut rng, 1_000_000, 32);
+    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
+    group.throughput(Throughput::Bytes(primitive_arr.nbytes() as u64));
+    group.bench_function("dict_decode_primitives_i32", |b| {
         b.iter_with_setup(|| dict.clone(), |dict| dict.into_canonical().unwrap())
     });
 

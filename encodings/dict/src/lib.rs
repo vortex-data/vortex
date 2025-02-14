@@ -1,3 +1,5 @@
+#![feature(portable_simd)]
+
 //! Implementation of Dictionary encoding.
 //!
 //! Expose a [DictArray] which is zero-copy equivalent to Arrow's
@@ -6,6 +8,7 @@ pub use array::*;
 
 mod array;
 pub mod builders;
+mod compress;
 mod compute;
 mod stats;
 #[cfg(feature = "test-harness")]
