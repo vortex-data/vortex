@@ -83,7 +83,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         match_each_integer_ptype!(indices.ptype(), |$I| {
             // This is valid since all elements even null values are inside the min-max valid range.
-            take_views_into(array.views(), array.buffers(), indices.as_slice::<$I>(), mask, builder)
+            take_views_into(array.views(), array.buffers(), indices.as_slice::<$I>(), mask, builder)?;
         });
 
         Ok(())
@@ -96,8 +96,8 @@ fn take_views_into<I: AsPrimitive<usize>>(
     indices: &[I],
     mask: Mask,
     _builder: &mut VarBinViewBuilder,
-) {
-    let buffers_offset = _builder.completed_block_count() as u32;
+) -> VortexResult<()> {
+    let buffers_offset = u32::try_from(_builder.completed_block_count())?;
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
     _builder.push_buffer_and_adjusted_views(
@@ -121,6 +121,7 @@ fn take_views_into<I: AsPrimitive<usize>>(
         }),
         mask,
     );
+    Ok(())
 }
 
 fn take_views<I: AsPrimitive<usize>>(
