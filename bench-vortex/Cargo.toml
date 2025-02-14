@@ -46,7 +46,7 @@ indicatif = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
-object_store = { workspace = true, features = ["aws"] }
+object_store = { workspace = true, features = ["aws", "gcp"] }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -66,6 +66,7 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "tracing-log",
 ] }
+url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }

@@ -133,12 +133,17 @@ pub fn take_into(
     let array = array.as_ref();
     let indices = indices.as_ref();
 
-    debug_assert_eq!(
-        array.dtype(),
-        builder.dtype(),
-        "Take dtype mismatch {}",
-        array.encoding()
-    );
+    #[cfg(debug_assertions)]
+    {
+        // If either the indices or the array are nullable, the result should be nullable.
+        let expected_nullability =
+            (indices.dtype().is_nullable() || array.dtype().is_nullable()).into();
+        assert_eq!(
+            builder.dtype(),
+            &array.dtype().with_nullability(expected_nullability),
+            "Take_into result should be nullable if either the indices or the array are nullable"
+        );
+    }
 
     if !indices.dtype().is_int() {
         vortex_bail!(
@@ -158,7 +163,7 @@ pub fn take_into(
     debug_assert_eq!(
         after_len - before_len,
         indices.len(),
-        "Take length mismatch {}",
+        "Take_into length mismatch {}",
         array.encoding()
     );
 
@@ -232,7 +237,7 @@ fn take_into_impl(
     }
 
     // Otherwise, flatten and try again.
-    log::debug!("No take implementation found for {}", array.encoding());
+    log::debug!("No take_into implementation found for {}", array.encoding());
     let canonical = array.clone().into_canonical()?.into_array();
     let canonical_take_fn = canonical
         .vtable()
