@@ -30,7 +30,7 @@ jobs:
       - name: Set tempdir
         if: runner.environment == 'self-hosted'
         run: |
-          echo "TMPDIR=/work" >> $GITHUB_EN
+          echo "TMPDIR=/work" >> $GITHUB_ENV
       - name: Run TPC-H benchmark
         shell: bash
         env:
