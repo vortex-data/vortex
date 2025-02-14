@@ -14,10 +14,9 @@ categories = { workspace = true }
 readme = { workspace = true }
 
 [features]
-test-harness = ["rand"]
+test-harness = ["rand", "vortex-fsst"]
 
 [dependencies]
-rand = { workspace = true, optional = true }
 arrow-buffer = { workspace = true }
 num-traits = { workspace = true }
 rkyv = { workspace = true }
@@ -29,6 +28,9 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+# test-harness
+rand = { workspace = true, optional = true }
+vortex-fsst = { workspace = true, optional = true }
 
 [lints]
 workspace = true
@@ -38,7 +40,6 @@ criterion = { workspace = true }
 divan = { workspace = true }
 rand = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
-vortex-fsst = { workspace = true }
 
 [[bench]]
 name = "dict_compress"
