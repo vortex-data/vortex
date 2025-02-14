@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::u64;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};

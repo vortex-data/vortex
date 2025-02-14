@@ -1,4 +1,4 @@
-use std::{simd, u64};
+use std::simd;
 
 use num_traits::AsPrimitive;
 use simd::num::SimdUint;
