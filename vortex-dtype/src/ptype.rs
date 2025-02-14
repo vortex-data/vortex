@@ -259,6 +259,30 @@ macro_rules! match_each_float_ptype {
     })
 }
 
+/// Macro to match over each SIMD capable `PType`, binding the corresponding native type (from `NativePType`)
+///
+/// Note: The match will panic in case of `PType::F16`.
+#[macro_export]
+macro_rules! match_each_native_simd_ptype {
+    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+        use $crate::PType;
+        match $self {
+            PType::I8 => __with__! { i8 },
+            PType::I16 => __with__! { i16 },
+            PType::I32 => __with__! { i32 },
+            PType::I64 => __with__! { i64 },
+            PType::U8 => __with__! { u8 },
+            PType::U16 => __with__! { u16 },
+            PType::U32 => __with__! { u32 },
+            PType::U64 => __with__! { u64 },
+            PType::F16 => panic!("f16 does not implement simd::SimdElement"),
+            PType::F32 => __with__! { f32 },
+            PType::F64 => __with__! { f64 },
+        }
+    })
+}
+
 impl PType {
     /// Returns `true` iff this PType is an unsigned integer type
     pub const fn is_unsigned_int(self) -> bool {

@@ -503,6 +503,7 @@ dependencies = [
  "tracing-chrome",
  "tracing-futures",
  "tracing-subscriber",
+ "url",
  "uuid",
  "vortex",
  "vortex-datafusion",
@@ -5361,6 +5362,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fsst",
  "vortex-mask",
  "vortex-scalar",
 ]
