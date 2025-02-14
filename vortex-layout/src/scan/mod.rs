@@ -185,7 +185,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
         Ok(Scan {
             driver: self.driver,
-            executor: self
+            task_executor: self
                 .task_executor
                 .unwrap_or(TaskExecutor::Threads(ThreadsExecutor::default())),
             layout: self.layout,
@@ -234,7 +234,7 @@ impl ScanExecutor {
 
 pub struct Scan<D> {
     driver: D,
-    executor: TaskExecutor,
+    task_executor: TaskExecutor,
     layout: Layout,
     ctx: ContextRef,
     // Guaranteed to be simplified
@@ -256,7 +256,7 @@ impl<D: ScanDriver> Scan<D> {
         let scan_executor = Arc::new(ScanExecutor {
             segment_reader: self.driver.segment_reader(),
         });
-        let executor = self.executor.clone();
+        let task_executor = self.task_executor.clone();
         let reader: Arc<dyn LayoutReader> = self
             .layout
             .reader(scan_executor.clone(), self.ctx.clone())?;
@@ -270,7 +270,7 @@ impl<D: ScanDriver> Scan<D> {
                 None => row_masks.map(Ok).boxed(),
                 Some(filter) => {
                     let reader = reader.clone();
-                    let executor = executor.clone();
+                    let task_executor = task_executor.clone();
 
                     let pruning = Arc::new(FilterExpr::try_new(
                         reader
@@ -288,7 +288,7 @@ impl<D: ScanDriver> Scan<D> {
                             let reader = reader.clone();
                             let filter = filter.clone();
                             let pruning = pruning.clone();
-                            let executor = executor.clone();
+                            let task_executor = task_executor.clone();
 
                             log::debug!(
                                 "Evaluating filter {} for row mask {}..{} {}",
@@ -298,11 +298,13 @@ impl<D: ScanDriver> Scan<D> {
                                 row_mask.filter_mask().density()
                             );
                             async move {
-                                executor
+                                let x = task_executor
                                     .spawn(async move {
                                         pruning.new_evaluation(&row_mask).evaluate(reader).await
                                     })?
-                                    .await
+                                    .await;
+
+                                x
                             }
                         })
                         // Instead of buffering, we should be smarter where we poll the stream until
@@ -327,7 +329,7 @@ impl<D: ScanDriver> Scan<D> {
                 let reader = reader.clone();
                 let projection = projection.clone();
                 let scan_executor = scan_executor.clone();
-                let executor = executor.clone();
+                let executor = task_executor.clone();
                 async move {
                     let r = executor
                         .spawn(async move {
