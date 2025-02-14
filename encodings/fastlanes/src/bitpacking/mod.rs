@@ -271,7 +271,11 @@ impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &[UnsignedT] to
+                // &[T] is therefore safe.
                 |x| unsafe { std::mem::transmute(x) },
+                // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &mut [T] to
+                // &mut [UnsignedT] is therefore safe.
                 |x| unsafe { std::mem::transmute(x) },
             )
         })

@@ -214,7 +214,11 @@ pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
     unpack_into::<T, UnsignedT, _, _>(
         array,
         &mut builder,
+        // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &[UnsignedT] to
+        // &[T] is therefore safe.
         |x| unsafe { std::mem::transmute(x) },
+        // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &mut [T] to
+        // &mut [UnsignedT] is therefore safe.
         |x| unsafe { std::mem::transmute(x) },
     )?;
     builder.finish_into_primitive()
