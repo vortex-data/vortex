@@ -121,14 +121,21 @@ mod test {
     }
 
     #[test]
-    fn canonicalise_non_nullable_primitive() {
-        let expected: Vec<i32> = (0..65)
-            .map(|i| match i % 2 {
-                0 => 42,
-                1 => -9,
-                _ => unreachable!(),
-            })
-            .collect();
+    fn canonicalise_non_nullable_primitive_32_unique_values() {
+        let unique_values: Vec<i32> = (0..32).collect();
+        let expected: Vec<i32> = (0..1000).map(|i| unique_values[i % 32]).collect();
+
+        let dict =
+            dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
+        let actual = dict.into_array().into_primitive().unwrap();
+
+        assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
+    }
+
+    #[test]
+    fn canonicalise_non_nullable_primitive_100_unique_values() {
+        let unique_values: Vec<i32> = (0..100).collect();
+        let expected: Vec<i32> = (0..1000).map(|i| unique_values[i % 100]).collect();
 
         let dict =
             dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();

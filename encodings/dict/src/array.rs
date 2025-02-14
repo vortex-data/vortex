@@ -1,15 +1,11 @@
 use std::fmt::Debug;
-use std::{simd, u64};
+use std::u64;
 
 use arrow_buffer::BooleanBuffer;
-use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-use simd::num::SimdUint;
-use vortex_array::array::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
@@ -17,13 +13,14 @@ use vortex_array::{
     encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
     SerdeMetadata,
 };
-use vortex_buffer::{Alignment, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
-    DType, NativePType, PType,
+    DType, PType,
 };
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask};
+
+use crate::compress::dict_decode_typed_primitive;
 
 impl_encoding!(
     "vortex.dict",
@@ -95,55 +92,6 @@ impl DictArray {
 
 impl ValidateVTable<DictArray> for DictEncoding {}
 
-// TOOD: move to compress.rs
-pub fn dict_decode_primitive<C, V, const LANE_COUNT: usize>(
-    codes: &[C],
-    values: &[V],
-) -> PrimitiveArray
-where
-    C: simd::SimdElement + AsPrimitive<usize>,
-    V: simd::SimdElement + NativePType,
-    simd::LaneCount<LANE_COUNT>: simd::SupportedLaneCount,
-    simd::Simd<C, LANE_COUNT>: SimdUint<Cast<usize> = simd::Simd<usize, LANE_COUNT>>,
-{
-    let codes_len = codes.len();
-
-    let mut buffer = BufferMut::<V>::with_capacity_aligned(
-        codes_len,
-        Alignment::of::<simd::Simd<V, LANE_COUNT>>(),
-    );
-
-    for chunk_idx in 0..(codes_len / LANE_COUNT) {
-        let offset = chunk_idx * LANE_COUNT;
-        let mask = simd::Mask::from_bitmask(u64::MAX);
-        let codes_chunk = simd::Simd::<C, LANE_COUNT>::from_slice(&codes[offset..]);
-
-        unsafe {
-            let selection = simd::Simd::gather_select_unchecked(
-                values,
-                mask,
-                codes_chunk.cast::<usize>(),
-                simd::Simd::<V, LANE_COUNT>::default(),
-            );
-
-            selection.store_select_ptr(buffer.as_mut_ptr().add(offset), mask.cast());
-        }
-    }
-
-    for idx in ((codes_len / LANE_COUNT) * LANE_COUNT)..codes_len {
-        unsafe {
-            *buffer.as_mut_ptr().add(idx) = values[codes[idx].as_()];
-        }
-    }
-
-    unsafe {
-        buffer.set_len(codes_len);
-    }
-
-    // TOOD(alex): handle nullable values & codes
-    PrimitiveArray::new(buffer.freeze(), Validity::NonNullable)
-}
-
 impl CanonicalVTable<DictArray> for DictEncoding {
     fn into_canonical(&self, array: DictArray) -> VortexResult<Canonical> {
         match array.dtype() {
@@ -166,7 +114,7 @@ impl CanonicalVTable<DictArray> for DictEncoding {
 
                 match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
                     match_each_native_simd_ptype!(values.ptype(), |$V| {
-                        let decoded = dict_decode_primitive::<$C, $V, 32>(codes.as_slice(), values.as_slice());
+                        let decoded = dict_decode_typed_primitive::<$C, $V, 32>(codes.as_slice(), values.as_slice());
                         try_cast(decoded, array.dtype())?.into_canonical()
                     })
                 })

@@ -8,6 +8,7 @@ pub use array::*;
 
 mod array;
 pub mod builders;
+mod compress;
 mod compute;
 mod stats;
 #[cfg(feature = "test-harness")]
