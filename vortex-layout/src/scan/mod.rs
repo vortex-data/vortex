@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use executor::{Executor, Spawn as _, ThreadsExecutor};
+use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
 use futures::stream::BoxStream;
 use futures::{stream, Stream};
 use itertools::Itertools;
@@ -46,8 +46,7 @@ pub trait ScanDriver: 'static + Sized {
 /// A struct for building a scan operation.
 pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
-    task_executor: Option<Arc<dyn TaskExecutor>>,
-    executor: Option<Executor>,
+    task_executor: Option<TaskExecutor>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
     projection: ExprRef,
@@ -64,7 +63,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
         Self {
             driver,
             task_executor: None,
-            executor: None,
             layout,
             ctx,
             projection: Identity::new_expr(),
@@ -118,13 +116,8 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    pub fn with_task_executor(mut self, task_executor: Arc<dyn TaskExecutor>) -> Self {
+    pub fn with_task_executor(mut self, task_executor: TaskExecutor) -> Self {
         self.task_executor = Some(task_executor);
-        self
-    }
-
-    pub fn with_executor(mut self, executor: Executor) -> Self {
-        self.executor = Some(executor);
         self
     }
 
@@ -188,12 +181,9 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
         Ok(Scan {
             driver: self.driver,
-            task_executor: self
-                .task_executor
-                .unwrap_or_else(|| Arc::new(InlineTaskExecutor)),
             executor: self
-                .executor
-                .unwrap_or(Executor::Threads(ThreadsExecutor::default())),
+                .task_executor
+                .unwrap_or(TaskExecutor::Threads(ThreadsExecutor::default())),
             layout: self.layout,
             ctx: self.ctx,
             projection,
@@ -216,7 +206,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
 pub struct ScanExecutor {
     segment_reader: Arc<dyn AsyncSegmentReader>,
-    task_executor: Arc<dyn TaskExecutor>,
 }
 
 impl ScanExecutor {
@@ -224,7 +213,6 @@ impl ScanExecutor {
     pub fn inline(segments: Arc<dyn AsyncSegmentReader>) -> Arc<Self> {
         Arc::new(Self {
             segment_reader: segments,
-            task_executor: Arc::new(InlineTaskExecutor),
         })
     }
 
@@ -233,14 +221,17 @@ impl ScanExecutor {
     }
 
     pub fn evaluate(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
-        self.task_executor.execute(array, tasks)
+        let mut array = array.clone();
+        for task in tasks {
+            array = task.execute(&array)?;
+        }
+        Ok(array)
     }
 }
 
 pub struct Scan<D> {
     driver: D,
-    task_executor: Arc<dyn TaskExecutor>,
-    executor: Executor,
+    executor: TaskExecutor,
     layout: Layout,
     ctx: ContextRef,
     // Guaranteed to be simplified
@@ -261,7 +252,6 @@ impl<D: ScanDriver> Scan<D> {
         // Create a single LayoutReader that is reused for the entire scan.
         let scan_executor = Arc::new(ScanExecutor {
             segment_reader: self.driver.segment_reader(),
-            task_executor: self.task_executor.clone(),
         });
         let executor = self.executor.clone();
         let reader: Arc<dyn LayoutReader> = self

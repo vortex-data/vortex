@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use futures::{FutureExt as _, TryFutureExt as _};
 use vortex_error::{vortex_err, VortexResult};
 
-use super::Spawn;
+use super::Executor;
 
 trait Task {
     fn run(self: Box<Self>);
@@ -76,7 +76,7 @@ impl Inner {
     }
 }
 
-impl Spawn for ThreadsExecutor {
+impl Executor for ThreadsExecutor {
     fn spawn<F>(&self, f: F) -> VortexResult<BoxFuture<'static, VortexResult<F::Output>>>
     where
         F: Future + Send + 'static,

@@ -5,7 +5,7 @@ use futures::{FutureExt, TryFutureExt};
 use tokio::runtime::Handle;
 use vortex_error::{VortexError, VortexResult};
 
-use super::Spawn;
+use super::Executor;
 
 /// Tokio-based async task executor, runs task on the provided runtime.
 #[derive(Clone)]
@@ -18,7 +18,7 @@ impl TokioExecutor {
 }
 
 #[async_trait::async_trait]
-impl Spawn for TokioExecutor {
+impl Executor for TokioExecutor {
     fn spawn<F>(&self, f: F) -> VortexResult<BoxFuture<'static, VortexResult<F::Output>>>
     where
         F: Future + Send + 'static,

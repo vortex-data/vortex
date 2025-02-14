@@ -34,19 +34,3 @@ impl ScanTask {
         }
     }
 }
-
-pub trait TaskExecutor: 'static + Send + Sync {
-    fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array>;
-}
-
-pub struct InlineTaskExecutor;
-
-impl TaskExecutor for InlineTaskExecutor {
-    fn execute(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
-        let mut array = array.clone();
-        for task in tasks {
-            array = task.execute(&array)?;
-        }
-        Ok(array)
-    }
-}
