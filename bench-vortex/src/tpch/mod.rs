@@ -32,6 +32,7 @@ use vortex_datafusion::SessionContextExt;
 use crate::{get_session_with_cache, Format, CTX};
 
 pub mod dbgen;
+pub mod duckdb;
 mod execute;
 pub mod schema;
 
