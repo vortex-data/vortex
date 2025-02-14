@@ -175,7 +175,7 @@ mod test {
             ],
         )
         .unwrap();
-        (ScanExecutor::inline(Arc::new(segments)), layout)
+        (ScanExecutor::new(Arc::new(segments)), layout)
     }
 
     #[test]

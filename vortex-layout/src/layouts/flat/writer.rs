@@ -119,7 +119,7 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
+                .reader(ScanExecutor::new(Arc::new(segments)), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
                 .await

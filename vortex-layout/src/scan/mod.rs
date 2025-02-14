@@ -213,8 +213,7 @@ pub struct ScanExecutor {
 }
 
 impl ScanExecutor {
-    /// Mostly used for testing, this creates a ScanExecutor with an inline task executor.
-    pub fn inline(segments: Arc<dyn AsyncSegmentReader>) -> Arc<Self> {
+    pub fn new(segments: Arc<dyn AsyncSegmentReader>) -> Arc<Self> {
         Arc::new(Self {
             segment_reader: segments,
         })
@@ -266,63 +265,64 @@ impl<D: ScanDriver> Scan<D> {
         let row_masks = stream::iter(self.row_masks);
 
         // If we have a filter expression, we set up a filter stream
-        let row_masks: BoxStream<'static, VortexResult<RowMask>> =
-            if let Some(filter) = self.filter.clone() {
-                let reader = reader.clone();
-                let executor = executor.clone();
+        let filtered_row_masks: BoxStream<'static, VortexResult<RowMask>> =
+            match self.filter.clone() {
+                None => row_masks.map(Ok).boxed(),
+                Some(filter) => {
+                    let reader = reader.clone();
+                    let executor = executor.clone();
 
-                let pruning = Arc::new(FilterExpr::try_new(
-                    reader
-                        .dtype()
-                        .as_struct()
-                        .ok_or_else(|| {
-                            vortex_err!("Vortex scan currently only works for struct arrays")
-                        })?
-                        .clone(),
-                    filter.clone(),
-                )?);
+                    let pruning = Arc::new(FilterExpr::try_new(
+                        reader
+                            .dtype()
+                            .as_struct()
+                            .ok_or_else(|| {
+                                vortex_err!("Vortex scan currently only works for struct arrays")
+                            })?
+                            .clone(),
+                        filter.clone(),
+                    )?);
 
-                row_masks
-                    .map(move |row_mask| {
-                        let reader = reader.clone();
-                        let filter = filter.clone();
-                        let pruning = pruning.clone();
-                        let executor = executor.clone();
+                    row_masks
+                        .map(move |row_mask| {
+                            let reader = reader.clone();
+                            let filter = filter.clone();
+                            let pruning = pruning.clone();
+                            let executor = executor.clone();
 
-                        log::debug!(
-                            "Evaluating filter {} for row mask {}..{} {}",
-                            &filter,
-                            row_mask.begin(),
-                            row_mask.end(),
-                            row_mask.filter_mask().density()
-                        );
-                        async move {
-                            executor
-                                .spawn(async move {
-                                    pruning.new_evaluation(&row_mask).evaluate(reader).await
-                                })?
-                                .await
-                        }
-                    })
-                    // Instead of buffering, we should be smarter where we poll the stream until
-                    // the I/O queue has ~256MB of requests in it. Our working set size.
-                    // We then return Pending and the I/O thread is free to spawn the requests.
-                    .buffered(self.concurrency)
-                    .filter_map(|r| async move {
-                        match r {
-                            Ok(Ok(r)) => (!r.filter_mask().all_false()).then_some(Ok(r)),
-                            Ok(Err(e)) | Err(e) => Some(Err(e)),
-                        }
-                    })
-                    .boxed()
-            } else {
-                row_masks.map(Ok).boxed()
+                            log::debug!(
+                                "Evaluating filter {} for row mask {}..{} {}",
+                                &filter,
+                                row_mask.begin(),
+                                row_mask.end(),
+                                row_mask.filter_mask().density()
+                            );
+                            async move {
+                                executor
+                                    .spawn(async move {
+                                        pruning.new_evaluation(&row_mask).evaluate(reader).await
+                                    })?
+                                    .await
+                            }
+                        })
+                        // Instead of buffering, we should be smarter where we poll the stream until
+                        // the I/O queue has ~256MB of requests in it. Our working set size.
+                        // We then return Pending and the I/O thread is free to spawn the requests.
+                        .buffered(self.concurrency)
+                        .filter_map(|r| async move {
+                            match r {
+                                Ok(Ok(r)) => (!r.filter_mask().all_false()).then_some(Ok(r)),
+                                Ok(Err(e)) | Err(e) => Some(Err(e)),
+                            }
+                        })
+                        .boxed()
+                }
             };
 
         // Setup a projection stream
         let reader = reader.clone();
         let projection = self.projection.clone();
-        let array_stream = row_masks
+        let array_stream = filtered_row_masks
             .map(move |row_mask| {
                 let reader = reader.clone();
                 let projection = projection.clone();

@@ -127,7 +127,7 @@ mod tests {
             .map(IntoArray::into_array)],
         )
         .unwrap();
-        (ScanExecutor::inline(Arc::new(segments)), layout)
+        (ScanExecutor::new(Arc::new(segments)), layout)
     }
 
     #[test]
