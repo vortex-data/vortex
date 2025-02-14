@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
@@ -70,7 +71,9 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_indices: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 32,
+            concurrency: std::thread::available_parallelism()
+                .map(NonZeroUsize::get)
+                .unwrap_or(32),
         }
     }
 
@@ -110,8 +113,9 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    /// The number of row splits to make progress on concurrently.
+    /// The number of row splits to make progress on concurrently, must be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        assert!(concurrency > 0);
         self.concurrency = concurrency;
         self
     }

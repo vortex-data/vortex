@@ -27,6 +27,12 @@ pub enum TaskExecutor {
     Tokio(TokioExecutor),
 }
 
+pub enum TaskExecutorMode {
+    Threads,
+    #[cfg(feature = "tokio")]
+    Tokio,
+}
+
 #[async_trait::async_trait]
 impl Executor for TaskExecutor {
     fn spawn<F>(&self, f: F) -> VortexResult<BoxFuture<'static, VortexResult<F::Output>>>
