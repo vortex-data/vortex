@@ -284,7 +284,7 @@ impl<D: ScanDriver> Scan<D> {
         let row_masks = stream::iter(self.row_masks);
         let projection = self.projection.clone();
 
-        let array_stream = row_masks.filter_map(move |row_mask| {
+        let exec_stream = row_masks.filter_map(move |row_mask| {
             let reader = reader.clone();
             let task_executor = task_executor.clone();
             let projection = projection.clone();
@@ -328,7 +328,7 @@ impl<D: ScanDriver> Scan<D> {
         let io_stream = self.driver.io_stream();
 
         let unified = UnifiedDriverStream {
-            exec_stream: array_stream,
+            exec_stream,
             io_stream,
         };
 
