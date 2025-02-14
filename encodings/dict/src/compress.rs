@@ -6,11 +6,8 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::{Alignment, BufferMut};
 use vortex_dtype::NativePType;
-use vortex_error::vortex_panic;
 
 /// Decodes a dictionary by mapping codes to their corresponding values.
-///
-/// Note: The unique value count can't exceed `LANE_COUNT` or the function will panic otherwise.
 ///
 /// # Type Parameters
 /// * `C` - The type of the codes
@@ -34,10 +31,6 @@ where
     simd::LaneCount<LANE_COUNT>: simd::SupportedLaneCount,
     simd::Simd<C, LANE_COUNT>: SimdUint<Cast<usize> = simd::Simd<usize, LANE_COUNT>>,
 {
-    if values.len() > LANE_COUNT {
-        vortex_panic!("Number of unique dict values can't be larger than SIMD lane count")
-    }
-
     let codes_len = codes.len();
 
     let mut buffer = BufferMut::<V>::with_capacity_aligned(

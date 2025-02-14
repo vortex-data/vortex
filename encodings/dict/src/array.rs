@@ -104,9 +104,9 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             }
             DType::Primitive(ptype, _)
                 // TODO(alex): handle nullable codes & values
-                if array.values().len() <= 32 && *ptype != PType::F16
-                    && !array.codes().dtype().is_nullable()
-                    && !array.values().dtype().is_nullable() =>
+                if *ptype != PType::F16
+                    && array.codes().all_valid()?
+                    && array.values().all_valid()? =>
             {
                 let codes = array.codes().into_primitive()?;
                 let values = array.values().into_primitive()?;
@@ -116,11 +116,11 @@ impl CanonicalVTable<DictArray> for DictEncoding {
                         // SIMD types larger than the SIMD register size are beneficial for
                         // performance as this leads to better instruction level parallelism.
                         let decoded = dict_decode_typed_primitive::<$C, $V, 32>(codes.as_slice(), values.as_slice());
-                        try_cast(decoded, array.dtype())?.into_canonical()
+                        decoded.into_canonical()
                     })
                 })
             }
-            _ => try_cast(take(array.values(), array.codes())?, array.dtype())?.into_canonical(),
+            _ => take(array.values(), array.codes())?.into_canonical()
         }
     }
 
