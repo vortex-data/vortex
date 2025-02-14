@@ -114,6 +114,8 @@ impl CanonicalVTable<DictArray> for DictEncoding {
 
                 match_each_unsigned_integer_ptype!(codes.ptype(), |$C| {
                     match_each_native_simd_ptype!(values.ptype(), |$V| {
+                        // SIMD types larger than the SIMD register size are beneficial for
+                        // performance as this leads to better instruction level parallelism.
                         let decoded = dict_decode_typed_primitive::<$C, $V, 32>(codes.as_slice(), values.as_slice());
                         try_cast(decoded, array.dtype())?.into_canonical()
                     })
