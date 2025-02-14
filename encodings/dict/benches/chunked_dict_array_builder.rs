@@ -5,7 +5,7 @@ use rand::SeedableRng;
 use vortex_array::array::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::{Array, IntoArray, IntoCanonical};
-use vortex_dict::test::gen_primitive_dict;
+use vortex_dict::test::{gen_primitive_dict, generate_dict_fsst_test_data};
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
 
@@ -84,39 +84,6 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
         .bench_local_values(|chunk| chunk.into_canonical().vortex_unwrap())
 }
 
-fn generate_test_data(
-    rng: &mut StdRng,
-    string_count: usize,
-    avg_len: usize,
-    unique_chars: u8,
-) -> Array {
-    let mut strings = Vec::with_capacity(string_count);
-
-    for _ in 0..string_count {
-        // Generate a random string with length around `avg_len`. The number of possible
-        // characters within the random string is defined by `unique_chars`.
-        let len = avg_len * rng.gen_range(50..=150) / 100;
-        strings.push(Some(
-            (0..len)
-                .map(|_| rng.gen_range(b'a'..(b'a' + unique_chars)) as char)
-                .collect::<String>()
-                .into_bytes(),
-        ));
-    }
-
-    let varbin = VarBinArray::from_iter(
-        strings
-            .into_iter()
-            .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
-        DType::Binary(Nullability::NonNullable),
-    );
-    let compressor = fsst_train_compressor(&varbin).vortex_unwrap();
-
-    fsst_compress(&varbin, &compressor)
-        .vortex_unwrap()
-        .into_array()
-}
-
 fn make_dict_fsst_chunks<O: NativePType>(
     len: usize,
     unique_values: usize,
@@ -126,15 +93,7 @@ fn make_dict_fsst_chunks<O: NativePType>(
 
     (0..chunk_count)
         .map(|_| {
-            let values = generate_test_data(&mut rng, len, 20, 10);
-            // let values = generate_test_data(&mut rng, 2, 4, 10);
-            let codes = (0..len)
-                .map(|_| O::from(rng.gen_range(0..unique_values)).vortex_expect("valid value"))
-                .collect::<PrimitiveArray>();
-
-            DictArray::try_new(codes.into_array(), values)
-                .vortex_unwrap()
-                .into_array()
+            generate_dict_fsst_test_data::<u32>(&mut rng, len, unique_values, 20, 30).into_array()
         })
         .collect::<ChunkedArray>()
         .into_array()
