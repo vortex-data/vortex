@@ -97,11 +97,26 @@ fn take_views_into<I: AsPrimitive<usize>>(
     mask: Mask,
     _builder: &mut VarBinViewBuilder,
 ) {
+    let buffers_offset = _builder.completed_block_count() as u32;
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
     _builder.push_buffer_and_adjusted_views(
         buffers,
-        indices.iter().map(|i| views_ref[i.as_()]),
+        indices.iter().map(|i| {
+            let view = views_ref[i.as_()];
+            if view.is_inlined() {
+                view
+            } else {
+                // Referencing views must have their buffer_index adjusted with new offsets
+                let view_ref = view.as_view();
+                BinaryView::new_view(
+                    view.len(),
+                    *view_ref.prefix(),
+                    buffers_offset + view_ref.buffer_index(),
+                    view_ref.offset(),
+                )
+            }
+        }),
         mask,
     );
 }
