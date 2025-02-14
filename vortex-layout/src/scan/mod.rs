@@ -2,8 +2,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::stream::BoxStream;
-use futures::{stream, Stream};
+use futures::{stream, FutureExt as _, Stream};
 use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -19,7 +18,7 @@ pub use split_by::*;
 pub use task::*;
 use vortex_array::{Array, ContextRef};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_mask::Mask;
@@ -243,6 +242,7 @@ pub struct Scan<D> {
     filter: Option<ExprRef>,
     row_masks: Vec<RowMask>,
     canonicalize: bool,
+    #[allow(dead_code)] //TODO(adam): bake this into the executors?
     concurrency: usize,
 }
 
@@ -261,95 +261,70 @@ impl<D: ScanDriver> Scan<D> {
             .layout
             .reader(scan_executor.clone(), self.ctx.clone())?;
 
+        let pruning = self
+            .filter
+            .as_ref()
+            .map(|filter| {
+                let pruning = Arc::new(FilterExpr::try_new(
+                    reader
+                        .dtype()
+                        .as_struct()
+                        .ok_or_else(|| {
+                            vortex_err!("Vortex scan currently only works for struct arrays")
+                        })?
+                        .clone(),
+                    filter.clone(),
+                )?);
+
+                VortexResult::Ok(pruning)
+            })
+            .transpose()?;
+
         // We start with a stream of row masks
         let row_masks = stream::iter(self.row_masks);
+        let projection = self.projection.clone();
 
-        // If we have a filter expression, we set up a filter stream
-        let filtered_row_masks: BoxStream<'static, VortexResult<RowMask>> =
-            match self.filter.clone() {
-                None => row_masks.map(Ok).boxed(),
-                Some(filter) => {
-                    let reader = reader.clone();
-                    let task_executor = task_executor.clone();
+        let array_stream = row_masks.filter_map(move |row_mask| {
+            let reader = reader.clone();
+            let task_executor = task_executor.clone();
+            let projection = projection.clone();
+            let pruning = pruning.clone();
+            let reader = reader.clone();
+            let scan_executor = scan_executor.clone();
 
-                    let pruning = Arc::new(FilterExpr::try_new(
-                        reader
-                            .dtype()
-                            .as_struct()
-                            .ok_or_else(|| {
-                                vortex_err!("Vortex scan currently only works for struct arrays")
-                            })?
-                            .clone(),
-                        filter.clone(),
-                    )?);
+            // spawn this
+            let process_split_task = async move {
+                let row_mask = match pruning {
+                    None => row_mask,
+                    Some(pruning_filter) => {
+                        pruning_filter
+                            .new_evaluation(&row_mask)
+                            .evaluate(reader.clone())
+                            .await?
+                    }
+                };
 
-                    row_masks
-                        .map(move |row_mask| {
-                            let reader = reader.clone();
-                            let filter = filter.clone();
-                            let pruning = pruning.clone();
-                            let task_executor = task_executor.clone();
+                // Filter out all-false masks
+                if row_mask.filter_mask().all_false() {
+                    Ok(None)
+                } else {
+                    let mut array = reader.evaluate_expr(row_mask, projection).await?;
+                    if self.canonicalize {
+                        array = scan_executor.evaluate(&array, &[ScanTask::Canonicalize])?;
+                    }
 
-                            log::debug!(
-                                "Evaluating filter {} for row mask {}..{} {}",
-                                &filter,
-                                row_mask.begin(),
-                                row_mask.end(),
-                                row_mask.filter_mask().density()
-                            );
-                            async move {
-                                let x = task_executor
-                                    .spawn(async move {
-                                        pruning.new_evaluation(&row_mask).evaluate(reader).await
-                                    })?
-                                    .await;
-
-                                x
-                            }
-                        })
-                        // Instead of buffering, we should be smarter where we poll the stream until
-                        // the I/O queue has ~256MB of requests in it. Our working set size.
-                        // We then return Pending and the I/O thread is free to spawn the requests.
-                        .buffered(self.concurrency)
-                        .filter_map(|r| async move {
-                            match r {
-                                Ok(Ok(r)) => (!r.filter_mask().all_false()).then_some(Ok(r)),
-                                Ok(Err(e)) | Err(e) => Some(Err(e)),
-                            }
-                        })
-                        .boxed()
+                    VortexResult::Ok(Some(array))
                 }
             };
 
-        // Setup a projection stream
-        let reader = reader.clone();
-        let projection = self.projection.clone();
-        let array_stream = filtered_row_masks
-            .map(move |row_mask| {
-                let reader = reader.clone();
-                let projection = projection.clone();
-                let scan_executor = scan_executor.clone();
-                let executor = task_executor.clone();
-                async move {
-                    let r = executor
-                        .spawn(async move {
-                            let row_mask = row_mask?;
-                            let mut array = reader.evaluate_expr(row_mask, projection).await?;
-                            if self.canonicalize {
-                                array =
-                                    scan_executor.evaluate(&array, &[ScanTask::Canonicalize])?;
-                            }
-                            Ok(array)
-                        })?
-                        .await;
+            async move {
+                let processed_array =
+                    ResultExt::flatten(task_executor.spawn(process_split_task)?.await)?;
 
-                    match r {
-                        Ok(Ok(r)) => Ok(r),
-                        Ok(Err(e)) | Err(e) => Err(e),
-                    }
-                }
-            })
-            .buffered(self.concurrency);
+                Ok(processed_array)
+            }
+            .map(|v| v.transpose())
+        });
 
         let io_stream = self.driver.io_stream();
 
