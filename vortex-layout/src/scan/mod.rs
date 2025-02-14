@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{stream, FutureExt as _, Stream};
+use futures::{stream, Stream};
 use itertools::Itertools;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -13,7 +13,6 @@ mod split_by;
 mod task;
 pub mod unified;
 
-use futures::StreamExt;
 pub use split_by::*;
 pub use task::*;
 use vortex_array::{Array, ContextRef};
@@ -284,46 +283,51 @@ impl<D: ScanDriver> Scan<D> {
         let row_masks = stream::iter(self.row_masks);
         let projection = self.projection.clone();
 
-        let exec_stream = row_masks.filter_map(move |row_mask| {
-            let reader = reader.clone();
-            let task_executor = task_executor.clone();
-            let projection = projection.clone();
-            let pruning = pruning.clone();
-            let reader = reader.clone();
-            let scan_executor = scan_executor.clone();
+        use futures::StreamExt;
 
-            // spawn this
-            let process_split_task = async move {
-                let row_mask = match pruning {
-                    None => row_mask,
-                    Some(pruning_filter) => {
-                        pruning_filter
-                            .new_evaluation(&row_mask)
-                            .evaluate(reader.clone())
-                            .await?
+        let exec_stream = row_masks
+            .map(move |row_mask| {
+                let reader = reader.clone();
+                let task_executor = task_executor.clone();
+                let projection = projection.clone();
+                let pruning = pruning.clone();
+                let reader = reader.clone();
+                let scan_executor = scan_executor.clone();
+
+                // spawn this
+                let process_split_task = async move {
+                    let row_mask = match pruning {
+                        None => row_mask,
+                        Some(pruning_filter) => {
+                            pruning_filter
+                                .new_evaluation(&row_mask)
+                                .evaluate(reader.clone())
+                                .await?
+                        }
+                    };
+
+                    // Filter out all-false masks
+                    if row_mask.filter_mask().all_false() {
+                        Ok(None)
+                    } else {
+                        let mut array = reader.evaluate_expr(row_mask, projection).await?;
+                        if self.canonicalize {
+                            array = scan_executor.evaluate(&array, &[ScanTask::Canonicalize])?;
+                        }
+
+                        VortexResult::Ok(Some(array))
                     }
                 };
 
-                // Filter out all-false masks
-                if row_mask.filter_mask().all_false() {
-                    Ok(None)
-                } else {
-                    let mut array = reader.evaluate_expr(row_mask, projection).await?;
-                    if self.canonicalize {
-                        array = scan_executor.evaluate(&array, &[ScanTask::Canonicalize])?;
-                    }
+                async move {
+                    let processed_array =
+                        task_executor.spawn(process_split_task)?.await.unnest()?;
 
-                    VortexResult::Ok(Some(array))
+                    VortexResult::Ok(processed_array)
                 }
-            };
-
-            async move {
-                let processed_array = task_executor.spawn(process_split_task)?.await.unnest()?;
-
-                Ok(processed_array)
-            }
-            .map(|v| v.transpose())
-        });
+            })
+            .buffered(self.concurrency)
+            .filter_map(|v| async move { v.transpose() });
 
         let io_stream = self.driver.io_stream();
 
