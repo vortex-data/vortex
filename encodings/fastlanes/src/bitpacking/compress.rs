@@ -237,15 +237,18 @@ where
     G: Fn(&mut [T]) -> &mut [UnsignedT],
 {
     let my_offset_in_builder = builder.len();
+
+    builder
+        .nulls
+        .append_validity(array.validity(), array.len())?;
+
     let packed = array.packed_slice::<UnsignedT>();
-    let validity = array.validity();
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
 
     unpack_values_into(
         packed,
-        validity,
         bit_width,
         length,
         offset,
@@ -261,10 +264,8 @@ where
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn unpack_values_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(
     packed: &[UnsignedT],
-    validity: Validity,
     bit_width: usize,
     length: usize,
     offset: usize,
@@ -282,8 +283,6 @@ where
         0 => 1024,
         last_chunk_length => last_chunk_length,
     };
-
-    builder.nulls.append_validity(validity, length)?;
 
     if bit_width == 0 {
         builder.values.push_n(T::zero(), length);
