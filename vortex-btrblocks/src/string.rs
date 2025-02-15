@@ -94,14 +94,14 @@ impl Compressor for StringCompressor {
         &UncompressedScheme
     }
 
-    fn dict_scheme_code() -> u8 {
+    fn dict_scheme_code() -> StringCode {
         DICT_SCHEME
     }
 }
 
-pub trait StringScheme: Scheme<StatsType = StringStats> {}
+pub trait StringScheme: Scheme<StatsType = StringStats, CodeType = StringCode> {}
 
-impl<T> StringScheme for T where T: Scheme<StatsType = StringStats> {}
+impl<T> StringScheme for T where T: Scheme<StatsType = StringStats, CodeType = StringCode> {}
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -112,14 +112,18 @@ pub struct DictScheme;
 #[derive(Debug, Copy, Clone)]
 pub struct FSSTScheme;
 
-const UNCOMPRESSED_SCHEME: u8 = 0;
-const DICT_SCHEME: u8 = 1;
-const FSST_SCHEME: u8 = 2;
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct StringCode(u8);
+
+const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
+const DICT_SCHEME: StringCode = StringCode(1);
+const FSST_SCHEME: StringCode = StringCode(2);
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
+    type CodeType = StringCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> StringCode {
         UNCOMPRESSED_SCHEME
     }
 
@@ -128,7 +132,7 @@ impl Scheme for UncompressedScheme {
         _stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[StringCode],
     ) -> VortexResult<f64> {
         Ok(1.0)
     }
@@ -138,7 +142,7 @@ impl Scheme for UncompressedScheme {
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[StringCode],
     ) -> VortexResult<Array> {
         Ok(stats.source().clone().into_array())
     }
@@ -146,8 +150,9 @@ impl Scheme for UncompressedScheme {
 
 impl Scheme for DictScheme {
     type StatsType = StringStats;
+    type CodeType = StringCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> StringCode {
         DICT_SCHEME
     }
 
@@ -156,7 +161,7 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[StringCode],
     ) -> VortexResult<f64> {
         // If we don't have a sufficiently high number of distinct values, do not attempt Dict.
         if stats.estimated_distinct_count > stats.value_count / 2 {
@@ -182,7 +187,7 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[StringCode],
     ) -> VortexResult<Array> {
         let dict = dict_encode(&stats.source().clone().into_array())?;
 
@@ -215,8 +220,9 @@ impl Scheme for DictScheme {
 
 impl Scheme for FSSTScheme {
     type StatsType = StringStats;
+    type CodeType = StringCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> StringCode {
         FSST_SCHEME
     }
 
@@ -225,7 +231,7 @@ impl Scheme for FSSTScheme {
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[StringCode],
     ) -> VortexResult<Array> {
         let compressor = fsst_train_compressor(&stats.src.clone().into_array())?;
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;

@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::Deref;
 
 use vortex_array::array::{ExtensionArray, ListArray, StructArray, TemporalArray};
@@ -59,9 +60,10 @@ pub trait CompressorStats: Clone {
 /// Variants are specialized for each data type, e.g. see `IntegerScheme`, `FloatScheme`, etc.
 pub trait Scheme: Debug {
     type StatsType: CompressorStats;
+    type CodeType: Copy + Eq + Hash;
 
     /// Scheme unique identifier.
-    fn code(&self) -> u8;
+    fn code(&self) -> Self::CodeType;
 
     /// True if this is the singular Constant scheme for this data type.
     fn is_constant(&self) -> bool {
@@ -80,7 +82,7 @@ pub trait Scheme: Debug {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[Self::CodeType],
     ) -> VortexResult<f64> {
         estimate_compression_ratio_with_sampling(
             self,
@@ -97,7 +99,7 @@ pub trait Scheme: Debug {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[Self::CodeType],
     ) -> VortexResult<Array>;
 }
 
@@ -116,7 +118,7 @@ pub fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     stats: &T::StatsType,
     is_sample: bool,
     allowed_cascading: usize,
-    excludes: &[u8],
+    excludes: &[T::CodeType],
 ) -> VortexResult<f64> {
     let sample = if is_sample {
         stats.clone()
@@ -150,13 +152,13 @@ pub trait Compressor {
 
     fn schemes() -> &'static [&'static Self::SchemeType];
     fn default_scheme() -> &'static Self::SchemeType;
-    fn dict_scheme_code() -> u8;
+    fn dict_scheme_code() -> <Self::SchemeType as Scheme>::CodeType;
 
     fn compress(
         array: &Self::ArrayType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[<Self::SchemeType as Scheme>::CodeType],
     ) -> VortexResult<Array>
     where
         Self::SchemeType: 'static,
@@ -187,7 +189,7 @@ pub trait Compressor {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[<Self::SchemeType as Scheme>::CodeType],
     ) -> VortexResult<&'static Self::SchemeType> {
         let mut best_ratio = 1.0;
         let mut best_scheme: Option<&'static Self::SchemeType> = None;

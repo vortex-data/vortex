@@ -22,9 +22,9 @@ use crate::{
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 3;
 
-pub trait FloatScheme: Scheme<StatsType = FloatStats> {}
+pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
-impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats> {}
+impl<T> FloatScheme for T where T: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
 pub struct FloatCompressor;
 
@@ -47,17 +47,17 @@ impl Compressor for FloatCompressor {
         &UncompressedScheme
     }
 
-    fn dict_scheme_code() -> u8 {
+    fn dict_scheme_code() -> FloatCode {
         DICT_SCHEME
     }
 }
 
-const UNCOMPRESSED_SCHEME: u8 = 0;
-const CONSTANT_SCHEME: u8 = 1;
-const ALP_SCHEME: u8 = 2;
-const ALPRD_SCHEME: u8 = 3;
-const DICT_SCHEME: u8 = 4;
-const RUNEND_SCHEME: u8 = 5;
+const UNCOMPRESSED_SCHEME: FloatCode = FloatCode(0);
+const CONSTANT_SCHEME: FloatCode = FloatCode(1);
+const ALP_SCHEME: FloatCode = FloatCode(2);
+const ALPRD_SCHEME: FloatCode = FloatCode(3);
+const DICT_SCHEME: FloatCode = FloatCode(4);
+const RUNEND_SCHEME: FloatCode = FloatCode(5);
 
 #[derive(Debug, Copy, Clone)]
 struct UncompressedScheme;
@@ -79,8 +79,9 @@ struct RunEndScheme;
 
 impl Scheme for UncompressedScheme {
     type StatsType = FloatStats;
+    type CodeType = FloatCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> FloatCode {
         UNCOMPRESSED_SCHEME
     }
 
@@ -89,7 +90,7 @@ impl Scheme for UncompressedScheme {
         _stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<f64> {
         Ok(1.0)
     }
@@ -99,7 +100,7 @@ impl Scheme for UncompressedScheme {
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<Array> {
         Ok(stats.source().clone().into_array())
     }
@@ -107,8 +108,9 @@ impl Scheme for UncompressedScheme {
 
 impl Scheme for ConstantScheme {
     type StatsType = FloatStats;
+    type CodeType = FloatCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> FloatCode {
         CONSTANT_SCHEME
     }
 
@@ -117,7 +119,7 @@ impl Scheme for ConstantScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<f64> {
         // Never select Constant when sampling
         if is_sample {
@@ -142,7 +144,7 @@ impl Scheme for ConstantScheme {
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<Array> {
         let scalar = stats
             .source()
@@ -153,10 +155,14 @@ impl Scheme for ConstantScheme {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct FloatCode(u8);
+
 impl Scheme for ALPScheme {
     type StatsType = FloatStats;
+    type CodeType = FloatCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> FloatCode {
         ALP_SCHEME
     }
 
@@ -165,7 +171,7 @@ impl Scheme for ALPScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[FloatCode],
     ) -> VortexResult<f64> {
         // We don't support ALP for f16
         if stats.source().ptype() == PType::F16 {
@@ -200,7 +206,7 @@ impl Scheme for ALPScheme {
         stats: &FloatStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[FloatCode],
     ) -> VortexResult<Array> {
         let alp = alp_encode(stats.source())?;
         let alp_ints = alp.encoded().into_primitive()?;
@@ -208,10 +214,16 @@ impl Scheme for ALPScheme {
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
         // to keep them linear for easy indexing.
-        let mut new_excludes = vec![ALPScheme.code(), ALPRDScheme.code()];
-        new_excludes.extend_from_slice(excludes);
+        let mut int_excludes = Vec::new();
+        if excludes.contains(&DICT_SCHEME) {
+            int_excludes.push(integer::DictScheme.code());
+        }
+        if excludes.contains(&RUNEND_SCHEME) {
+            int_excludes.push(integer::RunEndScheme.code());
+        }
+
         let compressed_alp_ints =
-            IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &new_excludes)?;
+            IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &int_excludes)?;
 
         Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches())?.into_array())
     }
@@ -219,8 +231,9 @@ impl Scheme for ALPScheme {
 
 impl Scheme for ALPRDScheme {
     type StatsType = FloatStats;
+    type CodeType = FloatCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> FloatCode {
         ALPRD_SCHEME
     }
 
@@ -229,7 +242,7 @@ impl Scheme for ALPRDScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[FloatCode],
     ) -> VortexResult<f64> {
         if stats.source().ptype() == PType::F16 {
             return Ok(0.0);
@@ -249,7 +262,7 @@ impl Scheme for ALPRDScheme {
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<Array> {
         let encoder = match stats.source().ptype() {
             PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
@@ -263,8 +276,9 @@ impl Scheme for ALPRDScheme {
 
 impl Scheme for DictScheme {
     type StatsType = FloatStats;
+    type CodeType = FloatCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> FloatCode {
         DICT_SCHEME
     }
 
@@ -273,7 +287,7 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[FloatCode],
     ) -> VortexResult<f64> {
         if stats.value_count == 0 {
             return Ok(0.0);
@@ -299,12 +313,9 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<Array> {
         let dict_array = dictionary_encode(stats)?;
-
-        let mut new_excludes = vec![DictScheme.code(), integer::DictScheme.code()];
-        new_excludes.extend_from_slice(excludes);
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
@@ -323,14 +334,14 @@ impl Scheme for DictScheme {
             &codes_stats,
             is_sample,
             allowed_cascading - 1,
-            &new_excludes,
+            &[integer::DictScheme.code()],
         )?;
 
         let compressed_values = FloatCompressor::compress(
             &dict_array.values().into_primitive()?,
             is_sample,
             allowed_cascading - 1,
-            &new_excludes,
+            &[DICT_SCHEME],
         )?;
 
         Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
@@ -339,8 +350,9 @@ impl Scheme for DictScheme {
 
 impl Scheme for RunEndScheme {
     type StatsType = FloatStats;
+    type CodeType = FloatCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> FloatCode {
         RUNEND_SCHEME
     }
 
@@ -349,7 +361,7 @@ impl Scheme for RunEndScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[FloatCode],
     ) -> VortexResult<f64> {
         if stats.average_run_length < RUN_END_THRESHOLD {
             return Ok(0.0);
@@ -369,12 +381,20 @@ impl Scheme for RunEndScheme {
         stats: &FloatStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        _excludes: &[FloatCode],
     ) -> VortexResult<Array> {
         let (ends, values) = runend_encode(stats.source())?;
         // Integer compress the ends, leave the values uncompressed.
-        let compressed_ends =
-            IntCompressor::compress(&ends, is_sample, allowed_cascading - 1, excludes)?;
+        let compressed_ends = IntCompressor::compress(
+            &ends,
+            is_sample,
+            allowed_cascading - 1,
+            &[
+                integer::RunEndScheme.code(),
+                integer::DictScheme.code(),
+                integer::SparseScheme.code(),
+            ],
+        )?;
 
         Ok(RunEndArray::try_new(compressed_ends, values)?.into_array())
     }

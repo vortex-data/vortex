@@ -54,7 +54,7 @@ impl Compressor for IntCompressor {
         &UncompressedScheme
     }
 
-    fn dict_scheme_code() -> u8 {
+    fn dict_scheme_code() -> IntCode {
         DICT_SCHEME
     }
 }
@@ -64,7 +64,7 @@ impl IntCompressor {
         array: &PrimitiveArray,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<Array> {
         let stats = IntegerStats::generate_opts(
             array,
@@ -85,19 +85,22 @@ impl IntCompressor {
     }
 }
 
-pub trait IntegerScheme: Scheme<StatsType = IntegerStats> {}
+pub trait IntegerScheme: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
 
 // Auto-impl
-impl<T> IntegerScheme for T where T: Scheme<StatsType = IntegerStats> {}
+impl<T> IntegerScheme for T where T: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
 
-const UNCOMPRESSED_SCHEME: u8 = 0;
-const CONSTANT_SCHEME: u8 = 1;
-const FOR_SCHEME: u8 = 2;
-const ZIGZAG_SCHEME: u8 = 3;
-const BITPACKING_SCHEME: u8 = 4;
-const SPARSE_SCHEME: u8 = 5;
-const DICT_SCHEME: u8 = 6;
-const RUNEND_SCHEME: u8 = 7;
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct IntCode(u8);
+
+const UNCOMPRESSED_SCHEME: IntCode = IntCode(0);
+const CONSTANT_SCHEME: IntCode = IntCode(1);
+const FOR_SCHEME: IntCode = IntCode(2);
+const ZIGZAG_SCHEME: IntCode = IntCode(3);
+const BITPACKING_SCHEME: IntCode = IntCode(4);
+const SPARSE_SCHEME: IntCode = IntCode(5);
+const DICT_SCHEME: IntCode = IntCode(6);
+const RUNEND_SCHEME: IntCode = IntCode(7);
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -128,8 +131,9 @@ const RUN_END_THRESHOLD: u32 = 4;
 
 impl Scheme for UncompressedScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         UNCOMPRESSED_SCHEME
     }
 
@@ -138,7 +142,7 @@ impl Scheme for UncompressedScheme {
         _stats: &IntegerStats,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // no compression
         Ok(1.0)
@@ -149,7 +153,7 @@ impl Scheme for UncompressedScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<Array> {
         Ok(stats.source().clone().into_array())
     }
@@ -157,8 +161,9 @@ impl Scheme for UncompressedScheme {
 
 impl Scheme for ConstantScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         CONSTANT_SCHEME
     }
 
@@ -171,7 +176,7 @@ impl Scheme for ConstantScheme {
         stats: &IntegerStats,
         is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Never yield ConstantScheme for a sample, it could be a false-positive.
         if is_sample {
@@ -196,7 +201,7 @@ impl Scheme for ConstantScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<Array> {
         // We only use Constant encoding if the entire array is constant, never if one of
         // the child arrays yields a constant value.
@@ -211,8 +216,9 @@ impl Scheme for ConstantScheme {
 
 impl Scheme for FORScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         FOR_SCHEME
     }
 
@@ -221,7 +227,7 @@ impl Scheme for FORScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Only apply if we are not at the leaf
         if allowed_cascading == 0 {
@@ -262,7 +268,7 @@ impl Scheme for FORScheme {
         stats: &IntegerStats,
         is_sample: bool,
         _allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<Array> {
         let for_array = for_compress(stats.src.clone())?;
         let biased = for_array.encoded().into_primitive()?;
@@ -285,8 +291,9 @@ impl Scheme for FORScheme {
 
 impl Scheme for ZigZagScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         ZIGZAG_SCHEME
     }
 
@@ -295,7 +302,7 @@ impl Scheme for ZigZagScheme {
         stats: &IntegerStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // ZigZag is only useful when we cascade it with another encoding
         if allowed_cascading == 0 {
@@ -327,7 +334,7 @@ impl Scheme for ZigZagScheme {
         stats: &IntegerStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<Array> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
@@ -354,8 +361,9 @@ impl Scheme for ZigZagScheme {
 
 impl Scheme for BitPackingScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         BITPACKING_SCHEME
     }
 
@@ -365,7 +373,7 @@ impl Scheme for BitPackingScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // BitPacking only works for non-negative values
         if stats.typed.min_is_negative() {
@@ -399,7 +407,7 @@ impl Scheme for BitPackingScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         _allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<Array> {
         let bytes_per_exception = stats.src.ptype().bit_width() as u32;
         let (bw, _) = best_bit_width(&stats.bit_width_histogram, bytes_per_exception)?;
@@ -445,8 +453,9 @@ fn best_bit_width(bit_width_freq: &[u32], bytes_per_exception: u32) -> VortexRes
 
 impl Scheme for SparseScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         SPARSE_SCHEME
     }
 
@@ -456,7 +465,7 @@ impl Scheme for SparseScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // We must have at least one level of cascading after Sparse for it to be useful.
         if allowed_cascading == 0 {
@@ -495,7 +504,7 @@ impl Scheme for SparseScheme {
         stats: &IntegerStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<Array> {
         assert!(allowed_cascading > 0);
 
@@ -594,8 +603,9 @@ fn value_indices<T: PrimInt + Hash + Into<Scalar>>(
 
 impl Scheme for DictScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         DICT_SCHEME
     }
 
@@ -604,7 +614,7 @@ impl Scheme for DictScheme {
         stats: &IntegerStats,
         _is_sample: bool,
         allowed_cascading: usize,
-        _excludes: &[u8],
+        _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Dict should not be terminal.
         if allowed_cascading == 0 {
@@ -644,7 +654,7 @@ impl Scheme for DictScheme {
         stats: &IntegerStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<Array> {
         assert!(allowed_cascading > 0);
 
@@ -670,8 +680,9 @@ impl Scheme for DictScheme {
 
 impl Scheme for RunEndScheme {
     type StatsType = IntegerStats;
+    type CodeType = IntCode;
 
-    fn code(&self) -> u8 {
+    fn code(&self) -> IntCode {
         RUNEND_SCHEME
     }
 
@@ -680,7 +691,7 @@ impl Scheme for RunEndScheme {
         stats: &IntegerStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // If the run length is below the threshold, drop it.
         if stats.average_run_length < RUN_END_THRESHOLD {
@@ -706,7 +717,7 @@ impl Scheme for RunEndScheme {
         stats: &IntegerStats,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[u8],
+        excludes: &[IntCode],
     ) -> VortexResult<Array> {
         assert!(allowed_cascading > 0);
 
