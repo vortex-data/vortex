@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
     default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
     idempotent, physical_plan, Format, IdempotentPath as _,
@@ -16,7 +17,6 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use tracing::info_span;
 use tracing_futures::Instrument;
-use bench_vortex::measurements::QueryMeasurement;
 use vortex::error::{vortex_panic, VortexExpect};
 
 feature_flagged_allocator!();
