@@ -36,7 +36,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 url = { workspace = true }
 worker = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true, features = ["rt"] }
 
 [lints]
 workspace = true
