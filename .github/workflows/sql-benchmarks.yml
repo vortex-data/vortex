@@ -38,7 +38,7 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run ${{ matrix.name }} benchmark on NVME
+      - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
         shell: bash
         env:
@@ -52,7 +52,7 @@ jobs:
               -d gh-json \
             | tee results.json
 
-      - name: Run ${{ matrix.name }} benchmark on S3
+      - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage != null
         shell: bash
         env:
