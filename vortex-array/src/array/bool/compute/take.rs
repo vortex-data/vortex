@@ -167,10 +167,7 @@ mod test {
             scalar_at(&b, 1).unwrap(),
             Scalar::null(nullable_bool_dtype.clone())
         );
-        assert_eq!(
-            scalar_at(&b, 2).unwrap(),
-            Scalar::null(nullable_bool_dtype.clone())
-        );
+        assert_eq!(scalar_at(&b, 2).unwrap(), Scalar::null(nullable_bool_dtype));
     }
 
     #[test]
