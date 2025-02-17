@@ -22,6 +22,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (100_000, 128),
     (100_000, 512),
     (100_000, 2048),
+    (100_000, 8192),
 ];
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
