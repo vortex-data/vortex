@@ -25,6 +25,10 @@ impl VarBinViewBuilder {
     const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
+        assert!(
+            matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
+            "VarBinViewBuilder DType must be Utf8 or Binary."
+        );
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
             null_buffer_builder: LazyNullBufferBuilder::new(capacity),
@@ -181,21 +185,28 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> Array {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 
+        assert_eq!(
+            self.views_builder.len(),
+            self.null_buffer_builder.len(),
+            "View and validity length must match"
+        );
+
         let validity = self
             .null_buffer_builder
-            .finish_with_nullability(self.nullability)?;
+            .finish_with_nullability(self.nullability);
 
-        Ok(VarBinViewArray::try_new(
+        VarBinViewArray::try_new(
             std::mem::take(&mut self.views_builder).freeze(),
             buffers,
             std::mem::replace(&mut self.dtype, DType::Null),
             validity,
-        )?
-        .into_array())
+        )
+        .vortex_expect("VarBinViewArray components should be valid.")
+        .into_array()
     }
 }
 

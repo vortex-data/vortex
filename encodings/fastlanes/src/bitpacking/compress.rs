@@ -222,7 +222,7 @@ pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
         |x| unsafe { std::mem::transmute(x) },
     )?;
     assert!(builder.len() == n, "{} {}", builder.len(), n);
-    builder.finish_into_primitive()
+    Ok(builder.finish_into_primitive())
 }
 
 pub(crate) fn unpack_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(

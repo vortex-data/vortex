@@ -2,7 +2,7 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -86,12 +86,15 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        Ok(BoolArray::try_new(
+    fn finish(&mut self) -> Array {
+        assert_eq!(self.nulls.len(), self.inner.len());
+
+        BoolArray::try_new(
             self.inner.finish(),
-            self.nulls.finish_with_nullability(self.nullability)?,
-        )?
-        .into_array())
+            self.nulls.finish_with_nullability(self.nullability),
+        )
+        .vortex_expect("Buffer and validity must have same length.")
+        .into_array()
     }
 }
 

@@ -174,9 +174,7 @@ impl StatsAccumulator {
             // We sort the stats so the DType is deterministic based on which stats are present.
             .sorted_unstable_by_key(|(&s, _builder)| u8::from(s))
         {
-            let values = builder
-                .finish()
-                .vortex_expect("Failed to finish stat builder");
+            let values = builder.finish();
 
             // We drop any all-null stats columns
             if values

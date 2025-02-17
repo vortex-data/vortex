@@ -140,13 +140,25 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> Array {
+        assert_eq!(
+            self.value_builder.len(),
+            self.index_builder.len(),
+            "Values and indices must have the same length."
+        );
+        assert_eq!(
+            self.value_builder.len(),
+            self.nulls.len(),
+            "Values and nulls must have the same length"
+        );
+
         ListArray::try_new(
-            self.value_builder.finish()?,
-            self.index_builder.finish()?,
-            self.nulls.finish_with_nullability(self.nullability)?,
+            self.value_builder.finish(),
+            self.index_builder.finish(),
+            self.nulls.finish_with_nullability(self.nullability),
         )
-        .map(ListArray::into_array)
+        .vortex_expect("Buffer, offsets, and validity must have same length.")
+        .into_array()
     }
 }
 
