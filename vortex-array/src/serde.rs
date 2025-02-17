@@ -242,7 +242,7 @@ impl ArrayParts {
             self.buffers,
         )
         // TODO(ngates): test eagerly constructing owned arrays
-        .map(|a| a.to_owned())
+        .map(|a| a())
     }
 }
 

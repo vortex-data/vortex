@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, RwLock};
 
+use itertools::Itertools;
 use owned::OwnedArray;
 use viewed::ViewedArray;
 use vortex_buffer::ByteBuffer;
@@ -101,7 +102,7 @@ impl Array {
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
-        Self::try_new(InnerArray::Viewed(view))
+        Ok(Self::try_new(InnerArray::Viewed(view))?.into_owned_array())
     }
 
     /// Shared constructor that performs common array validation.
@@ -177,6 +178,22 @@ impl Array {
         }
 
         Ok(array)
+    }
+
+    fn into_owned_array(self) -> Array {
+        match &self.0 {
+            InnerArray::Owned(_) => self,
+            InnerArray::Viewed(_) => Array::try_new_owned(
+                self.vtable().clone(),
+                self.dtype().clone(),
+                self.len(),
+                self.metadata_bytes().map(|b| b.into()),
+                Some(self.byte_buffers().collect()),
+                Some(self.children().into()),
+                self.statistics().stats_set(),
+            )
+            .vortex_expect("Failed to create owned array"),
+        }
     }
 
     /// Return the array's encoding VTable.
