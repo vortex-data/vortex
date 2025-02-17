@@ -234,7 +234,7 @@ mod tests {
         builder.append_zeros(2);
         builder.append_value("test");
 
-        let arr = VarBinViewArray::try_from(builder.finish().unwrap()).unwrap();
+        let arr = VarBinViewArray::try_from(builder.finish()).unwrap();
 
         let arr = arr
             .with_iterator(|iter| {
@@ -264,7 +264,7 @@ mod tests {
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
             builder.append_null();
             builder.append_value("Hello2");
-            builder.finish().unwrap()
+            builder.finish()
         };
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
@@ -273,7 +273,7 @@ mod tests {
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = VarBinViewArray::try_from(builder.finish().unwrap()).unwrap();
+        let arr = VarBinViewArray::try_from(builder.finish()).unwrap();
 
         let arr = arr
             .with_iterator(|iter| {

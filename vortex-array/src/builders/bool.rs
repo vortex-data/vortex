@@ -134,7 +134,6 @@ mod tests {
         chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
         let canon_into = builder
             .finish()
-            .unwrap()
             .into_canonical()
             .unwrap()
             .into_bool()

@@ -180,7 +180,7 @@ mod tests {
     fn test_empty() {
         let mut builder = ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0);
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 0);
     }
 
@@ -211,7 +211,7 @@ mod tests {
             )
             .unwrap();
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 2);
 
         let list_array = list.into_list().unwrap();
@@ -261,7 +261,7 @@ mod tests {
             )
             .unwrap();
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 3);
 
         let list_array = list.into_list().unwrap();
@@ -300,7 +300,6 @@ mod tests {
 
         let res = builder
             .finish()
-            .unwrap()
             .into_canonical()
             .unwrap()
             .into_list()

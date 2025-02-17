@@ -115,7 +115,7 @@ fn chunked_canonicalize_into(
                 array.len(),
             );
             array.canonicalize_into(&mut builder).unwrap();
-            builder.finish().unwrap()
+            builder.finish()
         });
 }
 
