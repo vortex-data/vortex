@@ -133,7 +133,7 @@ fn main() {
 
     // The formats to run against (vs the baseline)
     let formats = match args.formats {
-        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
+        None => vec![Format::Parquet, Format::OnDiskVortex],
         Some(formats) => parse_formats(formats),
     };
 
