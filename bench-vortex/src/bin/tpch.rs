@@ -1,6 +1,5 @@
 use std::process::ExitCode;
-use std::sync;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::formats::parse_formats;
@@ -148,9 +147,8 @@ async fn bench_main(
     // Set up a progress bar
     let progress = ProgressBar::new((query_count * formats.len()) as u64);
 
-    // Send back a channel with the results of Row.
-    let (measurements_tx, measurements_rx) = sync::mpsc::channel();
-    let (row_count_tx, row_count_rx) = sync::mpsc::channel();
+    let mut row_counts = Vec::new();
+    let mut measurements = Vec::new();
 
     for (query_idx, sql_queries) in tpch_queries() {
         if queries
@@ -166,47 +164,36 @@ async fn bench_main(
         {
             continue;
         }
-        let ctxs = ctxs.clone();
-        let tx = measurements_tx.clone();
-        let count_tx = row_count_tx.clone();
-        let progress = progress.clone();
-        let formats = formats.clone();
 
         for (ctx, format) in ctxs.iter().zip(formats.iter()) {
             for i in 0..2 {
                 let row_count = run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
                 if i == 0 {
-                    count_tx.send((query_idx, *format, row_count)).unwrap();
+                    row_counts.push((query_idx, *format, row_count));
                 }
             }
 
-            let mut measures = Vec::new();
+            let mut fastest_result = Duration::from_millis(u64::MAX);
             for _ in 0..iterations {
                 let start = Instant::now();
                 run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
                 let elapsed = start.elapsed();
-                measures.push(elapsed);
+                fastest_result = fastest_result.min(elapsed);
             }
-            let fastest = measures.iter().cloned().min().unwrap();
 
-            tx.send(QueryMeasurement {
+            measurements.push(QueryMeasurement {
                 query_idx,
-                time: fastest,
+                time: fastest_result,
                 format: *format,
                 dataset: "tpch".to_string(),
-            })
-            .unwrap();
+            });
 
             progress.inc(1);
         }
     }
 
-    // delete parent handle to tx
-    drop(measurements_tx);
-    drop(row_count_tx);
-
     let mut format_row_counts: HashMap<Format, Vec<usize>> = HashMap::new();
-    while let Ok((idx, format, row_count)) = row_count_rx.recv() {
+    for (idx, format, row_count) in row_counts {
         format_row_counts
             .entry(format)
             .or_insert_with(|| vec![0; EXPECTED_ROW_COUNTS.len()])[idx] = row_count;
@@ -229,14 +216,12 @@ async fn bench_main(
             })
     }
 
-    let all_measurements = measurements_rx.into_iter().collect::<Vec<_>>();
-
     match display_format {
         DisplayFormat::Table => {
-            render_table(all_measurements, &formats).unwrap();
+            render_table(measurements, &formats).unwrap();
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(all_measurements).unwrap();
+            print_measurements_json(measurements).unwrap();
         }
     }
 
