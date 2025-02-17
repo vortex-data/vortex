@@ -37,9 +37,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
-                return Ok(
-                    ConstantArray::new(Scalar::null_typed::<bool>(), indices.len()).into_array(),
+                return Ok(ConstantArray::new(
+                    Scalar::null(array.dtype().as_nullable()),
+                    indices.len(),
                 )
+                .into_array())
             }
             Mask::Values(_) => fill_null(indices, Scalar::from(0).cast(indices.dtype())?)?,
         };
