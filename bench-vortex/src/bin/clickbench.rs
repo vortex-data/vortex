@@ -129,7 +129,7 @@ fn main() {
         })
         .unwrap();
     });
-  
+
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
         Some(queries) => clickbench_queries()
