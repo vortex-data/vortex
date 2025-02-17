@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskValues};
+use vortex_scalar::Scalar;
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::{filter, scalar_at, slice, take};
+use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
@@ -29,6 +30,14 @@ impl Array {
             return Ok(true);
         }
         self.vtable().all_valid(self)
+    }
+
+    /// Return whether all elements in the array are invalid.
+    pub fn all_invalid(&self) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(false);
+        }
+        self.vtable().all_invalid(self)
     }
 
     /// Return the number of null elements in the array.
@@ -173,7 +182,19 @@ impl Validity {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(array) => {
+                // TODO(ngates): replace with SUM compute function
                 array.clone().into_bool()?.boolean_buffer().count_set_bits() == array.len()
+            }
+        })
+    }
+
+    pub fn all_invalid(&self) -> VortexResult<bool> {
+        Ok(match self {
+            Validity::NonNullable | Validity::AllValid => false,
+            Validity::AllInvalid => true,
+            Validity::Array(array) => {
+                // TODO(ngates): replace with SUM compute function
+                array.clone().into_bool()?.boolean_buffer().count_set_bits() == 0
             }
         })
     }
@@ -208,15 +229,29 @@ impl Validity {
 
     pub fn take(&self, indices: &Array) -> VortexResult<Self> {
         match self {
-            v @ Self::NonNullable | v @ Self::AllValid => {
-                match indices.validity_mask()?.boolean_buffer() {
-                    AllOr::All => Ok(v.clone()),
-                    AllOr::None => Ok(Self::AllInvalid),
-                    AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
+            Self::NonNullable => match indices.validity_mask()?.boolean_buffer() {
+                AllOr::All => {
+                    if indices.dtype().is_nullable() {
+                        Ok(Self::AllValid)
+                    } else {
+                        Ok(Self::NonNullable)
+                    }
                 }
-            }
+                AllOr::None => Ok(Self::AllInvalid),
+                AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
+            },
+            Self::AllValid => match indices.validity_mask()?.boolean_buffer() {
+                AllOr::All => Ok(Self::AllValid),
+                AllOr::None => Ok(Self::AllInvalid),
+                AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
+            },
             Self::AllInvalid => Ok(Self::AllInvalid),
-            Self::Array(a) => Ok(Self::Array(take(a, indices)?)),
+            Self::Array(is_valid) => {
+                let maybe_is_valid = take(is_valid, indices)?;
+                // Null indices invalidite that position.
+                let is_valid = fill_null(maybe_is_valid, Scalar::from(false))?;
+                Ok(Self::Array(is_valid))
+            }
         }
     }
 

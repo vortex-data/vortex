@@ -8,7 +8,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_array::Array;
 use vortex_dtype::{FieldName, StructDType};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::{get_item, ident, or, ExprRef};
@@ -115,11 +115,7 @@ impl FilterExpr {
     /// If we already have fields for a certain conjunct, we choose to evaluate it. Otherwise,
     /// we pick the first conjunct that we prefer based on our ordering.
     fn next_conjunct(&self, remaining: &BitVec, fetched_fields: &[Option<Array>]) -> Option<usize> {
-        let read = self
-            .ordering
-            .read()
-            .map_err(|_| vortex_err!("poisoned lock"))
-            .vortex_expect("lock poisoned");
+        let read = self.ordering.read().vortex_expect("poisoned lock");
 
         // First try to find a conjunct that we've already fetched fields for.
         if let Some(next) = read.iter().filter(|&idx| remaining[*idx]).find(|&idx| {
@@ -144,8 +140,7 @@ impl FilterExpr {
         {
             let mut histogram = self.conjunct_selectivity[conjunct_idx]
                 .write()
-                .map_err(|_| vortex_err!("poisoned lock"))
-                .vortex_expect("lock poisoned");
+                .vortex_expect("poisoned lock");
 
             // Since our histogram only supports i64, we map our f64 into a 0-1m range.
             let selectivity = (selectivity * SELECTIVITY_MULTIPLIER).round() as i64;
@@ -158,7 +153,6 @@ impl FilterExpr {
             .map(|histogram| {
                 histogram
                     .read()
-                    .map_err(|_| vortex_err!("poisoned lock"))
                     .vortex_expect("poisoned lock")
                     .snapshot()
                     .value(self.selectivity_quantile)
@@ -166,22 +160,14 @@ impl FilterExpr {
             .collect::<Vec<_>>();
 
         {
-            let ordering = self
-                .ordering
-                .read()
-                .map_err(|_| vortex_err!("poisoned lock"))
-                .vortex_expect("lock poisoned");
+            let ordering = self.ordering.read().vortex_expect("lock poisoned");
             if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
                 return;
             }
         }
 
         // Re-sort our conjuncts based on the new statistics.
-        let mut ordering = self
-            .ordering
-            .write()
-            .map_err(|_| vortex_err!("poisoned lock"))
-            .vortex_expect("lock poisoned");
+        let mut ordering = self.ordering.write().vortex_expect("lock poisoned");
         ordering.sort_unstable_by_key(|&idx| all_selectivity[idx]);
 
         log::debug!(

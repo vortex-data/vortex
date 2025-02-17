@@ -24,7 +24,7 @@ pub use min_max::{min_max, MinMaxFn, MinMaxResult};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::{take, TakeFn};
+pub use take::{take, take_into, TakeFn};
 pub use to_arrow::*;
 
 mod binary_numeric;

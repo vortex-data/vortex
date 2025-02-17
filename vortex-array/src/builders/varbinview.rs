@@ -4,7 +4,7 @@ use std::cmp::max;
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask};
+use vortex_mask::Mask;
 
 use crate::array::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -118,14 +118,7 @@ impl VarBinViewBuilder {
 
     // Pushes a validity mask into the builder not affecting the views or buffers
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
-        match validity_mask.boolean_buffer() {
-            AllOr::All => {
-                self.null_buffer_builder
-                    .append_n_non_nulls(validity_mask.len());
-            }
-            AllOr::None => self.null_buffer_builder.append_n_nulls(validity_mask.len()),
-            AllOr::Some(validity) => self.null_buffer_builder.append_buffer(validity.clone()),
-        }
+        self.null_buffer_builder.append_validity_mask(validity_mask);
     }
 }
 
@@ -176,21 +169,12 @@ impl ArrayBuilder for VarBinViewBuilder {
         let buffers_offset = u32::try_from(self.completed.len())?;
         self.completed.extend(array.buffers());
 
-        self.views_builder
-            .extend(array.views().into_iter().map(|view| {
-                if view.is_inlined() {
-                    view
-                } else {
-                    // Referencing views must have their buffer_index adjusted with new offsets
-                    let view_ref = view.as_view();
-                    BinaryView::new_view(
-                        view.len(),
-                        *view_ref.prefix(),
-                        buffers_offset + view_ref.buffer_index(),
-                        view_ref.offset(),
-                    )
-                }
-            }));
+        self.views_builder.extend(
+            array
+                .views()
+                .into_iter()
+                .map(|view| view.offset_view(buffers_offset)),
+        );
 
         self.push_only_validity_mask(array.validity_mask()?);
 

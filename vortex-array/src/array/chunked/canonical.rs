@@ -8,7 +8,7 @@ use crate::array::extension::ExtensionArray;
 use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
-use crate::array::{BinaryView, BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
+use crate::array::{BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
@@ -255,20 +255,12 @@ fn pack_views(
         let canonical_chunk = chunk.clone().into_varbinview()?;
         buffers.extend(canonical_chunk.buffers());
 
-        views.extend(canonical_chunk.views().into_iter().map(|view| {
-            if view.is_inlined() {
-                view
-            } else {
-                // Referencing views must have their buffer_index adjusted with new offsets
-                let view_ref = view.as_view();
-                BinaryView::new_view(
-                    view.len(),
-                    *view_ref.prefix(),
-                    buffers_offset + view_ref.buffer_index(),
-                    view_ref.offset(),
-                )
-            }
-        }));
+        views.extend(
+            canonical_chunk
+                .views()
+                .into_iter()
+                .map(|view| view.offset_view(buffers_offset)),
+        );
     }
 
     VarBinViewArray::try_new(views.freeze(), buffers, dtype.clone(), validity)

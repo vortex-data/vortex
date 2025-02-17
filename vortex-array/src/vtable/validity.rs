@@ -13,6 +13,11 @@ pub trait ValidityVTable<Array> {
     /// This is usually cheaper than computing a precise `invalid_count`.
     fn all_valid(&self, array: &Array) -> VortexResult<bool>;
 
+    /// Returns whether the array is all invalid.
+    ///
+    /// This is usually cheaper than computing a precise `invalid_count`.
+    fn all_invalid(&self, array: &Array) -> VortexResult<bool>;
+
     /// Returns the number of invalid elements in the array.
     fn invalid_count(&self, array: &Array) -> VortexResult<usize> {
         Ok(self.validity_mask(array)?.false_count())
@@ -39,6 +44,13 @@ where
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         ValidityVTable::all_valid(encoding, array_ref)
+    }
+
+    fn all_invalid(&self, array: &Array) -> VortexResult<bool> {
+        let (array_ref, encoding) = array
+            .try_downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        ValidityVTable::all_invalid(encoding, array_ref)
     }
 
     fn invalid_count(&self, array: &Array) -> VortexResult<usize> {

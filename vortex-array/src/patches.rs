@@ -314,8 +314,8 @@ impl Patches {
     pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
         let new_length = take_indices.len();
 
-        let Some((new_indices, values_indices)) = match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
-            take_search::<$TAKE_INDICES>(self.indices(), take_indices, self.offset())?
+        let Some((new_indices, values_indices)) = match_each_integer_ptype!(take_indices.ptype(), |$I| {
+            take_search::<$I>(self.indices(), take_indices, self.offset())?
         }) else {
             return Ok(None);
         };

@@ -158,6 +158,18 @@ fn like_into_parts(
     match (latest_child, target_ratio) {
         (None, None) => Ok(None),
         (Some(child), Some(ratio)) => Ok(Some((child, *ratio))),
-        (..) => vortex_bail!("Chunked array compression tree must have a child iff it has a ratio"),
+        (Some(child), None) => {
+            vortex_bail!(
+                "Chunked array compression tree has a child {child:?} without compression ratio"
+            )
+        }
+        (None, Some(ratio)) => {
+            debug_assert!(
+                *ratio >= 1.0f32,
+                "When there's no compressor tree compression ratio must be greater than 1"
+            );
+            log::debug!("Last compressed child of chunked array has compression ration of {ratio} and no compressor");
+            Ok(None)
+        }
     }
 }

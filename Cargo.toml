@@ -43,7 +43,7 @@ include = [
     "README.md",
 ]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.84"
 readme = "README.md"
 categories = ["database-implementations", "data-structures", "compression"]
 
@@ -239,6 +239,10 @@ use_debug = "deny"
 [profile.release]
 codegen-units = 1
 lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
+
+[profile.release_debug]
+inherits = "release"
+debug = "full"
 
 [profile.bench]
 codegen-units = 16

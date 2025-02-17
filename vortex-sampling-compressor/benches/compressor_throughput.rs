@@ -9,7 +9,7 @@ use vortex_array::array::VarBinViewArray;
 use vortex_array::compute::try_cast;
 use vortex_array::{IntoArray, IntoCanonical};
 use vortex_buffer::Buffer;
-use vortex_dict::dict_encode;
+use vortex_dict::builders::dict_encode;
 use vortex_dtype::PType;
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;

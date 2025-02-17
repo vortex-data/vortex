@@ -27,8 +27,6 @@ use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
 
 pub trait ScanDriver: 'static + Sized {
-    type Options: Default;
-
     fn segment_reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
     /// Return a future that drives the I/O stream for the segment reader.
@@ -46,7 +44,6 @@ pub trait ScanDriver: 'static + Sized {
 /// A struct for building a scan operation.
 pub struct ScanBuilder<D: ScanDriver> {
     driver: D,
-    driver_options: Option<D::Options>,
     task_executor: Option<Arc<dyn TaskExecutor>>,
     layout: Layout,
     ctx: ContextRef, // TODO(ngates): store this on larger context on Layout
@@ -63,7 +60,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
     pub fn new(driver: D, layout: Layout, ctx: ContextRef) -> Self {
         Self {
             driver,
-            driver_options: None,
             task_executor: None,
             layout,
             ctx,
@@ -120,11 +116,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
 
     pub fn with_task_executor(mut self, task_executor: Arc<dyn TaskExecutor>) -> Self {
         self.task_executor = Some(task_executor);
-        self
-    }
-
-    pub fn with_options(mut self, options: D::Options) -> Self {
-        self.driver_options = Some(options);
         self
     }
 
