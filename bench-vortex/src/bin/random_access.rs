@@ -4,7 +4,6 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
-use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::GenericMeasurement;
 use bench_vortex::reader::{take_parquet, take_vortex_tokio};
 use bench_vortex::taxi_data::{taxi_data_parquet, taxi_data_vortex};
@@ -23,8 +22,8 @@ struct Args {
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
-    #[arg(long, value_delimiter = ',')]
-    formats: Option<Vec<String>>,
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
+    formats: Vec<Format>,
     #[arg(short, long)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
@@ -44,17 +43,11 @@ fn main() -> ExitCode {
     }
     .expect("Failed building the Runtime");
 
-    // The formats to run against (vs the baseline)
-    let formats = match args.formats {
-        None => vec![Format::Parquet, Format::OnDiskVortex],
-        Some(formats) => parse_formats(formats),
-    };
-
     let indices = buffer![10u64, 11, 12, 13, 100_000, 3_000_000];
     random_access(
         runtime,
         args.iterations,
-        formats,
+        args.formats,
         args.display_format,
         args.verbose,
         indices,

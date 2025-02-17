@@ -10,6 +10,7 @@ use std::sync::{Arc, LazyLock};
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use blob::SlowObjectStoreRegistry;
+use clap::ValueEnum;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
@@ -39,7 +40,6 @@ pub mod blob;
 pub mod clickbench;
 pub mod data_downloads;
 pub mod display;
-pub mod formats;
 pub mod measurements;
 pub mod public_bi_data;
 pub mod reader;
@@ -69,12 +69,17 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     )
 });
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
 pub enum Format {
+    #[clap(name = "csv")]
     Csv,
+    #[clap(name = "arrow")]
     Arrow,
+    #[clap(name = "parquet")]
     Parquet,
+    #[clap(name = "in-memory-vortex")]
     InMemoryVortex,
+    #[clap(name = "vortex")]
     OnDiskVortex,
 }
 

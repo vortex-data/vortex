@@ -3,7 +3,6 @@ use std::sync;
 use std::time::Instant;
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
-use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
@@ -32,8 +31,8 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(short, long, default_value = "5")]
     iterations: usize,
-    #[arg(long, value_delimiter = ',')]
-    formats: Option<Vec<String>>,
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex])]
+    formats: Vec<Format>,
     #[arg(long, default_value_t = 1)]
     scale_factor: u8,
     #[arg(long)]
@@ -102,17 +101,11 @@ fn main() -> ExitCode {
         }
     };
 
-    // The formats to run against (vs the baseline)
-    let formats = match args.formats {
-        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
-        Some(formats) => parse_formats(formats),
-    };
-
     runtime.block_on(bench_main(
         args.queries,
         args.exclude_queries,
         args.iterations,
-        formats,
+        args.formats,
         args.display_format,
         args.emulate_object_store,
         url,

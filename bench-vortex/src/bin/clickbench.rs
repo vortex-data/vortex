@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
-use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
     default_env_filter, execute_physical_plan, feature_flagged_allocator, get_session_with_cache,
@@ -29,8 +28,8 @@ struct Args {
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
-    #[arg(long, value_delimiter = ',')]
-    formats: Option<Vec<String>>,
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
+    formats: Vec<Format>,
     #[arg(long)]
     only_vortex: bool,
     #[arg(short, long)]
@@ -131,12 +130,6 @@ fn main() {
         .unwrap();
     });
 
-    // The formats to run against (vs the baseline)
-    let formats = match args.formats {
-        None => vec![Format::Parquet, Format::OnDiskVortex],
-        Some(formats) => parse_formats(formats),
-    };
-
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
         Some(queries) => clickbench_queries()
@@ -145,11 +138,11 @@ fn main() {
             .collect(),
     };
 
-    let progress_bar = ProgressBar::new((queries.len() * formats.len()) as u64);
+    let progress_bar = ProgressBar::new((queries.len() * args.formats.len()) as u64);
 
     let mut all_measurements = Vec::default();
 
-    for format in &formats {
+    for format in &args.formats {
         let session_context = get_session_with_cache(args.emulate_object_store);
         let context = session_context.clone();
         match format {
@@ -240,7 +233,7 @@ fn main() {
     }
 
     match args.display_format {
-        DisplayFormat::Table => render_table(all_measurements, &formats).unwrap(),
+        DisplayFormat::Table => render_table(all_measurements, &args.formats).unwrap(),
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
 }
