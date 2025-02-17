@@ -14,10 +14,9 @@ categories = { workspace = true }
 readme = { workspace = true }
 
 [features]
-test-harness = ["rand"]
+test-harness = ["rand", "vortex-fsst"]
 
 [dependencies]
-rand = { workspace = true, optional = true }
 arrow-buffer = { workspace = true }
 num-traits = { workspace = true }
 rkyv = { workspace = true }
@@ -29,7 +28,9 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-fsst = { workspace = true }
+# test-harness
+rand = { workspace = true, optional = true }
+vortex-fsst = { workspace = true, optional = true }
 
 [lints]
 workspace = true

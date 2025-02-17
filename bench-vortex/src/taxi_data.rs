@@ -1,4 +1,3 @@
-use std::future::{ready, Future};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -6,7 +5,7 @@ use futures::executor::block_on;
 use vortex::error::VortexError;
 use vortex::io::{IoBuf, VortexWrite};
 
-use crate::data_downloads::{data_vortex_uncompressed, download_data};
+use crate::data_downloads::download_data;
 use crate::reader::rewrite_parquet_as_vortex;
 use crate::{idempotent, IdempotentPath};
 
@@ -19,10 +18,6 @@ fn download_taxi_data() -> PathBuf {
 
 pub fn taxi_data_parquet() -> PathBuf {
     download_taxi_data()
-}
-
-pub fn taxi_data_vortex_uncompressed() -> PathBuf {
-    data_vortex_uncompressed("taxi-uncompressed.vortex", download_taxi_data())
 }
 
 pub fn taxi_data_vortex() -> PathBuf {
@@ -55,7 +50,7 @@ impl VortexWrite for StdFile {
         Ok(())
     }
 
-    fn shutdown(&mut self) -> impl Future<Output = std::io::Result<()>> {
-        ready(Ok(()))
+    async fn shutdown(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }

@@ -102,12 +102,37 @@ unsafe fn take_primitive_unchecked<T: NativePType, I: NativePType + AsPrimitive<
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
+    use vortex_scalar::Scalar;
+
     use crate::array::primitive::compute::take::take_primitive;
+    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::compute::{scalar_at, take};
+    use crate::validity::Validity;
+    use crate::IntoArray as _;
 
     #[test]
     fn test_take() {
         let a = vec![1i32, 2, 3, 4, 5];
         let result = take_primitive(&a, &[0, 0, 4, 2]);
         assert_eq!(result.as_slice(), &[1i32, 1, 5, 3]);
+    }
+
+    #[test]
+    fn test_take_with_null_indices() {
+        let values = PrimitiveArray::new(
+            buffer![1i32, 2, 3, 4, 5],
+            Validity::Array(BoolArray::from_iter([true, true, false, false, true]).into_array()),
+        );
+        let indices = PrimitiveArray::new(
+            buffer![0, 3, 4],
+            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+        );
+        let actual = take(values, indices).unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
+        // position 3 is null
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
+        // the third index is null
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
     }
 }
