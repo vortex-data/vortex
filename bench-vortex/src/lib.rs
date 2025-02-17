@@ -282,6 +282,14 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Ve
     Ok(result)
 }
 
+pub async fn execute_physical_plan(
+    ctx: &SessionContext,
+    plan: Arc<dyn ExecutionPlan>,
+) -> VortexResult<Vec<RecordBatch>> {
+    let result = collect(plan.clone(), ctx.state().task_ctx()).await?;
+    Ok(result)
+}
+
 pub async fn physical_plan(
     ctx: &SessionContext,
     query: &str,

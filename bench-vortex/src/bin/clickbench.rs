@@ -7,7 +7,7 @@ use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat
 use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
-    default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
+    default_env_filter, execute_physical_plan, feature_flagged_allocator, get_session_with_cache,
     idempotent, physical_plan, Format, IdempotentPath as _,
 };
 use clap::Parser;
@@ -179,8 +179,38 @@ fn main() {
         }
 
         for (query_idx, query) in queries.clone().into_iter() {
+            let mut fastest_result = Duration::from_millis(u64::MAX);
+            let mut last_plan = None;
+            for iteration in 0..args.iterations {
+                let exec_duration = runtime.block_on(async {
+                    let start = Instant::now();
+                    let context = context.clone();
+                    let query = query.clone();
+                    last_plan = tokio::task::spawn(async move {
+                        let execution_plan = physical_plan(&context, &query)
+                            .instrument(info_span!("create_physical_plan", query_idx, iteration))
+                            .await
+                            .unwrap_or_else(|e| panic!("physical plan {query_idx}: {e}"));
+
+                        execute_physical_plan(&context, execution_plan.clone())
+                            .instrument(info_span!("execute_query", query_idx, iteration))
+                            .await
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                        Some(execution_plan.clone())
+                    })
+                    .await
+                    .unwrap();
+
+                    start.elapsed()
+                });
+
+                fastest_result = fastest_result.min(exec_duration);
+            }
+
+            progress_bar.inc(1);
+
             if args.emit_plan {
-                let plan = runtime.block_on(physical_plan(&context, &query)).unwrap();
+                let plan = last_plan.expect("must have at least one iteration");
                 fs::write(
                     format!("clickbench_{format}_q{query_idx:02}.plan",),
                     format!("{:#?}", plan),
@@ -199,29 +229,6 @@ fn main() {
                 )
                 .expect("Unable to write file");
             }
-
-            let mut fastest_result = Duration::from_millis(u64::MAX);
-            for iteration in 0..args.iterations {
-                let exec_duration = runtime.block_on(async {
-                    let start = Instant::now();
-                    let context = context.clone();
-                    let query = query.clone();
-                    tokio::task::spawn(async move {
-                        execute_query(&context, &query)
-                            .instrument(info_span!("execute_query", query_idx, iteration))
-                            .await
-                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
-                    })
-                    .await
-                    .unwrap();
-
-                    start.elapsed()
-                });
-
-                fastest_result = fastest_result.min(exec_duration);
-            }
-
-            progress_bar.inc(1);
 
             all_measurements.push(QueryMeasurement {
                 query_idx,
