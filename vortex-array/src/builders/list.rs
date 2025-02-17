@@ -4,7 +4,6 @@ use std::sync::Arc;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_mask::AllOr;
 use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
 use crate::array::{ConstantArray, ListArray, OffsetPType};
@@ -116,13 +115,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.nulls.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.nulls.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
-        }
+        self.nulls.append_validity_mask(array.validity_mask()?);
 
         let list = array.into_canonical()?.into_list()?;
 

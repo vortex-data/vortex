@@ -1,14 +1,13 @@
-#![feature(exit_status_error)]
-
 use std::fs::{self, File};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
-    default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
-    idempotent, physical_plan, Format, IdempotentPath as _, Measurement,
+    default_env_filter, execute_physical_plan, feature_flagged_allocator, get_session_with_cache,
+    idempotent, physical_plan, Format, IdempotentPath as _,
 };
 use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
@@ -29,6 +28,8 @@ struct Args {
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
+    #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
+    formats: Vec<Format>,
     #[arg(long)]
     only_vortex: bool,
     #[arg(short, long)]
@@ -74,6 +75,10 @@ fn main() {
             .init();
         _guard
     };
+
+    if args.only_vortex {
+        panic!("use `--formats vortex` instead of `--only-vortex`");
+    }
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -125,12 +130,6 @@ fn main() {
         .unwrap();
     });
 
-    let formats = if args.only_vortex {
-        vec![Format::OnDiskVortex]
-    } else {
-        vec![Format::Parquet, Format::OnDiskVortex]
-    };
-
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
         Some(queries) => clickbench_queries()
@@ -139,11 +138,11 @@ fn main() {
             .collect(),
     };
 
-    let progress_bar = ProgressBar::new((queries.len() * formats.len()) as u64);
+    let progress_bar = ProgressBar::new((queries.len() * args.formats.len()) as u64);
 
     let mut all_measurements = Vec::default();
 
-    for format in &formats {
+    for format in &args.formats {
         let session_context = get_session_with_cache(args.emulate_object_store);
         let context = session_context.clone();
         match format {
@@ -173,8 +172,38 @@ fn main() {
         }
 
         for (query_idx, query) in queries.clone().into_iter() {
+            let mut fastest_result = Duration::from_millis(u64::MAX);
+            let mut last_plan = None;
+            for iteration in 0..args.iterations {
+                let exec_duration = runtime.block_on(async {
+                    let start = Instant::now();
+                    let context = context.clone();
+                    let query = query.clone();
+                    last_plan = tokio::task::spawn(async move {
+                        let execution_plan = physical_plan(&context, &query)
+                            .instrument(info_span!("create_physical_plan", query_idx, iteration))
+                            .await
+                            .unwrap_or_else(|e| panic!("physical plan {query_idx}: {e}"));
+
+                        execute_physical_plan(&context, execution_plan.clone())
+                            .instrument(info_span!("execute_query", query_idx, iteration))
+                            .await
+                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
+                        Some(execution_plan.clone())
+                    })
+                    .await
+                    .unwrap();
+
+                    start.elapsed()
+                });
+
+                fastest_result = fastest_result.min(exec_duration);
+            }
+
+            progress_bar.inc(1);
+
             if args.emit_plan {
-                let plan = runtime.block_on(physical_plan(&context, &query)).unwrap();
+                let plan = last_plan.expect("must have at least one iteration");
                 fs::write(
                     format!("clickbench_{format}_q{query_idx:02}.plan",),
                     format!("{:#?}", plan),
@@ -194,30 +223,7 @@ fn main() {
                 .expect("Unable to write file");
             }
 
-            let mut fastest_result = Duration::from_millis(u64::MAX);
-            for iteration in 0..args.iterations {
-                let exec_duration = runtime.block_on(async {
-                    let start = Instant::now();
-                    let context = context.clone();
-                    let query = query.clone();
-                    tokio::task::spawn(async move {
-                        execute_query(&context, &query)
-                            .instrument(info_span!("execute_query", query_idx, iteration))
-                            .await
-                            .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
-                    })
-                    .await
-                    .unwrap();
-
-                    start.elapsed()
-                });
-
-                fastest_result = fastest_result.min(exec_duration);
-            }
-
-            progress_bar.inc(1);
-
-            all_measurements.push(Measurement {
+            all_measurements.push(QueryMeasurement {
                 query_idx,
                 time: fastest_result,
                 format: *format,
@@ -227,7 +233,7 @@ fn main() {
     }
 
     match args.display_format {
-        DisplayFormat::Table => render_table(all_measurements, &formats).unwrap(),
+        DisplayFormat::Table => render_table(all_measurements, &args.formats).unwrap(),
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
 }

@@ -2,6 +2,7 @@ use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::validity::Validity;
 
@@ -72,17 +73,53 @@ impl LazyNullBufferBuilder {
     }
 
     #[inline]
-    pub fn append_buffer(&mut self, bool_buffer: BooleanBuffer) {
+    pub fn append_buffer(&mut self, bool_buffer: &BooleanBuffer) {
         self.materialize_if_needed();
         self.inner
             .as_mut()
             .vortex_expect("buffer just materialized")
-            .append_buffer(&bool_buffer);
+            .append_buffer(bool_buffer);
+    }
+
+    pub fn append_validity_mask(&mut self, validity_mask: Mask) {
+        match validity_mask {
+            Mask::AllTrue(len) => self.append_n_non_nulls(len),
+            Mask::AllFalse(len) => self.append_n_nulls(len),
+            Mask::Values(is_valid) => self.append_buffer(is_valid.boolean_buffer()),
+        }
+    }
+
+    pub fn append_validity(&mut self, validity: Validity, length: usize) -> VortexResult<()> {
+        self.append_validity_mask(validity.to_logical(length)?);
+        Ok(())
+    }
+
+    pub fn set_bit(&mut self, index: usize, v: bool) {
+        self.materialize_if_needed();
+        self.inner
+            .as_mut()
+            .vortex_expect("buffer just materialized")
+            .set_bit(index, v);
     }
 
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        if let Some(b) = self.inner.as_mut() {
+            b.truncate(len)
+        }
+        self.len = len;
+    }
+
+    pub fn reserve(&mut self, n: usize) {
+        self.materialize_if_needed();
+        self.inner
+            .as_mut()
+            .vortex_expect("buffer just materialized")
+            .reserve(n);
     }
 
     pub fn finish(&mut self) -> Option<NullBuffer> {

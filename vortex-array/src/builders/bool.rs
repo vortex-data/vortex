@@ -3,7 +3,6 @@ use std::any::Any;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_mask::AllOr;
 
 use crate::array::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -82,13 +81,7 @@ impl ArrayBuilder for BoolBuilder {
 
         self.inner.append_buffer(&array.boolean_buffer());
 
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.nulls.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.nulls.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
-        }
+        self.nulls.append_validity_mask(array.validity_mask()?);
 
         Ok(())
     }

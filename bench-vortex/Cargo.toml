@@ -84,8 +84,3 @@ tracing = ["vortex-datafusion/tracing"]
 name = "compress"
 test = false
 harness = false
-
-[[bench]]
-name = "random_access"
-test = false
-harness = false

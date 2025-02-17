@@ -13,9 +13,9 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
+use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
@@ -264,8 +264,21 @@ impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
         array: BitPackedArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        // TODO(joe): add specialised impl
-        builder.extend_from_array(array.into_array())
+        match_each_integer_ptype_with_unsigned_type!(array.ptype(), |$T, $UnsignedT| {
+            unpack_into::<$T, $UnsignedT, _, _>(
+                array,
+                builder
+                    .as_any_mut()
+                    .downcast_mut()
+                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &[UnsignedT] to
+                // &[T] is therefore safe.
+                |x| unsafe { std::mem::transmute(x) },
+                // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &mut [T] to
+                // &mut [UnsignedT] is therefore safe.
+                |x| unsafe { std::mem::transmute(x) },
+            )
+        })
     }
 }
 

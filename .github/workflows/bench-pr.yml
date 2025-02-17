@@ -23,7 +23,7 @@ jobs:
           labels: benchmark
 
   codspeed_bench:
-    name: Run Criterion benchmarks with Codspeed
+    name: Benchmark with Codspeed
     needs: label_trigger
     runs-on: ubuntu-latest
     steps:
@@ -35,29 +35,26 @@ jobs:
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmark targets
+      - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
-        # We want to run micro-benchmarks with release profile.
-        # We run with all features since we feature gate bench utils.
+        # Run micro-benchmarks with release profile to match the production environment.
         run: cargo codspeed build --features test-harness --exclude bench-vortex --workspace --profile release
 
-      - name: Run the benchmarks
+      - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
 
-  bench:
+  bench-criterion:
     needs: label_trigger
     strategy:
       matrix:
         benchmark:
-          - id: random_access
-            name: Random Access
           - id: compress
             name: Vortex Compression
-    runs-on: [self-hosted, gcp]
+    runs-on: [ self-hosted, gcp ]
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
@@ -125,9 +122,15 @@ jobs:
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
-  tpch:
+  bench:
     needs: label_trigger
-    runs-on: [self-hosted, gcp]
+    runs-on: [ self-hosted, gcp ]
+    strategy:
+      matrix:
+        benchmark:
+          - id: random_access
+            name: Random Access
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -150,7 +153,8 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json -t 1 | tee ${{ matrix.benchmark.id }}.json
+
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -169,73 +173,20 @@ jobs:
             | grep $base_commit_sha \
             > base.json
 
-          echo '# Benchmarks: TPC-H' > comment.md
+          echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
+          uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
           echo '</details>' >> comment.md
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: comment.md
-          comment-tag: bench-pr-comment-tpch
-  clickbench:
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+  sql:
     needs: label_trigger
-    runs-on: [self-hosted, gcp]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
-
-      - name: Run Clickbench benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-          HOME: /home/ci-runner
-        run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Compare results
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
-
-          base_commit_sha=${{ github.event.pull_request.base.sha }}
-
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
-            | grep $base_commit_sha \
-            > base.json
-
-          echo '# Benchmarks: Clickbench' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
-          echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json clickbench.json \
-            >> comment.md
-          echo '</details>' >> comment.md
-      - name: Comment PR
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: comment.md
-          comment-tag: bench-pr-comment-clickbench
+    uses: ./.github/workflows/sql-benchmarks.yml
+    with:
+      mode: 'pr'

@@ -96,8 +96,7 @@ impl StructReader {
         Ok(
             match self
                 .partitioned_expr_cache
-                .write()
-                .map_err(|_| vortex_err!("poisoned lock"))?
+                .write()?
                 .entry(ExactExpr(expr.clone()))
             {
                 Entry::Occupied(entry) => entry.get().clone(),

@@ -7,10 +7,10 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use blob::SlowObjectStoreRegistry;
+use clap::ValueEnum;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
@@ -20,7 +20,6 @@ use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rand::{Rng, SeedableRng as _};
-use serde::Serialize;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use vortex::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
@@ -41,12 +40,11 @@ pub mod blob;
 pub mod clickbench;
 pub mod data_downloads;
 pub mod display;
-pub mod parquet_utils;
+pub mod measurements;
 pub mod public_bi_data;
 pub mod reader;
 pub mod taxi_data;
 pub mod tpch;
-pub mod vortex_utils;
 
 #[macro_export]
 macro_rules! feature_flagged_allocator {
@@ -71,12 +69,17 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     )
 });
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
 pub enum Format {
+    #[clap(name = "csv")]
     Csv,
+    #[clap(name = "arrow")]
     Arrow,
+    #[clap(name = "parquet")]
     Parquet,
+    #[clap(name = "in-memory-vortex")]
     InMemoryVortex,
+    #[clap(name = "vortex")]
     OnDiskVortex,
 }
 
@@ -284,6 +287,14 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Ve
     Ok(result)
 }
 
+pub async fn execute_physical_plan(
+    ctx: &SessionContext,
+    plan: Arc<dyn ExecutionPlan>,
+) -> VortexResult<Vec<RecordBatch>> {
+    let result = collect(plan.clone(), ctx.state().task_ctx()).await?;
+    Ok(result)
+}
+
 pub async fn physical_plan(
     ctx: &SessionContext,
     query: &str,
@@ -291,22 +302,6 @@ pub async fn physical_plan(
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     Ok(state.create_physical_plan(&plan).await?)
-}
-
-#[derive(Clone, Debug)]
-pub struct Measurement {
-    pub query_idx: usize,
-    pub time: Duration,
-    pub format: Format,
-    pub dataset: String,
-}
-
-#[derive(Serialize)]
-pub struct JsonValue {
-    pub name: String,
-    pub unit: String,
-    pub value: u128,
-    pub commit_id: String,
 }
 
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
@@ -321,24 +316,6 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     .trim()
     .to_string()
 });
-
-impl Measurement {
-    pub fn to_json(&self) -> JsonValue {
-        let name = format!(
-            "{dataset}_q{query_idx:02}/{format}",
-            dataset = self.dataset,
-            format = self.format.name(),
-            query_idx = self.query_idx
-        );
-
-        JsonValue {
-            name,
-            unit: "ns".to_string(),
-            value: self.time.as_nanos(),
-            commit_id: GIT_COMMIT_ID.to_string(),
-        }
-    }
-}
 
 pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
     let registry = if emulate_object_store {

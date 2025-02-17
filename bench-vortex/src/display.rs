@@ -4,7 +4,8 @@ use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
 use vortex::aliases::hash_map::HashMap;
 
-use crate::{Format, Measurement};
+use crate::measurements::{GenericMeasurement, ToGeneric, ToJson};
+use crate::Format;
 
 #[derive(ValueEnum, Default, Clone, Debug)]
 pub enum DisplayFormat {
@@ -13,15 +14,22 @@ pub enum DisplayFormat {
     GhJson,
 }
 
-pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> anyhow::Result<()> {
-    let mut measurements: HashMap<Format, Vec<Measurement>> = HashMap::default();
+pub fn render_table<T: ToGeneric>(
+    all_measurements: Vec<T>,
+    formats: &[Format],
+) -> anyhow::Result<()> {
+    let mut measurements: HashMap<Format, Vec<GenericMeasurement>> = HashMap::default();
 
     for m in all_measurements.into_iter() {
-        measurements.entry(m.format).or_default().push(m);
+        let generic = m.to_generic();
+        measurements
+            .entry(generic.format)
+            .or_default()
+            .push(generic);
     }
 
     measurements.values_mut().for_each(|v| {
-        v.sort_by_key(|m| m.query_idx);
+        v.sort_by_key(|m| m.id);
     });
 
     // The first format serves as the baseline
@@ -35,19 +43,16 @@ pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> a
     header.extend(formats.iter().map(|f| format!("{:?}", f)));
     table_builder.push_record(header);
 
-    for (query_idx, baseline_measure) in baseline.iter().enumerate() {
+    for (idx, baseline_measure) in baseline.iter().enumerate() {
         let query_baseline = baseline_measure.time.as_micros();
-        let mut row = vec![(baseline_measure.query_idx).to_string()];
+        let mut row = vec![baseline_measure.id.to_string()];
         for (col_idx, format) in formats.iter().enumerate() {
-            let time_us = measurements[format][query_idx].time.as_micros();
+            let time_us = measurements[format][idx].time.as_micros();
 
             if format != baseline_format {
                 let color = color(query_baseline, time_us);
 
-                colors.push(Colorization::exact(
-                    vec![color],
-                    (query_idx + 1, col_idx + 1),
-                ))
+                colors.push(Colorization::exact(vec![color], (idx + 1, col_idx + 1)))
             }
 
             let ratio = time_us as f64 / query_baseline as f64;
@@ -68,7 +73,7 @@ pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> a
     Ok(())
 }
 
-pub fn print_measurements_json(all_measurements: Vec<Measurement>) -> anyhow::Result<()> {
+pub fn print_measurements_json<T: ToJson>(all_measurements: Vec<T>) -> anyhow::Result<()> {
     for measurement in all_measurements {
         println!("{}", serde_json::to_string(&measurement.to_json())?)
     }
