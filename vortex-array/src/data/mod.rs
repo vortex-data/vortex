@@ -1,7 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, RwLock};
 
-use itertools::Itertools;
 use owned::OwnedArray;
 use viewed::ViewedArray;
 use vortex_buffer::ByteBuffer;
@@ -102,6 +101,7 @@ impl Array {
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
+        // FIXME(ngates): test eager construction
         Ok(Self::try_new(InnerArray::Viewed(view))?.into_owned_array())
     }
 
@@ -183,12 +183,14 @@ impl Array {
     fn into_owned_array(self) -> Array {
         match &self.0 {
             InnerArray::Owned(_) => self,
-            InnerArray::Viewed(_) => Array::try_new_owned(
+            InnerArray::Viewed(v) => Array::try_new_owned(
                 self.vtable().clone(),
                 self.dtype().clone(),
                 self.len(),
-                self.metadata_bytes().map(|b| b.into()),
-                Some(self.byte_buffers().collect()),
+                v.flatbuffer()
+                    .metadata()
+                    .map(|bytes| v.flatbuffer.clone().into_inner().slice_ref(bytes.bytes())),
+                Some(v.buffers.iter().cloned().collect()),
                 Some(self.children().into()),
                 self.statistics().stats_set(),
             )

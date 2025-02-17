@@ -4,11 +4,11 @@ use std::sync::Arc;
 use flatbuffers::Follow;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::vtable::VTableRef;
-use crate::{flatbuffers as fb, Array, ContextRef};
+use crate::{flatbuffers as fb, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]

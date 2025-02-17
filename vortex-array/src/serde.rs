@@ -241,8 +241,6 @@ impl ArrayParts {
             |buf| unsafe { Ok(fba::ArrayNode::follow(buf, self.flatbuffer_loc)) },
             self.buffers,
         )
-        // TODO(ngates): test eagerly constructing owned arrays
-        .map(|a| a())
     }
 }
 
