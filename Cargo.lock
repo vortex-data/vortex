@@ -5401,6 +5401,7 @@ dependencies = [
  "pyo3",
  "rancor",
  "thiserror 2.0.11",
+ "tokio",
  "url",
  "worker",
 ]
