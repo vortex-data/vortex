@@ -39,6 +39,7 @@ pub mod blob;
 pub mod clickbench;
 pub mod data_downloads;
 pub mod display;
+pub mod formats;
 pub mod measurements;
 pub mod public_bi_data;
 pub mod reader;
