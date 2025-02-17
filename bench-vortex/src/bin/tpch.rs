@@ -55,7 +55,7 @@ fn main() -> ExitCode {
     if args.only_vortex {
         panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
     }
-    
+
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
         Some(1) => Builder::new_current_thread().enable_all().build(),
