@@ -4,14 +4,8 @@ window.initAndRender = (function () {
         // Random colours are generally pretty disgusting...
         const MAP = {
             "arrow": '#58067e',
-
             "parquet": '#ef7f1d',
-            "parquet (nvme)": '#ef7f1d',
-            "parquet (s3)": '#f0b078',
-
             "vortex-file-compressed": '#23d100',
-            "vortex-file-compressed (nvme)": '#23d100',
-            "vortex-file-compressed (s3)": '#7ad169',
         };
 
         if (MAP[str]) {
@@ -39,7 +33,8 @@ window.initAndRender = (function () {
         let groups = {
             "Random Access": new Map(),
             "Compression": new Map(),
-            "TPC-H": new Map(),
+            "TPC-H (NVME)": new Map(),
+            "TPC-H (S3)": new Map(),
             "Clickbench": new Map(),
         };
 
@@ -71,9 +66,10 @@ window.initAndRender = (function () {
             } else if (name.includes("compress time/")) {
                 group = groups["Compression"];
             } else if (name.startsWith("tpch_q")) {
-                group = groups["TPC-H"];
-                if (storage === undefined && (name.includes("parquet") || name.includes("vortex"))) {
-                    storage = "nvme"
+                if (storage === undefined || storage == "nvme") {
+                    group = groups["TPC-H (NVME)"];
+                } else {
+                    group = groups["TPC-H (S3)"];
                 }
             } else if (name.startsWith("clickbench")) {
                 group = groups["Clickbench"];
@@ -91,10 +87,6 @@ window.initAndRender = (function () {
             } else if (seriesName.endsWith("throughput")) {
                 seriesName = seriesName.slice(0, seriesName.length - "throughput".length);
                 q = q.replace("time", "throughput");
-            }
-
-            if (storage !== undefined) {
-                seriesName += " (" + storage + ")"
             }
 
             let prettyQ = q.replace("_", " ")
@@ -349,7 +341,8 @@ window.initAndRender = (function () {
     }
 
     function initAndRender(keptGroups) {
-        let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
+        // let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
+        let data = fetch('data.json')
             .then(response => response.text())
             .then(parse_jsonl)
             .catch(error => console.error('unable to load data.json:', error));

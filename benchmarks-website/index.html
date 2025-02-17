@@ -38,17 +38,23 @@
               ]),
               "renamedDatasets": undefined,
           }],
-          ["TPC-H", {
+          ["TPC-H (NVME)", {
               "keptCharts": undefined,
               "hiddenDatasets": undefined,
               "removedDatasets": new Set([
-                  "vortex-in-memory-no-pushdown (nvme)",
-                  "vortex-in-memory-pushdown (nvme)",
-                  "vortex-file-uncompressed (nvme)",
+                  "vortex-in-memory-no-pushdown",
+                  "vortex-in-memory-pushdown",
+                  "vortex-file-uncompressed",
               ]),
               "renamedDatasets": {
-                  "vortex-file-compressed (nvme)": "vortex (nvme)",
-                  "vortex-file-compressed (s3)": "vortex (s3)",
+                  "vortex-file-compressed": "vortex",
+              },
+          }],
+          ["TPC-H (S3)", {
+              "keptCharts": undefined,
+              "hiddenDatasets": undefined,
+              "renamedDatasets": {
+                  "vortex-file-compressed": "vortex",
               },
           }],
           ["Clickbench", {
