@@ -214,8 +214,8 @@ impl ValidityVTable<DictArray> for DictEncoding {
 
 impl VisitorVTable<DictArray> for DictEncoding {
     fn accept(&self, array: &DictArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("values", &array.values())?;
-        visitor.visit_child("codes", &array.codes())
+        visitor.visit_child("codes", &array.codes())?;
+        visitor.visit_child("values", &array.values())
     }
 }
 

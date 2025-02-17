@@ -185,13 +185,19 @@ impl Array {
             InnerArray::Owned(_) => self,
             InnerArray::Viewed(v) => Array::try_new_owned(
                 self.vtable().clone(),
-                v.dtype.clone(),
+                self.dtype().clone(),
                 v.len,
-                v.flatbuffer()
-                    .metadata()
-                    .map(|bytes| v.flatbuffer.clone().into_inner().slice_ref(bytes.bytes())),
-                Some(v.buffers.iter().cloned().collect()),
-                Some(self.children().into()),
+                // v.flatbuffer()
+                //     .metadata()
+                //     .map(|bytes| v.flatbuffer.clone().into_inner().slice_ref(bytes.bytes())),
+                self.metadata_bytes().map(|b| ByteBuffer::copy_from(b)),
+                Some(self.byte_buffers().collect()),
+                Some(
+                    self.children()
+                        .into_iter()
+                        .map(|a| a.into_owned_array())
+                        .collect(),
+                ),
                 self.statistics().stats_set(),
             )
             .vortex_expect("Failed to create owned array"),

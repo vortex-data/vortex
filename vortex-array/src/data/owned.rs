@@ -1,5 +1,6 @@
 use std::sync::RwLock;
 
+use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
