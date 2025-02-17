@@ -31,7 +31,7 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
 
     bencher
         .with_inputs(|| (values.clone(), validity.clone()))
-        .bench_refs(|(values, validity)| {
+        .bench_values(|(values, validity)| {
             alp_encode(&PrimitiveArray::new(values, validity)).unwrap()
         })
 }
