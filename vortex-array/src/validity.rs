@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskValues};
+use vortex_scalar::Scalar;
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::{filter, scalar_at, slice, take};
+use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
@@ -245,7 +246,12 @@ impl Validity {
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
             },
             Self::AllInvalid => Ok(Self::AllInvalid),
-            Self::Array(a) => Ok(Self::Array(take(a, indices)?)),
+            Self::Array(is_valid) => {
+                let maybe_is_valid = take(is_valid, indices)?;
+                // Null indices invalidite that position.
+                let is_valid = fill_null(maybe_is_valid, Scalar::from(false))?;
+                Ok(Self::Array(is_valid))
+            }
         }
     }
 

@@ -1,36 +1,14 @@
 use divan::Bencher;
 use rand::distributions::{Distribution, Standard};
-use rand::prelude::StdRng;
-use rand::SeedableRng;
 use vortex_array::array::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::{Array, IntoArray, IntoCanonical};
-use vortex_dict::test::{gen_primitive_dict, generate_dict_fsst_test_data};
+use vortex_dict::test::{gen_dict_fsst_test_data, gen_dict_primitive_chunks};
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
 
 fn main() {
     divan::main();
-}
-
-fn make_dict_primitive_chunks<T: NativePType, O: NativePType>(
-    len: usize,
-    unique_values: usize,
-    chunk_count: usize,
-) -> Array
-where
-    Standard: Distribution<T>,
-{
-    let mut rng = StdRng::seed_from_u64(0);
-
-    (0..chunk_count)
-        .map(|_| {
-            gen_primitive_dict::<T, O>(&mut rng, len, unique_values)
-                .vortex_unwrap()
-                .into_array()
-        })
-        .collect::<ChunkedArray>()
-        .into_array()
 }
 
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
@@ -59,7 +37,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 ) where
     Standard: Distribution<T>,
 {
-    let chunk = make_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
+    let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
     bencher
         .with_inputs(|| chunk.clone())
@@ -77,24 +55,20 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
 ) where
     Standard: Distribution<T>,
 {
-    let chunk = make_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
+    let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
     bencher
         .with_inputs(|| chunk.clone())
         .bench_local_values(|chunk| chunk.into_canonical().vortex_unwrap())
 }
 
-fn make_dict_fsst_chunks<O: NativePType>(
+fn make_dict_fsst_chunks<T: NativePType>(
     len: usize,
     unique_values: usize,
     chunk_count: usize,
 ) -> Array {
-    let mut rng = StdRng::seed_from_u64(0);
-
     (0..chunk_count)
-        .map(|_| {
-            generate_dict_fsst_test_data::<O>(&mut rng, len, unique_values, 20, 30).into_array()
-        })
+        .map(|_| gen_dict_fsst_test_data::<T>(len, unique_values, 20, 30).into_array())
         .collect::<ChunkedArray>()
         .into_array()
 }

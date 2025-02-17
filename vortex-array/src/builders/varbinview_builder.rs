@@ -139,21 +139,12 @@ impl ArrayBuilder for VarBinViewBuilder {
         let buffers_offset = u32::try_from(self.completed.len())?;
         self.completed.extend(array.buffers());
 
-        self.views_builder
-            .extend(array.views().into_iter().map(|view| {
-                if view.is_inlined() {
-                    view
-                } else {
-                    // Referencing views must have their buffer_index adjusted with new offsets
-                    let view_ref = view.as_view();
-                    BinaryView::new_view(
-                        view.len(),
-                        *view_ref.prefix(),
-                        buffers_offset + view_ref.buffer_index(),
-                        view_ref.offset(),
-                    )
-                }
-            }));
+        self.views_builder.extend(
+            array
+                .views()
+                .into_iter()
+                .map(|view| view.offset_view(buffers_offset)),
+        );
 
         self.null_buffer_builder
             .append_validity_mask(array.validity_mask()?);

@@ -16,6 +16,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::TryFromIntError;
 use std::ops::Deref;
+use std::sync::PoisonError;
 use std::{env, fmt, io};
 
 pub use ext::*;
@@ -81,6 +82,9 @@ pub enum VortexError {
     /// An invalid argument was provided.
     #[error("{0}\nBacktrace:\n{1}")]
     InvalidArgument(ErrString, Backtrace),
+    /// The system has reached an invalid state,
+    #[error("{0}\nBacktrace:\n{1}")]
+    InvalidState(ErrString, Backtrace),
     /// An error occurred while serializing or deserializing.
     #[error("{0}\nBacktrace:\n{1}")]
     InvalidSerde(ErrString, Backtrace),
@@ -201,6 +205,14 @@ pub enum VortexError {
         #[from]
         #[backtrace]
         jiff::Error,
+    ),
+    /// A wrapper for Tokio join error.
+    #[cfg(feature = "tokio")]
+    #[error(transparent)]
+    JoinError(
+        #[from]
+        #[backtrace]
+        tokio::task::JoinError,
     ),
     /// A wrapper for URL parsing errors.
     #[error(transparent)]
@@ -433,5 +445,12 @@ impl rancor::Trace for VortexError {
 impl From<VortexError> for worker::Error {
     fn from(value: VortexError) -> Self {
         Self::RustError(value.to_string())
+    }
+}
+
+impl<T> From<PoisonError<T>> for VortexError {
+    fn from(_value: PoisonError<T>) -> Self {
+        // We don't include the value since it may be sensitive.
+        Self::InvalidState("Lock poisoned".into(), Backtrace::capture())
     }
 }
