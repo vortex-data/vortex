@@ -16,9 +16,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
-                return Ok(
-                    ConstantArray::new(Scalar::null_typed::<bool>(), indices.len()).into_array(),
+                return Ok(ConstantArray::new(
+                    Scalar::null(array.dtype().as_nullable()),
+                    indices.len(),
                 )
+                .into_array());
             }
             Mask::Values(_) => fill_null(indices, Scalar::from(0).cast(indices.dtype())?)?,
         };
@@ -124,6 +126,7 @@ fn take_bool_unchecked<I: AsPrimitive<usize>>(
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
@@ -147,7 +150,24 @@ mod test {
                 .unwrap();
         assert_eq!(
             b.boolean_buffer(),
-            BoolArray::from_iter(vec![Some(false), None, Some(false)]).boolean_buffer()
+            BoolArray::from_iter([Some(false), None, Some(false)]).boolean_buffer()
+        );
+
+        let nullable_bool_dtype = DType::Bool(Nullability::Nullable);
+        let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);
+        let b = take(&reference, all_invalid_indices).unwrap();
+        assert_eq!(b.dtype(), &nullable_bool_dtype);
+        assert_eq!(
+            scalar_at(&b, 0).unwrap(),
+            Scalar::null(nullable_bool_dtype.clone())
+        );
+        assert_eq!(
+            scalar_at(&b, 1).unwrap(),
+            Scalar::null(nullable_bool_dtype.clone())
+        );
+        assert_eq!(
+            scalar_at(&b, 2).unwrap(),
+            Scalar::null(nullable_bool_dtype.clone())
         );
     }
 
@@ -167,6 +187,20 @@ mod test {
     }
 
     #[test]
+    fn test_non_null_bool_array_take_with_null_out_of_bounds_indices() {
+        let values = BoolArray::from_iter(vec![false, true, false, true, false]);
+        let indices = PrimitiveArray::new(
+            buffer![0, 3, 100],
+            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+        );
+        let actual = take(values, indices).unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(false)));
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(true)));
+        // the third index is null
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<bool>());
+    }
+
+    #[test]
     fn test_bool_array_take_all_null_indices() {
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
@@ -175,9 +209,20 @@ mod test {
         );
         let actual = take(values, indices).unwrap();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<bool>());
-        // position 3 is null
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<bool>());
-        // the third index is null
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<bool>());
+    }
+
+    #[test]
+    fn test_non_null_bool_array_take_all_null_indices() {
+        let values = BoolArray::from_iter(vec![false, true, false, true, false]);
+        let indices = PrimitiveArray::new(
+            buffer![0, 3, 100],
+            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
+        );
+        let actual = take(values, indices).unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<bool>());
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<bool>());
     }
 }
