@@ -224,12 +224,14 @@ fn take_into_impl(
     indices: &Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
-    if array.dtype() != builder.dtype() {
+    let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
+    let result_dtype = array.dtype().with_nullability(result_nullability);
+    if &result_dtype != builder.dtype() {
         vortex_bail!(
-            "TakeIntoFn {} had a builder with a different dtype {} to the array dtype {}",
+            "TakeIntoFn {} had a builder with a different dtype {} to the resulting array dtype {}",
             array.encoding(),
-            array.dtype(),
-            builder.dtype()
+            builder.dtype(),
+            result_dtype,
         );
     }
     if let Some(take_fn) = array.vtable().take_fn() {
