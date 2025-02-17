@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use rand::distributions::{Alphanumeric, Distribution, Standard};
 use rand::prelude::{SliceRandom, StdRng};
 use rand::{Rng, SeedableRng};
