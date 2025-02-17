@@ -35,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
