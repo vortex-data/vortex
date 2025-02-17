@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use divan::Bencher;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
