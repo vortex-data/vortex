@@ -95,6 +95,12 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     pub fn finish_into_primitive(&mut self) -> VortexResult<PrimitiveArray> {
+        assert_eq!(
+            self.nulls.len(),
+            self.values.len(),
+            "null count must equal value count"
+        );
+
         let validity = match (self.nulls.finish(), self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,
             (Some(_), Nullability::NonNullable) => {
