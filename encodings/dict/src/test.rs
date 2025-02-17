@@ -25,20 +25,20 @@ where
     PrimitiveArray::new(data, Validity::NonNullable)
 }
 
-pub fn gen_primitive_dict<C: NativePType, V: NativePType>(
+pub fn gen_primitive_dict<V: NativePType, C: NativePType>(
     len: usize,
     unique_count: usize,
 ) -> VortexResult<DictArray>
 where
-    Standard: Distribution<C>,
+    Standard: Distribution<V>,
 {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..unique_count)
-        .map(|_| rng.gen::<C>())
+        .map(|_| rng.gen::<V>())
         .collect::<PrimitiveArray>();
 
     let codes = (0..len)
-        .map(|_| V::from(rng.gen_range(0..unique_count)).unwrap())
+        .map(|_| C::from(rng.gen_range(0..unique_count)).unwrap())
         .collect::<PrimitiveArray>();
 
     DictArray::try_new(codes.into_array(), values.into_array())
