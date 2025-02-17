@@ -6,7 +6,7 @@ use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_array::ContextRef;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -128,8 +128,7 @@ impl ChunkedReader {
     pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<Mask>> {
         let cell = self
             .pruning_result
-            .write()
-            .map_err(|_| vortex_err!("poisoned lock"))?
+            .write()?
             .entry(expr.clone())
             .or_insert_with(|| Arc::new(OnceCell::new()))
             .clone();

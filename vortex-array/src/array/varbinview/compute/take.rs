@@ -102,21 +102,9 @@ fn take_views_into<I: AsPrimitive<usize>>(
     let views_ref = views.deref();
     builder.push_buffer_and_adjusted_views(
         buffers,
-        indices.iter().map(|i| {
-            let view = views_ref[i.as_()];
-            if view.is_inlined() {
-                view
-            } else {
-                // Referencing views must have their buffer_index adjusted with new offsets
-                let view_ref = view.as_view();
-                BinaryView::new_view(
-                    view.len(),
-                    *view_ref.prefix(),
-                    buffers_offset + view_ref.buffer_index(),
-                    view_ref.offset(),
-                )
-            }
-        }),
+        indices
+            .iter()
+            .map(|i| views_ref[i.as_()].offset_view(buffers_offset)),
         mask,
     );
     Ok(())
