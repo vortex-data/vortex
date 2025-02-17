@@ -236,25 +236,60 @@ where
     F: Fn(&[UnsignedT]) -> &[T],
     G: Fn(&mut [T]) -> &mut [UnsignedT],
 {
+    let my_offset_in_builder = builder.len();
+
+    builder
+        .nulls
+        .append_validity(array.validity(), array.len())?;
+
+    let packed = array.packed_slice::<UnsignedT>();
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
+
+    unpack_values_into(
+        packed,
+        bit_width,
+        length,
+        offset,
+        builder,
+        transmute,
+        transmute_mut,
+    )?;
+
+    if let Some(patches) = array.patches() {
+        builder.patch(patches, my_offset_in_builder)?;
+    };
+
+    Ok(())
+}
+
+fn unpack_values_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(
+    packed: &[UnsignedT],
+    bit_width: usize,
+    length: usize,
+    offset: usize,
+    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
+    builder: &mut PrimitiveBuilder<T>,
+    transmute: F,
+    transmute_mut: G,
+) -> VortexResult<()>
+where
+    F: Fn(&[UnsignedT]) -> &[T],
+    G: Fn(&mut [T]) -> &mut [UnsignedT],
+{
+    let my_offset_in_builder = builder.len();
     let last_chunk_length = match (offset + length) % 1024 {
         0 => 1024,
         last_chunk_length => last_chunk_length,
     };
 
-    builder.nulls.append_validity(array.validity(), length)?;
-
     if bit_width == 0 {
-        builder.append_zeros(length);
+        builder.values.push_n(T::zero(), length);
         return Ok(());
     }
 
-    builder.values.reserve(array.len());
-
-    let builder_current_length = builder.len();
-    let packed = array.packed_slice::<UnsignedT>();
+    builder.values.reserve(length);
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
@@ -278,57 +313,54 @@ where
         builder
             .values
             .extend_from_slice(transmute(&decoded[offset..][..length]));
-    } else {
-        let first_chunk_is_sliced = offset != 0;
-        let last_chunk_is_sliced = last_chunk_length != 1024;
-        let full_chunks_range =
-            (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
-
-        if first_chunk_is_sliced {
-            let chunk = &packed[..elems_per_chunk];
-            let mut decoded = [UnsignedT::zero(); 1024];
-            // SAFETY:
-            // 1. chunk is elems_per_chunk.
-            // 2. decoded is exactly 1024.
-            unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-            builder
-                .values
-                .extend_from_slice(transmute(&decoded[offset..]));
-        }
-        for i in full_chunks_range {
-            let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
-
-            // SAFETY:
-            //
-            // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
-            // have been written to.
-            //
-            // 2. The output buffer is exactly size 1024.
-            unsafe {
-                builder.values.set_len(builder.values.len() + 1024);
-                BitPacking::unchecked_unpack(
-                    bit_width,
-                    chunk,
-                    &mut transmute_mut(builder.values.deref_mut())
-                        [builder_current_length + i * 1024 - offset..][..1024],
-                );
-            }
-        }
-        if last_chunk_is_sliced {
-            let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
-            let mut decoded = [UnsignedT::zero(); 1024];
-            // SAFETY:
-            // 1. chunk is elems_per_chunk.
-            // 2. decoded is exactly 1024.
-            unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-            builder
-                .values
-                .extend_from_slice(transmute(&decoded[..last_chunk_length]));
-        }
+        return Ok(());
     }
 
-    if let Some(patches) = array.patches() {
-        builder.patch(patches, builder_current_length)?;
+    let first_chunk_is_sliced = offset != 0;
+    let last_chunk_is_sliced = last_chunk_length != 1024;
+    let full_chunks_range =
+        (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
+
+    if first_chunk_is_sliced {
+        let chunk = &packed[..elems_per_chunk];
+        let mut decoded = [UnsignedT::zero(); 1024];
+        // SAFETY:
+        // 1. chunk is elems_per_chunk.
+        // 2. decoded is exactly 1024.
+        unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+        builder
+            .values
+            .extend_from_slice(transmute(&decoded[offset..]));
+    }
+    for i in full_chunks_range {
+        let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
+
+        // SAFETY:
+        //
+        // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
+        // have been written to.
+        //
+        // 2. The output buffer is exactly size 1024.
+        unsafe {
+            builder.values.set_len(builder.values.len() + 1024);
+            BitPacking::unchecked_unpack(
+                bit_width,
+                chunk,
+                &mut transmute_mut(builder.values.deref_mut())
+                    [my_offset_in_builder + i * 1024 - offset..][..1024],
+            );
+        }
+    }
+    if last_chunk_is_sliced {
+        let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
+        let mut decoded = [UnsignedT::zero(); 1024];
+        // SAFETY:
+        // 1. chunk is elems_per_chunk.
+        // 2. decoded is exactly 1024.
+        unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
+        builder
+            .values
+            .extend_from_slice(transmute(&decoded[..last_chunk_length]));
     }
 
     Ok(())
@@ -481,11 +513,127 @@ mod test {
     use rand::rngs::StdRng;
     use rand::SeedableRng as _;
     use vortex_array::array::ChunkedArray;
+    use vortex_array::compute::slice;
     use vortex_array::{IntoArrayVariant, IntoCanonical as _};
+    use vortex_buffer::buffer;
     use vortex_error::VortexError;
 
     use super::*;
     use crate::bitpacking::compress::test_harness::make_array;
+
+    #[test]
+    fn test_all_zeros() {
+        let zeros = buffer![0u16, 0, 0, 0]
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 0).unwrap();
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &[0u16, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_simple_patches() {
+        let zeros = buffer![0u16, 1, 0, 1]
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 0).unwrap();
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &[0u16, 1, 0, 1]);
+    }
+
+    #[test]
+    fn test_one_full_chunk() {
+        let zeros = BufferMut::from_iter(0u16..1024)
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 10).unwrap();
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &(0u16..1024).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_three_full_chunks_with_patches() {
+        let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 10).unwrap();
+        assert!(bitpacked.patches().is_some());
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(
+            actual,
+            &(5u16..1029)
+                .chain(5u16..1029)
+                .chain(5u16..1029)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_one_full_chunk_and_one_short_chunk_no_patch() {
+        let zeros = BufferMut::from_iter(0u16..1025)
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 11).unwrap();
+        assert!(bitpacked.patches().is_none());
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &(0u16..1025).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_one_full_chunk_and_one_short_chunk_with_patches() {
+        let zeros = BufferMut::from_iter(512u16..1537)
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 10).unwrap();
+        assert_eq!(bitpacked.len(), 1025);
+        assert!(bitpacked.patches().is_some());
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &(512u16..1537).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_offset_and_short_chunk_and_patches() {
+        let zeros = BufferMut::from_iter(512u16..1537)
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 10).unwrap();
+        assert_eq!(bitpacked.len(), 1025);
+        assert!(bitpacked.patches().is_some());
+        let bitpacked = slice(bitpacked, 1023, 1025).unwrap();
+        let bitpacked = BitPackedArray::try_from(bitpacked).unwrap();
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &[1535, 1536]);
+    }
+
+    #[test]
+    fn test_offset_and_short_chunk_with_chunks_between_and_patches() {
+        let zeros = BufferMut::from_iter(512u16..2741)
+            .into_array()
+            .into_primitive()
+            .unwrap();
+        let bitpacked = bitpack_encode(zeros, 10).unwrap();
+        assert_eq!(bitpacked.len(), 2229);
+        assert!(bitpacked.patches().is_some());
+        let bitpacked = slice(bitpacked, 1023, 2049).unwrap();
+        let bitpacked = BitPackedArray::try_from(bitpacked).unwrap();
+        let actual = unpack(bitpacked).unwrap();
+        let actual = actual.as_slice::<u16>();
+        assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());
+    }
 
     #[test]
     fn test_best_bit_width() {

@@ -23,7 +23,7 @@ jobs:
           labels: benchmark
 
   codspeed_bench:
-    name: Run Criterion benchmarks with Codspeed
+    name: Benchmark with Codspeed
     needs: label_trigger
     runs-on: ubuntu-latest-large
     steps:
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmark targets
+      - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
         # We want to run micro-benchmarks with release profile.
@@ -50,7 +50,7 @@ jobs:
           --quiet false \
           --profile release
 
-      - name: Run the benchmarks
+      - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run
@@ -162,7 +162,7 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json -t 1 | tee tpch.json
+          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json -t 1 | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4

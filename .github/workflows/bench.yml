@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmark targets
+      - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
         # We want to run micro-benchmarks with release profile.
@@ -55,7 +55,7 @@ jobs:
           --exclude xtask \
           --workspace --profile release
 
-      - name: Run the benchmarks
+      - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run
