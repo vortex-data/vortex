@@ -185,8 +185,8 @@ impl Array {
             InnerArray::Owned(_) => self,
             InnerArray::Viewed(v) => Array::try_new_owned(
                 self.vtable().clone(),
-                self.dtype().clone(),
-                self.len(),
+                v.dtype.clone(),
+                v.len,
                 v.flatbuffer()
                     .metadata()
                     .map(|bytes| v.flatbuffer.clone().into_inner().slice_ref(bytes.bytes())),
