@@ -41,7 +41,7 @@ where
 
     bencher
         .with_inputs(|| primitive_arr.clone())
-        .bench_values(|arr| dict_encode(arr.as_ref()));
+        .bench_refs(|arr| dict_encode(arr.as_ref()));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -50,7 +50,7 @@ fn encode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
 
     bencher
         .with_inputs(|| varbin_arr.clone())
-        .bench_values(|arr| dict_encode(arr.as_ref()));
+        .bench_refs(|arr| dict_encode(arr.as_ref()));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -59,7 +59,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
 
     bencher
         .with_inputs(|| varbinview_arr.clone())
-        .bench_values(|arr| dict_encode(arr.as_ref()));
+        .bench_refs(|arr| dict_encode(arr.as_ref()));
 }
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
