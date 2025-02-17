@@ -11,6 +11,7 @@ jobs:
   bench:
     runs-on: [ self-hosted, gcp ]
     strategy:
+      fail-fast: false
       matrix:
         benchmark:
           - id: tpch
