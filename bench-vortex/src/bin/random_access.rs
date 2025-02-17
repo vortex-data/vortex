@@ -4,6 +4,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::GenericMeasurement;
 use bench_vortex::reader::{take_parquet, take_vortex_tokio};
 use bench_vortex::taxi_data::{taxi_data_parquet, taxi_data_vortex};
@@ -43,11 +44,17 @@ fn main() -> ExitCode {
     }
     .expect("Failed building the Runtime");
 
+    // The formats to run against (vs the baseline)
+    let formats = match args.formats {
+        None => vec![Format::Parquet, Format::OnDiskVortex],
+        Some(formats) => parse_formats(formats),
+    };
+
     let indices = buffer![10u64, 11, 12, 13, 100_000, 3_000_000];
     random_access(
         runtime,
         args.iterations,
-        args.formats,
+        formats,
         args.display_format,
         args.verbose,
         indices,
@@ -57,7 +64,7 @@ fn main() -> ExitCode {
 fn random_access(
     runtime: Runtime,
     iterations: usize,
-    formats: Option<Vec<String>>,
+    formats: Vec<Format>,
     display_format: DisplayFormat,
     verbose: bool,
     indices: Buffer<u64>,
@@ -67,8 +74,6 @@ fn random_access(
     setup_logger(filter);
 
     // Set up a progress bar
-    let formats = default_formats(formats);
-
     let progress = ProgressBar::new(formats.len() as u64);
 
     let mut measurements = Vec::new();
@@ -114,21 +119,6 @@ fn random_access(
 
     progress.finish();
     ExitCode::SUCCESS
-}
-
-// The formats to run against (vs the baseline)
-fn default_formats(formats: Option<Vec<String>>) -> Vec<Format> {
-    match formats {
-        None => vec![Format::Parquet, Format::OnDiskVortex],
-        Some(formats) => formats
-            .into_iter()
-            .map(|format| match format.as_ref() {
-                "parquet" => Format::Parquet,
-                "vortex" => Format::OnDiskVortex,
-                _ => panic!("unrecognized format: {}", format),
-            })
-            .collect::<Vec<_>>(),
-    }
 }
 
 fn run_with_setup<I, O, S, R, F>(

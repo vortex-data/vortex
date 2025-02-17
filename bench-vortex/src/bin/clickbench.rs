@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
     default_env_filter, execute_query, feature_flagged_allocator, get_session_with_cache,
@@ -28,6 +29,8 @@ struct Args {
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
+    #[arg(long, value_delimiter = ',')]
+    formats: Option<Vec<String>>,
     #[arg(long)]
     only_vortex: bool,
     #[arg(short, long)]
@@ -73,6 +76,10 @@ fn main() {
             .init();
         _guard
     };
+
+    if args.only_vortex {
+        panic!("use `--formats vortex` instead of `--only-vortex`");
+    }
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -124,10 +131,10 @@ fn main() {
         .unwrap();
     });
 
-    let formats = if args.only_vortex {
-        vec![Format::OnDiskVortex]
-    } else {
-        vec![Format::Parquet, Format::OnDiskVortex]
+    // The formats to run against (vs the baseline)
+    let formats = match args.formats {
+        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
+        Some(formats) => parse_formats(formats),
     };
 
     let queries = match args.queries.clone() {

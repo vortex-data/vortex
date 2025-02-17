@@ -3,6 +3,7 @@ use std::sync;
 use std::time::Instant;
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::formats::parse_formats;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
@@ -51,6 +52,10 @@ fn main() -> ExitCode {
     let filter = default_env_filter(args.verbose);
     setup_logger(filter);
 
+    if args.only_vortex {
+        panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
+    }
+    
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
         Some(1) => Builder::new_current_thread().enable_all().build(),
@@ -97,15 +102,17 @@ fn main() -> ExitCode {
         }
     };
 
-    if args.only_vortex {
-        panic!("use `--formats vortex,arrow` instead of `--only-vortex`");
-    }
+    // The formats to run against (vs the baseline)
+    let formats = match args.formats {
+        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
+        Some(formats) => parse_formats(formats),
+    };
 
     runtime.block_on(bench_main(
         args.queries,
         args.exclude_queries,
         args.iterations,
-        args.formats,
+        formats,
         args.display_format,
         args.emulate_object_store,
         url,
@@ -117,31 +124,11 @@ async fn bench_main(
     queries: Option<Vec<usize>>,
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
-    formats: Option<Vec<String>>,
+    formats: Vec<Format>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
     url: Url,
 ) -> ExitCode {
-    // uncomment the below to enable trace logging of datafusion execution
-    // let filter = default_env_filter(true);
-    // setup_logger(filter);
-
-    // Run TPC-H data gen.
-
-    // The formats to run against (vs the baseline)
-    let formats = match formats {
-        None => vec![Format::Arrow, Format::Parquet, Format::OnDiskVortex],
-        Some(formats) => formats
-            .into_iter()
-            .map(|format| match format.as_ref() {
-                "arrow" => Format::Arrow,
-                "parquet" => Format::Parquet,
-                "vortex" => Format::OnDiskVortex,
-                _ => panic!("unrecognized format: {}", format),
-            })
-            .collect::<Vec<_>>(),
-    };
-
     eprintln!(
         "Benchmarking against these formats: {}.",
         formats.iter().join(", ")
