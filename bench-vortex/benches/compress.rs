@@ -13,7 +13,7 @@ use bench_vortex::data_downloads::BenchmarkDataset;
 use bench_vortex::public_bi_data::BenchmarkDatasets;
 use bench_vortex::public_bi_data::PBIDataset::*;
 use bench_vortex::taxi_data::taxi_data_parquet;
-use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
+use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{
     feature_flagged_allocator, fetch_taxi_data, generate_struct_of_list_of_ints_array, tpch,
 };
@@ -327,7 +327,7 @@ fn public_bi_benchmark(c: &mut Criterion) {
 }
 
 fn tpc_h_l_comment(c: &mut Criterion) {
-    let data_dir = generate_tpch(DuckdbTpchOptions::default()).unwrap();
+    let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
     let rt = &TOKIO_RUNTIME;
     let lineitem_vortex = rt.block_on(tpch::load_table(
         data_dir,

@@ -54,8 +54,8 @@ struct Args {
 #[derive(ValueEnum, Default, Clone, Debug)]
 pub enum DataGenerator {
     #[default]
-    Duckdb,
     Dbgen,
+    Duckdb,
 }
 
 fn main() -> ExitCode {

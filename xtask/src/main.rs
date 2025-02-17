@@ -6,7 +6,6 @@ use bench_vortex::Format;
 use clap::Parser;
 use tokio::runtime::Builder;
 use url::Url;
-// use clap::{arg, ArgMatches, Command};
 use xshell::{cmd, Shell};
 
 static FLATC_BIN: &str = "flatc";
@@ -99,9 +98,13 @@ fn execute_from_tpch_csv(base_dir: Option<PathBuf>, format: Format) -> anyhow::R
     let base_dir = base_dir.unwrap_or_else(|| DuckdbTpchOptions::default().csvs_dir());
     // add a trailing slash to bse_dir so path concat works as expected
     let base_url = Url::parse(
-        ("file:".to_owned() + base_dir.to_str().expect("path should be utf8") + "/").as_ref(),
-    )
-    .unwrap();
+        ("file:".to_owned()
+            + base_dir
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("must be utf8"))?
+            + "/")
+            .as_ref(),
+    )?;
     runtime.block_on(load_datasets(&base_url, format, false))?;
     Ok(())
 }
