@@ -14,12 +14,9 @@ jobs:
       matrix:
         benchmark:
           - id: tpch
-            bin: tpch
             name: TPC-H
           - id: clickbench
-            bin: clickbench
             name: Clickbench
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -35,7 +32,7 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin ${{ matrix.benchmark.bin }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
