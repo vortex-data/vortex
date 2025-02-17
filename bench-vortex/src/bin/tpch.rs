@@ -7,13 +7,12 @@ use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
 use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
 use clap::Parser;
-use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
-use vortex::error::VortexExpect as _;
+use vortex::error::VortexExpect;
 
 feature_flagged_allocator!();
 
@@ -126,15 +125,6 @@ async fn bench_main(
         formats.iter().join(", ")
     );
 
-    // Load datasets
-    let ctxs = try_join_all(
-        formats
-            .iter()
-            .map(|format| load_datasets(&url, *format, emulate_object_store)),
-    )
-    .await
-    .unwrap();
-
     let query_count = queries.as_ref().map_or(22, |c| c.len());
 
     // Set up a progress bar
@@ -143,33 +133,38 @@ async fn bench_main(
     let mut row_counts = Vec::new();
     let mut measurements = Vec::new();
 
-    for (query_idx, sql_queries) in tpch_queries() {
-        if queries
-            .as_ref()
-            .is_some_and(|included| !included.contains(&query_idx))
-        {
-            continue;
-        }
+    for format in formats.iter().copied() {
+        // Load datasets
+        let ctx = load_datasets(&url, format, emulate_object_store)
+            .await
+            .unwrap();
 
-        if exclude_queries
-            .as_ref()
-            .is_some_and(|excluded| excluded.contains(&query_idx))
-        {
-            continue;
-        }
+        for (query_idx, sql_queries) in tpch_queries() {
+            if queries
+                .as_ref()
+                .is_some_and(|included| !included.contains(&query_idx))
+            {
+                continue;
+            }
 
-        for (ctx, format) in ctxs.iter().zip(formats.iter()) {
+            if exclude_queries
+                .as_ref()
+                .is_some_and(|excluded| excluded.contains(&query_idx))
+            {
+                continue;
+            }
+
             for i in 0..2 {
-                let row_count = run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
+                let row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await;
                 if i == 0 {
-                    row_counts.push((query_idx, *format, row_count));
+                    row_counts.push((query_idx, format, row_count));
                 }
             }
 
             let mut fastest_result = Duration::from_millis(u64::MAX);
             for _ in 0..iterations {
                 let start = Instant::now();
-                run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
+                run_tpch_query(&ctx, &sql_queries, query_idx).await;
                 let elapsed = start.elapsed();
                 fastest_result = fastest_result.min(elapsed);
             }
@@ -177,7 +172,7 @@ async fn bench_main(
             measurements.push(QueryMeasurement {
                 query_idx,
                 time: fastest_result,
-                format: *format,
+                format,
                 dataset: "tpch".to_string(),
             });
 
