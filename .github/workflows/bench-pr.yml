@@ -22,81 +22,40 @@ jobs:
         with:
           labels: benchmark
 
-  bench-criterion:
+  codspeed_bench:
+    name: Benchmark with Codspeed
     needs: label_trigger
-    strategy:
-      matrix:
-        benchmark:
-          - id: compress
-            name: Vortex Compression
-    runs-on: [ self-hosted, gcp ]
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
-
-      - name: Run benchmark
+      - name: Install Codspeed
         shell: bash
+        run: cargo install --force cargo-codspeed --locked
+
+      - name: Build benchmarks
         env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
+          RUSTFLAGS: "-C target-cpu=native"
+        # We want to run micro-benchmarks with release profile.
+        # We run with all features since we feature gate bench utils.
         run: |
-          cargo install cargo-criterion
-          sudo apt-get update && sudo apt-get install -y jq
+          cargo codspeed build --features test-harness \
+            --exclude bench-vortex \
+            --exclude vortex-datafusion \
+            --exclude vortex-tui \
+            --exclude vortex-fuzz \
+            --exclude pyvortex \
+            --exclude xtask \
+            --workspace \
+            --profile bench
 
-          cargo criterion \
-                --bench ${{ matrix.benchmark.id }} \
-                --features mimalloc \
-                --message-format=json \
-            > ${{ matrix.benchmark.id }}-raw.json
-
-          cat ${{ matrix.benchmark.id }}-raw.json \
-            | bash scripts/coerce-criterion-json.sh \
-            > ${{ matrix.benchmark.id }}.json
-
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v3
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Compare results
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
 
-          base_commit_sha=${{ github.event.pull_request.base.sha }}
-
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
-            | grep $base_commit_sha \
-            > base.json
-
-          echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
-          echo '' >> comment.md
-          uv run scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
-            >> comment.md
-          echo '</details>' >> comment.md
-      - name: Comment PR
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: comment.md
-          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
   bench:
     needs: label_trigger
     runs-on: [ self-hosted, gcp ]
@@ -105,6 +64,8 @@ jobs:
         benchmark:
           - id: random_access
             name: Random Access
+          - id: compress
+            name: Compression
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
@@ -125,7 +86,6 @@ jobs:
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
-          BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json -t 1 | tee ${{ matrix.benchmark.id }}.json

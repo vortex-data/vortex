@@ -2,13 +2,14 @@
 
 use std::clone::Clone;
 use std::env::temp_dir;
-use std::fs::{create_dir_all, File};
+use std::fmt::Display;
+use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
-use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_array::RecordBatch;
 use blob::SlowObjectStoreRegistry;
 use clap::ValueEnum;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
@@ -17,33 +18,26 @@ use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{collect, ExecutionPlan};
-use itertools::Itertools;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
-use vortex::arrow::FromArrowType;
-use vortex::compress::CompressionStrategy;
 use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
-use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{Array, ContextRef, IntoArray};
+use vortex::{ContextRef, IntoArray};
 
-use crate::data_downloads::FileType;
-use crate::reader::BATCH_SIZE;
-use crate::taxi_data::taxi_data_parquet;
-
+pub mod bench_run;
 pub mod blob;
 pub mod clickbench;
-pub mod data_downloads;
+pub mod compress;
+pub mod datasets;
 pub mod display;
 pub mod measurements;
-pub mod public_bi_data;
-pub mod reader;
-pub mod taxi_data;
+pub mod parquet_reader;
+pub mod random_access;
 pub mod tpch;
 
 #[macro_export]
@@ -83,30 +77,20 @@ pub enum Format {
     OnDiskVortex,
 }
 
-impl std::fmt::Display for Format {
+impl Display for Format {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Format::Csv => write!(f, "csv"),
-            Format::Arrow => write!(f, "arrow"),
-            Format::Parquet => write!(f, "parquet"),
-            Format::InMemoryVortex => {
-                write!(f, "in_memory_vortex")
-            }
-            Format::OnDiskVortex => {
-                write!(f, "on_disk_vortex(compressed=true)")
-            }
-        }
+        write!(f, "{}", self.name())
     }
 }
 
 impl Format {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> &str {
         match self {
-            Format::Csv => "csv".to_string(),
-            Format::Arrow => "arrow".to_string(),
-            Format::Parquet => "parquet".to_string(),
-            Format::InMemoryVortex => "vortex-in-memory".to_string(),
-            Format::OnDiskVortex => "vortex-file-compressed".to_string(),
+            Format::Csv => "csv",
+            Format::Arrow => "arrow",
+            Format::Parquet => "parquet",
+            Format::InMemoryVortex => "vortex-in-memory",
+            Format::OnDiskVortex => "vortex-file-compressed",
         }
     }
 }
@@ -211,71 +195,6 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
                 .from_env_lossy()
         }
     }
-}
-
-pub fn fetch_taxi_data() -> Array {
-    let file = File::open(taxi_data_parquet()).unwrap();
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
-    let reader = builder.with_batch_size(BATCH_SIZE).build().unwrap();
-
-    let schema = reader.schema();
-    ChunkedArray::try_new(
-        reader
-            .into_iter()
-            .map(|batch_result| batch_result.unwrap())
-            .map(Array::try_from)
-            .map(Result::unwrap)
-            .collect_vec(),
-        DType::from_arrow(schema),
-    )
-    .unwrap()
-    .into_array()
-}
-
-pub fn compress_taxi_data() -> Array {
-    CompressionStrategy::compress(&SamplingCompressor::default(), &fetch_taxi_data()).unwrap()
-}
-
-pub struct CompressionRunStats {
-    schema: DType,
-    total_compressed_size: Option<u64>,
-    compressed_sizes: Vec<u64>,
-    file_type: FileType,
-    file_name: String,
-}
-
-impl CompressionRunStats {
-    pub fn to_results(&self, dataset_name: String) -> Vec<CompressionRunResults> {
-        let DType::Struct(st, _) = &self.schema else {
-            unreachable!()
-        };
-
-        self.compressed_sizes
-            .iter()
-            .zip_eq(st.names().iter().zip_eq(st.fields()))
-            .map(
-                |(&size, (column_name, column_type))| CompressionRunResults {
-                    dataset_name: dataset_name.clone(),
-                    file_name: self.file_name.clone(),
-                    file_type: self.file_type.to_string(),
-                    column_name: (**column_name).to_string(),
-                    column_type: column_type.to_string(),
-                    compressed_size: size,
-                    total_compressed_size: self.total_compressed_size,
-                },
-            )
-            .collect::<Vec<_>>()
-    }
-}
-
-pub struct CompressionRunResults {
-    pub dataset_name: String,
-    pub file_name: String,
-    pub file_type: String,
-    pub column_name: String,
-    pub column_type: String,
-    pub compressed_size: u64,
-    pub total_compressed_size: Option<u64>,
 }
 
 pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {

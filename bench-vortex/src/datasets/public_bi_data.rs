@@ -1,26 +1,30 @@
+use std::fmt;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::LazyLock;
 
+use async_trait::async_trait;
 use enum_iterator::Sequence;
-use futures::executor::block_on;
+use futures::{stream, StreamExt, TryStreamExt};
 use humansize::{format_size, DECIMAL};
-use itertools::Itertools;
-use log::info;
+use log::{debug, info};
 use reqwest::Url;
 use tokio::fs::File;
 use vortex::aliases::hash_map::HashMap;
 use vortex::arrays::ChunkedArray;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::{vortex_err, VortexExpect, VortexResult};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::io::TokioFile;
 use vortex::{Array, IntoArray};
 
-use crate::data_downloads::{decompress_bz2, download_data, BenchmarkDataset, FileType};
-use crate::public_bi_data::PBIDataset::*;
-use crate::reader::{
-    open_vortex, read_parquet_to_vortex, rewrite_parquet_as_vortex, write_csv_as_parquet,
-};
-use crate::{idempotent, IdempotentPath};
+use crate::datasets::data_downloads::{decompress_bz2, download_data};
+use crate::datasets::public_bi_data::PBIDataset::*;
+use crate::datasets::BenchmarkDataset;
+use crate::parquet_reader::parquet_to_vortex;
+use crate::{idempotent, idempotent_async, IdempotentPath};
 
 // NB: we do not expect this to change, otherwise we'd crawl the site and populate it at runtime
 // We will eventually switch over to self-hosting this data, at which time this map will need
@@ -412,7 +416,39 @@ static URLS: LazyLock<HashMap<PBIDataset, Vec<PBIUrl>>> = LazyLock::new(|| {
     ])
 });
 
+#[derive(Clone, Copy, Debug)]
+pub enum FileType {
+    Csv,
+    Parquet,
+    Vortex,
+}
+
+impl FileType {
+    pub fn name(&self) -> &str {
+        match self {
+            FileType::Csv => "csv",
+            FileType::Parquet => "parquet",
+            FileType::Vortex => "vortex",
+        }
+    }
+}
+
+impl Display for FileType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
 impl PBIDataset {
+    fn path_for_file_type(&self, output_fname: &str, file_type: FileType) -> PathBuf {
+        "PBI"
+            .to_data_path()
+            .join(self.dataset_name())
+            .join(file_type.name())
+            .join(output_fname)
+            .with_extension(file_type.name())
+    }
+
     pub fn dataset_name(&self) -> &str {
         let url = URLS.get(self).unwrap();
         url.first().unwrap().dataset_name
@@ -422,27 +458,20 @@ impl PBIDataset {
         let urls = URLS.get(self).unwrap();
         urls.iter()
             .map(|url| self.get_file_path(url, file_type))
-            .collect_vec()
+            .collect::<Vec<_>>()
     }
 
     fn get_file_path(&self, url: &PBIUrl, file_type: FileType) -> PathBuf {
-        let extension = match file_type {
-            FileType::Csv => "csv",
-            FileType::Parquet => "parquet",
-            FileType::Vortex => "vortex",
-        };
-
         "PBI"
             .to_data_path()
             .join(self.dataset_name())
-            .join(extension)
+            .join(file_type.name())
             .join(url.file_name.strip_suffix(".csv.bz2").unwrap())
-            .with_extension(extension)
+            .with_extension(file_type.name())
     }
 
     fn download_bzip(&self) {
         let urls = URLS.get(self).unwrap();
-        self.dataset_name();
         urls.iter().for_each(|url| {
             let fname = self.get_bzip_path(url);
             download_data(fname, url.to_url_string().as_str());
@@ -463,6 +492,81 @@ impl PBIDataset {
             let unzipped_csv = self.get_file_path(url, FileType::Csv);
             decompress_bz2(bzipped, unzipped_csv);
         }
+    }
+
+    fn write_as_parquet(&self) {
+        self.download_bzip();
+        self.unzip();
+
+        for f in self.list_files(FileType::Csv) {
+            let output_fname = f.file_stem().unwrap().to_str().unwrap();
+            let compressed = idempotent(
+                &self.path_for_file_type(output_fname, FileType::Parquet),
+                |output_path| write_csv_as_parquet(f, output_path),
+            )
+            .vortex_expect("Failed to compress to parquet");
+            let pq_size = compressed.metadata().unwrap().size();
+            info!(
+                "Parquet size: {}, {}B",
+                format_size(pq_size, DECIMAL),
+                pq_size
+            );
+        }
+    }
+
+    async fn write_as_vortex(&self) {
+        self.write_as_parquet();
+        for f in self.list_files(FileType::Parquet) {
+            let output_fname = f.file_stem().unwrap().to_str().unwrap();
+            let compressed = idempotent_async(
+                &self.path_for_file_type(output_fname, FileType::Vortex),
+                |output_path| async {
+                    VortexWriteOptions::default()
+                        .write(
+                            File::create(output_path).await.unwrap(),
+                            parquet_to_vortex(f).await.unwrap(),
+                        )
+                        .await
+                },
+            )
+            .await
+            .expect("Failed to compress to vortex");
+
+            let vx_size = compressed.metadata().expect("Failed to get metadata").len() as usize;
+
+            debug!(
+                "Vortex size: {}, {}B",
+                format_size(vx_size as u64, DECIMAL),
+                vx_size
+            );
+        }
+    }
+}
+
+#[async_trait]
+impl BenchmarkDataset for PBIDataset {
+    fn name(&self) -> &str {
+        self.dataset_name()
+    }
+
+    async fn to_vortex_array(&self) -> Array {
+        self.write_as_vortex().await;
+
+        let arrays = stream::iter(self.list_files(FileType::Vortex))
+            .map(|f| async move {
+                VortexOpenOptions::file(TokioFile::open(f)?)
+                    .open()
+                    .await?
+                    .scan()
+                    .into_array()
+                    .await
+            })
+            .buffered(10)
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        ChunkedArray::from_iter(arrays).into_array()
     }
 }
 
@@ -540,111 +644,16 @@ pub enum PBIDataset {
     YaleLanguages,
 }
 
-pub enum BenchmarkDatasets {
-    PBI(PBIDataset),
-}
-
-impl BenchmarkDataset for BenchmarkDatasets {
-    fn as_uncompressed(&self) {
-        match self {
-            Self::PBI(dataset) => {
-                dataset.download_bzip();
-                dataset.unzip();
-            }
-        }
-    }
-
-    fn to_vortex_array(&self) -> VortexResult<Array> {
-        self.write_as_parquet();
-
-        let arrays = self
-            .list_files(FileType::Parquet)
-            .iter()
-            .flat_map(|f| {
-                read_parquet_to_vortex(f.as_path()).vortex_expect("Failed to read parquet")
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        assert!(!arrays.is_empty());
-        Ok(ChunkedArray::from_iter(arrays).into_array())
-    }
-
-    fn write_as_parquet(&self) {
-        self.as_uncompressed();
-        for f in self.list_files(FileType::Csv) {
-            let output_fname = f
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .strip_suffix(".csv")
-                .unwrap();
-            let compressed = idempotent(
-                &path_for_file_type(self, output_fname, "parquet"),
-                |output_path| write_csv_as_parquet(f, output_path),
-            )
-            .unwrap();
-            let pq_size = compressed.metadata().unwrap().size();
-            info!(
-                "Parquet size: {}, {}B",
-                format_size(pq_size, DECIMAL),
-                pq_size
-            );
-        }
-    }
-
-    async fn write_as_vortex(&self) {
-        self.write_as_parquet();
-        for f in self.list_files(FileType::Parquet) {
-            info!("Compressing and writing {} to vortex", f.to_str().unwrap());
-            let output_fname = f
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .strip_suffix(".parquet")
-                .unwrap();
-
-            let compressed = idempotent(
-                &path_for_file_type(self, output_fname, "vortex"),
-                |output_path| {
-                    block_on(async {
-                        rewrite_parquet_as_vortex(f, File::create(output_path).await.unwrap()).await
-                    })
-                },
-            )
-            .expect("Failed to compress to vortex");
-            let from_vortex = open_vortex(&compressed).await.unwrap();
-            let vx_size = from_vortex.nbytes();
-
-            info!(
-                "Vortex size: {}, {}B",
-                format_size(vx_size as u64, DECIMAL),
-                vx_size
-            );
-        }
-    }
-
-    fn list_files(&self, types: FileType) -> Vec<PathBuf> {
-        match self {
-            Self::PBI(dataset) => dataset.list_files(types),
-        }
-    }
-
-    fn directory_location(&self) -> PathBuf {
-        match self {
-            Self::PBI(dataset) => "PBI".to_data_path().join(dataset.dataset_name()),
-        }
-    }
-}
-
-fn path_for_file_type(
-    dataset: &impl BenchmarkDataset,
-    output_fname: &str,
-    file_type: &str,
-) -> PathBuf {
-    dataset
-        .directory_location()
-        .join(file_type)
-        .join(format!("{}.{}", output_fname, file_type))
+fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResult<()> {
+    info!("Compressing {} to parquet", csv_path.to_str().unwrap());
+    Command::new("duckdb")
+        .arg("-c")
+        .arg(format!(
+            "COPY (SELECT * FROM read_csv('{}', delim = '|', header = false, nullstr = 'null')) TO '{}' (COMPRESSION ZSTD);",
+            csv_path.to_str().unwrap(),
+            output_path.to_str().unwrap()
+        ))
+        .status()?
+        .exit_ok()
+        .map_err(|e| vortex_err!("Failed to convert csv to parquet: {}", e))
 }

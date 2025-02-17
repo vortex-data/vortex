@@ -397,16 +397,10 @@ async fn register_vortex(
 /// Load a table as an uncompressed Vortex array.
 pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> Array {
     // Create a local session to load the CSV file from the path.
-    let path = data_dir
-        .as_ref()
-        .to_owned()
-        .join(format!("{name}.tbl"))
-        .to_str()
-        .unwrap()
-        .to_string();
+    let path = data_dir.as_ref().join(name).with_extension("tbl");
     let record_batches = SessionContext::new()
         .read_csv(
-            &path,
+            path.to_str().unwrap(),
             CsvReadOptions::default()
                 .delimiter(b'|')
                 .has_header(false)
@@ -419,15 +413,11 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
         .await
         .unwrap();
 
-    let chunks: Vec<Array> = record_batches
+    let chunks = record_batches
         .into_iter()
-        .map(ArrowStructArray::from)
-        .map(|struct_array| Array::from_arrow(&struct_array, false))
-        .collect();
+        .map(|batch| Array::try_from(batch).unwrap());
 
-    let dtype = chunks[0].dtype().clone();
-
-    ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
+    ChunkedArray::from_iter(chunks).into_array()
 }
 
 pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
@@ -437,7 +427,8 @@ pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
 fn tpch_query(query_idx: usize) -> Vec<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")
-        .join(format!("q{}.sql", query_idx));
+        .join(format!("q{}", query_idx))
+        .with_extension("sql");
     fs::read_to_string(manifest_dir)
         .unwrap()
         .split(';')
