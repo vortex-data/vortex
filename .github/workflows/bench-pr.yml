@@ -41,14 +41,14 @@ jobs:
         # We run with all features since we feature gate bench utils.
         run: |
           cargo codspeed build --features test-harness \
-          --exclude bench-vortex \
-          --exclude vortex-datafusion \
-          --exclude vortex-tui \
-          --exclude vortex-fuzz \
-          --exclude pyvortex \
-          --exclude xtask \
-          --workspace \
-          --profile release
+            --exclude bench-vortex \
+            --exclude vortex-datafusion \
+            --exclude vortex-tui \
+            --exclude vortex-fuzz \
+            --exclude pyvortex \
+            --exclude xtask \
+            --workspace \
+            --profile release
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3

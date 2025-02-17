@@ -31,7 +31,7 @@ jobs:
 
 
   codspeed_bench:
-    name: Run Criterion benchmarks with Codspeed
+    name: Benchmark with Codspeed
     runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
