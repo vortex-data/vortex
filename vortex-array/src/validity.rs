@@ -300,7 +300,10 @@ impl Validity {
         Ok(match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
             Self::AllInvalid => Mask::AllFalse(length),
-            Self::Array(a) => Mask::try_from(a.clone())?,
+            Self::Array(a) => {
+                assert_eq!(a.len(), length);
+                Mask::try_from(a.clone())?
+            }
         })
     }
 
