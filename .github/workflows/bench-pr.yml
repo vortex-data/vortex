@@ -47,7 +47,6 @@ jobs:
           --exclude pyvortex \
           --exclude xtask \
           --workspace \
-          --quiet false \
           --profile release
 
       - name: Run benchmarks
