@@ -135,10 +135,6 @@ pub trait ValidityVTable<A: ?Sized> {
     fn mask_validity(&self, array: Arc<A>, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
-pub trait CanonicalVTable<A: ?Sized> {
-    fn canonicalize(&self, array: &A) -> VortexResult<ArrayRef>;
-}
-
 trait VTableDowncast {
     type Array: Array;
 }
