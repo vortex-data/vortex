@@ -34,19 +34,16 @@ fn between_impl<T: NativePType + Copy>(
     upper: T,
     upper_op: Operator,
 ) -> VortexResult<Array> {
-    // match (lower_op, upper_op) {
-    //     (Operator::Lte, Operator)
-    // }
-
     let lower_fn = lower_op.to_fn();
     let upper_fn = upper_op.to_fn();
 
     let slice = arr.as_slice::<T>();
-    Ok(
-        BoolArray::from(BooleanBuffer::collect_bool(arr.len(), |idx| {
+    BoolArray::try_new(
+        BooleanBuffer::collect_bool(arr.len(), |idx| {
             let i = *unsafe { slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
-        }))
-        .into_array(),
+        }),
+        arr.validity(),
     )
+    .map(BoolArray::into_array)
 }

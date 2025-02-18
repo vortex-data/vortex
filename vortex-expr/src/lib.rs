@@ -53,6 +53,9 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     ///
     fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let result = self.unchecked_evaluate(batch)?;
+        // println!("{}", self);
+        // println!("{}", result);
+        // println!("{}", batch.tree_display());
         debug_assert_eq!(result.dtype(), &self.return_dtype(batch.dtype())?);
         Ok(result)
     }

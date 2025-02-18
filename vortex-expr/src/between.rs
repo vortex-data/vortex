@@ -5,6 +5,7 @@ use std::sync::Arc;
 use vortex_array::compute::between;
 use vortex_array::Array;
 use vortex_dtype::DType;
+use vortex_dtype::DType::Bool;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, Operator, VortexExpr};
@@ -67,6 +68,10 @@ impl VortexExpr for Between {
         let lower_val = self.lower.evaluate(batch)?;
         let upper_arr_val = self.upper.evaluate(batch)?;
 
+        // println!("arr_val: {}", arr_val.dtype());
+        // println!("lower_val: {}", lower_val.dtype());
+        // println!("upper_arr_val: {}", upper_arr_val.dtype());
+
         between(
             &arr_val,
             &lower_val,
@@ -102,7 +107,7 @@ impl VortexExpr for Between {
         assert!(arr_dt.eq_ignore_nullability(&lower_dt));
         assert!(arr_dt.eq_ignore_nullability(&upper_dt));
 
-        Ok(arr_dt.with_nullability(
+        Ok(Bool(
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
         ))
     }
