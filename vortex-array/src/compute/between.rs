@@ -53,8 +53,8 @@ pub fn between(
     }
 
     binary_boolean(
-        &compare(&lower, &arr, Operator::Gt)?,
-        &compare(&arr, &upper, Operator::Lt)?,
+        &compare(lower, arr, Operator::Gt)?,
+        &compare(arr, upper, Operator::Lt)?,
         BinaryOperator::And,
     )
 

@@ -99,7 +99,9 @@ where
             between(
                 &arr,
                 ConstantArray::new(min, arr.len()),
+                Operator::Lte,
                 ConstantArray::new(max, arr.len()),
+                Operator::Lte,
             )
             .unwrap()
         })
@@ -150,7 +152,9 @@ where
             between(
                 &arr,
                 ConstantArray::new(min, arr.len()),
+                Operator::Lte,
                 ConstantArray::new(max, arr.len()),
+                Operator::Lte,
             )
         })
 }
@@ -200,7 +204,9 @@ where
             between(
                 &arr,
                 ConstantArray::new(min, arr.len()),
+                Operator::Lte,
                 ConstantArray::new(max, arr.len()),
+                Operator::Lte,
             )
         })
 }
