@@ -3,12 +3,9 @@ window.initAndRender = (function () {
     function stringToColor(str) {
         // Random colours are generally pretty disgusting...
         const MAP = {
-            "vortex-file-uncompressed": '#98da8d',
-            "vortex-file-compressed": '#23d100',
-            "vortex-in-memory-no-pushdown": '#79a6df',
-            "vortex-in-memory-pushdown": '#0c53ae',
             "arrow": '#58067e',
             "parquet": '#ef7f1d',
+            "vortex-file-compressed": '#23d100',
         };
 
         if (MAP[str]) {
@@ -36,7 +33,8 @@ window.initAndRender = (function () {
         let groups = {
             "Random Access": new Map(),
             "Compression": new Map(),
-            "TPC-H": new Map(),
+            "TPC-H (NVME)": new Map(),
+            "TPC-H (S3)": new Map(),
             "Clickbench": new Map(),
         };
 
@@ -60,6 +58,7 @@ window.initAndRender = (function () {
             }
 
             let {name, unit, value, commit} = benchmark_result;
+            let storage = benchmark_result.storage;
             let group = undefined;
 
             if (name.startsWith("random-access/")) {
@@ -67,13 +66,18 @@ window.initAndRender = (function () {
             } else if (name.includes("compress time/")) {
                 group = groups["Compression"];
             } else if (name.startsWith("tpch_q")) {
-                group = groups["TPC-H"];
+                if (storage === undefined || storage == "nvme") {
+                    group = groups["TPC-H (NVME)"];
+                } else {
+                    group = groups["TPC-H (S3)"];
+                }
             } else if (name.startsWith("clickbench")) {
                 group = groups["Clickbench"];
             } else {
                 uncategorizable_names.add(name)
                 continue
             }
+
 
             // Normalize name and units
             let [q, seriesName] = name.split("/");
@@ -84,6 +88,7 @@ window.initAndRender = (function () {
                 seriesName = seriesName.slice(0, seriesName.length - "throughput".length);
                 q = q.replace("time", "throughput");
             }
+
             let prettyQ = q.replace("_", " ")
                 .toUpperCase()
                 .replace("VORTEX:RAW SIZE", "VORTEX COMPRESSION RATIO");
@@ -336,7 +341,8 @@ window.initAndRender = (function () {
     }
 
     function initAndRender(keptGroups) {
-        let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
+        // let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
+        let data = fetch('data.json')
             .then(response => response.text())
             .then(parse_jsonl)
             .catch(error => console.error('unable to load data.json:', error));

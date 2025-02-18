@@ -50,7 +50,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.clone().into_primitive()?;
         // TODO(joe): impl take over mask and use `Array::validity_mask`, instead of `validity()`.
         let validity = array.validity().take(indices.as_ref())?;
-        let mask = validity.to_logical(array.len())?;
+        let mask = validity.to_logical(indices.len())?;
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -66,6 +66,8 @@ fn take_into_impl<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     mask: Mask,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
+    assert_eq!(indices.len(), mask.len());
+
     let array = array.as_slice::<T>();
     let indices = indices.as_slice::<I>();
     let builder = builder
@@ -103,11 +105,13 @@ unsafe fn take_primitive_unchecked<T: NativePType, I: NativePType + AsPrimitive<
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::compute::take::take_primitive;
     use crate::array::{BoolArray, PrimitiveArray};
-    use crate::compute::{scalar_at, take};
+    use crate::builders::{ArrayBuilder as _, PrimitiveBuilder};
+    use crate::compute::{scalar_at, take, take_into};
     use crate::validity::Validity;
     use crate::IntoArray as _;
 
@@ -134,5 +138,51 @@ mod test {
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
         // the third index is null
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
+    }
+
+    #[test]
+    fn test_take_into() {
+        let values = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
+        let all_valid_indices = PrimitiveArray::new(
+            buffer![0, 3, 4],
+            Validity::Array(BoolArray::from_iter([true, true, true]).into_array()),
+        );
+        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
+        take_into(&values, all_valid_indices, &mut builder).unwrap();
+        let actual = builder.finish().unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(Some(5)));
+
+        let mixed_valid_indices = PrimitiveArray::new(
+            buffer![0, 3, 4],
+            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+        );
+        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
+        take_into(&values, mixed_valid_indices, &mut builder).unwrap();
+        let actual = builder.finish().unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
+        // the third index is null
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
+
+        let all_invalid_indices = PrimitiveArray::new(
+            buffer![0, 3, 4],
+            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
+        );
+        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
+        take_into(&values, all_invalid_indices, &mut builder).unwrap();
+        let actual = builder.finish().unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<i32>());
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
+
+        let non_null_indices = PrimitiveArray::new(buffer![0, 3, 4], Validity::NonNullable);
+        let mut builder = PrimitiveBuilder::<i32>::new(Nullability::NonNullable);
+        take_into(&values, non_null_indices, &mut builder).unwrap();
+        let actual = builder.finish().unwrap();
+        assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(1));
+        assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(4));
+        assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(5));
     }
 }

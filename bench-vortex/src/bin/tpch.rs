@@ -169,8 +169,20 @@ async fn bench_main(
                 fastest_result = fastest_result.min(elapsed);
             }
 
+            let storage = match url.scheme() {
+                "s3" => "s3",
+                "gcs" => "gcs",
+                "file" => "nvme",
+                otherwise => {
+                    println!("unknown URL scheme: {}", otherwise);
+                    return ExitCode::FAILURE;
+                }
+            }
+            .to_owned();
+
             measurements.push(QueryMeasurement {
                 query_idx,
+                storage,
                 time: fastest_result,
                 format,
                 dataset: "tpch".to_string(),
@@ -196,6 +208,7 @@ async fn bench_main(
             .zip_eq(EXPECTED_ROW_COUNTS)
             .enumerate()
             .filter(|(idx, _)| queries.as_ref().map(|q| q.contains(idx)).unwrap_or(true))
+            .filter(|(idx, _)| exclude_queries.as_ref().map(|excluded| !excluded.contains(idx)).unwrap_or(true))
             .for_each(|(idx, (row_count, expected_row_count))| {
                 if row_count != expected_row_count {
                     eprintln!("Mismatched row count {row_count} instead of {expected_row_count} in query {idx} for format {format:?}");

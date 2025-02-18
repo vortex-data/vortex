@@ -5,7 +5,7 @@ on:
     branches: [ develop ]
 
 permissions:
-  id-token: write # enables AWS-GitHub OIDC
+  id-token: write  # enables AWS-GitHub OIDC
   actions: read
   contents: write
   deployments: write
@@ -32,10 +32,9 @@ jobs:
 
   codspeed_bench:
     name: Benchmark with Codspeed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
@@ -45,8 +44,17 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
-        # Run micro-benchmarks with release profile to match the production environment.
-        run: cargo codspeed build --features test-harness --exclude bench-vortex --workspace --profile release
+        # We want to run micro-benchmarks with release profile.
+        # We run with all features since we feature gate bench utils.
+        run: |
+          cargo codspeed build --features test-harness \
+            --exclude bench-vortex \
+            --exclude vortex-datafusion \
+            --exclude vortex-tui \
+            --exclude vortex-fuzz \
+            --exclude pyvortex \
+            --exclude xtask \
+            --workspace --profile release
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
