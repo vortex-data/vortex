@@ -8,7 +8,6 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::scan::ScanTask;
 use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
@@ -52,8 +51,7 @@ impl ExprEvaluator for StructReader {
         )?
         .into_array();
 
-        let task = ScanTask::Expr(partitioned.root.clone());
-        task.execute(&root_scope)
+        partitioned.root.evaluate(&root_scope)
     }
 
     async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {

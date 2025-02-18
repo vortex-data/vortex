@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::{stream, Stream, StreamExt};
 use itertools::Itertools;
 pub use split_by::*;
-pub use task::*;
+use vortex_array::arrow::{FromArrowArray as _, IntoArrowArray as _};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{Array, ContextRef};
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
@@ -17,13 +17,12 @@ use vortex_mask::Mask;
 
 use crate::scan::filter::FilterExpr;
 use crate::scan::unified::UnifiedDriverStream;
-use crate::segments::{AsyncSegmentReader, SegmentId};
+use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutReader, LayoutReaderExt, RowMask};
 
 pub mod executor;
 pub(crate) mod filter;
 mod split_by;
-mod task;
 pub mod unified;
 
 pub trait ScanDriver: 'static + Sized {
@@ -203,30 +202,6 @@ impl<D: ScanDriver> ScanBuilder<D> {
     }
 }
 
-pub struct ScanExecutor {
-    segment_reader: Arc<dyn AsyncSegmentReader>,
-}
-
-impl ScanExecutor {
-    pub fn new(segments: Arc<dyn AsyncSegmentReader>) -> Arc<Self> {
-        Arc::new(Self {
-            segment_reader: segments,
-        })
-    }
-
-    pub async fn get_segment(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
-        self.segment_reader.get(id).await
-    }
-
-    pub fn evaluate(&self, array: &Array, tasks: &[ScanTask]) -> VortexResult<Array> {
-        let mut array = array.clone();
-        for task in tasks {
-            array = task.execute(&array)?;
-        }
-        Ok(array)
-    }
-}
-
 pub struct Scan<D> {
     driver: D,
     task_executor: TaskExecutor,
@@ -303,19 +278,21 @@ impl<D: ScanDriver> Scan<D> {
                     } else {
                         let mut array = reader.evaluate_expr(row_mask, projection).await?;
                         if self.canonicalize {
-                            let task = ScanTask::Canonicalize;
-                            array = task.execute(&array)?;
+                            // TODO(ngates): replace this with into_canonical. We want a fully recursive
+                            //  canonicalize here, so we pretend by converting via Arrow.
+                            let is_nullable = array.dtype().is_nullable();
+                            array = Array::from_arrow(
+                                array.clone().into_arrow_preferred()?,
+                                is_nullable,
+                            );
                         }
 
                         VortexResult::Ok(Some(array))
                     }
                 }
             })
-            .then(move |processing_task| {
-                let task_executor = task_executor.clone();
-                async move { task_executor.spawn(processing_task) }
-            })
-            .try_buffered(self.concurrency)
+            .map(move |processing_task| task_executor.spawn(processing_task))
+            .buffered(self.concurrency)
             .filter_map(|v| async move { v.unnest().transpose() });
 
         let io_stream = self.driver.io_stream();

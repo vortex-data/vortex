@@ -19,11 +19,11 @@ impl TokioExecutor {
 
 #[async_trait::async_trait]
 impl Executor for TokioExecutor {
-    fn spawn<F>(&self, f: F) -> VortexResult<BoxFuture<'static, VortexResult<F::Output>>>
+    fn spawn<F>(&self, f: F) -> BoxFuture<'static, VortexResult<F::Output>>
     where
         F: Future + Send + 'static,
         <F as Future>::Output: Send + 'static,
     {
-        Ok(self.0.spawn(f).map_err(VortexError::from).boxed())
+        self.0.spawn(f).map_err(VortexError::from).boxed()
     }
 }
