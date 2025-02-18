@@ -380,20 +380,20 @@ impl CoalescingMetrics {
     fn record(&self, req: &CoalescedSegmentRequest) {
         // record request counts
         self.request_count_coalesced.inc();
-        let signed_len = req.requests.len().try_into();
-        let _ = signed_len.map(|len| self.request_count_uncoalesced.add(len));
+        if let Ok(len) = req.requests.len().try_into() {
+            self.request_count_uncoalesced.add(len);
+        }
 
         // record uncoalesced total byte requests vs coalesced
-        let signed_bytes = (req.byte_range.end - req.byte_range.start).try_into();
-        let _ = signed_bytes.map(|bytes| self.bytes_coalesced.add(bytes));
-        let _ = req
-            .requests
-            .iter()
-            .map(|req| req.range())
-            .map(|r| r.end - r.start)
-            .sum::<u64>()
-            .try_into()
-            .map(|bytes| self.bytes_uncoalesced.add(bytes));
+        if let Ok(bytes) = (req.byte_range.end - req.byte_range.start).try_into() {
+            self.bytes_coalesced.add(bytes);
+        }
+        self.bytes_uncoalesced.add(
+            req.requests
+                .iter()
+                .map(|req| req.location.length as i64)
+                .sum(),
+        );
     }
 }
 
