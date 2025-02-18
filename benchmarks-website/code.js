@@ -341,8 +341,7 @@ window.initAndRender = (function () {
     }
 
     function initAndRender(keptGroups) {
-        // let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
-        let data = fetch('data.json')
+        let data = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json')
             .then(response => response.text())
             .then(parse_jsonl)
             .catch(error => console.error('unable to load data.json:', error));
