@@ -92,6 +92,8 @@ impl VortexMetrics {
     /// Returns a snapshot of the metrics in the registry.
     ///
     /// Modifications to the registry after this method is called will not affect the state of the returned `MetricsSnapshot`.
+    ///
+    /// Note: Tag values may contain sensitive information and should be properly sanitized before external exposure.
     pub fn metrics(&self) -> MetricsSnapshot<'_> {
         MetricsSnapshot {
             snapshot: self.registry.metrics(),
