@@ -21,6 +21,13 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  validate-workflow-yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Validate YAML file
+        run: yamllint .github/workflows
+
   python-lint:
     name: "Python (lint)"
     runs-on: ubuntu-latest

@@ -28,7 +28,9 @@ jobs:
             name: TPC-H on S3
             cloud_provider: aws
             remote_storage: s3://vortex-bench-dev/tpch-sf1/
-    runs-on: [ self-hosted, ${{ matrix.cloud_provider }} ]
+    runs-on:
+      - self-hosted
+      - ${{ matrix.cloud_provider }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
