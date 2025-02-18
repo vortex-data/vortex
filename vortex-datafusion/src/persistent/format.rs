@@ -34,6 +34,7 @@ use vortex_io::ObjectStoreReadAt;
 use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
 use super::sink::VortexSink;
+use super::VortexSource;
 use crate::can_be_pushed_down;
 use crate::converter::{bound_to_datafusion, directional_bound_to_df_precision};
 
@@ -154,7 +155,7 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self) -> Arc<dyn FileSource> {
-        todo!()
+        Arc::new(VortexSource::default())
     }
 
     async fn infer_schema(

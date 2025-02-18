@@ -157,9 +157,7 @@ impl ExecutionPlan for VortexExec {
         _config: &ConfigOptions,
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
         let file_groups = self.file_scan_config.file_groups.clone();
-
         let repartitioned_file_groups = repartition_by_size(file_groups, target_partitions);
-
         let mut new_plan = self.clone();
 
         let num_partitions = repartitioned_file_groups.len();
@@ -187,7 +185,7 @@ fn make_vortex_predicate(predicate: Option<Arc<dyn PhysicalExpr>>) -> Option<Arc
         })
 }
 
-fn repartition_by_size(
+pub(crate) fn repartition_by_size(
     file_groups: Vec<Vec<PartitionedFile>>,
     desired_partitions: usize,
 ) -> Vec<Vec<PartitionedFile>> {
