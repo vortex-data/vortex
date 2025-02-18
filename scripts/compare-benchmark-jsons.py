@@ -21,22 +21,17 @@ assert len(pr_commit_id) == 1, pr_commit_id
 pr_commit_id = next(iter(pr_commit_id))
 
 if "storage" not in base:
-    # This means the base commit was generated in the pre-object-store days. We cannot give a true
-    # diff because we're comparing different storage systems.
-    pr
-    print(
-        pd.DataFrame(
-            {
-                "name": pr["name"],
-                f"PR {pr_commit_id[:8]}": pr["value"],
-                f"base {base_commit_id[:8]} (no S3 results found)": pd.NA,
-                "ratio (PR/base)": pd.NA,
-                "unit": pr["unit"],
-            }
-        ).to_markdown(index=False)
-    )
-    sys.exit(0)
+    # For whatever reason, the base lacks storage. Might be an old database of results. Might be a
+    # database of results without any storage fields.
+    base["storage"] = pd.NA
 
+if "storage" not in pr:
+    # Not all benchmarks have a "storage" key. If none of the JSON objects in the PR results file
+    # had a "storage" key, then the PR DataFrame will lack that key and the join will fail.
+    pr["storage"] = pd.NA
+
+# NB: `pd.merge` considers two null key values to be equal, so benchmarks without storage keys will
+# match.
 df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base", "_pr"))
 
 assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
