@@ -93,7 +93,13 @@ impl MutNodeVisitor for MatchBetween {
             {
                 let a = lhs.lhs().clone();
                 let b = rhs.lhs().clone();
-                let expr = Between::between(lhs.rhs().clone(), a, lhs.op(), b, rhs.op());
+                let expr = Between::between(
+                    lhs.rhs().clone(),
+                    a,
+                    lhs.op().inverse().unwrap(),
+                    b,
+                    rhs.op().inverse().unwrap(),
+                );
                 return Ok(TransformResult::yes(expr));
             }
         }
@@ -122,6 +128,8 @@ mod tests {
         let expr = and(lt(lit(2), col("x")), lt(lit(5), col("x")));
         let find = find_between(expr);
 
+        println!("{:?}", find);
+
         // 2 <= x < 5
         assert_eq!(
             &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lt),
@@ -149,6 +157,20 @@ mod tests {
         // 2 <= x < 5
         assert_eq!(
             &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lt),
+            &find
+        );
+    }
+
+    #[test]
+    fn test_match_4_between() {
+        let expr = and(lt(lit(5), col("x")), lt(lit(2), col("x")));
+        let find = find_between(expr);
+
+        println!("{:?}", find);
+
+        // 2 <= x < 5
+        assert_eq!(
+            &Between::between(col("x"), lit(5), Operator::Gte, lit(2), Operator::Gte),
             &find
         );
     }
