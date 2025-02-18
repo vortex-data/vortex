@@ -8,6 +8,7 @@ use std::sync::Arc;
 use witchcraft_metrics::{Metric, MetricRegistry, Metrics, MetricsIter};
 
 /// A metric registry for various performance metrics.
+#[derive(Default)]
 pub struct VortexMetrics {
     registry: MetricRegistry,
     default_tags: DefaultTags,
@@ -16,16 +17,8 @@ pub struct VortexMetrics {
 // re-export exposed metric types
 pub use witchcraft_metrics::{Counter, Histogram, MetricId, Timer};
 
-impl Default for VortexMetrics {
-    fn default() -> Self {
-        Self {
-            registry: MetricRegistry::default(),
-            default_tags: DefaultTags(BTreeMap::new()),
-        }
-    }
-}
-
 /// Default tags for metrics used in [`VortexMetrics`].
+#[derive(Default)]
 pub struct DefaultTags(BTreeMap<Cow<'static, str>, Cow<'static, str>>);
 
 impl<K, V> From<&[(K, V)]> for DefaultTags
