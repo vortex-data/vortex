@@ -300,9 +300,15 @@ impl Validity {
         Ok(match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
             Self::AllInvalid => Mask::AllFalse(length),
-            Self::Array(a) => {
-                assert_eq!(a.len(), length);
-                Mask::try_from(a.clone())?
+            Self::Array(is_valid) => {
+                assert_eq!(
+                    is_valid.len(),
+                    length,
+                    "Validity::Array length must equal to_logical's argument: {}, {}.",
+                    is_valid.len(),
+                    length,
+                );
+                Mask::try_from(is_valid.clone())?
             }
         })
     }
