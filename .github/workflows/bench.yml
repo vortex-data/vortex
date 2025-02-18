@@ -32,7 +32,7 @@ jobs:
 
   codspeed_bench:
     name: Benchmark with Codspeed
-    runs-on: ubuntu-latest-large
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
