@@ -109,8 +109,8 @@ impl Executor for ThreadsExecutor {
     }
 }
 
-impl Drop for ThreadsExecutor {
+impl Drop for Inner {
     fn drop(&mut self) {
-        self.inner.is_running.store(false, Ordering::SeqCst);
+        self.is_running.store(false, Ordering::SeqCst);
     }
 }
