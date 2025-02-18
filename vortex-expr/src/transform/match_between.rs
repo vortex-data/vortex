@@ -8,13 +8,10 @@ use crate::{BinaryExpr, ExprRef, GetItem, Operator};
 ///      `x >= a && x < b` and converts them into x between a and b`
 #[allow(dead_code)]
 pub fn find_between(expr: ExprRef) -> ExprRef {
-    let mut vis = MatchBetween;
-    
-    (expr
-        .clone()
-        .transform(&mut vis)
+    expr.clone()
+        .transform(&mut MatchBetween)
         .vortex_expect("cannot fail")
-        .result) as _
+        .result
 }
 
 struct MatchBetween;

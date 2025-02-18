@@ -11,8 +11,7 @@ use crate::{ExprRef, GetItem, Pack};
 pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
     let mut folder = Simplify;
     let e = e.transform(&mut folder).map(|e| e.result)?;
-    VortexResult::Ok(find_between(e.clone()))
-    // Ok(e)
+    Ok(find_between(e.clone()))
 }
 
 struct Simplify;
