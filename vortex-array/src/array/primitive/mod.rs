@@ -57,8 +57,11 @@ impl PrimitiveArray {
             RkyvMetadata(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            Some([buffer.into_byte_buffer()].into()),
-            validity.into_array().map(|v| [v].into()),
+            [buffer.into_byte_buffer()].into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
         .vortex_expect("Should not fail to create PrimitiveArray")

@@ -142,8 +142,8 @@ impl DeltaArray {
             dtype,
             logical_len,
             RkyvMetadata(metadata),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )?;
 

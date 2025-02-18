@@ -148,8 +148,11 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset: first_byte_bit_offset as u8,
             }),
-            Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
-            validity.into_array().map(|v| [v].into()),
+            vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
     }

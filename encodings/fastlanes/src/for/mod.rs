@@ -55,8 +55,8 @@ impl FoRArray {
             dtype,
             encoded.len(),
             SerdeMetadata(FoRMetadata { reference }),
-            None,
-            Some([encoded].into()),
+            vec![].into(),
+            [encoded].into(),
             StatsSet::default(),
         )
     }

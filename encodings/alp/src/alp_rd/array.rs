@@ -106,8 +106,8 @@ impl ALPRDArray {
                 left_parts_ptype,
                 patches,
             }),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )
     }
