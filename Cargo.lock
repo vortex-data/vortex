@@ -876,7 +876,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1889,7 +1889,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2665,7 +2665,7 @@ checksum = "e19b23d53f35ce9f56aebc7d1bb4e6ac1e9c0db7ac85c8d1760c04379edced37"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2718,7 +2718,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3841,7 +3841,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4182,7 +4182,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4324,6 +4324,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.10.1",
+ "serde",
 ]
 
 [[package]]
@@ -4712,7 +4722,7 @@ dependencies = [
  "getrandom 0.3.1",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5223,7 +5233,6 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "backtrace",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "enum-iterator",
  "flatbuffers 25.2.10",
@@ -5317,6 +5326,7 @@ dependencies = [
  "vortex-file",
  "vortex-io",
  "vortex-layout",
+ "vortex-metrics",
 ]
 
 [[package]]
@@ -5351,7 +5361,6 @@ name = "vortex-dict"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "num-traits",
  "rand",
@@ -5431,7 +5440,6 @@ version = "0.24.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
@@ -5474,6 +5482,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-layout",
+ "vortex-metrics",
  "vortex-sampling-compressor",
 ]
 
@@ -5539,6 +5548,7 @@ dependencies = [
  "tracing",
  "vortex-buffer",
  "vortex-error",
+ "vortex-metrics",
  "wasm-bindgen-futures",
 ]
 
@@ -5570,11 +5580,13 @@ dependencies = [
  "bytes",
  "exponential-decay-histogram",
  "flatbuffers 25.2.10",
+ "flume",
  "futures",
  "itertools 0.14.0",
  "log",
  "pin-project-lite",
  "rstest",
+ "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -5595,6 +5607,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-metrics"
+version = "0.24.0"
+dependencies = [
+ "getrandom 0.2.15",
+ "witchcraft-metrics",
+]
+
+[[package]]
 name = "vortex-proto"
 version = "0.24.0"
 dependencies = [
@@ -5607,7 +5627,7 @@ name = "vortex-runend"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "codspeed-criterion-compat",
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "rand",
@@ -5889,7 +5909,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6142,6 +6162,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
 dependencies = [
  "bitflags 2.8.0",
+]
+
+[[package]]
+name = "witchcraft-metrics"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "867a74dec702d742179279ab0b5bcab72ca5858c0c3ccf870bdb5c99f54d675b"
+dependencies = [
+ "exponential-decay-histogram",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]

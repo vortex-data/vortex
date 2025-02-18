@@ -1,0 +1,24 @@
+[package]
+name = "vortex-metrics"
+description = "Vortex Metrics"
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+witchcraft-metrics = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Enable the JS feature of getrandom (via rand) to supprt wasm32 target
+getrandom = { workspace = true, features = ["js"] }
+
+[lints]
+workspace = true

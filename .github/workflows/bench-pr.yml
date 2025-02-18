@@ -48,7 +48,7 @@ jobs:
             --exclude pyvortex \
             --exclude xtask \
             --workspace \
-            --profile release
+            --profile bench
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3

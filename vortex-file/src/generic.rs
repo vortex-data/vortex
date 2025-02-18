@@ -10,6 +10,7 @@ use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_metrics::{Counter, MetricId, VortexMetrics};
 
 use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
@@ -31,6 +32,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
         options: Self::Options,
         file_layout: FileLayout,
         segment_cache: Arc<dyn SegmentCache>,
+        metrics: Arc<VortexMetrics>,
     ) -> Self::ScanDriver {
         GenericScanDriver {
             read,
@@ -38,6 +40,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
             file_layout,
             segment_cache,
             segment_channel: SegmentChannel::new(),
+            metrics: metrics.into(),
         }
     }
 }
@@ -68,6 +71,7 @@ pub struct GenericScanDriver<R> {
     file_layout: FileLayout,
     segment_cache: Arc<dyn SegmentCache>,
     segment_channel: SegmentChannel,
+    metrics: CoalescingMetrics,
 }
 
 impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
@@ -145,7 +149,8 @@ impl<R: VortexReadAt> ScanDriver for GenericScanDriver<R> {
         let perf_hint = self.read.performance_hint();
         let io_stream = io_stream
             .map(move |r| coalesce(r, perf_hint.coalescing_window(), perf_hint.max_read()))
-            .flat_map(stream::iter);
+            .flat_map(stream::iter)
+            .inspect(move |coalesced| self.metrics.record(coalesced));
 
         // Submit the coalesced requests to the I/O.
         let read = self.read.clone();
@@ -187,6 +192,10 @@ impl FileSegmentRequest {
             .send(buffer)
             .map_err(|_| vortex_err!("send failed"))
             .vortex_expect("send failed");
+    }
+
+    fn range(&self) -> Range<u64> {
+        self.location.offset..self.location.offset + self.location.length as u64
     }
 }
 
@@ -271,9 +280,7 @@ fn coalesce(
     max_read: Option<u64>,
 ) -> Vec<CoalescedSegmentRequest> {
     let fetch_ranges = merge_ranges(
-        requests
-            .iter()
-            .map(|r| r.location.offset..r.location.offset + r.location.length as u64),
+        requests.iter().map(|r| r.range()),
         coalescing_window,
         max_read,
     );
@@ -346,6 +353,48 @@ where
     }
 
     ret
+}
+
+struct CoalescingMetrics {
+    bytes_uncoalesced: Arc<Counter>,
+    bytes_coalesced: Arc<Counter>,
+    request_count_uncoalesced: Arc<Counter>,
+    request_count_coalesced: Arc<Counter>,
+}
+
+impl From<Arc<VortexMetrics>> for CoalescingMetrics {
+    fn from(metrics: Arc<VortexMetrics>) -> Self {
+        let byte_ranges = MetricId::new("vortex.scan.requests.bytes");
+        let requests = MetricId::new("vortex.scan.requests.count");
+        Self {
+            bytes_uncoalesced: metrics.counter(byte_ranges.clone().with_tag("kind", "uncoalesced")),
+            bytes_coalesced: metrics.counter(byte_ranges.with_tag("kind", "coalesced")),
+            request_count_uncoalesced: metrics
+                .counter(requests.clone().with_tag("kind", "uncoalesced")),
+            request_count_coalesced: metrics.counter(requests.with_tag("kind", "coalesced")),
+        }
+    }
+}
+
+impl CoalescingMetrics {
+    fn record(&self, req: &CoalescedSegmentRequest) {
+        // record request counts
+        self.request_count_coalesced.inc();
+        if let Ok(len) = req.requests.len().try_into() {
+            self.request_count_uncoalesced.add(len);
+        }
+
+        // record uncoalesced total byte requests vs coalesced
+        if let Ok(bytes) = (req.byte_range.end - req.byte_range.start).try_into() {
+            self.bytes_coalesced.add(bytes);
+        }
+        self.bytes_uncoalesced.add(
+            req.requests
+                .iter()
+                .map(|req| req.location.length as i64)
+                .sum(),
+        );
+    }
 }
 
 #[cfg(test)]
