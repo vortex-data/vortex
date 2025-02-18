@@ -76,6 +76,7 @@ fn random_access(
     measurements.push(GenericMeasurement {
         id: 0,
         name: "random-access/vortex-tokio-local-disk".to_string(),
+        storage: "nvme".to_string(),
         format: Format::OnDiskVortex,
         time: run_with_setup(
             &runtime,
@@ -90,6 +91,7 @@ fn random_access(
         measurements.push(GenericMeasurement {
             id: 0,
             name: "random-access/parquet-tokio-local-disk".to_string(),
+            storage: "nvme".to_string(),
             format: Format::Parquet,
             time: run_with_setup(
                 &runtime,
