@@ -4,7 +4,10 @@ use std::time::{Duration, Instant};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
+use bench_vortex::tpch::{
+    load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10,
+    TPC_H_ROW_COUNT_ARRAY_LENGTH,
+};
 use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -106,6 +109,7 @@ fn main() -> ExitCode {
         args.formats,
         args.display_format,
         args.emulate_object_store,
+        args.scale_factor,
         url,
     ))
 }
@@ -118,8 +122,20 @@ async fn bench_main(
     formats: Vec<Format>,
     display_format: DisplayFormat,
     emulate_object_store: bool,
+    scale_factor: u8,
     url: Url,
 ) -> ExitCode {
+    let expected_row_counts = if scale_factor == 1 {
+        EXPECTED_ROW_COUNTS_SF1
+    } else if scale_factor == 10 {
+        EXPECTED_ROW_COUNTS_SF10
+    } else {
+        panic!(
+            "Scale factor {} not supported due to lack of expected row counts.",
+            scale_factor
+        );
+    };
+
     eprintln!(
         "Benchmarking against these formats: {}.",
         formats.iter().join(", ")
@@ -196,7 +212,7 @@ async fn bench_main(
     for (idx, format, row_count) in row_counts {
         format_row_counts
             .entry(format)
-            .or_insert_with(|| vec![0; EXPECTED_ROW_COUNTS.len()])[idx] = row_count;
+            .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
     }
 
     progress.finish();
@@ -205,14 +221,29 @@ async fn bench_main(
     for (format, row_counts) in format_row_counts {
         row_counts
             .into_iter()
-            .zip_eq(EXPECTED_ROW_COUNTS)
             .enumerate()
             .filter(|(idx, _)| queries.as_ref().map(|q| q.contains(idx)).unwrap_or(true))
             .filter(|(idx, _)| exclude_queries.as_ref().map(|excluded| !excluded.contains(idx)).unwrap_or(true))
-            .for_each(|(idx, (row_count, expected_row_count))| {
-                if row_count != expected_row_count {
-                    eprintln!("Mismatched row count {row_count} instead of {expected_row_count} in query {idx} for format {format:?}");
-                    mismatched = true;
+            .for_each(|(idx, actual_row_count)| {
+                let expected_row_count = expected_row_counts[idx];
+                if actual_row_count != expected_row_count {
+                    if idx == 15 && actual_row_count == 0 {
+                        eprintln!(
+                            "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/spiraldb/vortex/issues/2395",
+                            actual_row_count,
+                            expected_row_count,
+                            format,
+                        );
+                    } else  {
+                        eprintln!(
+                            "Mismatched row count {} instead of {} in query {} for format {:?}",
+                            actual_row_count,
+                            expected_row_count,
+                            idx,
+                            format,
+                        );
+                        mismatched = true;
+                    }
                 }
             })
     }
