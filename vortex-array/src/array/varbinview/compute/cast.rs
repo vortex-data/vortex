@@ -3,7 +3,6 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{VarBinViewArray, VarBinViewEncoding};
 use crate::compute::CastFn;
-use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
 impl CastFn<VarBinViewArray> for VarBinViewEncoding {

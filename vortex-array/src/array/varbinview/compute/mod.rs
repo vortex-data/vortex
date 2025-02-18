@@ -4,12 +4,13 @@ mod take;
 mod to_arrow;
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{CastFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{CastFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray};
 
@@ -132,6 +133,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn take_into_nullable() {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),

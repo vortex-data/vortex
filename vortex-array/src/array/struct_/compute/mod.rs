@@ -71,7 +71,8 @@ impl CastFn<StructArray> for StructEncoding {
             target_sdtype.names().clone(),
             array
                 .children()
-                .zip_eq(target_sdtype.dtypes())
+                .into_iter()
+                .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| try_cast(&field, &dtype))
                 .try_collect()?,
             array.len(),
@@ -148,7 +149,7 @@ impl MaskFn<StructArray> for StructEncoding {
 
         StructArray::try_new(
             array.names().clone(),
-            array.children().collect(),
+            array.children(),
             array.len(),
             validity,
         )
