@@ -1,14 +1,17 @@
 mod compare;
 
+use vortex_array::array::ConstantArray;
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+    between, filter, scalar_at, slice, take, BetweenFn, CompareFn, FilterFn, ScalarAtFn, SliceFn,
+    TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::{Array, IntoArray};
+use vortex_dtype::{NativePType, PType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarType};
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
@@ -16,6 +19,10 @@ impl ComputeVTable for ALPEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
+
+    // fn between_fn(&self) -> Option<&dyn BetweenFn<Array>> {
+    //     Some(self)
+    // }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
@@ -106,4 +113,50 @@ impl FilterFn<ALPArray> for ALPEncoding {
                 .into_array(),
         )
     }
+}
+
+impl BetweenFn<ALPArray> for ALPEncoding {
+    fn between(
+        &self,
+        array: &ALPArray,
+        lower: &Array,
+        upper: &Array,
+    ) -> VortexResult<Option<Array>> {
+        let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
+            return Ok(None);
+        };
+
+        if array.patches().is_some() {
+            return Ok(None);
+        }
+
+        match array.ptype() {
+            PType::F32 => {
+                between_impl::<f32>(array, f32::try_from(lower)?, f32::try_from(upper)?).map(Some)
+            }
+            PType::F64 => {
+                between_impl::<f64>(array, f64::try_from(lower)?, f64::try_from(upper)?).map(Some)
+            }
+            _ => return Ok(None),
+        }
+    }
+}
+
+fn between_impl<T: NativePType + ALPFloat>(
+    array: &ALPArray,
+    lower: T,
+    upper: T,
+) -> VortexResult<Array>
+where
+    Scalar: From<T::ALPInt>,
+    <T as ALPFloat>::ALPInt: ScalarType,
+{
+    let lower_enc = T::encode_single(lower, array.exponents());
+    let upper_enc = T::encode_single(upper, array.exponents());
+
+    between(
+        array.encoded(),
+        ConstantArray::new(lower_enc, array.len()),
+        ConstantArray::new(upper_enc, array.len()),
+    )
 }

@@ -5439,6 +5439,7 @@ dependencies = [
  "rand",
  "rkyv",
  "serde",
+ "vortex-alp",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

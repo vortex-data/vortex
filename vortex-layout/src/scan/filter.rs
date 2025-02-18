@@ -54,6 +54,8 @@ impl FilterExpr {
             .into_iter()
             .collect();
 
+        println!("expr {}", expr);
+
         // Partition the expression into conjuncts
         let conjuncts = cnf(expr)?;
         let conjuncts: Vec<ExprRef> = conjuncts

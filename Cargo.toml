@@ -247,7 +247,7 @@ debug = "full"
 [profile.bench]
 codegen-units = 16
 debug = "full"
-lto = false
+lto = "fat"
 
 [profile.bench_assert]
 inherits = "bench"

@@ -1,6 +1,7 @@
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
 #![feature(substr_range)]
+#![feature(iter_next_chunk)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](Array).
 //!
 //! At the heart of Vortex are [arrays](Array) and [encodings](vtable::EncodingVTable).
