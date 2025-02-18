@@ -16,6 +16,7 @@ pub trait AlignedBuf: Buf {
     ///
     /// TODO(ngates): what should this do the alignment of the current buffer? We have to advance
     ///  it by len..
+    #[inline]
     fn copy_to_aligned(&mut self, len: usize, alignment: Alignment) -> ByteBuffer {
         // The default implementation uses copy_to_bytes, and then tries to align.
         // When the underlying `copy_to_bytes` is zero-copy, this may perform one copy to align
@@ -32,6 +33,7 @@ pub trait AlignedBuf: Buf {
     }
 
     /// See [`AlignedBuf::copy_to_aligned`].
+    #[inline]
     fn copy_to_const_aligned<const A: usize>(&mut self, len: usize) -> ConstByteBuffer<A> {
         // The default implementation uses copy_to_bytes, and then returns a ByteBuffer with
         // alignment of 1. This will be zero-copy if the underlying `copy_to_bytes` is zero-copy.

@@ -25,6 +25,7 @@ impl Alignment {
     }
 
     /// Create a new 1-byte alignment.
+    #[inline]
     pub const fn none() -> Self {
         Self::new(1)
     }
@@ -82,6 +83,7 @@ impl Alignment {
 }
 
 impl Display for Alignment {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -90,30 +92,35 @@ impl Display for Alignment {
 impl Deref for Alignment {
     type Target = usize;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl From<usize> for Alignment {
+    #[inline]
     fn from(value: usize) -> Self {
         Self::new(value)
     }
 }
 
 impl From<u16> for Alignment {
+    #[inline]
     fn from(value: u16) -> Self {
         Self::new(usize::from(value))
     }
 }
 
 impl From<Alignment> for usize {
+    #[inline]
     fn from(value: Alignment) -> Self {
         value.0
     }
 }
 
 impl From<Alignment> for u16 {
+    #[inline]
     fn from(value: Alignment) -> Self {
         u16::try_from(value.0).vortex_expect("Alignment must fit into u16")
     }
