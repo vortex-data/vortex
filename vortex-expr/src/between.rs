@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vortex_array::compute::between;
 use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, Operator, VortexExpr};
 
@@ -70,9 +70,13 @@ impl VortexExpr for Between {
         between(
             &arr_val,
             &lower_val,
-            self.lower_op.maybe_cmp_operator().unwrap(),
+            self.lower_op
+                .maybe_cmp_operator()
+                .ok_or_else(|| vortex_err!("must be a cmp operator"))?,
             &upper_arr_val,
-            self.upper_op.maybe_cmp_operator().unwrap(),
+            self.upper_op
+                .maybe_cmp_operator()
+                .ok_or_else(|| vortex_err!("must be a cmp operator"))?,
         )
     }
 
