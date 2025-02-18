@@ -6,19 +6,29 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::LayoutWriter;
-use crate::{Layout, LayoutVTableRef};
+use crate::writer::LayoutWriter;
+use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriterExt};
 
+#[derive(Clone)]
 pub struct FlatLayoutOptions {
     /// Stats to preserve when writing arrays
     pub array_stats: Vec<Stat>,
+    /// Whether to include padding for memory-mapped reads.
+    pub include_padding: bool,
 }
 
 impl Default for FlatLayoutOptions {
     fn default() -> Self {
         Self {
             array_stats: STATS_TO_WRITE.to_vec(),
+            include_padding: true,
         }
+    }
+}
+
+impl LayoutStrategy for FlatLayoutOptions {
+    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(dtype.clone(), self.clone()).boxed())
     }
 }
 
@@ -54,10 +64,14 @@ impl LayoutWriter for FlatLayoutWriter {
         let row_count = chunk.len() as u64;
         retain_only_stats(&chunk, &self.options.array_stats);
 
-        let buffers = chunk.serialize(&SerializeOptions::default());
+        let buffers = chunk.serialize(&SerializeOptions {
+            offset: 0,
+            include_padding: self.options.include_padding,
+        });
         let segment_id = segments.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
+            "flat".into(),
             LayoutVTableRef::from_static(&FlatLayout),
             self.dtype.clone(),
             row_count,
@@ -86,11 +100,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_expr::ident;
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
-    use crate::strategies::LayoutWriterExt;
+    use crate::writer::LayoutWriterExt;
+    use crate::RowMask;
 
     #[test]
     fn flat_stats() {
@@ -104,7 +119,7 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .reader(Arc::new(segments), Default::default())
+                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
                 .await

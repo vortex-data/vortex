@@ -309,6 +309,16 @@ impl<T> Buffer<T> {
     }
 
     /// Returns the underlying aligned buffer.
+    pub fn inner(&self) -> &Bytes {
+        debug_assert_eq!(
+            self.length * size_of::<T>(),
+            self.bytes.len(),
+            "Own length has to be the same as the underlying bytes length"
+        );
+        &self.bytes
+    }
+
+    /// Returns the underlying aligned buffer.
     pub fn into_inner(self) -> Bytes {
         debug_assert_eq!(
             self.length * size_of::<T>(),
@@ -350,6 +360,11 @@ impl<T> Buffer<T> {
                 alignment: self.alignment,
                 _marker: Default::default(),
             })
+    }
+
+    /// Returns whether a `Buffer<T>` is aligned to the given alignment.
+    pub fn is_aligned(&self, alignment: Alignment) -> bool {
+        self.bytes.as_ptr().align_offset(*alignment) == 0
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.

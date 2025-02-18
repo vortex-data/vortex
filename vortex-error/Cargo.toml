@@ -33,6 +33,7 @@ parquet = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 rancor = { workspace = true, optional = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"], optional = true }
 url = { workspace = true }
 worker = { workspace = true, optional = true }
 

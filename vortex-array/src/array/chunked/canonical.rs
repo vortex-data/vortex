@@ -8,16 +8,28 @@ use crate::array::extension::ExtensionArray;
 use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
-use crate::array::{BinaryView, BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
+use crate::array::{BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
+use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical, IntoArray, IntoArrayVariant};
+use crate::{Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
 
 impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
     fn into_canonical(&self, array: ChunkedArray) -> VortexResult<Canonical> {
         let validity = Validity::from_mask(array.validity_mask()?, array.dtype().nullability());
         try_canonicalize_chunks(array.chunks().collect(), validity, array.dtype())
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: ChunkedArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        for chunk in array.chunks() {
+            chunk.canonicalize_into(builder)?;
+        }
+        Ok(())
     }
 }
 
@@ -175,12 +187,16 @@ fn swizzle_struct_chunks(
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
-    for (field_idx, field_dtype) in struct_dtype.dtypes().enumerate() {
-        let field_chunks = chunks.iter().map(|c| c.as_struct_array()
-                .vortex_expect("Chunk was not a StructArray")
-                .maybe_null_field_by_idx(field_idx)
-                .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype()))
-        ).collect::<VortexResult<Vec<_>>>()?;
+    for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
+        let field_chunks = chunks
+            .iter()
+            .map(|c| {
+                c.as_struct_array()
+                    .vortex_expect("Chunk was not a StructArray")
+                    .maybe_null_field_by_idx(field_idx)
+                    .vortex_expect("Invalid chunked array")
+            })
+            .collect::<Vec<_>>();
         let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
         field_arrays.push(field_array.into_array());
     }
@@ -235,28 +251,16 @@ fn pack_views(
     let mut views = BufferMut::with_capacity(total_len);
     let mut buffers = Vec::new();
     for chunk in chunks {
-        // Each chunk's views have buffer IDs that are zero-referenced.
-        // As part of the packing operation, we need to rewrite them to be referenced to the global
-        // merged buffers list.
         let buffers_offset = u32::try_from(buffers.len())?;
         let canonical_chunk = chunk.clone().into_varbinview()?;
         buffers.extend(canonical_chunk.buffers());
 
-        for view in canonical_chunk.views().iter() {
-            if view.is_inlined() {
-                // Inlined views can be copied directly into the output
-                views.push(*view);
-            } else {
-                // Referencing views must have their buffer_index adjusted with new offsets
-                let view_ref = view.as_view();
-                views.push(BinaryView::new_view(
-                    view.len(),
-                    *view_ref.prefix(),
-                    buffers_offset + view_ref.buffer_index(),
-                    view_ref.offset(),
-                ));
-            }
-        }
+        views.extend(
+            canonical_chunk
+                .views()
+                .into_iter()
+                .map(|view| view.offset_view(buffers_offset)),
+        );
     }
 
     VarBinViewArray::try_new(views.freeze(), buffers, dtype.clone(), validity)

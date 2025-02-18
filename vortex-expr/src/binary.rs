@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
 use vortex_array::Array;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, Operator, VortexExpr};
@@ -69,6 +70,12 @@ impl VortexExpr for BinaryExpr {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 2);
         BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let lhs = self.lhs.return_dtype(scope_dtype)?;
+        let rhs = self.rhs.return_dtype(scope_dtype)?;
+        Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 }
 

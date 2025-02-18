@@ -184,6 +184,10 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
         array.values().all_valid()
     }
 
+    fn all_invalid(&self, array: &RunEndArray) -> VortexResult<bool> {
+        array.values().all_invalid()
+    }
+
     fn validity_mask(&self, array: &RunEndArray) -> VortexResult<Mask> {
         Ok(match array.values().validity_mask()? {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),

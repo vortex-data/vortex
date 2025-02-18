@@ -13,12 +13,13 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, Vortex
 use vortex_mask::Mask;
 
 use crate::arrow::FromArrowArray;
+use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, Array, Canonical, RkyvMetadata};
+use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
 
 mod accessor;
 mod compute;
@@ -115,6 +116,12 @@ assert_eq_align!(BinaryView, u128);
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;
 
+    pub fn empty_view() -> Self {
+        Self {
+            inlined: Inlined::new(&[]),
+        }
+    }
+
     pub fn new_inlined(value: &[u8]) -> Self {
         assert!(
             value.len() <= Self::MAX_INLINED_SIZE,
@@ -161,6 +168,24 @@ impl BinaryView {
     pub fn as_u128(&self) -> u128 {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
+    }
+
+    /// Shifts the buffer reference by the view by a given offset, useful when merging many
+    /// varbinview arrays into one.
+    #[inline(always)]
+    pub fn offset_view(self, offset: u32) -> Self {
+        if self.is_inlined() {
+            self
+        } else {
+            // Referencing views must have their buffer_index adjusted with new offsets
+            let view_ref = self.as_view();
+            BinaryView::new_view(
+                self.len(),
+                *view_ref.prefix(),
+                offset + view_ref.buffer_index(),
+                view_ref.offset(),
+            )
+        }
     }
 }
 
@@ -428,6 +453,14 @@ impl CanonicalVTable<VarBinViewArray> for VarBinViewEncoding {
             vortex_array,
         )?))
     }
+
+    fn canonicalize_into(
+        &self,
+        array: VarBinViewArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(array.into_array())
+    }
 }
 
 pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
@@ -474,6 +507,10 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
 
     fn all_valid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &VarBinViewArray) -> VortexResult<Mask> {

@@ -15,7 +15,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
-    Patches::new(len, indices.into_array(), values)
+    Patches::new(len, 0, indices.into_array(), values)
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> Array {
@@ -35,6 +35,7 @@ fn bench_take(c: &mut Criterion) {
                 (patches.array_len() as f64 * index_multiple) as usize,
                 &mut rng,
             );
+
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
                     "take_search: array_len={}, n_patches={} (~{}%), n_indices={} ({}%)",
@@ -46,12 +47,13 @@ fn bench_take(c: &mut Criterion) {
                 )),
                 &(&patches, &indices),
                 |b, (patches, indices)| {
-                    b.iter(|| {
-                        patches
-                            .take_search(<&Array>::clone(indices).clone().into_primitive().unwrap())
-                    })
+                    b.iter_with_setup(
+                        || (*indices).clone(),
+                        |indices| patches.take_search(indices.into_primitive().unwrap()),
+                    )
                 },
             );
+
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
                     "take_map: array_len={}, n_patches={} (~{}%), n_indices={} ({}%)",
@@ -63,9 +65,10 @@ fn bench_take(c: &mut Criterion) {
                 )),
                 &(&patches, &indices),
                 |b, (patches, indices)| {
-                    b.iter(|| {
-                        patches.take_map(<&Array>::clone(indices).clone().into_primitive().unwrap())
-                    })
+                    b.iter_with_setup(
+                        || (*indices).clone(),
+                        |indices| patches.take_map(indices.into_primitive().unwrap()),
+                    )
                 },
             );
         }

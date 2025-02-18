@@ -1,89 +1,107 @@
-use std::future::Future;
 use std::io;
-use std::os::unix::fs::FileExt;
+use std::ops::Range;
+use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{
-    GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, PutPayload,
+    GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
+    PutPayload,
 };
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{IoBuf, VortexReadAt, VortexWrite};
+use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
+    scheme: Option<ObjectStoreScheme>,
 }
 
 impl ObjectStoreReadAt {
-    pub fn new(object_store: Arc<dyn ObjectStore>, location: Path) -> Self {
+    pub fn new(
+        object_store: Arc<dyn ObjectStore>,
+        location: Path,
+        scheme: Option<ObjectStoreScheme>,
+    ) -> Self {
         Self {
             object_store,
             location,
+            scheme,
         }
     }
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn read_byte_range(
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(size = range.end - range.start)))]
+    async fn read_byte_range(
         &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
-        Box::pin(async move {
-            let read_start: usize = pos.try_into().vortex_expect("pos");
-            let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
-            let len: usize = len.try_into().vortex_expect("len does not fit into usize");
+        let start = usize::try_from(range.start).vortex_expect("range.start");
+        let end = usize::try_from(range.end).vortex_expect("range.end");
+        let len: usize = end - start;
 
-            let response = object_store
-                .get_opts(
-                    &location,
-                    GetOptions {
-                        range: Some(GetRange::Bounded(read_start..read_end)),
-                        ..Default::default()
-                    },
-                )
-                .await?;
+        // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
+        // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
+        // into the aligned buffer.
+        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
 
-            // NOTE: ObjectStore specializes the payload based on if it is backed by a File or if
-            //  it's coming from a network stream. Internally they optimize the File implementation
-            //  to only perform a single allocation when calling `.bytes().await`, which we
-            //  replicate here by emitting the contents directly into our aligned buffer.
-            let mut buffer = BytesMut::with_capacity(len);
-            match response.payload {
-                GetResultPayload::File(file, _) => {
-                    unsafe { buffer.set_len(len) };
-                    file.read_exact_at(&mut buffer, pos)?;
-                }
-                GetResultPayload::Stream(mut byte_stream) => {
-                    while let Some(bytes) = byte_stream.next().await {
-                        buffer.extend_from_slice(&bytes?);
-                    }
-                }
+        let response = object_store
+            .get_opts(
+                &location,
+                GetOptions {
+                    range: Some(GetRange::Bounded(start..end)),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        let buffer = match response.payload {
+            GetResultPayload::File(file, _) => {
+                unsafe { buffer.set_len(len) };
+                tokio::task::spawn_blocking(move || {
+                    file.read_exact_at(&mut buffer, range.start)?;
+                    Ok::<_, io::Error>(buffer)
+                })
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
             }
-            Ok(buffer.freeze())
-        })
+            GetResultPayload::Stream(mut byte_stream) => {
+                while let Some(bytes) = byte_stream.next().await {
+                    buffer.extend_from_slice(&bytes?);
+                }
+                buffer
+            }
+        };
+
+        Ok(buffer.freeze())
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
+    async fn size(&self) -> io::Result<u64> {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
+        Ok(object_store.head(&location).await?.size as u64)
+    }
 
-        Box::pin(async move {
-            object_store
-                .head(&location)
-                .await
-                .map(|obj| obj.size as u64)
-                .map_err(io::Error::other)
-        })
+    fn performance_hint(&self) -> PerformanceHint {
+        match &self.scheme {
+            Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
+            Some(
+                ObjectStoreScheme::AmazonS3
+                | ObjectStoreScheme::MicrosoftAzure
+                | ObjectStoreScheme::GoogleCloudStorage,
+            ) => PerformanceHint::object_storage(),
+            _ => PerformanceHint::default(),
+        }
     }
 }
 

@@ -93,7 +93,7 @@ tree.
 
 The Rust trait looks like this:
 
-:::{literalinclude} ../../vortex-layout/src/strategies/mod.rs
+:::{literalinclude} ../../vortex-layout/src/writer.rs
 :start-after: [layout writer]
 :end-before: [layout writer]
 :::

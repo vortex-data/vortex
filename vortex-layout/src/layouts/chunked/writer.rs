@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use bytes::Bytes;
 use vortex_array::stats::{as_stat_bitset_bytes, Stat, PRUNING_STATS};
 use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::data::Layout;
 use crate::layouts::chunked::stats_table::StatsAccumulator;
@@ -10,21 +12,22 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::strategy::LayoutStrategy;
+use crate::writer::{LayoutWriter, LayoutWriterExt};
 use crate::LayoutVTableRef;
 
 pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
-    pub chunk_stats: Vec<Stat>,
+    pub chunk_stats: Arc<[Stat]>,
     /// The layout strategy for each chunk.
-    pub chunk_strategy: Box<dyn LayoutStrategy>,
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
 }
 
 impl Default for ChunkedLayoutOptions {
     fn default() -> Self {
         Self {
-            chunk_stats: PRUNING_STATS.to_vec(),
-            chunk_strategy: Box::new(FlatLayout),
+            chunk_stats: PRUNING_STATS.into(),
+            chunk_strategy: Arc::new(FlatLayout),
         }
     }
 }
@@ -74,8 +77,14 @@ impl LayoutWriter for ChunkedLayoutWriter {
             children.push(writer.finish(segments)?);
         }
 
+        // If there's only one child, there's no point even writing a stats table since
+        // there's no pruning for us to do.
+        if children.len() == 1 {
+            return Ok(children.pop().vortex_expect("child layout"));
+        }
+
         // Collect together the statistics
-        let stats_table = self.stats_accumulator.as_stats_table()?;
+        let stats_table = self.stats_accumulator.as_stats_table();
         let metadata: Option<Bytes> = match stats_table {
             Some(stats_table) => {
                 // Write the stats array as the final layout.
@@ -92,6 +101,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
         };
 
         Ok(Layout::new_owned(
+            "chunked".into(),
             LayoutVTableRef::from_static(&ChunkedLayout),
             self.dtype.clone(),
             self.row_count,

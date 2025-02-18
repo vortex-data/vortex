@@ -1,13 +1,15 @@
 mod compare;
 mod to_arrow;
+
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
 use crate::compute::{
-    min_max, scalar_at, slice, take, CastFn, CompareFn, MinMaxFn, MinMaxResult, ScalarAtFn,
-    SliceFn, TakeFn, ToArrowFn,
+    filter, min_max, scalar_at, slice, take, CastFn, CompareFn, FilterFn, MinMaxFn, MinMaxResult,
+    ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -22,6 +24,10 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+        Some(self)
+    }
+
+    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
         Some(self)
     }
 
@@ -43,6 +49,15 @@ impl ComputeVTable for ExtensionEncoding {
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
+    }
+}
+
+impl FilterFn<ExtensionArray> for ExtensionEncoding {
+    fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<Array> {
+        Ok(
+            ExtensionArray::new(array.ext_dtype().clone(), filter(&array.storage(), mask)?)
+                .into_array(),
+        )
     }
 }
 

@@ -12,14 +12,13 @@ use reqwest::Url;
 use tokio::fs::File;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
-use vortex::error::VortexResult;
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::{Array, IntoArray};
 
 use crate::data_downloads::{decompress_bz2, download_data, BenchmarkDataset, FileType};
 use crate::public_bi_data::PBIDataset::*;
 use crate::reader::{
-    compress_parquet_to_vortex, open_vortex, read_parquet_to_vortex, rewrite_parquet_as_vortex,
-    write_csv_as_parquet,
+    open_vortex, read_parquet_to_vortex, rewrite_parquet_as_vortex, write_csv_as_parquet,
 };
 use crate::{idempotent, IdempotentPath};
 
@@ -561,34 +560,13 @@ impl BenchmarkDataset for BenchmarkDatasets {
         let arrays = self
             .list_files(FileType::Parquet)
             .iter()
-            .map(|f| read_parquet_to_vortex(f.as_path()))
+            .flat_map(|f| {
+                read_parquet_to_vortex(f.as_path()).vortex_expect("Failed to read parquet")
+            })
             .collect::<VortexResult<Vec<_>>>()?;
+
         assert!(!arrays.is_empty());
-        let dtype = arrays[0].dtype().clone();
-        ChunkedArray::try_new(
-            arrays.iter().flat_map(|x| x.chunks()).collect::<Vec<_>>(),
-            dtype,
-        )
-        .map(|x| x.into_array())
-    }
-
-    fn compress_to_vortex(&self) -> VortexResult<()> {
-        self.write_as_parquet();
-        for f in self.list_files(FileType::Parquet) {
-            info!(
-                "Compressing and writing {} to vortex",
-                f.to_str().unwrap_or("None")
-            );
-            let from_vortex = compress_parquet_to_vortex(f.as_path())?;
-            let vx_size = from_vortex.nbytes();
-
-            info!(
-                "Vortex size: {}, {}B",
-                format_size(vx_size as u64, DECIMAL),
-                vx_size
-            );
-        }
-        Ok(())
+        Ok(ChunkedArray::from_iter(arrays).into_array())
     }
 
     fn write_as_parquet(&self) {

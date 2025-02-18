@@ -1,0 +1,103 @@
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
+//! Various tests for the selection vector being present.
+
+use criterion::{BenchmarkId, Criterion};
+use rand::Rng;
+use vortex_alp::ALPEncoding;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::filter;
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::{Array, Encoding, IntoArray, IntoCanonical};
+use vortex_dtype::PType;
+use vortex_mask::Mask;
+use vortex_sampling_compressor::compressors::alp::ALPCompressor;
+use vortex_sampling_compressor::compressors::bitpacked::BITPACK_NO_PATCHES;
+use vortex_sampling_compressor::compressors::EncodingCompressor;
+use vortex_sampling_compressor::SamplingCompressor;
+
+// criterion benchmark setup:
+fn bench_sel_vec(c: &mut Criterion) {
+    let mut group = c.benchmark_group("filter_then_canonical");
+
+    // Run ALP + BitPacking.
+    let compressor = SamplingCompressor::default().including_only(&[
+        &ALPCompressor as &dyn EncodingCompressor,
+        &BITPACK_NO_PATCHES,
+        // &FoRCompressor,
+    ]);
+
+    // Create a low-precision primitive array of f64
+    let arr = PrimitiveArray::from_iter((0..=65535).map(|x| (x as f64) * 0.2f64));
+    assert_eq!(arr.ptype(), PType::F64);
+
+    let arr = compressor
+        .compress(&arr.into_array(), None)
+        .unwrap()
+        .into_array();
+    assert_eq!(arr.encoding(), ALPEncoding::ID);
+
+    println!("tree: {}", arr.tree_display());
+
+    // Try for various mask
+    let max = 65536;
+    for selectivity in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999, 1.0] {
+        // Create a random mask of the given size
+        let true_count = (selectivity * max as f64) as usize;
+        // Create a randomized mask with the correct length and true_count.
+        let mask = create_mask(max, true_count);
+        assert_eq!(mask.len(), max);
+        assert_eq!(mask.true_count(), true_count);
+        group.bench_with_input(
+            BenchmarkId::from_parameter(selectivity),
+            &mask,
+            |b, mask| {
+                // Filter then into_canonical
+                b.iter(|| filter_then_canonical(&arr, mask))
+            },
+        );
+    }
+    group.finish();
+
+    let mut group = c.benchmark_group("canonical_then_filter");
+    for selectivity in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999, 1.0] {
+        let true_count = (selectivity * max as f64) as usize;
+        let mask = create_mask(max, true_count);
+        group.bench_with_input(
+            BenchmarkId::from_parameter(selectivity),
+            &mask,
+            |b, mask| {
+                b.iter_with_setup(
+                    || arr.clone(),
+                    |arr| {
+                        let canonical = arr.into_canonical().unwrap().into_array();
+                        filter(&canonical, mask).unwrap()
+                    },
+                )
+            },
+        );
+    }
+    group.finish();
+}
+
+fn filter_then_canonical(array: &Array, mask: &Mask) -> Array {
+    let filtered = filter(array, mask).unwrap();
+    filtered.into_canonical().unwrap().into_array()
+}
+
+fn create_mask(len: usize, true_count: usize) -> Mask {
+    let mut mask = vec![false; len];
+    // randomly distribute true_count true values
+    let mut rng = rand::thread_rng();
+    let mut set = 0;
+    while set < true_count {
+        let index = rng.gen_range(0..len);
+        if !mask[index] {
+            mask[index] = true;
+            set += 1;
+        }
+    }
+    Mask::from_iter(mask)
+}
+
+criterion::criterion_group!(sel_vec, bench_sel_vec);
+criterion::criterion_main!(sel_vec);

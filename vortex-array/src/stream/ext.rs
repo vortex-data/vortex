@@ -5,14 +5,22 @@ use vortex_error::VortexResult;
 
 use crate::array::ChunkedArray;
 use crate::stream::take_rows::TakeRows;
-use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::stream::{ArrayStream, ArrayStreamAdapter, SendableArrayStream};
 use crate::{Array, IntoArray};
 
 pub trait ArrayStreamExt: ArrayStream {
+    /// Box the [`ArrayStream`] so that it can be sent between threads.
+    fn boxed(self) -> SendableArrayStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        Box::pin(self)
+    }
+
     /// Collect the stream into a single `Array`.
     ///
     /// If the stream yields multiple chunks, they will be returned as a [`ChunkedArray`].
-    fn into_array_data(self) -> impl Future<Output = VortexResult<Array>>
+    fn into_array(self) -> impl Future<Output = VortexResult<Array>>
     where
         Self: Sized,
     {

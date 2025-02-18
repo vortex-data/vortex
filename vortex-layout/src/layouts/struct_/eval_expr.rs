@@ -4,12 +4,12 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::ExprEvaluator;
+use crate::scan::ScanTask;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -17,17 +17,26 @@ impl ExprEvaluator for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone())?;
         let field_readers: Vec<_> = partitioned
-            .partitions
+            .partition_names
             .iter()
-            .map(|partition| self.child(&partition.name.clone()))
+            .map(|name| self.child(name))
             .try_collect()?;
 
+        // Short-circuit if there is only one partition
+        if partitioned.partitions.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .evaluate_expr(row_mask, partitioned.partitions[0].clone())
+                .await;
+        }
+
+        // Otherwise, evaluate all partitions concurrently
         let arrays = try_join_all(
             field_readers
                 .iter()
                 .zip_eq(partitioned.partitions.iter())
                 .map(|(reader, partition)| {
-                    reader.evaluate_expr(row_mask.clone(), partition.expr.clone())
+                    reader.evaluate_expr(row_mask.clone(), partition.clone())
                 }),
         )
         .await?;
@@ -36,19 +45,35 @@ impl ExprEvaluator for StructReader {
         debug_assert!(arrays.iter().all(|a| a.len() == row_count));
 
         let root_scope = StructArray::try_new(
-            partitioned
-                .partitions
-                .iter()
-                .map(|p| p.name.clone())
-                .collect::<Vec<_>>()
-                .into(),
+            partitioned.partition_names.clone(),
             arrays,
             row_count,
             Validity::NonNullable,
         )?
         .into_array();
 
-        partitioned.root.evaluate(&root_scope)
+        self.executor()
+            .evaluate(&root_scope, &[ScanTask::Expr(partitioned.root.clone())])
+            .await
+    }
+
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        // We currently can only perform pruning if the expression references a single field.
+        // Otherwise, we have no good way to recombine the results.
+        let partitioned = self.partition_expr(expr.clone())?;
+        if partitioned.partitions.len() != 1 {
+            log::debug!("Cannot push-down pruning for multi-field expr {}", expr);
+            return Ok(row_mask);
+        }
+
+        let field_name = partitioned
+            .partition_names
+            .iter()
+            .next()
+            .vortex_expect("one partition");
+        self.child(field_name)?
+            .prune_mask(row_mask, partitioned.partitions[0].clone())
+            .await
     }
 }
 
@@ -61,19 +86,19 @@ mod tests {
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Field, Nullability, StructDType};
+    use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
+    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
-    use crate::strategies::LayoutWriterExt;
-    use crate::Layout;
+    use crate::writer::LayoutWriterExt;
+    use crate::{Layout, RowMask};
 
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<TestSegments>, Layout) {
+    fn struct_layout() -> (Arc<ScanExecutor>, Layout) {
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(
@@ -103,7 +128,7 @@ mod tests {
             .map(IntoArray::into_array)],
         )
         .unwrap();
-        (Arc::new(segments), layout)
+        (ScanExecutor::inline(Arc::new(segments)), layout)
     }
 
     #[test]
@@ -170,7 +195,7 @@ mod tests {
             result
                 .as_struct_array()
                 .unwrap()
-                .maybe_null_field(&Field::Name("a".into()))
+                .maybe_null_field_by_name("a")
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -182,7 +207,7 @@ mod tests {
             result
                 .as_struct_array()
                 .unwrap()
-                .maybe_null_field(&Field::Name("b".into()))
+                .maybe_null_field_by_name("b")
                 .unwrap()
                 .into_primitive()
                 .unwrap()

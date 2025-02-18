@@ -9,13 +9,14 @@ use crate::IntoArrayVariant;
 
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let length = self.len();
-        let indices = patches.indices().clone().into_primitive()?;
-        let values = patches.values().clone().into_bool()?;
+        let len = self.len();
+        let (_, offset, indices, values) = patches.into_parts();
+        let indices = indices.into_primitive()?;
+        let values = values.into_bool()?;
 
         let patched_validity = self
             .validity()
-            .patch(self.len(), &indices, values.validity())?;
+            .patch(len, offset, &indices, values.validity())?;
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -24,14 +25,11 @@ impl BoolArray {
                 .iter()
                 .zip_eq(values.boolean_buffer().iter())
             {
-                own_values.set_bit(*idx as usize + bit_offset, value);
+                own_values.set_bit(*idx as usize - offset + bit_offset, value);
             }
         });
 
-        Self::try_new(
-            own_values.finish().slice(bit_offset, length),
-            patched_validity,
-        )
+        Self::try_new(own_values.finish().slice(bit_offset, len), patched_validity)
     }
 }
 
@@ -49,6 +47,7 @@ mod tests {
         let sliced = slice(arr, 4, 12).unwrap();
         let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
+        assert_eq!(values.len(), 12);
         assert_eq!(values.as_slice(), &[255, 15]);
     }
 
@@ -67,6 +66,7 @@ mod tests {
         let sliced = slice(arr, 8, 24).unwrap();
         let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
+        assert_eq!(values.len(), 16);
         assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

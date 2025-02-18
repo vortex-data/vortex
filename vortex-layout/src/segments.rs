@@ -31,7 +31,7 @@ impl Display for SegmentId {
 }
 
 #[async_trait]
-pub trait AsyncSegmentReader: Send + Sync {
+pub trait AsyncSegmentReader: 'static + Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
 }

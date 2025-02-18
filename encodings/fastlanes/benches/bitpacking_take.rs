@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::PrimitiveArray;
@@ -28,12 +28,12 @@ fn bench_take(c: &mut Criterion) {
 
     let stratified_indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
     c.bench_function("take_10_stratified", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), stratified_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), stratified_indices.as_ref()).unwrap());
     });
 
     let contiguous_indices = PrimitiveArray::from_iter(0..10);
     c.bench_function("take_10_contiguous", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), contiguous_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), contiguous_indices.as_ref()).unwrap());
     });
 
     let rng = thread_rng();
@@ -41,23 +41,23 @@ fn bench_take(c: &mut Criterion) {
     let random_indices =
         PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
     c.bench_function("take_10K_random", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), random_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), random_indices.as_ref()).unwrap());
     });
 
     let contiguous_indices = PrimitiveArray::from_iter(0..10_000);
     c.bench_function("take_10K_contiguous", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), contiguous_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), contiguous_indices.as_ref()).unwrap());
     });
 
     let lots_of_indices =
         PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
     c.bench_function("take_200K_dispersed", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), lots_of_indices.as_ref()).unwrap());
     });
 
     let lots_of_indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
     c.bench_function("take_200K_first_chunk_only", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), lots_of_indices.as_ref()).unwrap());
     });
 }
 
@@ -80,12 +80,12 @@ fn bench_patched_take(c: &mut Criterion) {
 
     let stratified_indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
     c.bench_function("patched_take_10_stratified", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), stratified_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), stratified_indices.as_ref()).unwrap());
     });
 
     let contiguous_indices = PrimitiveArray::from_iter(0..10);
     c.bench_function("patched_take_10_contiguous", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), contiguous_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), contiguous_indices.as_ref()).unwrap());
     });
 
     let rng = thread_rng();
@@ -93,29 +93,29 @@ fn bench_patched_take(c: &mut Criterion) {
     let random_indices =
         PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
     c.bench_function("patched_take_10K_random", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), random_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), random_indices.as_ref()).unwrap());
     });
 
     let not_patch_indices = PrimitiveArray::from_iter((0u32..num_exceptions).cycle().take(10000));
     c.bench_function("patched_take_10K_contiguous_not_patches", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), not_patch_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), not_patch_indices.as_ref()).unwrap());
     });
 
     let patch_indices =
         PrimitiveArray::from_iter((big_base2..big_base2 + num_exceptions).cycle().take(10000));
     c.bench_function("patched_take_10K_contiguous_patches", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), patch_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), patch_indices.as_ref()).unwrap());
     });
 
     let lots_of_indices =
         PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
     c.bench_function("patched_take_200K_dispersed", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), lots_of_indices.as_ref()).unwrap());
     });
 
     let lots_of_indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
     c.bench_function("patched_take_200K_first_chunk_only", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), lots_of_indices.as_ref()).unwrap());
     });
 
     // There are currently 2 magic parameters of note:
@@ -139,7 +139,7 @@ fn bench_patched_take(c: &mut Criterion) {
             .take(10000),
     );
     c.bench_function("patched_take_10K_adversarial", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), adversarial_indices.as_ref()).unwrap()));
+        b.iter(|| take(packed.as_ref(), adversarial_indices.as_ref()).unwrap());
     });
 }
 

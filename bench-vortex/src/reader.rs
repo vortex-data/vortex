@@ -14,7 +14,7 @@ use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
 use log::info;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreScheme};
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
@@ -22,17 +22,14 @@ use parquet::file::metadata::RowGroupMetaData;
 use serde::{Deserialize, Serialize};
 use stream::StreamExt;
 use vortex::aliases::hash_map::HashMap;
-use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
 use vortex::buffer::Buffer;
-use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
-use vortex::error::VortexResult;
-use vortex::file::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::error::{VortexError, VortexResult};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
-use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::stream::ArrayStreamExt;
-use vortex::{Array, IntoArray, IntoCanonical};
+use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
+use vortex::{Array, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;
 
@@ -46,11 +43,11 @@ pub struct VortexFooter {
 pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
     let file = TokioFile::open(path).unwrap();
 
-    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-        .open(file)
+    VortexOpenOptions::file(file)
+        .open()
         .await?
-        .scan(Scan::all())?
-        .into_array_data()
+        .scan()
+        .into_array()
         .await
 }
 
@@ -58,31 +55,25 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
     parquet_path: PathBuf,
     write: W,
 ) -> VortexResult<()> {
-    let chunked = compress_parquet_to_vortex(parquet_path.as_path())?;
+    let array_iter = read_parquet_to_vortex(parquet_path.as_path())?;
 
     VortexWriteOptions::default()
-        .write(write, chunked.into_array_stream())
+        .write(write, array_iter.into_stream())
         .await?;
 
     Ok(())
 }
 
-pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<ChunkedArray> {
+pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<impl ArrayIterator> {
     let pq_file = File::open(parquet_path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(pq_file)?;
     // FIXME(ngates): #157 the compressor should handle batch size.
     let reader = builder.with_batch_size(BATCH_SIZE).build()?;
-    let dtype = DType::from_arrow(reader.schema());
-    let chunks = reader
-        .map(|batch_result| batch_result.unwrap())
-        .map(Array::try_from)
-        .collect::<VortexResult<Vec<_>>>()?;
-    ChunkedArray::try_new(chunks, dtype)
-}
 
-pub fn compress_parquet_to_vortex(parquet_path: &Path) -> VortexResult<Array> {
-    let chunked = read_parquet_to_vortex(parquet_path)?;
-    CompressionStrategy::compress(&SamplingCompressor::default(), &chunked.into_array())
+    Ok(ArrayIteratorAdapter::new(
+        DType::from_arrow(reader.schema()),
+        reader.map(|br| br.map_err(VortexError::from).and_then(Array::try_from)),
+    ))
 }
 
 pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResult<()> {
@@ -108,11 +99,12 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
-    VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
-        .open(reader)
+    VortexOpenOptions::file(reader)
+        .open()
         .await?
-        .scan(Scan::all().with_row_indices(indices))?
-        .into_array_data()
+        .scan()
+        .with_row_indices(indices)
+        .into_array()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .into_canonical()
@@ -120,11 +112,16 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub async fn take_vortex_object_store(
+    scheme: ObjectStoreScheme,
     fs: Arc<dyn ObjectStore>,
     path: object_store::path::Path,
     indices: Buffer<u64>,
 ) -> VortexResult<Array> {
-    take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
+    take_vortex(
+        ObjectStoreReadAt::new(fs.clone(), path, Some(scheme)),
+        indices,
+    )
+    .await
 }
 
 pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<Array> {

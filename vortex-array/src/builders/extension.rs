@@ -2,12 +2,12 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ExtScalar;
 
 use crate::array::ExtensionArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
-use crate::{Array, IntoArray};
+use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
@@ -74,8 +74,16 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_nulls(n)
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        let storage = self.storage.finish()?;
-        Ok(ExtensionArray::new(self.ext_dtype(), storage).into_array())
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?;
+        let Canonical::Extension(array) = array else {
+            vortex_bail!("Expected Extension array, got {:?}", array);
+        };
+        array.storage().canonicalize_into(self.storage.as_mut())
+    }
+
+    fn finish(&mut self) -> Array {
+        let storage = self.storage.finish();
+        ExtensionArray::new(self.ext_dtype(), storage).into_array()
     }
 }

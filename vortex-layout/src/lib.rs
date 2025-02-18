@@ -5,15 +5,21 @@ pub use data::*;
 mod context;
 pub use context::*;
 pub mod layouts;
-pub use vtable::*;
-mod reader;
 use std::fmt::{Display, Formatter};
 
 pub use reader::*;
-
+pub use strategy::*;
+pub use vtable::*;
+pub use writer::*;
+mod row_mask;
+pub use row_mask::*;
+mod reader;
+pub mod scan;
 pub mod segments;
-pub mod strategies;
+pub mod stats;
+mod strategy;
 pub mod vtable;
+mod writer;
 
 /// The layout ID for a flat layout
 pub(crate) const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);

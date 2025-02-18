@@ -1,12 +1,15 @@
-use futures_util::StreamExt;
+use futures::StreamExt;
+use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
-use vortex_layout::strategies::{LayoutStrategy, VortexLayoutStrategy};
+use vortex_layout::stats::StatsLayoutWriter;
+use vortex_layout::{LayoutStrategy, LayoutWriter};
 
 use crate::footer::{FileLayout, Postscript, Segment};
 use crate::segments::writer::BufferedSegmentWriter;
+use crate::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct VortexWriteOptions {
@@ -16,15 +19,15 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy),
+            strategy: Box::new(VortexLayoutStrategy::default()),
         }
     }
 }
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy(mut self, strategy: Box<dyn LayoutStrategy>) -> Self {
-        self.strategy = strategy;
+    pub fn with_strategy<S: LayoutStrategy>(mut self, strategy: S) -> Self {
+        self.strategy = Box::new(strategy);
         self
     }
 }
@@ -37,10 +40,14 @@ impl VortexWriteOptions {
         mut stream: S,
     ) -> VortexResult<W> {
         // Set up the root layout
-        let mut layout_writer = self.strategy.new_writer(stream.dtype())?;
+        let mut layout_writer = StatsLayoutWriter::new(
+            self.strategy.new_writer(stream.dtype())?,
+            stream.dtype(),
+            PRUNING_STATS.into(),
+        )?;
 
         // First we write the magic number
-        let mut write = futures_util::io::Cursor::new(write);
+        let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
         // Our buffered message writer accumulates messages for each batch so we can flush them
@@ -66,7 +73,14 @@ impl VortexWriteOptions {
         // Write the DType + FileLayout segments
         let dtype_segment = self.write_flatbuffer(&mut write, stream.dtype()).await?;
         let file_layout_segment = self
-            .write_flatbuffer(&mut write, &FileLayout::new(root_layout, segments.into()))
+            .write_flatbuffer(
+                &mut write,
+                &FileLayout::new(
+                    root_layout,
+                    segments.into(),
+                    layout_writer.into_stats_sets().into(),
+                ),
+            )
             .await?;
 
         // Assemble the postscript, and write it manually to avoid any framing.
@@ -98,7 +112,7 @@ impl VortexWriteOptions {
 
     async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(
         &self,
-        write: &mut futures_util::io::Cursor<W>,
+        write: &mut futures::io::Cursor<W>,
         flatbuffer: &F,
     ) -> VortexResult<Segment> {
         let layout_offset = write.position();

@@ -86,7 +86,7 @@ impl ScalarAtFn<StructArray> for StructEncoding {
         Ok(Scalar::struct_(
             array.dtype().clone(),
             array
-                .children()
+                .fields()
                 .map(|field| scalar_at(&field, index))
                 .try_collect()?,
         ))
@@ -98,7 +98,7 @@ impl TakeFn<StructArray> for StructEncoding {
         StructArray::try_new(
             array.names().clone(),
             array
-                .children()
+                .fields()
                 .map(|field| take(&field, indices))
                 .try_collect()?,
             indices.len(),
@@ -111,7 +111,7 @@ impl TakeFn<StructArray> for StructEncoding {
 impl SliceFn<StructArray> for StructEncoding {
     fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<Array> {
         let fields = array
-            .children()
+            .fields()
             .map(|field| slice(&field, start, stop))
             .try_collect()?;
         StructArray::try_new(
@@ -129,7 +129,7 @@ impl FilterFn<StructArray> for StructEncoding {
         let validity = array.validity().filter(mask)?;
 
         let fields: Vec<Array> = array
-            .children()
+            .fields()
             .map(|field| filter(&field, mask))
             .try_collect()?;
         let length = fields

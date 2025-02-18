@@ -14,24 +14,20 @@ categories = { workspace = true }
 readme = "README.md"
 
 [dependencies]
-arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
-arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 # TODO(ngates): remove these in favor of futures
 futures-executor = { workspace = true }
-futures-util = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future", "quanta"] }
-pin-project-lite = { workspace = true }
+oneshot = { workspace = true, features = ["async"] }
 rayon = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
-rustc-hash = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -39,15 +35,10 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
-vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
-vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true, features = ["flatbuffers"] }
-vortex-scan = { workspace = true }
+vortex-sampling-compressor = { workspace = true }
 
 [dev-dependencies]
-arrow-schema = { workspace = true }
-rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
@@ -56,6 +47,5 @@ vortex-io = { path = "../vortex-io", features = ["tokio"] }
 workspace = true
 
 [features]
-futures = ["futures-util/io", "vortex-io/futures"]
 object_store = ["vortex-error/object_store", "vortex-io/object_store"]
 tracing = ["dep:tracing", "vortex-io/tracing"]

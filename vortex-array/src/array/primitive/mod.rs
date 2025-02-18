@@ -9,6 +9,7 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PTy
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -348,6 +349,14 @@ impl CanonicalVTable<PrimitiveArray> for PrimitiveEncoding {
     fn into_canonical(&self, array: PrimitiveArray) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(array))
     }
+
+    fn canonicalize_into(
+        &self,
+        array: PrimitiveArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        builder.extend_from_array(array.into_array())
+    }
 }
 
 impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
@@ -357,6 +366,10 @@ impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
 
     fn all_valid(&self, array: &PrimitiveArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &PrimitiveArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &PrimitiveArray) -> VortexResult<Mask> {

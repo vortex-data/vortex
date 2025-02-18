@@ -33,9 +33,6 @@ impl TokioDispatcher {
                     .spawn(move || {
                         // Create a runtime-per-thread
                         let rt = tokio::runtime::Builder::new_current_thread()
-                            // The dispatcher should not have any blocking work.
-                            // Maybe in the future we can add this as a config param.
-                            .max_blocking_threads(1)
                             .enable_all()
                             .build()
                             .unwrap_or_else(|e| {

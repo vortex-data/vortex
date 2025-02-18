@@ -49,7 +49,7 @@ pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Ar
         DType::Struct(..) => {
             let struct_array = array.clone().into_struct()?;
             let taken_children = struct_array
-                .children()
+                .fields()
                 .map(|c| take_canonical_array(&c, indices))
                 .collect::<VortexResult<Vec<_>>>()?;
 
@@ -66,7 +66,7 @@ pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Ar
             for idx in indices {
                 builder.append_scalar(&scalar_at(array, *idx)?)?;
             }
-            builder.finish()
+            Ok(builder.finish())
         }
         _ => unreachable!("Not a canonical array"),
     }

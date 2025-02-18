@@ -54,7 +54,7 @@ impl ScalarAtFn<SparseArray> for SparseEncoding {
     fn scalar_at(&self, array: &SparseArray, index: usize) -> VortexResult<Scalar> {
         Ok(array
             .patches()
-            .get_patched(array.indices_offset() + index)?
+            .get_patched(index)?
             .unwrap_or_else(|| array.fill_scalar()))
     }
 }
@@ -67,10 +67,7 @@ impl SearchSortedFn<SparseArray> for SparseEncoding {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        Ok(array
-            .patches()
-            .search_sorted(value.clone(), side)?
-            .map(|i| i - array.indices_offset()))
+        array.patches().search_sorted(value.clone(), side)
     }
 }
 
@@ -94,11 +91,11 @@ impl FilterFn<SparseArray> for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<Array> {
         let new_length = mask.true_count();
 
-        let Some(new_patches) = array.resolved_patches()?.filter(mask)? else {
+        let Some(new_patches) = array.patches().filter(mask)? else {
             return Ok(ConstantArray::new(array.fill_scalar(), new_length).into_array());
         };
 
-        SparseArray::try_new_from_patches(new_patches, new_length, 0, array.fill_scalar())
+        SparseArray::try_new_from_patches(new_patches, new_length, array.fill_scalar())
             .map(IntoArray::into_array)
     }
 }

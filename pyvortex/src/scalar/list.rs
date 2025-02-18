@@ -1,5 +1,5 @@
 use pyo3::exceptions::PyIndexError;
-use pyo3::{pyclass, pymethods, IntoPy, PyObject, PyRef, PyResult};
+use pyo3::{pyclass, pymethods, IntoPyObject, PyObject, PyRef, PyResult};
 use vortex::scalar::ListScalar;
 
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
@@ -21,6 +21,6 @@ impl PyListScalar {
         let child = scalar
             .element(idx)
             .ok_or_else(|| PyIndexError::new_err(format!("Index out of bounds {}", idx)))?;
-        Ok(PyVortex(&child).into_py(self_.py()))
+        PyVortex(&child).into_pyobject(self_.py()).map(|v| v.into())
     }
 }

@@ -21,7 +21,6 @@ members = [
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
-    "vortex-scan",
     "vortex-tui",
     "xtask",
 ]
@@ -44,7 +43,7 @@ include = [
     "README.md",
 ]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.84"
 readme = "README.md"
 categories = ["database-implementations", "data-structures", "compression"]
 
@@ -52,37 +51,39 @@ categories = ["database-implementations", "data-structures", "compression"]
 anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arrayref = "0.3.7"
-arrow = "53.3"
-arrow-arith = "53.3"
-arrow-array = "53.3"
-arrow-buffer = "53.3"
-arrow-cast = "53.3"
-arrow-ord = "53.3"
-arrow-schema = "53.3"
-arrow-select = "53.3"
-arrow-string = "53.3"
+arrow = "54.1"
+arrow-arith = "54.1"
+arrow-array = "54.1"
+arrow-buffer = "54.1"
+arrow-cast = "54.1"
+arrow-ord = "54.1"
+arrow-schema = "54.1"
+arrow-select = "54.1"
+arrow-string = "54.1"
 async-once-cell = "0.5.4"
 async-trait = "0.1.86"
-pkg-config = "0.3.31"
 backtrace = "0.3.74"
+bit-vec = "0.8.0"
 bytes = "1.9"
 bzip2 = "0.5.0"
 cfg-if = "1"
 chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
-criterion = { version = "0.5.1", features = ["html_reports"] }
-croaring = "2.1.0"
+criterion = { package = "codspeed-criterion-compat", features = [
+    "html_reports",
+], version = "2.7.2" }
 crossterm = "0.28"
-datafusion = { version = "44.0.0", default-features = false }
-datafusion-common = "44"
-datafusion-execution = "44"
-datafusion-expr = "44"
-datafusion-physical-expr = "44"
-datafusion-physical-plan = "44"
-divan = "0.1.14"
+datafusion = { version = "45", default-features = false }
+datafusion-common = "45"
+datafusion-execution = "45"
+datafusion-expr = "45"
+datafusion-physical-expr = "45"
+datafusion-physical-plan = "45"
+divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
+exponential-decay-histogram = "=0.1.11"
 fastlanes = "0.1.5"
 flatbuffers = "25"
 flexbuffers = "25"
@@ -99,25 +100,25 @@ homedir = "0.3.3"
 humansize = "2.1.3"
 indicatif = "0.17.8"
 itertools = "0.14.0"
-jiff = "0.1.29"
+jiff = "0.2.0"
 libfuzzer-sys = "0.4"
-log = "0.4.21"
+log = { version = "0.4.21" }
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 governor = "0.8"
 num-traits = "0.2.19"
 num_enum = "0.7.2"
 object_store = "0.11.0"
-once_cell = "1.20.2"
-parquet = "53.3"
+oneshot = "0.1.10"
+parquet = "54.1"
 paste = "1.0.15"
 pin-project = "1.1.5"
 pin-project-lite = "0.2.15"
 prost = "0.13.4"
 prost-build = "0.13.4"
 prost-types = "0.13.4"
-pyo3 = { version = ">= 0.22", features = ["extension-module", "abi3-py310"] }
-pyo3-log = ">= 0.11"
+pyo3 = { version = "0.23.4", features = ["extension-module", "abi3-py310"] }
+pyo3-log = "0.12.1"
 rancor = "0.1.0"
 rand = "0.8.5"
 rand_distr = "0.4"
@@ -143,16 +144,18 @@ rustc-hash = "2"
 serde = "1.0.203"
 serde_json = "1.0.116"
 serde_test = "1.0.176"
-simplelog = { version = "0.12.2", features = ["paris"] }
 static_assertions = "1.1"
-tabled = { version = "0.17.0", default-features = false }
+tabled = { version = "0.18.0", default-features = false }
 tar = "0.4"
 tempfile = "3"
 tikv-jemallocator = "0.6"
 thiserror = "2.0.3"
 tokio = "1.36"
-tracing = "0.1.37"
-url = "2.4"
+tracing = { version = "0.1.41" }
+tracing-chrome = "0.7.2"
+tracing-futures = "0.2.5"
+tracing-subscriber = "0.3.19"
+url = "2.5.4"
 uuid = "1.8.0"
 wasm-bindgen-futures = "0.4.39"
 
@@ -181,7 +184,6 @@ vortex-proto = { version = "0.24.0", path = "./vortex-proto" }
 vortex-runend = { version = "0.24.0", path = "./encodings/runend" }
 vortex-sampling-compressor = { version = "0.24.0", path = "./vortex-sampling-compressor" }
 vortex-scalar = { version = "0.24.0", path = "./vortex-scalar", default-features = false }
-vortex-scan = { version = "0.24.0", path = "./vortex-scan", default-features = false }
 vortex-sparse = { version = "0.24.0", path = "./encodings/sparse" }
 vortex-zigzag = { version = "0.24.0", path = "./encodings/zigzag" }
 # END crates published by this project
@@ -238,15 +240,15 @@ use_debug = "deny"
 codegen-units = 1
 lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
 
-[profile.bench]
-codegen-units = 16 # default for "release", which "bench" inherits
-debug = true
+[profile.release_debug]
+inherits = "release"
+debug = "full"
 
-[profile.benchtest]
+[profile.bench]
+codegen-units = 16
+debug = "full"
+lto = false
+
+[profile.bench_assert]
 inherits = "bench"
 debug-assertions = true
-lto = false # bench without lto (so it builds faster)
-
-[profile.samply]
-inherits = "release"
-debug = true

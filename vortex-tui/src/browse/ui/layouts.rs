@@ -6,7 +6,6 @@ use ratatui::widgets::{
     Block, BorderType, Borders, Cell, List, Paragraph, Row, StatefulWidget, Table, Widget,
 };
 use vortex::compute::scalar_at;
-use vortex::dtype::Field;
 use vortex::error::VortexExpect;
 use vortex::file::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
@@ -226,14 +225,9 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
     match cursor.encoding().id() {
         COLUMNAR_LAYOUT_ID => {
-            let field_info = cursor
-                .dtype()
-                .as_struct()
-                .expect("struct dtype")
-                .field_info(&Field::Index(nth))
-                .expect("struct dtype component");
-            let field_name = field_info.name;
-            let field_dtype = field_info.dtype.value().expect("dtype value");
+            let struct_dtype = cursor.dtype().as_struct().expect("struct dtype");
+            let field_name = struct_dtype.field_name(nth).expect("field name");
+            let field_dtype = struct_dtype.field_by_index(nth).expect("dtype value");
             format!("Column {nth} - {field_name} ({field_dtype})")
         }
         CHUNKED_LAYOUT_ID => {

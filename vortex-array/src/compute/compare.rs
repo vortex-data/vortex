@@ -101,12 +101,16 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same length");
     }
     if !left.dtype().eq_ignore_nullability(right.dtype()) {
-        vortex_bail!("Compare operations only support arrays of the same type");
+        vortex_bail!(
+            "Compare operations only support arrays of the same type: {} != {}",
+            left.dtype(),
+            right.dtype()
+        );
     }
 
     if left.dtype().is_struct() {
         vortex_bail!(
-            "Compare does not support arrays with Strcut DType, got: {} and {}",
+            "Compare does not support arrays with Struct DType, got: {} and {}",
             left.dtype(),
             right.dtype()
         )

@@ -14,6 +14,7 @@ mod expr;
 mod io;
 mod object_store_urls;
 mod python_repr;
+mod record_batch_reader;
 pub(crate) mod scalar;
 
 use log::LevelFilter;
@@ -77,7 +78,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module
         .py()
-        .import_bound("sys")?
+        .import("sys")?
         .getattr("modules")?
         .set_item(name, module)?;
     // needs to be set *after* `add_submodule()`

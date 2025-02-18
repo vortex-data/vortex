@@ -41,7 +41,7 @@ pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> Vortex
         DType::Struct(..) => {
             let struct_array = array.clone().into_struct()?;
             let sliced_children = struct_array
-                .children()
+                .fields()
                 .map(|c| slice_canonical_array(&c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new(

@@ -1,39 +1,45 @@
+use std::iter;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use arrow_buffer::BooleanBuffer;
 use async_once_cell::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::stats_from_bitset_bytes;
-use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_array::ContextRef;
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
-use vortex_scan::RowMask;
+use vortex_mask::Mask;
 
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutVTable};
+use crate::scan::ScanExecutor;
+use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
+
+type PruningCache = Arc<OnceCell<Option<Mask>>>;
 
 #[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
-    segments: Arc<dyn AsyncSegmentReader>,
+    executor: Arc<ScanExecutor>,
+
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
-    pruning_result: Arc<RwLock<HashMap<ExprRef, Option<BooleanBuffer>>>>,
+    pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
     /// Shared stats table
     stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+    /// Row offset for each chunk
+    chunk_offsets: Vec<u64>,
 }
 
 impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        segments: Arc<dyn AsyncSegmentReader>,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -49,13 +55,27 @@ impl ChunkedReader {
         // Construct a lazy scan for each chunk of the layout.
         let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
 
+        // Generate the cumulative chunk offsets, relative to the layout's row offset, with an
+        // additional offset corresponding to the length.
+        let chunk_offsets = iter::once(0)
+            .chain(
+                (0..nchunks)
+                    .map(|i| layout.child_row_count(i))
+                    .scan(0, |state, x| {
+                        *state += x;
+                        Some(*state)
+                    }),
+            )
+            .collect();
+
         Ok(Self {
             layout,
             ctx,
-            segments,
+            executor,
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
+            chunk_offsets,
         })
     }
 
@@ -78,18 +98,22 @@ impl ChunkedReader {
                         let layout_dtype = self.layout.dtype();
                         let stats_dtype =
                             StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype)?;
+                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone(), "stats")?;
 
                         let stats_array = stats_layout
-                            .reader(self.segments.clone(), self.ctx.clone())?
+                            .reader(self.executor.clone(), self.ctx.clone())?
                             .evaluate_expr(
                                 RowMask::new_valid_between(0, nchunks as u64),
                                 Identity::new_expr(),
                             )
                             .await?;
 
-                        Some(StatsTable::try_new_unchecked(
-                            layout_dtype.clone(),
+                        if &stats_dtype != stats_array.dtype() {
+                            vortex_bail!("Expected stats DType {stats_dtype} doesn't match read stats dtype {}", stats_array.dtype())
+                        }
+
+                        // SAFETY: This is only fine to call because we perfrorm validation above
+                        Some(StatsTable::unchecked_new(
                             stats_array,
                             present_stats.into(),
                         ))
@@ -100,49 +124,61 @@ impl ChunkedReader {
             .map(|opt| opt.as_ref())
     }
 
-    pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<BooleanBuffer>> {
-        if let Some(mask) = self
+    /// Returns a pruning mask where `true` means the chunk _can be pruned_.
+    pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<Mask>> {
+        let cell = self
             .pruning_result
-            .read()
-            .map_err(|_| vortex_err!("poisoned lock"))?
-            .get(expr)
-        {
-            return Ok(mask.clone());
-        }
-        let pruning_predicate = PruningPredicate::try_new(expr);
-        let res = if let Some(stats_table) = self.stats_table().await? {
-            if let Some(predicate) = pruning_predicate {
-                predicate
-                    .evaluate(stats_table.array())?
-                    .map(|mask| mask.into_bool())
-                    .transpose()?
-                    .map(|mask| mask.boolean_buffer())
+            .write()?
+            .entry(expr.clone())
+            .or_insert_with(|| Arc::new(OnceCell::new()))
+            .clone();
+
+        cell.get_or_try_init(async {
+            let pruning_predicate = PruningPredicate::try_new(expr);
+            if let Some(p) = &pruning_predicate {
+                log::debug!("Constructed pruning predicate for expr: {}: {}", expr, p);
+            }
+            Ok(if let Some(stats_table) = self.stats_table().await? {
+                if let Some(predicate) = pruning_predicate {
+                    predicate
+                        .evaluate(stats_table.array())?
+                        .map(Mask::try_from)
+                        .transpose()?
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
-
-        self.pruning_result
-            .write()
-            .map_err(|_| vortex_err!("poisoned lock"))?
-            .insert(expr.clone(), res.clone());
-
-        Ok(res)
-    }
-
-    /// Return the number of chunks
-    pub(crate) fn nchunks(&self) -> usize {
-        self.chunk_readers.len()
+            })
+        })
+        .await
+        .cloned()
     }
 
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.chunk_readers[idx].get_or_try_init(|| {
-            let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
+            let child_layout =
+                self.layout
+                    .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
+            child_layout.reader(self.executor.clone(), self.ctx.clone())
         })
+    }
+
+    pub(crate) fn chunk_offset(&self, idx: usize) -> u64 {
+        self.chunk_offsets[idx]
+    }
+
+    pub(crate) fn chunk_range(&self, row_range: Range<u64>) -> Range<usize> {
+        let start_chunk = self
+            .chunk_offsets
+            .binary_search(&row_range.start)
+            .unwrap_or_else(|x| x - 1);
+        let end_chunk = self
+            .chunk_offsets
+            .binary_search(&row_range.end)
+            .unwrap_or_else(|x| x);
+        start_chunk..end_chunk
     }
 }
 

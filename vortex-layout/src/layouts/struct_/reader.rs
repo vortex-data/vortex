@@ -9,26 +9,25 @@ use vortex_expr::transform::partition::{partition, PartitionedExpr};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
-use crate::segments::AsyncSegmentReader;
+use crate::scan::ScanExecutor;
 use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 #[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
     ctx: ContextRef,
-
-    segments: Arc<dyn AsyncSegmentReader>,
+    executor: Arc<ScanExecutor>,
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: Option<HashMap<FieldName, usize>>,
-    expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
+    partitioned_expr_cache: Arc<RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>>,
 }
 
 impl StructReader {
     pub(super) fn try_new(
         layout: Layout,
-        segments: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
+        executor: Arc<ScanExecutor>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -56,11 +55,15 @@ impl StructReader {
         Ok(Self {
             layout,
             ctx,
-            segments,
+            executor,
             field_readers,
             field_lookup,
-            expr_cache: Arc::new(Default::default()),
+            partitioned_expr_cache: Arc::new(Default::default()),
         })
+    }
+
+    pub(crate) fn executor(&self) -> &ScanExecutor {
+        self.executor.as_ref()
     }
 
     /// Return the [`StructDType`] of this layout.
@@ -76,15 +79,15 @@ impl StructReader {
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_dtype().find_name(name))
+            .or_else(|| self.struct_dtype().find(name).ok())
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
 
         // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
-            let child_layout = self
-                .layout
-                .child(idx, self.struct_dtype().field_dtype(idx)?)?;
-            child_layout.reader(self.segments.clone(), self.ctx.clone())
+            let child_layout =
+                self.layout
+                    .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
+            child_layout.reader(self.executor.clone(), self.ctx.clone())
         })
     }
 
@@ -92,9 +95,8 @@ impl StructReader {
     pub(crate) fn partition_expr(&self, expr: ExprRef) -> VortexResult<Arc<PartitionedExpr>> {
         Ok(
             match self
-                .expr_cache
-                .write()
-                .map_err(|_| vortex_err!("poisoned lock"))?
+                .partitioned_expr_cache
+                .write()?
                 .entry(ExactExpr(expr.clone()))
             {
                 Entry::Occupied(entry) => entry.get().clone(),

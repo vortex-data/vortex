@@ -7,11 +7,7 @@ use crate::{Alignment, Buffer, ByteBuffer};
 impl<T: ArrowNativeType> Buffer<T> {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
     pub fn into_arrow_scalar_buffer(self) -> arrow_buffer::ScalarBuffer<T> {
-        let bytes = self.into_inner();
-        // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
-        // arrow_buffer::Bytes is only pub(crate). Seems weird...
-        // See: https://github.com/apache/arrow-rs/issues/6033
-        let buffer = arrow_buffer::Buffer::from_bytes(bytes.into());
+        let buffer = arrow_buffer::Buffer::from(self.into_inner());
         arrow_buffer::ScalarBuffer::from(buffer)
     }
 
@@ -53,11 +49,7 @@ impl<T: ArrowNativeType> Buffer<T> {
 impl ByteBuffer {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
     pub fn into_arrow_buffer(self) -> arrow_buffer::Buffer {
-        let bytes = self.into_inner();
-        // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
-        // arrow_buffer::Bytes is only pub(crate). Seems weird...
-        // See: https://github.com/apache/arrow-rs/issues/6033
-        arrow_buffer::Buffer::from_bytes(bytes.into())
+        arrow_buffer::Buffer::from(self.into_inner())
     }
 
     /// Convert an Arrow scalar buffer into a Vortex scalar buffer.

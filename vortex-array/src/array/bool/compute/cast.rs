@@ -8,20 +8,12 @@ use crate::{Array, IntoArray};
 impl CastFn<BoolArray> for BoolEncoding {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<Array> {
         if !matches!(dtype, DType::Bool(_)) {
-            vortex_bail!(
-                "Cannot cast {} to {}",
-                array.dtype().to_string(),
-                dtype.to_string()
-            );
+            vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
         }
 
-        // If the types are the same, return the array,
-        // otherwise set the array nullability as the dtype nullability.
-        if dtype.is_nullable() || array.all_valid()? {
-            Ok(BoolArray::new(array.boolean_buffer(), dtype.nullability()).into_array())
-        } else {
-            vortex_bail!("Cannot cast null array to non-nullable type");
-        }
+        let new_nullability = dtype.nullability();
+        let new_validity = array.validity().cast_nullability(new_nullability)?;
+        Ok(BoolArray::try_new(array.boolean_buffer(), new_validity).into_array())
     }
 }
 
@@ -41,9 +33,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-
-        assert!(try_cast(bool, &DType::Bool(Nullability::NonNullable)).is_err());
+        try_cast(bool, &DType::Bool(Nullability::NonNullable)).unwrap();
     }
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::compute::{like, LikeOptions};
 use vortex_array::Array;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
@@ -86,6 +87,14 @@ impl VortexExpr for Like {
             self.negated,
             self.case_insensitive,
         )
+    }
+
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let input = self.child().return_dtype(scope_dtype)?;
+        let pattern = self.pattern().return_dtype(scope_dtype)?;
+        Ok(DType::Bool(
+            (input.is_nullable() || pattern.is_nullable()).into(),
+        ))
     }
 }
 

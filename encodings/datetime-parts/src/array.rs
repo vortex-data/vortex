@@ -144,6 +144,10 @@ impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
         array.days().all_valid()
     }
 
+    fn all_invalid(&self, array: &DateTimePartsArray) -> VortexResult<bool> {
+        array.days().all_invalid()
+    }
+
     fn validity_mask(&self, array: &DateTimePartsArray) -> VortexResult<Mask> {
         array.days().validity_mask()
     }

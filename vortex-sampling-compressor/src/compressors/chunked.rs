@@ -76,17 +76,12 @@ impl ChunkedCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let less_chunked = array.rechunk(
-            ctx.options().target_block_bytesize,
-            ctx.options().target_block_size,
-        )?;
-
         let mut previous = like_into_parts(like)?;
-        let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
-        let mut compressed_trees = Vec::with_capacity(less_chunked.nchunks() + 1);
+        let mut compressed_chunks = Vec::with_capacity(array.nchunks());
+        let mut compressed_trees = Vec::with_capacity(array.nchunks() + 1);
         compressed_trees.push(None); // for the chunk offsets
 
-        for (index, chunk) in less_chunked.chunks().enumerate() {
+        for (index, chunk) in array.chunks().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive
             // to compute post-compression. That's because not all encodings implement stats, so we would
             // potentially have to canonicalize during writes just to get stats, which would be silly.
@@ -122,7 +117,7 @@ impl ChunkedCompressor {
 
         let ratio = previous.map(|(_, ratio)| ratio);
         Ok(CompressedArray::compressed(
-            ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
+            ChunkedArray::try_new_unchecked(compressed_chunks, array.dtype().clone()).into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
                 compressed_trees,
@@ -163,6 +158,18 @@ fn like_into_parts(
     match (latest_child, target_ratio) {
         (None, None) => Ok(None),
         (Some(child), Some(ratio)) => Ok(Some((child, *ratio))),
-        (..) => vortex_bail!("Chunked array compression tree must have a child iff it has a ratio"),
+        (Some(child), None) => {
+            vortex_bail!(
+                "Chunked array compression tree has a child {child:?} without compression ratio"
+            )
+        }
+        (None, Some(ratio)) => {
+            debug_assert!(
+                *ratio >= 1.0f32,
+                "When there's no compressor tree compression ratio must be greater than 1"
+            );
+            log::debug!("Last compressed child of chunked array has compression ration of {ratio} and no compressor");
+            Ok(None)
+        }
     }
 }
