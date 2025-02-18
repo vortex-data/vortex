@@ -285,7 +285,7 @@ impl<D: ScanDriver> Scan<D> {
                 let pruning = pruning.clone();
                 let reader = reader.clone();
 
-                // This future is a processing task
+                // This future is the processing task
                 async move {
                     let row_mask = match pruning {
                         None => row_mask,
