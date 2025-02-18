@@ -14,10 +14,6 @@ pub fn find_between(expr: ExprRef) -> ExprRef {
         .transform(&mut vis)
         .vortex_expect("cannot fail")
         .result;
-    // if !res.eq(&expr) {
-    // println!("expr {}", expr);
-    // println!("new res {}", res);
-    // };
     res
 }
 
@@ -51,13 +47,7 @@ impl MutNodeVisitor for MatchBetween {
             {
                 let a = lhs.rhs().clone();
                 let b = rhs.rhs().clone();
-                let expr = Between::between(
-                    lhs.lhs().clone(),
-                    a,
-                    lhs.op().inverse().vortex_expect("is op"),
-                    b,
-                    rhs.op(),
-                );
+                let expr = Between::between(lhs.lhs().clone(), a, lhs.op().swap(), b, rhs.op());
                 return Ok(TransformResult::yes(expr));
             } else if lhs.lhs().as_any().is::<GetItem>()
                 && lhs.lhs().eq(rhs.rhs())
@@ -65,13 +55,8 @@ impl MutNodeVisitor for MatchBetween {
             {
                 let a = lhs.rhs().clone();
                 let b = rhs.lhs().clone();
-                let expr = Between::between(
-                    lhs.lhs().clone(),
-                    a,
-                    lhs.op().inverse().vortex_expect("is op"),
-                    b,
-                    rhs.op().inverse().vortex_expect("is op"),
-                );
+                let expr =
+                    Between::between(lhs.lhs().clone(), a, lhs.op().swap(), b, rhs.op().swap());
                 return Ok(TransformResult::yes(expr));
             } else if lhs.rhs().as_any().is::<GetItem>()
                 && lhs.rhs().eq(rhs.lhs())
@@ -87,13 +72,7 @@ impl MutNodeVisitor for MatchBetween {
             {
                 let a = lhs.lhs().clone();
                 let b = rhs.lhs().clone();
-                let expr = Between::between(
-                    lhs.rhs().clone(),
-                    a,
-                    lhs.op(),
-                    b,
-                    rhs.op().inverse().vortex_expect("is op"),
-                );
+                let expr = Between::between(lhs.rhs().clone(), a, lhs.op(), b, rhs.op().swap());
                 return Ok(TransformResult::yes(expr));
             }
         }
@@ -122,9 +101,9 @@ mod tests {
         let expr = and(lt(lit(2), col("x")), gt_eq(lit(5), col("x")));
         let find = find_between(expr);
 
-        // 2 <= x < 5
+        // 2 < x <= 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lt),
+            &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lte),
             &find
         );
     }
@@ -136,7 +115,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lt),
+            &Between::between(col("x"), lit(2), Operator::Lte, lit(5), Operator::Lt),
             &find
         );
     }
@@ -148,7 +127,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lt),
+            &Between::between(col("x"), lit(2), Operator::Lte, lit(5), Operator::Lte),
             &find
         );
     }
@@ -160,7 +139,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(col("x"), lit(5), Operator::Gte, lit(2), Operator::Gte),
+            &Between::between(col("x"), lit(5), Operator::Gte, lit(2), Operator::Gt),
             &find
         );
     }
