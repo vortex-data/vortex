@@ -8,7 +8,6 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::scan::ScanTask;
 use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
@@ -52,9 +51,7 @@ impl ExprEvaluator for StructReader {
         )?
         .into_array();
 
-        self.executor()
-            .evaluate(&root_scope, &[ScanTask::Expr(partitioned.root.clone())])
-            .await
+        partitioned.root.evaluate(&root_scope)
     }
 
     async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
@@ -82,6 +79,7 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use rstest::{fixture, rstest};
     use vortex_array::array::StructArray;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
@@ -92,13 +90,14 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
-    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
+    use crate::segments::AsyncSegmentReader;
     use crate::writer::LayoutWriterExt;
     use crate::{Layout, RowMask};
 
+    #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<ScanExecutor>, Layout) {
+    fn struct_layout() -> (Arc<dyn AsyncSegmentReader>, Layout) {
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(
@@ -128,13 +127,13 @@ mod tests {
             .map(IntoArray::into_array)],
         )
         .unwrap();
-        (ScanExecutor::inline(Arc::new(segments)), layout)
+        (Arc::new(segments), layout)
     }
 
-    #[test]
-    fn test_struct_layout() {
-        let (segments, layout) = struct_layout();
-
+    #[rstest]
+    fn test_struct_layout(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
         let reader = layout.reader(segments, Default::default()).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result =
@@ -150,10 +149,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_struct_layout_row_mask() {
-        let (segments, layout) = struct_layout();
-
+    #[rstest]
+    fn test_struct_layout_row_mask(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
         let reader = layout.reader(segments, Default::default()).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(reader.evaluate_expr(

@@ -112,7 +112,7 @@ mod tests {
 
         take_into(arr, buffer![0, 3].into_array(), &mut builder).unwrap();
 
-        let taken = builder.finish().unwrap();
+        let taken = builder.finish();
         assert!(taken.dtype().is_nullable());
         assert_eq!(
             taken

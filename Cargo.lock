@@ -5499,11 +5499,13 @@ dependencies = [
  "bytes",
  "exponential-decay-histogram",
  "flatbuffers 25.2.10",
+ "flume",
  "futures",
  "itertools 0.14.0",
  "log",
  "pin-project-lite",
  "rstest",
+ "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6190,8 +6192,12 @@ name = "xtask"
 version = "0.24.0"
 dependencies = [
  "anyhow",
+ "bench-vortex",
  "clap",
+ "datafusion",
  "prost-build",
+ "tokio",
+ "url",
  "xshell",
 ]
 

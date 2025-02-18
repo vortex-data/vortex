@@ -5,7 +5,7 @@ on:
     branches: [ develop ]
 
 permissions:
-  id-token: write # enables AWS-GitHub OIDC
+  id-token: write  # enables AWS-GitHub OIDC
   actions: read
   contents: write
   deployments: write

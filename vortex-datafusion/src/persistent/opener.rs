@@ -5,9 +5,11 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use datafusion_common::Result as DFResult;
 use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
+use tokio::runtime::Handle;
 use vortex_array::{ContextRef, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
+use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
@@ -65,6 +67,7 @@ impl FileOpener for VortexFileOpener {
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let batch_size = self.batch_size;
+        let executor = TaskExecutor::Tokio(TokioExecutor::new(Handle::current()));
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
@@ -86,6 +89,7 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
+                .with_task_executor(executor)
                 .into_array_stream()?
                 .map(move |array| {
                     let st = array?.into_struct()?;
