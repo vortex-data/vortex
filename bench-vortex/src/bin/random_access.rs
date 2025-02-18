@@ -75,7 +75,7 @@ fn random_access(
     let taxi_parquet = taxi_data_parquet();
     measurements.push(GenericMeasurement {
         id: 0,
-        name: "vortex-tokio-file".to_string(),
+        name: "random-access/vortex-tokio-local-disk".to_string(),
         format: Format::OnDiskVortex,
         time: run_with_setup(
             &runtime,
@@ -89,7 +89,7 @@ fn random_access(
     if formats.contains(&Format::Parquet) {
         measurements.push(GenericMeasurement {
             id: 0,
-            name: "parquet-local-fs".to_string(),
+            name: "random-access/parquet-tokio-local-disk".to_string(),
             format: Format::Parquet,
             time: run_with_setup(
                 &runtime,
