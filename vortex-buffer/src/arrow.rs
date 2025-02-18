@@ -6,6 +6,7 @@ use crate::{Alignment, Buffer, ByteBuffer};
 
 impl<T: ArrowNativeType> Buffer<T> {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
+    #[inline]
     pub fn into_arrow_scalar_buffer(self) -> arrow_buffer::ScalarBuffer<T> {
         let buffer = arrow_buffer::Buffer::from(self.into_inner());
         arrow_buffer::ScalarBuffer::from(buffer)
@@ -17,6 +18,7 @@ impl<T: ArrowNativeType> Buffer<T> {
     ///
     /// Panics if the Arrow buffer is not aligned to the requested alignment, or if the requested
     /// alignment is not sufficient for type T.
+    #[inline]
     pub fn from_arrow_scalar_buffer(arrow: arrow_buffer::ScalarBuffer<T>) -> Self {
         let length = arrow.len();
         let bytes = Bytes::from_owner(ArrowWrapper(arrow.into_inner()));
@@ -41,6 +43,7 @@ impl<T: ArrowNativeType> Buffer<T> {
     ///
     /// SAFETY: The caller should ensure that the buffer contains monotonically increasing values
     /// greater than or equal to zero.
+    #[inline]
     pub fn into_arrow_offset_buffer(self) -> OffsetBuffer<T> {
         unsafe { OffsetBuffer::new_unchecked(self.into_arrow_scalar_buffer()) }
     }
@@ -48,6 +51,7 @@ impl<T: ArrowNativeType> Buffer<T> {
 
 impl ByteBuffer {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
+    #[inline]
     pub fn into_arrow_buffer(self) -> arrow_buffer::Buffer {
         arrow_buffer::Buffer::from(self.into_inner())
     }
@@ -57,6 +61,7 @@ impl ByteBuffer {
     /// ## Panics
     ///
     /// Panics if the Arrow buffer is not sufficiently aligned.
+    #[inline]
     pub fn from_arrow_buffer(arrow: arrow_buffer::Buffer, alignment: Alignment) -> Self {
         let length = arrow.len();
 
@@ -82,6 +87,7 @@ impl ByteBuffer {
 struct ArrowWrapper(arrow_buffer::Buffer);
 
 impl AsRef<[u8]> for ArrowWrapper {
+    #[inline]
     fn as_ref(&self) -> &[u8] {
         self.0.as_slice()
     }

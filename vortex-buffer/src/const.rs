@@ -10,16 +10,19 @@ pub struct ConstBuffer<T, const A: usize>(Buffer<T>);
 
 impl<T, const A: usize> ConstBuffer<T, A> {
     /// Returns the alignment of the buffer.
+    #[inline]
     pub const fn alignment() -> Alignment {
         Alignment::new(A)
     }
 
     /// Align the given buffer (possibly with a copy) and return a new `ConstBuffer`.
+    #[inline]
     pub fn align_from<B: Into<Buffer<T>>>(buf: B) -> Self {
         Self(buf.into().aligned(Self::alignment()))
     }
 
     /// Create a new [`ConstBuffer`] with a copy from the provided slice.
+    #[inline]
     pub fn copy_from<B: AsRef<[T]>>(buf: B) -> Self {
         Self(Buffer::<T>::copy_from_aligned(buf, Self::alignment()))
     }
@@ -31,6 +34,7 @@ impl<T, const A: usize> ConstBuffer<T, A> {
     }
 
     /// Unwrap the inner buffer.
+    #[inline]
     pub fn into_inner(self) -> Buffer<T> {
         self.0
     }
@@ -39,6 +43,7 @@ impl<T, const A: usize> ConstBuffer<T, A> {
 impl<T, const A: usize> TryFrom<Buffer<T>> for ConstBuffer<T, A> {
     type Error = VortexError;
 
+    #[inline]
     fn try_from(value: Buffer<T>) -> Result<Self, Self::Error> {
         if !value.alignment().is_aligned_to(Alignment::new(A)) {
             vortex_bail!(
@@ -52,6 +57,7 @@ impl<T, const A: usize> TryFrom<Buffer<T>> for ConstBuffer<T, A> {
 }
 
 impl<T, const A: usize> AsRef<Buffer<T>> for ConstBuffer<T, A> {
+    #[inline]
     fn as_ref(&self) -> &Buffer<T> {
         &self.0
     }
@@ -60,6 +66,7 @@ impl<T, const A: usize> AsRef<Buffer<T>> for ConstBuffer<T, A> {
 impl<T, const A: usize> Deref for ConstBuffer<T, A> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.0.as_slice()
     }

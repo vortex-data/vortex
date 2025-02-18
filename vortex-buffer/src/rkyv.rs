@@ -4,6 +4,7 @@ use rkyv::util::AlignedVec;
 use crate::{Alignment, ByteBuffer};
 
 impl<const A: usize> From<AlignedVec<A>> for ByteBuffer {
+    #[inline]
     fn from(value: AlignedVec<A>) -> Self {
         let alignment = Alignment::new(A);
         if value.is_empty() {

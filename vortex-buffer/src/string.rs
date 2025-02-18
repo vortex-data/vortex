@@ -13,17 +13,20 @@ impl BufferString {
     ///
     /// # Safety
     /// Assumes that the buffer contains valid UTF-8.
+    #[inline]
     pub const unsafe fn new_unchecked(buffer: ByteBuffer) -> Self {
         Self(buffer)
     }
 
     /// Return a view of the contents of BufferString as an immutable `&str`.
+    #[inline]
     pub fn as_str(&self) -> &str {
         // SAFETY: We have already validated that the buffer is valid UTF-8
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
     }
 
     /// Returns the inner [`ByteBuffer`].
+    #[inline]
     pub fn into_inner(self) -> ByteBuffer {
         self.0
     }
@@ -38,18 +41,21 @@ impl Debug for BufferString {
 }
 
 impl From<BufferString> for ByteBuffer {
+    #[inline]
     fn from(value: BufferString) -> Self {
         value.0
     }
 }
 
 impl From<String> for BufferString {
+    #[inline]
     fn from(value: String) -> Self {
         Self(ByteBuffer::from(value.into_bytes()))
     }
 }
 
 impl From<&str> for BufferString {
+    #[inline]
     fn from(value: &str) -> Self {
         Self(ByteBuffer::from(String::from(value).into_bytes()))
     }
@@ -58,6 +64,7 @@ impl From<&str> for BufferString {
 impl TryFrom<ByteBuffer> for BufferString {
     type Error = Utf8Error;
 
+    #[inline]
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         let _ = std::str::from_utf8(value.as_ref())?;
         Ok(Self(value))
@@ -67,18 +74,21 @@ impl TryFrom<ByteBuffer> for BufferString {
 impl Deref for BufferString {
     type Target = str;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_str()
     }
 }
 
 impl AsRef<str> for BufferString {
+    #[inline]
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
 impl AsRef<[u8]> for BufferString {
+    #[inline]
     fn as_ref(&self) -> &[u8] {
         self.as_str().as_bytes()
     }

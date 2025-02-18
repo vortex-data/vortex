@@ -21,6 +21,7 @@ pub struct Buffer<T> {
 }
 
 impl<T> PartialEq for Buffer<T> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
     }
@@ -29,18 +30,21 @@ impl<T> PartialEq for Buffer<T> {
 impl<T> Eq for Buffer<T> {}
 
 impl<T> Ord for Buffer<T> {
+    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.bytes.cmp(&other.bytes)
     }
 }
 
 impl<T> PartialOrd for Buffer<T> {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.bytes.cmp(&other.bytes))
     }
 }
 
 impl<T> Hash for Buffer<T> {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.bytes.as_ref().hash(state)
     }
@@ -53,36 +57,43 @@ impl<T> Buffer<T> {
     /// of the provided `Vec<T>` while maintaining the ability to convert it back into a mutable
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
     /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
+    #[inline]
     pub fn copy_from(values: impl AsRef<[T]>) -> Self {
         BufferMut::copy_from(values).freeze()
     }
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    #[inline]
     pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
         BufferMut::copy_from_aligned(values, alignment).freeze()
     }
 
     /// Create a new zeroed `Buffer` with the given value.
+    #[inline]
     pub fn zeroed(len: usize) -> Self {
         Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
     /// Create a new zeroed `Buffer` with the given value.
+    #[inline]
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
         BufferMut::zeroed_aligned(len, alignment).freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
+    #[inline]
     pub fn empty() -> Self {
         BufferMut::empty().freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
+    #[inline]
     pub fn empty_aligned(alignment: Alignment) -> Self {
         BufferMut::empty_aligned(alignment).freeze()
     }
 
     /// Create a new full `ByteBuffer` with the given value.
+    #[inline]
     pub fn full(item: T, len: usize) -> Self
     where
         T: Copy,
@@ -96,6 +107,7 @@ impl<T> Buffer<T> {
     ///
     /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
     /// the size of `T`.
+    #[inline]
     pub fn from_byte_buffer(buffer: ByteBuffer) -> Self {
         // TODO(ngates): should this preserve the current alignment of the buffer?
         Self::from_byte_buffer_aligned(buffer, Alignment::of::<T>())
@@ -107,6 +119,7 @@ impl<T> Buffer<T> {
     ///
     /// Panics if the buffer is not aligned to the given alignment, if the length is not a multiple
     /// of the size of `T`, or if the given alignment is not aligned to that of `T`.
+    #[inline]
     pub fn from_byte_buffer_aligned(buffer: ByteBuffer, alignment: Alignment) -> Self {
         Self::from_bytes_aligned(buffer.into_inner(), alignment)
     }
@@ -117,6 +130,7 @@ impl<T> Buffer<T> {
     ///
     /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
     /// the size of `T`.
+    #[inline]
     pub fn from_bytes_aligned(bytes: Bytes, alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
@@ -309,6 +323,7 @@ impl<T> Buffer<T> {
     }
 
     /// Returns the underlying aligned buffer.
+    #[inline]
     pub fn inner(&self) -> &Bytes {
         debug_assert_eq!(
             self.length * size_of::<T>(),
@@ -319,6 +334,7 @@ impl<T> Buffer<T> {
     }
 
     /// Returns the underlying aligned buffer.
+    #[inline]
     pub fn into_inner(self) -> Bytes {
         debug_assert_eq!(
             self.length * size_of::<T>(),
@@ -329,6 +345,7 @@ impl<T> Buffer<T> {
     }
 
     /// Return the ByteBuffer for this `Buffer<T>`.
+    #[inline]
     pub fn into_byte_buffer(self) -> ByteBuffer {
         ByteBuffer {
             bytes: self.bytes,
@@ -339,12 +356,14 @@ impl<T> Buffer<T> {
     }
 
     /// Convert self into `BufferMut<T>`, copying if there are multiple strong references.
+    #[inline]
     pub fn into_mut(self) -> BufferMut<T> {
         self.try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
     }
 
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
+    #[inline]
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
         self.bytes
             .try_into_mut()
@@ -363,11 +382,13 @@ impl<T> Buffer<T> {
     }
 
     /// Returns whether a `Buffer<T>` is aligned to the given alignment.
+    #[inline]
     pub fn is_aligned(&self, alignment: Alignment) -> bool {
         self.bytes.as_ptr().align_offset(*alignment) == 0
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
+    #[inline]
     pub fn aligned(mut self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {
             self.alignment = alignment;
@@ -387,6 +408,7 @@ impl<T> Buffer<T> {
     }
 
     /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
+    #[inline]
     pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {
             self.alignment = alignment;
@@ -410,18 +432,21 @@ impl<T: Debug> Debug for Buffer<T> {
 impl<T> Deref for Buffer<T> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
 impl<T> AsRef<[T]> for Buffer<T> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T> FromIterator<T> for Buffer<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         BufferMut::from_iter(iter).freeze()
     }
@@ -429,6 +454,7 @@ impl<T> FromIterator<T> for Buffer<T> {
 
 /// Only for `Buffer<u8>` can we zero-copy from a `Vec<u8>` since we can use a 1-byte alignment.
 impl From<Vec<u8>> for ByteBuffer {
+    #[inline]
     fn from(value: Vec<u8>) -> Self {
         Self::from(Bytes::from(value))
     }
@@ -436,6 +462,7 @@ impl From<Vec<u8>> for ByteBuffer {
 
 /// Only for `Buffer<u8>` can we zero-copy from a `Bytes` since we can use a 1-byte alignment.
 impl From<Bytes> for ByteBuffer {
+    #[inline]
     fn from(bytes: Bytes) -> Self {
         let length = bytes.len();
         Self {
@@ -448,14 +475,17 @@ impl From<Bytes> for ByteBuffer {
 }
 
 impl Buf for ByteBuffer {
+    #[inline]
     fn remaining(&self) -> usize {
         self.len()
     }
 
+    #[inline]
     fn chunk(&self) -> &[u8] {
         self.as_slice()
     }
 
+    #[inline]
     fn advance(&mut self, cnt: usize) {
         if !cnt.is_multiple_of(*self.alignment) {
             vortex_panic!(
@@ -478,6 +508,7 @@ pub struct BufferIterator<T> {
 impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.buffer.len()).then(move || {
             let value = self.buffer.as_slice()[self.index];
@@ -486,6 +517,7 @@ impl<T: Copy> Iterator for BufferIterator<T> {
         })
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.buffer.len() - self.index;
         (remaining, Some(remaining))
@@ -496,6 +528,7 @@ impl<T: Copy> IntoIterator for Buffer<T> {
     type Item = T;
     type IntoIter = BufferIterator<T>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         BufferIterator {
             buffer: self,
@@ -505,6 +538,7 @@ impl<T: Copy> IntoIterator for Buffer<T> {
 }
 
 impl<T> From<BufferMut<T>> for Buffer<T> {
+    #[inline]
     fn from(value: BufferMut<T>) -> Self {
         value.freeze()
     }
