@@ -87,7 +87,11 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn finish(&mut self) -> Array {
-        assert_eq!(self.nulls.len(), self.inner.len());
+        assert_eq!(
+            self.nulls.len(),
+            self.inner.len(),
+            "Null count and value count should match when calling BoolBuilder::finish."
+        );
 
         BoolArray::try_new(
             self.inner.finish(),
