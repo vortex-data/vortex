@@ -15,11 +15,21 @@ use crate::validity::Validity;
 
 //// ARRAY
 
-// NOTE(ngates): explicitly do not require Clone for Array.
+/// The [`Array`] trait is the main interface for working with arrays in Vortex.
+///
+/// It is implemented by all array types, and provides a common API.
+///
+/// In order to control the API surface of the [`Array`] trait, we use an explicit VTable pattern
+/// that allows us to wrap up API calls with common functionality such as input and output
+/// assertions. See the [`ArrayExt`] trait for an example.
 pub trait Array: 'static + Send + Sync + Debug {
     fn as_any(&self) -> &dyn Any;
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+
+    fn into_array(self) -> ArrayRef
+    where
+        Self: Sized;
 
     /// Returns the array's VTable.
     fn vtable(&self) -> Arc<dyn ArrayVTable>;
@@ -31,34 +41,59 @@ pub trait Array: 'static + Send + Sync + Debug {
     fn dtype(&self) -> &DType;
 }
 
+/// As per convention in the Arrow / DataFusion codebase, we use a `_Ref` type alias for
+/// the `Arc<dyn Array>` type.
 pub type ArrayRef = Arc<dyn Array>;
 
-/// An extension trait that implements much of the logic of the Array API.
+/// Much of the API surface of the [`Array`] trait is implemented on extension traits.
+/// The [`ArrayExt`] trait is an example of such a trait, although in practice I imagine these
+/// are spread around the code base with names like [`ArrayValidity`].
+///
+/// These traits call into the [`ArrayVTable`] to dispatch function calls, and can apply common
+/// functionality such as input and output assertions.
 pub trait ArrayExt: Array {
     fn validity_mask(&self) -> VortexResult<Mask>
     where
         Self: Sized,
     {
-        self.vtable().validity_mask(self)
+        let mask = self.vtable().validity_mask(self)?;
+        // Output assertions panic, since it's an implementation bug for the array.
+        assert_eq!(
+            mask.len(),
+            self.len(),
+            "Array {:?} returned validity mask with invalid length",
+            self
+        );
+        Ok(mask)
     }
 
-    /// For owned functions, we must implement both on sized Self...
     fn mask_validity(self: Arc<Self>, mask: Mask) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
-        self.vtable().mask_validity(self, mask)
-    }
-}
-
-/// ...and on the dyn Array trait.
-impl dyn Array + '_ {
-    fn mask_validity(self: Arc<Self>, mask: Mask) -> VortexResult<ArrayRef> {
-        self.vtable().mask_validity(self, mask)
+        (self as ArrayRef).mask_validity(mask)
     }
 }
 
 impl<A: Array + ?Sized> ArrayExt for A {}
+
+/// For functions that take the array by ownership, we implement them again on the [`Array`] trait.
+/// The functions in the [`ArrayExt`] trait can be called on concrete arrays, e.g.
+/// `Arc<PrimitiveArray<i32>>`, whereas the functions on `dyn Array + '_` can be called on
+/// an `Arc<dyn Array>`.
+impl dyn Array + '_ {
+    fn mask_validity(self: Arc<Self>, mask: Mask) -> VortexResult<ArrayRef> {
+        if mask.len() != self.len() {
+            // Input assertions return a VortexResult, since it's a caller error.
+            vortex_bail!(
+                "Mask length {} does not match array length {}",
+                mask.len(),
+                self.len()
+            );
+        }
+        self.vtable().mask_validity(self, mask)
+    }
+}
 
 impl Array for Arc<dyn Array> {
     fn as_any(&self) -> &dyn Any {
@@ -66,6 +101,13 @@ impl Array for Arc<dyn Array> {
     }
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn into_array(self: Self) -> ArrayRef
+    where
+        Self: Sized,
+    {
         self
     }
 
@@ -91,6 +133,39 @@ pub trait ValidityVTable<A: ?Sized> {
 
     /// Update the validity of the array by intersecting it with the given [`Mask`].
     fn mask_validity(&self, array: Arc<A>, mask: Mask) -> VortexResult<ArrayRef>;
+}
+
+pub trait CanonicalVTable<A: ?Sized> {
+    fn canonicalize(&self, array: &A) -> VortexResult<ArrayRef>;
+}
+
+trait VTableDowncast {
+    type Array: Array;
+}
+
+impl<V> ValidityVTable<dyn Array> for V
+where
+    V: VTableDowncast,
+    V: ValidityVTable<V::Array>,
+{
+    fn validity_mask(&self, array: &dyn Array) -> VortexResult<Mask> {
+        self.validity_mask(
+            array
+                .as_any()
+                .downcast_ref::<V::Array>()
+                .ok_or_else(|| vortex_err!("downcast failed",))?,
+        )
+    }
+
+    fn mask_validity(&self, array: ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
+        self.mask_validity(
+            array
+                .as_any_arc()
+                .downcast::<V::Array>()
+                .map_err(|_| vortex_err!("downcast failed"))?,
+            mask,
+        )
+    }
 }
 
 //// PRIMITIVE
@@ -124,6 +199,13 @@ impl<T: NativePType> Array for PrimitiveArray<T> {
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
+    }
+
+    fn into_array(self: Self) -> ArrayRef
+    where
+        Self: Sized,
+    {
+        Arc::new(self)
     }
 
     fn vtable(&self) -> Arc<dyn ArrayVTable> {
@@ -171,35 +253,6 @@ impl<T: NativePType> ValidityVTable<PrimitiveArray<T>> for PrimitiveArrayVTable<
             }
         }
         Ok(Arc::new(array))
-    }
-}
-
-trait VTableDowncast {
-    type Array: Array;
-}
-
-impl<V> ValidityVTable<dyn Array> for V
-where
-    V: VTableDowncast,
-    V: ValidityVTable<V::Array>,
-{
-    fn validity_mask(&self, array: &dyn Array) -> VortexResult<Mask> {
-        self.validity_mask(
-            array
-                .as_any()
-                .downcast_ref::<V::Array>()
-                .ok_or_else(|| vortex_err!("downcast failed",))?,
-        )
-    }
-
-    fn mask_validity(&self, array: ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
-        self.mask_validity(
-            array
-                .as_any_arc()
-                .downcast::<V::Array>()
-                .map_err(|_| vortex_err!("downcast failed"))?,
-            mask,
-        )
     }
 }
 
