@@ -67,7 +67,7 @@ pub fn between(
     debug_assert_eq!(arr.len(), lower.len());
     debug_assert_eq!(arr.len(), upper.len());
 
-    let result = between_impl(&arr, &lower, lower_op, &upper, upper_op)?;
+    let result = between_impl(arr, lower, lower_op, upper, upper_op)?;
 
     debug_assert_eq!(result.len(), arr.len());
     debug_assert_eq!(
