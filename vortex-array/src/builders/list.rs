@@ -142,14 +142,9 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
     fn finish(&mut self) -> Array {
         assert_eq!(
-            self.value_builder.len(),
             self.index_builder.len(),
-            "Values and indices must have the same length."
-        );
-        assert_eq!(
-            self.value_builder.len(),
-            self.nulls.len(),
-            "Values and nulls must have the same length"
+            self.nulls.len() + 1,
+            "Indices length must be one more than nulls length."
         );
 
         ListArray::try_new(
