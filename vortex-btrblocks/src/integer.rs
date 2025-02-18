@@ -3,20 +3,19 @@ mod stats;
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{Deref, Not};
+use std::ops::Deref;
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
 use vortex_array::array::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
 use vortex_array::compute::filter;
-use vortex_array::patches::PatchesMetadata;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
-use vortex_fastlanes::{bitpack_encode, for_compress, BitPackedMetadata, FoRArray};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_fastlanes::{bitpack_to_best_bit_width, for_compress, FoRArray};
 use vortex_mask::Mask;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
@@ -246,7 +245,6 @@ impl Scheme for FORScheme {
 
         // Difference between max and min
         let full_width: u32 = stats.src.ptype().bit_width().try_into().vortex_unwrap();
-        // Figure out how to truncate down to the PType width.
         let padding = 64 - full_width;
         let bw = full_width + padding - stats.typed.max_minus_min().leading_zeros();
 
@@ -371,9 +369,9 @@ impl Scheme for BitPackingScheme {
     fn expected_compression_ratio(
         &self,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
-        _excludes: &[IntCode],
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // BitPacking only works for non-negative values
         if stats.typed.min_is_negative() {
@@ -385,20 +383,13 @@ impl Scheme for BitPackingScheme {
             return Ok(0.0);
         }
 
-        // assume u32 for index + the ptype bit_width.
-        let bytes_per_exception = stats.src.ptype().bit_width() as u32;
-        let (bw, exception_count) =
-            best_bit_width(&stats.bit_width_histogram, bytes_per_exception)?;
-
-        // Estimated bit width is based on difference between max and min
-        let before = stats.src.nbytes();
-        let after = (bw as u32 * stats.value_count)
-            + (exception_count * bytes_per_exception)
-            // rough upper-bound on the full in-memory size of the bit packed array.
-            + size_of::<BitPackedMetadata>() as u32
-            + size_of::<PatchesMetadata>() as u32;
-
-        Ok(before as f64 / after as f64)
+        estimate_compression_ratio_with_sampling(
+            self,
+            stats,
+            is_sample,
+            allowed_cascading,
+            excludes,
+        )
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -409,46 +400,9 @@ impl Scheme for BitPackingScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<Array> {
-        let bytes_per_exception = stats.src.ptype().bit_width() as u32;
-        let (bw, _) = best_bit_width(&stats.bit_width_histogram, bytes_per_exception)?;
-
-        if bw as usize == stats.src.ptype().bit_width() {
-            // Don't attempt to compress, just return the original array.
-            Ok(stats.source().clone().into_array())
-        } else {
-            Ok(bitpack_encode(stats.src.clone(), bw)?.into_array())
-        }
+        let packed = bitpack_to_best_bit_width(stats.source().clone())?;
+        Ok(packed.into_array())
     }
-}
-
-/// Assuming exceptions cost 1 value + 1 u32 index, figure out the best bit-width to use.
-/// We could try to be clever, but we can never really predict how the exceptions will compress.
-#[allow(clippy::cast_possible_truncation)]
-fn best_bit_width(bit_width_freq: &[u32], bytes_per_exception: u32) -> VortexResult<(u8, u32)> {
-    if bit_width_freq.len() > u8::MAX as usize {
-        vortex_bail!("Too many bit widths");
-    }
-
-    let len: u32 = bit_width_freq.iter().sum();
-    let mut num_packed = 0;
-    let mut best_cost = len * bytes_per_exception;
-    let mut best_width = 0;
-    let mut exception_count = len;
-    for (bit_width, freq) in bit_width_freq.iter().enumerate() {
-        let packed_cost = ((bit_width as u32 * len) + 7) / 8; // round up to bytes
-
-        num_packed += *freq;
-        let exceptions_cost = (len - num_packed) * bytes_per_exception;
-
-        let cost = exceptions_cost + packed_cost;
-        if cost < best_cost {
-            best_cost = cost;
-            best_width = bit_width;
-            exception_count = len - num_packed;
-        }
-    }
-
-    Ok((best_width as u8, exception_count))
 }
 
 impl Scheme for SparseScheme {
@@ -511,16 +465,10 @@ impl Scheme for SparseScheme {
         let mask = stats.src.validity().to_logical(stats.src.len())?;
 
         // Find the top value and all positions it occurs in.
-        let (top_pvalue, _) = stats.typed.top_value_and_count();
+        let (top_pvalue, top_count) = stats.typed.top_value_and_count();
 
-        let top_mask = match_each_integer_ptype!(stats.src.ptype(), |$T| {
-            let buffer = stats.src.buffer::<$T>();
-            let top_value: $T = top_pvalue.as_primitive::<$T>().vortex_expect("top value");
-            value_indices(top_value, buffer.as_ref(), &mask)
-        });
-
-        // In the case where there are no other values, immediately yield ConstantArray.
-        if top_mask.all_true() {
+        if top_count == (stats.value_count + stats.null_count) {
+            // top_value is the only value, use ConstantScheme
             return Ok(ConstantArray::new(
                 Scalar::primitive_value(
                     top_pvalue,
@@ -532,7 +480,12 @@ impl Scheme for SparseScheme {
             .into_array());
         }
 
-        let non_top_mask = top_mask.not();
+        let non_top_mask = match_each_integer_ptype!(stats.src.ptype(), |$T| {
+            let buffer = stats.src.buffer::<$T>();
+            let top_value: $T = top_pvalue.as_primitive::<$T>().vortex_expect("top value");
+            value_indices(top_value, buffer.as_ref(), &mask)
+        });
+
         let non_top_values = filter(stats.src.as_ref(), &non_top_mask)?.into_primitive()?;
 
         // Compress the values
@@ -582,20 +535,15 @@ impl Scheme for SparseScheme {
     }
 }
 
-// We return the top value and a mask of all positions containing the top value.
 fn value_indices<T: PrimInt + Hash + Into<Scalar>>(
     top_value: T,
     values: &[T],
     validity: &Mask,
 ) -> Mask {
-    // Find all of the positions containing the top value.
+    // Find all non-null positions that are not identical to the top value.
     let mut buffer = BooleanBufferBuilder::new(values.len());
     for (idx, &value) in values.iter().enumerate() {
-        if top_value == value && validity.value(idx) {
-            buffer.append(true);
-        } else {
-            buffer.append(false);
-        }
+        buffer.append(validity.value(idx) && top_value != value);
     }
 
     Mask::from_buffer(buffer.finish())

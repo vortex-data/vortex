@@ -1,6 +1,6 @@
-#![allow(unused, dead_code)]
 use std::hash::Hash;
 
+use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
@@ -14,7 +14,7 @@ use vortex_scalar::PValue;
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TypedStats<T> {
     pub min: T,
     pub max: T,
@@ -27,7 +27,7 @@ pub struct TypedStats<T> {
 ///
 /// Building the `TypedStats` is considerably faster and cheaper than building a type-erased
 /// set of stats. We then perform a variety of access methods on them.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ErasedStats {
     U8(TypedStats<u8>),
     U16(TypedStats<u16>),
@@ -114,7 +114,7 @@ impl_from_typed!(i16, ErasedStats::I16);
 impl_from_typed!(i32, ErasedStats::I32);
 impl_from_typed!(i64, ErasedStats::I64);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IntegerStats {
     pub(super) src: PrimitiveArray,
     // cache for validity.false_count()
@@ -122,7 +122,6 @@ pub struct IntegerStats {
     // cache for validity.true_count()
     pub(super) value_count: u32,
     pub(super) average_run_length: u32,
-    pub(super) bit_width_histogram: Vec<u32>,
     pub(super) distinct_values_count: u32,
     pub(crate) typed: ErasedStats,
 }
@@ -158,47 +157,82 @@ fn typed_int_stats<T: NativePType + Hash + PrimInt>(
 where
     TypedStats<T>: Into<ErasedStats>,
 {
-    let bit_width: usize = size_of::<T>() * 8;
-    let bit_width_u32: u32 = bit_width.try_into().vortex_unwrap();
+    // Special case: empty array
+    if array.is_empty() {
+        return IntegerStats {
+            src: array.clone(),
+            null_count: 0,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: T::max_value(),
+                max: T::min_value(),
+                top_value: T::default(),
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        };
+    }
 
     let validity = array.validity_mask().vortex_expect("logical_validity");
     let null_count = validity.false_count();
     let value_count = validity.true_count();
-    let mut min = T::max_value();
-    let mut max = T::min_value();
-    let mut distinct_values_count: u32 = if count_distinct_values { 0 } else { u32::MAX };
-    let mut distinct_values = if count_distinct_values {
-        HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
-    } else {
-        HashMap::with_hasher(FxBuildHasher)
+
+    // Initialize loop state
+    let head = array.as_slice::<T>()[0];
+    let mut loop_state = LoopState {
+        min: head,
+        max: head,
+        distinct_values: if count_distinct_values {
+            HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+        } else {
+            HashMap::with_hasher(FxBuildHasher)
+        },
+        distinct_values_count: if count_distinct_values { 0 } else { u32::MAX },
+        prev: head,
+        runs: 1,
     };
-    let mut bit_width_histogram = vec![0u32; bit_width + 1];
 
-    let mut runs = 1;
-    let mut prev = array.as_slice::<T>()[0];
+    let values = array.buffer::<T>();
+    let mask = validity.to_boolean_buffer();
 
-    for (idx, &value) in array.buffer::<T>().iter().enumerate() {
-        if validity.value(idx) {
-            min = min.min(value);
-            max = max.max(value);
+    let mut offset = 0;
+    for chunk in values.as_slice().chunks(64) {
+        let validity = mask.slice(offset, chunk.len());
+        offset += chunk.len();
 
-            if count_distinct_values {
-                *distinct_values.entry(value).or_insert(0) += 1;
-                distinct_values_count = distinct_values.len().try_into().vortex_unwrap();
-            }
+        if chunk.len() < 64 {
+            // Final iteration, run naive loop
+            inner_loop_naive(chunk, count_distinct_values, &validity, &mut loop_state);
+            break;
+        }
 
-            let bw = bit_width_u32 - value.leading_zeros();
-            bit_width_histogram[bw as usize] += 1;
+        let set_bits = validity.count_set_bits();
 
-            if value != prev {
-                prev = value;
-                runs += 1;
-            }
+        match set_bits {
+            // All nulls -> no stats to update
+            0 => continue,
+            // Inner loop for when validity check can be elided
+            64 => inner_loop_nonnull(
+                chunk.try_into().vortex_unwrap(),
+                count_distinct_values,
+                &mut loop_state,
+            ),
+            // Inner loop for when we need to check validity
+            _ => inner_loop_nullable(
+                chunk.try_into().vortex_unwrap(),
+                count_distinct_values,
+                &validity,
+                &mut loop_state,
+            ),
         }
     }
 
     let (top_value, top_count) = if count_distinct_values {
-        let (&top_value, &top_count) = distinct_values
+        let (&top_value, &top_count) = loop_state
+            .distinct_values
             .iter()
             .max_by_key(|(_, &count)| count)
             .vortex_expect("non-empty");
@@ -207,12 +241,15 @@ where
         (T::default(), 0)
     };
 
+    let runs = loop_state.runs;
+    let distinct_values_count = loop_state.distinct_values_count;
+
     let typed = TypedStats {
-        min,
-        max,
+        min: loop_state.min,
+        max: loop_state.max,
+        distinct_values: loop_state.distinct_values,
         top_value,
         top_count,
-        distinct_values,
     };
 
     let null_count = null_count
@@ -227,8 +264,90 @@ where
         null_count,
         value_count,
         average_run_length: value_count / runs,
-        bit_width_histogram,
         distinct_values_count,
         typed: typed.into(),
+    }
+}
+
+struct LoopState<T> {
+    min: T,
+    max: T,
+    prev: T,
+    runs: u32,
+    distinct_values_count: u32,
+    distinct_values: HashMap<T, u32, FxBuildHasher>,
+}
+
+#[inline(always)]
+fn inner_loop_nonnull<T: PrimInt + Hash>(
+    values: &[T; 64],
+    count_distinct_values: bool,
+    state: &mut LoopState<T>,
+) {
+    for &value in values {
+        state.min = state.min.min(value);
+        state.max = state.max.max(value);
+
+        if count_distinct_values {
+            *state.distinct_values.entry(state.prev).or_insert(0) += 1;
+            state.distinct_values_count = state.distinct_values.len().try_into().vortex_unwrap();
+        }
+
+        if value != state.prev {
+            state.prev = value;
+            state.runs += 1;
+        }
+    }
+}
+
+#[inline(always)]
+fn inner_loop_nullable<T: PrimInt + Hash>(
+    values: &[T; 64],
+    count_distinct_values: bool,
+    is_valid: &BooleanBuffer,
+    state: &mut LoopState<T>,
+) {
+    for (idx, &value) in values.iter().enumerate() {
+        if is_valid.value(idx) {
+            state.min = state.min.min(value);
+            state.max = state.max.max(value);
+
+            if count_distinct_values {
+                *state.distinct_values.entry(state.prev).or_insert(0) += 1;
+                state.distinct_values_count =
+                    state.distinct_values.len().try_into().vortex_unwrap();
+            }
+
+            if value != state.prev {
+                state.prev = value;
+                state.runs += 1;
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn inner_loop_naive<T: PrimInt + Hash>(
+    values: &[T],
+    count_distinct_values: bool,
+    is_valid: &BooleanBuffer,
+    state: &mut LoopState<T>,
+) {
+    for (idx, &value) in values.iter().enumerate() {
+        if is_valid.value(idx) {
+            state.min = state.min.min(value);
+            state.max = state.max.max(value);
+
+            if count_distinct_values {
+                *state.distinct_values.entry(state.prev).or_insert(0) += 1;
+                state.distinct_values_count =
+                    state.distinct_values.len().try_into().vortex_unwrap();
+            }
+
+            if value != state.prev {
+                state.prev = value;
+                state.runs += 1;
+            }
+        }
     }
 }

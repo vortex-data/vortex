@@ -5281,7 +5281,8 @@ dependencies = [
 name = "vortex-btrblocks"
 version = "0.24.0"
 dependencies = [
- "codspeed-criterion-compat",
+ "arrow-buffer",
+ "codspeed-divan-compat",
  "env_logger",
  "itertools 0.14.0",
  "log",

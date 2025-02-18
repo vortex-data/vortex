@@ -24,6 +24,7 @@ mod temporal;
 pub struct GenerateStatsOptions {
     pub count_distinct_values: bool,
     // pub count_runs: bool,
+    // should this be scheme-specific?
 }
 
 impl Default for GenerateStatsOptions {

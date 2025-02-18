@@ -14,6 +14,7 @@ readme.workspace = true
 categories.workspace = true
 
 [dependencies]
+arrow-buffer = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
@@ -36,7 +37,7 @@ vortex-runend = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+divan = { workspace = true }
 env_logger = "0.11"
 vortex-sampling-compressor = { workspace = true }
 
@@ -44,7 +45,7 @@ vortex-sampling-compressor = { workspace = true }
 workspace = true
 
 [[bench]]
-name = "clickbench_window_name"
+name = "compress"
 harness = false
 test = false
 

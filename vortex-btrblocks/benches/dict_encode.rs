@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use divan::Bencher;
 use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArray;
@@ -10,7 +10,7 @@ use vortex_btrblocks::CompressorStats;
 use vortex_buffer::BufferMut;
 use vortex_dict::builders::dict_encode;
 
-fn encode(c: &mut Criterion) {
+fn make_array() -> PrimitiveArray {
     let values: BufferMut<i32> = (0..50).cycle().take(64_000).collect();
 
     let nulls = BoolArray::from_iter(
@@ -21,18 +21,23 @@ fn encode(c: &mut Criterion) {
     )
     .into_array();
 
-    let primitive = PrimitiveArray::new(values, Validity::Array(nulls));
-    let array = primitive.clone().into_array();
-
-    let stats = IntegerStats::generate(&primitive);
-
-    // Generic variant
-    c.bench_function("generic", |b| b.iter(|| dict_encode(&array).unwrap()));
-
-    c.bench_function("specialized", |b| {
-        b.iter(|| dictionary_encode(&stats).unwrap())
-    });
+    PrimitiveArray::new(values, Validity::Array(nulls))
 }
 
-criterion_group!(benches, encode);
-criterion_main!(benches);
+#[divan::bench]
+fn encode_generic(bencher: Bencher) {
+    bencher
+        .with_inputs(|| make_array().into_array())
+        .bench_local_values(|array| dict_encode(&array).unwrap());
+}
+
+#[divan::bench]
+fn encode_specialized(bencher: Bencher) {
+    bencher
+        .with_inputs(|| IntegerStats::generate(&make_array()))
+        .bench_local_values(|stats| dictionary_encode(&stats).unwrap());
+}
+
+fn main() {
+    divan::main()
+}
