@@ -12,7 +12,7 @@ window.initAndRender = (function () {
             return MAP[str];
         }
 
-        var hash = new Hashes.MD5().hex(str)
+        let hash = new Hashes.MD5().hex(str)
 
         // Return a CSS color string
         const hexColor = hash.slice(0, 2) + hash.slice(14, 16) + hash.slice(30, 32);
@@ -66,7 +66,7 @@ window.initAndRender = (function () {
             } else if (name.includes("compress time/")) {
                 group = groups["Compression"];
             } else if (name.startsWith("tpch_q")) {
-                if (storage === undefined || storage == "nvme") {
+                if (storage === undefined || storage === "nvme") {
                     group = groups["TPC-H (NVME)"];
                 } else {
                     group = groups["TPC-H (S3)"];
@@ -100,7 +100,7 @@ window.initAndRender = (function () {
             const is_bytes = unit === "bytes";
             const is_throughput = unit === "bytes/ns";
 
-            let sort_position = (q.slice(0, 4) == "tpch") ? parseInt(prettyQ.split(" ")[1].substring(1), 10) : 0;
+            let sort_position = (q.slice(0, 4) === "tpch") ? parseInt(prettyQ.split(" ")[1].substring(1), 10) : 0;
 
             let arr = group.get(prettyQ);
             if (arr === undefined) {
@@ -154,7 +154,7 @@ window.initAndRender = (function () {
     }
 
     function renderAllCharts(dataSets, keptGroups) {
-        var charts = [];
+        let charts = [];
 
         function renderChart(parent, name, dataset, hiddenDatasets, removedDatasets, renamedDatasets) {
             const canvasContainer = document.createElement('div');
@@ -170,7 +170,7 @@ window.initAndRender = (function () {
                     return removedDatasets === undefined || !removedDatasets.has(name)
                 }).map(([name, benches]) => {
                     const color = stringToColor(name);
-                    const renamedName = (renamedDatasets == undefined) ? name : (renamedDatasets[name] || name);
+                    const renamedName = (renamedDatasets === undefined) ? name : (renamedDatasets[name] || name);
                     return {
                         label: renamedName,
                         data: benches.map(b => b ? b.value : null),
@@ -188,12 +188,12 @@ window.initAndRender = (function () {
                 suggestedMin: 0,
             }
 
-            if (name.includes("COMPRESS") && name.includes("THROUGHPUT") && dataset.unit == "MiB/s") {
+            if (name.includes("COMPRESS") && name.includes("THROUGHPUT") && dataset.unit === "MiB/s") {
                 y_axis_scale.suggestedMax = 1024;
                 y_axis_scale.max = 1024;
             }
 
-            if (name.includes("DECOMPRESS") && name.includes("THROUGHPUT") && dataset.unit == "MiB/s") {
+            if (name.includes("DECOMPRESS") && name.includes("THROUGHPUT") && dataset.unit === "MiB/s") {
                 y_axis_scale.suggestedMax = 4096;
                 y_axis_scale.max = 4096;
             }
@@ -232,11 +232,10 @@ window.initAndRender = (function () {
                     legend: {
                         display: true,
                         onClick: function (e, legendItem) {
-                            var index = legendItem.datasetIndex;
+                            const index = legendItem.datasetIndex;
 
-                            var wasVisible = this.chart.isDatasetVisible(index);
-                            var datasetLabel = this.chart.data.datasets[index].label;
-                            var clickedChart = this.chart;
+                            const wasVisible = this.chart.isDatasetVisible(index);
+                            const datasetLabel = this.chart.data.datasets[index].label;
 
                             charts.forEach(function (chart) {
                                 chart.data.datasets.forEach(function (ds, idx) {
@@ -304,7 +303,7 @@ window.initAndRender = (function () {
             graphsElem.className = 'benchmark-graphs';
             setElem.appendChild(graphsElem);
 
-            if (keptCharts == undefined) {
+            if (keptCharts === undefined) {
                 for (const [benchName, benches] of benchSet.entries()) {
                     charts.push(renderChart(graphsElem, benchName, benches, hiddenDatasets, removedDatasets, renamedDatasets))
                 }
@@ -336,7 +335,7 @@ window.initAndRender = (function () {
     function parse_jsonl(jsonl) {
         return jsonl
             .split('\n')
-            .filter(line => line.trim().length != 0)
+            .filter(line => line.trim().length !== 0)
             .map(line => JSON.parse(line))
     }
 
@@ -356,7 +355,7 @@ window.initAndRender = (function () {
             })
             .catch(error => console.error('unable to load commits.json:', error));
         Promise.all([data, commit_metadata]).then(pair => renderAllCharts(downloadAndGroupData(pair[0], pair[1]), keptGroups))
-    };
+    }
 
     return initAndRender;
 })();
