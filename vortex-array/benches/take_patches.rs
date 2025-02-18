@@ -1,14 +1,68 @@
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng as _};
+use rand::{Rng, SeedableRng};
 use vortex_array::patches::Patches;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 
+fn main() {
+    divan::main();
+}
+
+const BENCH_ARGS: &[(f64, f64)] = &[
+    // patches_sparsity, index_multiple
+    (0.1, 1.0),
+    (0.1, 0.5),
+    (0.1, 0.1),
+    (0.1, 0.05),
+    (0.05, 1.0),
+    (0.05, 0.5),
+    (0.05, 0.1),
+    (0.05, 0.05),
+    (0.01, 1.0),
+    (0.01, 0.5),
+    (0.01, 0.1),
+    (0.01, 0.05),
+    (0.005, 1.0),
+    (0.005, 0.5),
+    (0.005, 0.1),
+    (0.005, 0.05),
+];
+
+#[divan::bench(args = BENCH_ARGS)]
+fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let patches = fixture(16384, patches_sparsity, &mut rng);
+    let indices = indices(
+        patches.array_len(),
+        (patches.array_len() as f64 * index_multiple) as usize,
+        &mut rng,
+    );
+
+    bencher
+        .with_inputs(|| (&patches, indices.clone()))
+        .bench_values(|(patches, indices)| patches.take_search(indices.into_primitive().unwrap()));
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let patches = fixture(16384, patches_sparsity, &mut rng);
+    let indices = indices(
+        patches.array_len(),
+        (patches.array_len() as f64 * index_multiple) as usize,
+        &mut rng,
+    );
+
+    bencher
+        .with_inputs(|| (&patches, indices.clone()))
+        .bench_values(|(patches, indices)| patches.take_map(indices.into_primitive().unwrap()));
+}
+
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
-    // NB: indices are always ordered
     let indices = (0..len)
         .filter(|_| rng.gen_bool(sparsity))
         .map(|x| x as u64)
@@ -21,60 +75,3 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> Array {
     Buffer::from_iter((0..n_indices).map(|_| rng.gen_range(0..(array_len as u64)))).into_array()
 }
-
-#[allow(clippy::cast_possible_truncation)]
-fn bench_take(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bench_take");
-    let mut rng = StdRng::seed_from_u64(0);
-
-    for patches_sparsity in [0.1, 0.05, 0.01, 0.005, 0.001, 0.0005, 0.0001] {
-        let patches = fixture(65_535, patches_sparsity, &mut rng);
-        for index_multiple in [1.0, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001, 0.0005, 0.0001] {
-            let indices = indices(
-                patches.array_len(),
-                (patches.array_len() as f64 * index_multiple) as usize,
-                &mut rng,
-            );
-
-            group.bench_with_input(
-                BenchmarkId::from_parameter(format!(
-                    "take_search: array_len={}, n_patches={} (~{}%), n_indices={} ({}%)",
-                    patches.array_len(),
-                    patches.num_patches(),
-                    patches_sparsity,
-                    indices.len(),
-                    index_multiple * 100.0
-                )),
-                &(&patches, &indices),
-                |b, (patches, indices)| {
-                    b.iter_with_setup(
-                        || (*indices).clone(),
-                        |indices| patches.take_search(indices.into_primitive().unwrap()),
-                    )
-                },
-            );
-
-            group.bench_with_input(
-                BenchmarkId::from_parameter(format!(
-                    "take_map: array_len={}, n_patches={} (~{}%), n_indices={} ({}%)",
-                    patches.array_len(),
-                    patches.num_patches(),
-                    patches_sparsity,
-                    indices.len(),
-                    index_multiple * 100.0
-                )),
-                &(&patches, &indices),
-                |b, (patches, indices)| {
-                    b.iter_with_setup(
-                        || (*indices).clone(),
-                        |indices| patches.take_map(indices.into_primitive().unwrap()),
-                    )
-                },
-            );
-        }
-    }
-    group.finish()
-}
-
-criterion_group!(benches, bench_take);
-criterion_main!(benches);

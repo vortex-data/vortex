@@ -5223,7 +5223,6 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "backtrace",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "enum-iterator",
  "flatbuffers 25.2.10",
@@ -5351,7 +5350,6 @@ name = "vortex-dict"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "num-traits",
  "rand",
@@ -5431,7 +5429,6 @@ version = "0.24.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
@@ -5606,7 +5603,7 @@ name = "vortex-runend"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "codspeed-criterion-compat",
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "rand",

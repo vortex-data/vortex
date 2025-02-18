@@ -1,8 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use std::iter::Iterator;
-
-use criterion::{criterion_group, criterion_main, Criterion};
+use divan::Bencher;
 use itertools::repeat_n;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -11,47 +9,51 @@ use vortex_buffer::Buffer;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
 
-const LENS: [usize; 2] = [1000, 10_000];
-
-fn run_end_compress(c: &mut Criterion) {
-    evenly_spaced(c);
+fn main() {
+    divan::main();
 }
 
-/// Create RunEnd arrays where the runs are equal size.
-fn evenly_spaced(c: &mut Criterion) {
-    let mut group = c.benchmark_group("run end array");
+const BENCH_ARGS: &[(usize, usize)] = &[
+    (1000, 4),
+    (1000, 16),
+    (1000, 256),
+    (1000, 65536),
+    (10_000, 4),
+    (10_000, 16),
+    (10_000, 256),
+    (10_000, 65536),
+];
 
-    for &n in LENS.iter().rev() {
-        for run_step in [1usize << 2, 1 << 4, 1 << 8, 1 << 16] {
-            let run_count = (0..=n).step_by(run_step).collect::<Vec<_>>().len();
-            let values = PrimitiveArray::new(
-                (0..=n)
-                    .step_by(run_step)
-                    .enumerate()
-                    .flat_map(|(idx, x)| repeat_n(idx as u64, x))
-                    .collect::<Buffer<_>>(),
-                Validity::NonNullable,
-            );
-            group.bench_function(
-                format!("compress n: {}, run_count: {}", n, run_count),
-                |b| {
-                    b.iter_with_setup(|| values.clone(), |values| runend_encode(&values).unwrap());
-                },
-            );
+#[divan::bench(args = BENCH_ARGS)]
+fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
+    let values = PrimitiveArray::new(
+        (0..=length)
+            .step_by(run_step)
+            .enumerate()
+            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    );
 
-            group.bench_function(
-                format!("decompress n: {}, run_count: {}", n, run_count),
-                |b| {
-                    let (ends, values) = runend_encode(&values).unwrap();
-                    b.iter_with_setup(
-                        || RunEndArray::try_new(ends.clone().into_array(), values.clone()).unwrap(),
-                        |runend_array| runend_array.into_canonical().unwrap(),
-                    );
-                },
-            );
-        }
-    }
+    bencher
+        .with_inputs(|| values.clone())
+        .bench_refs(|values| runend_encode(values).unwrap());
 }
 
-criterion_group!(benches, run_end_compress);
-criterion_main!(benches);
+#[divan::bench(args = BENCH_ARGS)]
+fn decompress(bencher: Bencher, (length, run_step): (usize, usize)) {
+    let values = PrimitiveArray::new(
+        (0..=length)
+            .step_by(run_step)
+            .enumerate()
+            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    );
+    let (ends, values) = runend_encode(&values).unwrap();
+    let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
+
+    bencher
+        .with_inputs(|| runend_array.clone())
+        .bench_values(|array| array.into_canonical().unwrap());
+}

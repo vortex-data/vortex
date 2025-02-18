@@ -1,58 +1,71 @@
 #![allow(clippy::unwrap_used)]
 
-use std::iter::Iterator;
-
-use criterion::{criterion_group, criterion_main, Criterion};
+use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng as _};
+use rand::{Rng, SeedableRng};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::stats::Stat;
 use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEndArray;
 
-const LENS: [usize; 2] = [1000, 100_000];
-
-/// Create RunEnd arrays where the runs are equal size, and the null_count mask is evenly spaced.
-fn run_end_null_count(c: &mut Criterion) {
-    let mut rng = StdRng::seed_from_u64(0);
-    let mut group = c.benchmark_group("run_end_null_count");
-
-    for &n in LENS.iter().rev() {
-        for run_step in [1usize << 2, 1 << 4, 1 << 8, 1 << 16] {
-            let ends = (0..=n)
-                .step_by(run_step)
-                .map(|x| x as u64)
-                .collect::<Buffer<_>>()
-                .into_array();
-            let run_count = ends.len() - 1;
-            for valid_density in [0.01, 0.1, 0.5] {
-                let values = PrimitiveArray::from_option_iter(
-                    (0..ends.len()).map(|x| rng.gen_bool(valid_density).then_some(x as u64)),
-                )
-                .into_array();
-                let array = RunEndArray::try_new(ends.clone(), values)
-                    .unwrap()
-                    .into_array();
-
-                group.bench_function(
-                    format!(
-                        "null_count_run_end n: {}, run_count: {}, valid_density: {}",
-                        n, run_count, valid_density
-                    ),
-                    |b| {
-                        b.iter(|| {
-                            array
-                                .vtable()
-                                .compute_statistics(&array, Stat::NullCount)
-                                .unwrap()
-                        });
-                    },
-                );
-            }
-        }
-    }
+fn main() {
+    divan::main();
 }
 
-criterion_group!(benches, run_end_null_count);
-criterion_main!(benches);
+const BENCH_ARGS: &[(usize, usize, f64)] = &[
+    // length, run_step, valid_density
+    (10_000, 4, 0.01),
+    (10_000, 4, 0.1),
+    (10_000, 4, 0.5),
+    (10_000, 16, 0.01),
+    (10_000, 16, 0.1),
+    (10_000, 16, 0.5),
+    (10_000, 256, 0.01),
+    (10_000, 256, 0.1),
+    (10_000, 256, 0.5),
+    (10_000, 1024, 0.01),
+    (10_000, 1024, 0.1),
+    (10_000, 1024, 0.5),
+    (100_000, 4, 0.01),
+    (100_000, 4, 0.1),
+    (100_000, 4, 0.5),
+    (100_000, 16, 0.01),
+    (100_000, 16, 0.1),
+    (100_000, 16, 0.5),
+    (100_000, 256, 0.01),
+    (100_000, 256, 0.1),
+    (100_000, 256, 0.5),
+    (100_000, 1024, 0.01),
+    (100_000, 1024, 0.1),
+    (100_000, 1024, 0.5),
+];
+
+#[divan::bench(args = BENCH_ARGS)]
+fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
+    let array = fixture(n, run_step, valid_density).into_array();
+
+    bencher.with_inputs(|| &array).bench_refs(|array| {
+        array
+            .vtable()
+            .compute_statistics(array, Stat::NullCount)
+            .unwrap()
+    });
+}
+
+fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let ends = (0..=n)
+        .step_by(run_step)
+        .map(|x| x as u64)
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let values = PrimitiveArray::from_option_iter(
+        (0..ends.len()).map(|x| rng.gen_bool(valid_density).then_some(x as u64)),
+    )
+    .into_array();
+
+    RunEndArray::try_new(ends, values).unwrap()
+}

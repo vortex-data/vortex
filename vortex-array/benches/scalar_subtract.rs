@@ -1,22 +1,28 @@
 #![allow(clippy::unwrap_used)]
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use divan::Bencher;
 use rand::distributions::Uniform;
-use rand::{thread_rng, Rng};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use vortex_array::array::ChunkedArray;
 use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 
-fn scalar_subtract(c: &mut Criterion) {
-    let mut group = c.benchmark_group("scalar_subtract");
+fn main() {
+    divan::main();
+}
 
-    let mut rng = thread_rng();
+#[divan::bench]
+fn scalar_subtract(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0i64, 100_000_000);
-    let data1 = (0..10_000_000)
+
+    let data1 = (0..100_000)
         .map(|_| rng.sample(range))
         .collect::<Buffer<i64>>()
         .into_array();
-    let data2 = (0..10_000_000)
+
+    let data2 = (0..100_000)
         .map(|_| rng.sample(range))
         .collect::<Buffer<i64>>()
         .into_array();
@@ -25,13 +31,8 @@ fn scalar_subtract(c: &mut Criterion) {
 
     let chunked = ChunkedArray::from_iter([data1, data2]).into_array();
 
-    group.bench_function("vortex", |b| {
-        b.iter(|| {
-            let array = vortex_array::compute::sub_scalar(&chunked, to_subtract.into()).unwrap();
-            ChunkedArray::try_from(array).unwrap()
-        });
+    bencher.with_inputs(|| &chunked).bench_refs(|chunked| {
+        let array = vortex_array::compute::sub_scalar(chunked, to_subtract.into()).unwrap();
+        divan::black_box(array);
     });
 }
-
-criterion_group!(benches, scalar_subtract);
-criterion_main!(benches);
