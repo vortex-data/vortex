@@ -149,7 +149,7 @@ impl MaskFn<StructArray> for StructEncoding {
 
         StructArray::try_new(
             array.names().clone(),
-            array.children(),
+            array.fields().collect(),
             array.len(),
             validity,
         )
