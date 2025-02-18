@@ -149,7 +149,7 @@ mod test {
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
         take_into(&values, all_valid_indices, &mut builder).unwrap();
-        let actual = builder.finish().unwrap();
+        let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(Some(5)));
@@ -160,7 +160,7 @@ mod test {
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
         take_into(&values, mixed_valid_indices, &mut builder).unwrap();
-        let actual = builder.finish().unwrap();
+        let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
         // the third index is null
@@ -172,7 +172,7 @@ mod test {
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
         take_into(&values, all_invalid_indices, &mut builder).unwrap();
-        let actual = builder.finish().unwrap();
+        let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<i32>());
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<i32>());
@@ -180,7 +180,7 @@ mod test {
         let non_null_indices = PrimitiveArray::new(buffer![0, 3, 4], Validity::NonNullable);
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::NonNullable);
         take_into(&values, non_null_indices, &mut builder).unwrap();
-        let actual = builder.finish().unwrap();
+        let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(1));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(4));
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::from(5));
