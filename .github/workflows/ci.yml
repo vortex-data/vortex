@@ -24,7 +24,7 @@ jobs:
   validate-workflow-yaml:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Validate YAML file
         run: |
           # Lint the workflows and yamllint's configuration file.
