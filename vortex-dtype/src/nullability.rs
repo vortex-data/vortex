@@ -61,14 +61,3 @@ impl Display for Nullability {
         }
     }
 }
-
-impl BitOr for Nullability {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Self::Nullable, _) | (_, Self::Nullable) => Self::Nullable,
-            _ => Self::NonNullable,
-        }
-    }
-}
