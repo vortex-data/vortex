@@ -113,12 +113,15 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
     #[cfg(debug_assertions)]
     {
         // If either the indices or the array are nullable, the result should be nullable.
-        let expected_nullability =
-            (indices.dtype().is_nullable() || array.dtype().is_nullable()).into();
+        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
         assert_eq!(
             taken.dtype(),
             &array.dtype().with_nullability(expected_nullability),
-            "Take result should be nullable if either the indices or the array are nullable"
+            "Take result ({}) should be nullable if either the indices ({}) or the array ({}) are nullable. ({})",
+            taken.dtype(),
+            indices.dtype().nullability().verbose_display(),
+            array.dtype().nullability().verbose_display(),
+            array.encoding(),
         );
     }
 
@@ -140,10 +143,11 @@ pub fn take_into(
         assert_eq!(
             builder.dtype(),
             &array.dtype().with_nullability(expected_nullability),
-            "Take_into result ({}) should be nullable if, and only if, either the indices ({}) or the array are nullable ({})",
+            "Take_into result ({}) should be nullable if, and only if, either the indices ({}) or the array ({}) are nullable. ({})",
             builder.dtype(),
             indices.dtype().nullability().verbose_display(),
             array.dtype().nullability().verbose_display(),
+            array.encoding(),
         );
     }
 
