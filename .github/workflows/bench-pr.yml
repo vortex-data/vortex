@@ -156,7 +156,7 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run TPC-H benchmark
+      - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'

@@ -3,7 +3,7 @@ use std::any::Any;
 use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{BoolArray, PrimitiveArray};
@@ -94,7 +94,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         Ok(())
     }
 
-    pub fn finish_into_primitive(&mut self) -> VortexResult<PrimitiveArray> {
+    pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
         assert_eq!(
             self.nulls.len(),
             self.values.len(),
@@ -104,7 +104,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         let validity = match (self.nulls.finish(), self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,
             (Some(_), Nullability::NonNullable) => {
-                vortex_bail!("Non-nullable builder has null values")
+                vortex_panic!("Non-nullable builder has null values")
             }
             (None, Nullability::Nullable) => Validity::AllValid,
             (Some(nulls), Nullability::Nullable) => {
@@ -116,10 +116,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             }
         };
 
-        Ok(PrimitiveArray::new(
-            std::mem::take(&mut self.values).freeze(),
-            validity,
-        ))
+        PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
     }
 
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
@@ -172,7 +169,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        self.finish_into_primitive().map(IntoArray::into_array)
+    fn finish(&mut self) -> Array {
+        self.finish_into_primitive().into_array()
     }
 }

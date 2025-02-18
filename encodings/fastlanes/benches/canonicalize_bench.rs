@@ -71,7 +71,7 @@ fn canonical_into_non_nullable(
             chunked
                 .canonicalize_into(&mut primitive_builder)
                 .vortex_unwrap();
-            primitive_builder.finish().vortex_unwrap()
+            primitive_builder.finish()
         });
 }
 
@@ -129,6 +129,6 @@ fn canonical_into_nullable(
             chunked
                 .canonicalize_into(&mut primitive_builder)
                 .vortex_unwrap();
-            primitive_builder.finish().vortex_unwrap()
+            primitive_builder.finish()
         });
 }

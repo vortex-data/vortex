@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ops::BitOr;
 
 /// Whether an instance of a DType can be `null or not
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -8,6 +9,29 @@ pub enum Nullability {
     NonNullable,
     /// Instances of this DType may contain a null value
     Nullable,
+}
+
+impl Nullability {
+    /// A self-describing displayed form.
+    ///
+    /// The usual Display renders [Nullability::NonNullable] as the empty string.
+    pub fn verbose_display(&self) -> impl Display {
+        match self {
+            Nullability::NonNullable => "NonNullable",
+            Nullability::Nullable => "Nullable",
+        }
+    }
+}
+
+impl BitOr for Nullability {
+    type Output = Nullability;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::NonNullable, Self::NonNullable) => Self::NonNullable,
+            _ => Self::Nullable,
+        }
+    }
 }
 
 impl From<bool> for Nullability {

@@ -13,14 +13,26 @@ on:
 permissions:
   actions: read
   contents: read
-  checks: write # audit-check creates checks
-  issues: write # audit-check creates issues
+  checks: write  # audit-check creates checks
+  issues: write  # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
+  validate-workflow-yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Validate YAML file
+        run: |
+          # Lint the workflows and yamllint's configuration file.
+          yamllint \
+              -c yamllint-config.yaml \
+              yamllint-config.yaml \
+              .github/workflows
+
   python-lint:
     name: "Python (lint)"
     runs-on: ubuntu-latest
@@ -130,7 +142,7 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
         run: cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
-  
+
   check-min-deps:
     name: "Check build with minimal dependencies"
     runs-on: ubuntu-latest

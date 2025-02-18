@@ -9,15 +9,28 @@ on:
 
 jobs:
   bench:
-    runs-on: [ self-hosted, gcp ]
     strategy:
       fail-fast: false
       matrix:
-        benchmark:
-          - id: tpch
-            name: TPC-H
-          - id: clickbench
-            name: Clickbench
+        # Regarding "include:":
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
+        include:
+          - id: tpch-nvme
+            binary_name: tpch
+            name: TPC-H on NVME
+            cloud_provider: gcp
+          - id: clickbench-nvme
+            binary_name: clickbench
+            name: Clickbench on NVME
+            cloud_provider: gcp
+          - id: tpch-s3
+            binary_name: tpch
+            name: TPC-H on S3
+            cloud_provider: aws
+            remote_storage: s3://vortex-bench-dev/tpch-sf1/
+    runs-on:
+      - self-hosted
+      - ${{ matrix.cloud_provider }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -27,13 +40,35 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run ${{ matrix.benchmark.name }} benchmark
+      - name: Run ${{ matrix.name }} benchmark
+        if: matrix.remote_storage == null
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+          cargo run \
+              --bin ${{ matrix.binary_name }} \
+              --release \
+              -- \
+              -d gh-json \
+            | tee results.json
+
+      - name: Run ${{ matrix.name }} benchmark
+        if: matrix.remote_storage != null
+        shell: bash
+        env:
+          BENCH_VORTEX_RATIOS: '.*'
+          RUSTFLAGS: '-C target-cpu=native'
+        run: |
+          cargo run \
+              --bin ${{ matrix.binary_name }} \
+              --release \
+              -- \
+              --use-remote-data-dir ${{ matrix.remote_storage }} \
+              --formats 'parquet,vortex' \
+              -d gh-json \
+            | tee results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,11 +90,11 @@ jobs:
             | grep $base_commit_sha \
             > base.json
 
-          echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
+          echo '# Benchmarks: ${{ matrix.name }}' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json tpch.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
             >> comment.md
           echo '</details>' >> comment.md
       - name: Comment PR
@@ -67,9 +102,12 @@ jobs:
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: comment.md
-          comment-tag: bench-pr-comment-tpch
+          # There is exactly one comment per comment-tag. If a comment with this tag already exists,
+          # this action will *update* the comment instead of posting a new comment. Therefore, each
+          # unique benchmark configuration must have a unique comment-tag.
+          comment-tag: bench-pr-comment-{{ matrix.id }}
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json results.json

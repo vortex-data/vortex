@@ -62,7 +62,7 @@ fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> Array {
                     )
                 }
             });
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
         .collect::<ChunkedArray>()
         .into_array()
@@ -85,7 +85,7 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
         .bench_local_values(|chunk| {
             let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
             chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
 }
 
@@ -101,7 +101,7 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
                 .clone()
                 .canonicalize_into(builder.as_mut())
                 .vortex_unwrap();
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
 }
 
@@ -135,7 +135,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
                 len * chunk_count,
             );
             chunk.canonicalize_into(&mut builder).vortex_unwrap();
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
 }
 
@@ -160,7 +160,7 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
                 len * chunk_count,
             );
             chunk.canonicalize_into(&mut builder).vortex_unwrap();
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
 }
 

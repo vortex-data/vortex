@@ -63,7 +63,6 @@ impl Canonical {
     pub fn empty(dtype: &DType) -> Canonical {
         builder_with_capacity(dtype, 0)
             .finish()
-            .vortex_expect("cannot fail to build an empty array")
             .into_canonical()
             .vortex_expect("cannot fail to convert an empty array to canonical")
     }
