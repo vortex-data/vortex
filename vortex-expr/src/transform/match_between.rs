@@ -9,12 +9,12 @@ use crate::{BinaryExpr, ExprRef, GetItem, Operator};
 #[allow(dead_code)]
 pub fn find_between(expr: ExprRef) -> ExprRef {
     let mut vis = MatchBetween;
-    let res = expr
+    
+    (expr
         .clone()
         .transform(&mut vis)
         .vortex_expect("cannot fail")
-        .result;
-    res
+        .result) as _
 }
 
 struct MatchBetween;

@@ -1,4 +1,4 @@
-use vortex_dtype::Nullability;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ConstantArray;
@@ -37,13 +37,15 @@ where
 /// Compute the following expression, but will likely have a lower runtime
 /// ```
 ///  use vortex_array::Array;
-/// use vortex_array::compute::{binary_boolean, compare, BinaryOperator, Operator};
+/// use vortex_array::compute::{binary_boolean, compare, BinaryOperator, Operator};///
+/// use vortex_error::VortexResult;
+///
 /// fn between(
 ///    arr: impl AsRef<Array>,
 ///    lower: impl AsRef<Array>,
 ///    lower_op: Operator,
 ///    upper: impl AsRef<Array>,
-///    upper_op: Operator) {
+///    upper_op: Operator) -> VortexResult<Array> {
 ///     binary_boolean(
 ///         &compare(lower, &arr, lower_op)?,
 ///         &compare(&arr, upper, upper_op)?,
@@ -72,7 +74,7 @@ pub fn between(
     debug_assert_eq!(result.len(), arr.len());
     debug_assert_eq!(
         result.dtype(),
-        &arr.dtype().with_nullability(
+        &DType::Bool(
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability()
         )
     );
