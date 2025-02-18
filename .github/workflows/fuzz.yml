@@ -2,7 +2,7 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: '0 0 * * *' # daily
+    - cron: '0 0 * * *'  # daily
   workflow_dispatch:
 
 jobs:

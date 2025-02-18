@@ -75,7 +75,6 @@ canonical_counter = []
 getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
-criterion = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }

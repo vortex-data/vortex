@@ -38,7 +38,7 @@
               ]),
               "renamedDatasets": undefined,
           }],
-          ["TPC-H", {
+          ["TPC-H (NVME)", {
               "keptCharts": undefined,
               "hiddenDatasets": undefined,
               "removedDatasets": new Set([
@@ -50,7 +50,18 @@
                   "vortex-file-compressed": "vortex",
               },
           }],
-          ["Clickbench", undefined],
+          ["TPC-H (S3)", {
+              "keptCharts": undefined,
+              "hiddenDatasets": undefined,
+              "renamedDatasets": {
+                  "vortex-file-compressed": "vortex",
+              },
+          }],
+          ["Clickbench", {
+             "renamedDatasets" : {
+                 "vortex-file-compressed": "vortex",
+             }
+          }],
       ]);
     </script>
   </head>

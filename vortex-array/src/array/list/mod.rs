@@ -234,7 +234,7 @@ impl ListArray {
             );
             builder.append_value(elem.as_list())?
         }
-        builder.finish()
+        Ok(builder.finish())
     }
 
     pub fn from_iter_opt_slow<O: OffsetPType, I: IntoIterator<Item = Option<T>>, T>(
@@ -261,7 +261,7 @@ impl ListArray {
                 builder.append_null()
             }
         }
-        builder.finish()
+        Ok(builder.finish())
     }
 }
 

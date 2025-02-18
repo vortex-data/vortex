@@ -140,13 +140,20 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> Array {
+        assert_eq!(
+            self.index_builder.len(),
+            self.nulls.len() + 1,
+            "Indices length must be one more than nulls length."
+        );
+
         ListArray::try_new(
-            self.value_builder.finish()?,
-            self.index_builder.finish()?,
-            self.nulls.finish_with_nullability(self.nullability)?,
+            self.value_builder.finish(),
+            self.index_builder.finish(),
+            self.nulls.finish_with_nullability(self.nullability),
         )
-        .map(ListArray::into_array)
+        .vortex_expect("Buffer, offsets, and validity must have same length.")
+        .into_array()
     }
 }
 
@@ -168,7 +175,7 @@ mod tests {
     fn test_empty() {
         let mut builder = ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0);
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 0);
     }
 
@@ -199,7 +206,7 @@ mod tests {
             )
             .unwrap();
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 2);
 
         let list_array = list.into_list().unwrap();
@@ -249,7 +256,7 @@ mod tests {
             )
             .unwrap();
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 3);
 
         let list_array = list.into_list().unwrap();
@@ -288,7 +295,6 @@ mod tests {
 
         let res = builder
             .finish()
-            .unwrap()
             .into_canonical()
             .unwrap()
             .into_list()

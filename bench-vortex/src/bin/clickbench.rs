@@ -225,6 +225,7 @@ fn main() {
 
             all_measurements.push(QueryMeasurement {
                 query_idx,
+                storage: "nvme".to_string(),
                 time: fastest_result,
                 format: *format,
                 dataset: "clickbench".to_string(),
