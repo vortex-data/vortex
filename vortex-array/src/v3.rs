@@ -1,50 +1,21 @@
 #![allow(dead_code)]
-#![allow(unused_variables)]
-
-use std::any::{type_name, Any};
+use std::any::Any;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::BitAnd;
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_buffer::Buffer;
+use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_mask::Mask;
 
 use crate::stats::StatsSet;
 use crate::validity::Validity;
 
-//// ENCODING
-
-pub struct Encoding<E>(E);
-
-pub type EncodingRef = Encoding<Arc<dyn EncodingImpl>>;
-
-impl<E: EncodingImpl> Encoding<Arc<E>> {
-    pub fn load_array(
-        &self,
-        dtype: DType,
-        metadata: Option<&[u8]>,
-        buffers: &[ByteBuffer],
-        children: &[ArrayRef],
-    ) -> VortexResult<ArrayRef> {
-        self.0.load_array(dtype, metadata, buffers, children)
-    }
-}
-
-pub trait EncodingImpl {
-    fn load_array(
-        &self,
-        dtype: DType,
-        metadata: Option<&[u8]>,
-        buffers: &[ByteBuffer],
-        children: &[ArrayRef],
-    ) -> VortexResult<ArrayRef>;
-}
-
 //// ARRAY
 
+// NOTE(ngates): explicitly do not require Clone for Array.
 pub trait Array: 'static + Send + Sync + Debug {
     fn as_any(&self) -> &dyn Any;
 
@@ -71,10 +42,18 @@ pub trait ArrayExt: Array {
         self.vtable().validity_mask(self)
     }
 
-    fn mask_validity(self: Self, mask: Mask) -> VortexResult<ArrayRef>
+    /// For owned functions, we must implement both on sized Self...
+    fn mask_validity(self: Arc<Self>, mask: Mask) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
+        self.vtable().mask_validity(self, mask)
+    }
+}
+
+/// ...and on the dyn Array trait.
+impl dyn Array + '_ {
+    fn mask_validity(self: Arc<Self>, mask: Mask) -> VortexResult<ArrayRef> {
         self.vtable().mask_validity(self, mask)
     }
 }
@@ -106,33 +85,15 @@ impl Array for Arc<dyn Array> {
 /// Implementation of the Array API.
 pub trait ArrayVTable: ValidityVTable<dyn Array> {}
 
-pub trait ValidityVTable<Array: ?Sized> {
+pub trait ValidityVTable<A: ?Sized> {
     /// Return the canonical validity mask for the array.
-    fn validity_mask(&self, array: &Array) -> VortexResult<Mask>;
+    fn validity_mask(&self, array: &A) -> VortexResult<Mask>;
 
     /// Update the validity of the array by intersecting it with the given [`Mask`].
-    fn mask_validity(&self, array: Arc<Array>, mask: Mask) -> VortexResult<ArrayRef>;
+    fn mask_validity(&self, array: Arc<A>, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
 //// PRIMITIVE
-
-pub struct PrimitiveEncoding;
-
-impl EncodingImpl for PrimitiveEncoding {
-    fn load_array(
-        &self,
-        dtype: DType,
-        _metadata: Option<&[u8]>,
-        buffers: &[ByteBuffer],
-        _children: &[ArrayRef],
-    ) -> VortexResult<ArrayRef> {
-        let ptype = PType::try_from(&dtype)?;
-        match_each_native_ptype!(ptype, |$P| {
-            let buffer = Buffer::<$P>::from_byte_buffer(buffers[0].clone());
-            Ok(Arc::new(PrimitiveArray::new(buffer, Validity::AllValid, StatsSet::default())))
-        })
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray<T: NativePType> {
@@ -180,6 +141,10 @@ impl<T: NativePType> Array for PrimitiveArray<T> {
 
 pub struct PrimitiveArrayVTable<T>(PhantomData<T>);
 
+impl<T: NativePType> VTableDowncast for PrimitiveArrayVTable<T> {
+    type Array = PrimitiveArray<T>;
+}
+
 impl<T: NativePType> ArrayVTable for PrimitiveArrayVTable<T> {}
 
 /// We implement the validity vtable against the specific array type.
@@ -209,31 +174,30 @@ impl<T: NativePType> ValidityVTable<PrimitiveArray<T>> for PrimitiveArrayVTable<
     }
 }
 
-/// But it must be implemented against a dyn Array.
-impl<T: NativePType> ValidityVTable<dyn Array> for PrimitiveArrayVTable<T> {
+trait VTableDowncast {
+    type Array: Array;
+}
+
+impl<V> ValidityVTable<dyn Array> for V
+where
+    V: VTableDowncast,
+    V: ValidityVTable<V::Array>,
+{
     fn validity_mask(&self, array: &dyn Array) -> VortexResult<Mask> {
         self.validity_mask(
             array
                 .as_any()
-                .downcast_ref::<PrimitiveArray<T>>()
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "downcast to {} failed {:?}",
-                        type_name::<PrimitiveArray<T>>(),
-                        array
-                    )
-                })?,
+                .downcast_ref::<V::Array>()
+                .ok_or_else(|| vortex_err!("downcast failed",))?,
         )
     }
 
-    fn mask_validity(&self, array: Arc<dyn Array>, mask: Mask) -> VortexResult<ArrayRef> {
+    fn mask_validity(&self, array: ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
         self.mask_validity(
             array
                 .as_any_arc()
-                .downcast::<PrimitiveArray<T>>()
-                .map_err(|_| {
-                    vortex_err!("downcast to {} failed", type_name::<PrimitiveArray<T>>(),)
-                })?,
+                .downcast::<V::Array>()
+                .map_err(|_| vortex_err!("downcast failed"))?,
             mask,
         )
     }
@@ -254,23 +218,24 @@ mod test {
         // We can use `a` as an `Array`, including calling functions on `ArrayExt`.
         assert_eq!(a.len(), 3);
         assert_eq!(a.validity_mask().unwrap(), Mask::new_true(3));
-        // We can also run compute functions that take the array by ownership.
+
+        // If we Arc the array, we can call functions that take the array by ownership.
+        // This is because we don't require that Array implements clone, therefore we cannot
+        // automatically unwrap_or_clone an array from an `Arc<dyn Array>`.
+        let a: Arc<PrimitiveArray<i32>> = Arc::new(a);
         let a_masked = a
+            .clone()
             .mask_validity(Mask::from_iter([true, false, true]))
             .unwrap();
         assert_eq!(a_masked.validity_mask().unwrap().true_count(), 2);
 
-        // We can pass `a` into any function that takes `&dyn Array`.
-
-        // We can convert `a` to `ArrayRef`, and do the same.
-        let b: ArrayRef = Arc::new(a);
+        // We can type-erase the array into an `Arc<dyn Array>` (an `ArrayRef`), and do the same.
+        let b: ArrayRef = a as _;
         assert_eq!(b.len(), 3);
         assert_eq!(b.validity_mask().unwrap(), Mask::new_true(3));
-
-        // We can also run compute functions that take the array by ownership.
-        let b = b
+        let b_masked = b
             .mask_validity(Mask::from_iter([true, false, true]))
             .unwrap();
-        assert_eq!(b.validity_mask().unwrap().true_count(), 2);
+        assert_eq!(b_masked.validity_mask().unwrap().true_count(), 2);
     }
 }
