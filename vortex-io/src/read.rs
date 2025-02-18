@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, VortexExpect};
+use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -127,5 +128,41 @@ impl VortexReadAt for ByteBuffer {
 
     async fn size(&self) -> io::Result<u64> {
         Ok(self.len() as u64)
+    }
+}
+
+#[derive(Clone)]
+pub struct InstrumentedReadAt<T: VortexReadAt> {
+    read: T,
+    sizes: Arc<Histogram>,
+    durations: Arc<Timer>,
+}
+
+impl<T: VortexReadAt> InstrumentedReadAt<T> {
+    pub fn new(read: T, metrics: &VortexMetrics) -> Self {
+        Self {
+            read,
+            sizes: metrics.histogram("vortex.io.read.size"),
+            durations: metrics.timer("vortex.io.read.duration"),
+        }
+    }
+}
+
+impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
+        let _timer = self.durations.time();
+        let size = range.end - range.start;
+        let buf = self.read.read_byte_range(range, alignment).await;
+        let _ = size.try_into().map(|size| self.sizes.update(size));
+        buf
+    }
+
+    #[inline]
+    async fn size(&self) -> io::Result<u64> {
+        self.read.size().await
     }
 }

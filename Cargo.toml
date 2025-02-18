@@ -18,6 +18,7 @@ members = [
     "vortex-ipc",
     "vortex-layout",
     "vortex-mask",
+    "vortex-metrics",
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
@@ -180,6 +181,7 @@ vortex-io = { version = "0.24.0", path = "./vortex-io" }
 vortex-ipc = { version = "0.24.0", path = "./vortex-ipc" }
 vortex-layout = { version = "0.24.0", path = "./vortex-layout" }
 vortex-mask = { version = "0.24.0", path = "./vortex-mask" }
+vortex-metrics = { version = "0.24.0", path = "./vortex-metrics" }
 vortex-proto = { version = "0.24.0", path = "./vortex-proto" }
 vortex-runend = { version = "0.24.0", path = "./encodings/runend" }
 vortex-sampling-compressor = { version = "0.24.0", path = "./vortex-sampling-compressor" }

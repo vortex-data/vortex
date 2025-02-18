@@ -6,6 +6,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
+use vortex_metrics::VortexMetrics;
 
 use crate::segments::SegmentCache;
 use crate::{FileLayout, FileType, Segment};
@@ -30,6 +31,7 @@ impl FileType for InMemoryVortexFile {
         _options: Self::Options,
         file_layout: FileLayout,
         _segment_cache: Arc<dyn SegmentCache>,
+        _metrics: Arc<VortexMetrics>,
     ) -> Self::ScanDriver {
         Self {
             buffer: read,

@@ -5,6 +5,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_layout::scan::ScanBuilder;
+use vortex_metrics::VortexMetrics;
 
 use crate::footer::FileLayout;
 use crate::open::FileType;
@@ -16,6 +17,7 @@ pub struct VortexFile<F: FileType> {
     pub(crate) ctx: ContextRef,
     pub(crate) file_layout: FileLayout,
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
+    pub(crate) metrics: Arc<VortexMetrics>,
     pub(crate) _marker: PhantomData<F>,
 }
 
@@ -42,6 +44,7 @@ impl<F: FileType> VortexFile<F> {
             self.options.clone(),
             self.file_layout.clone(),
             self.segment_cache.clone(),
+            self.metrics.clone(),
         );
         ScanBuilder::new(
             driver,
