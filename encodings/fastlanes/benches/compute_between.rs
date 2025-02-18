@@ -86,9 +86,9 @@ where
     types = [i32, i64, u32, u64, f32, f64],
     args = BENCH_ARGS,
 )]
-fn new_raw_prim_test_between<T: NativePType>(bencher: Bencher, len: usize)
+fn new_raw_prim_test_between<T>(bencher: Bencher, len: usize)
 where
-    T: NumCast,
+    T: NumCast + NativePType,
     vortex_scalar::Scalar: From<T>,
 {
     let min = T::from_usize(5561).vortex_expect("");
@@ -139,9 +139,9 @@ where
     types = [i16, i32, i64],
     args = BENCH_ARGS,
 )]
-fn new_bp_prim_test_between<T: NativePType>(bencher: Bencher, len: usize)
+fn new_bp_prim_test_between<T>(bencher: Bencher, len: usize)
 where
-    T: NumCast,
+    T: NumCast + NativePType,
     vortex_scalar::Scalar: From<T>,
 {
     let min = T::from_usize(5561).vortex_expect("");
