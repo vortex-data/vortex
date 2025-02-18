@@ -181,7 +181,7 @@ mod tests {
         chunked_arr.clone().canonicalize_into(&mut builder).unwrap();
 
         {
-            let arr = builder.finish().unwrap().into_varbinview().unwrap();
+            let arr = builder.finish().into_varbinview().unwrap();
             let res1 = arr
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();

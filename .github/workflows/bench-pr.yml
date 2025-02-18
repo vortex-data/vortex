@@ -23,26 +23,34 @@ jobs:
           labels: benchmark
 
   codspeed_bench:
-    name: Run Criterion benchmarks with Codspeed
+    name: Benchmark with Codspeed
     needs: label_trigger
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmark targets
+      - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
         # We want to run micro-benchmarks with release profile.
         # We run with all features since we feature gate bench utils.
-        run: cargo codspeed build --features test-harness --exclude bench-vortex --workspace --profile release
+        run: |
+          cargo codspeed build --features test-harness \
+            --exclude bench-vortex \
+            --exclude vortex-datafusion \
+            --exclude vortex-tui \
+            --exclude vortex-fuzz \
+            --exclude pyvortex \
+            --exclude xtask \
+            --workspace \
+            --profile release
 
-      - name: Run the benchmarks
+      - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
           run: cargo codspeed run
@@ -148,13 +156,13 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run TPC-H benchmark
+      - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json -t 1 | tee tpch.json
+          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json -t 1 | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4

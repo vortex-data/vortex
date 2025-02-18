@@ -77,7 +77,7 @@ pub fn to_arrow<A: AsRef<Array>>(array: A, data_type: &DataType) -> VortexResult
     let mut builder = builder_with_capacity(array.dtype(), array.len());
     // TODO(joe), take owned here and avoid the clone?
     array.clone().canonicalize_into(builder.as_mut())?;
-    let array = builder.finish()?;
+    let array = builder.finish();
     array
         .vtable()
         .to_arrow_fn()

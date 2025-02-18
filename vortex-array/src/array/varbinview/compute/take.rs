@@ -78,7 +78,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // min-max valid range.
         // TODO(joe): impl validity_mask take
         let validity = array.validity().take(indices)?;
-        let mask = validity.to_logical(array.len())?;
+        let mask = validity.to_logical(indices.len())?;
         let indices = indices.clone().into_primitive()?;
 
         match_each_integer_ptype!(indices.ptype(), |$I| {

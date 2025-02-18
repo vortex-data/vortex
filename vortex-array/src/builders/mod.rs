@@ -57,7 +57,16 @@ pub trait ArrayBuilder: Send {
     /// Extends the array with the provided array, canonicalizing if necessary.
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()>;
 
-    fn finish(&mut self) -> VortexResult<Array>;
+    /// Constructs an Array from the builder components.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic if the builder's methods are called with invalid arguments. If only
+    /// the methods on this interface are used, the builder should not panic. However, specific
+    /// builders have interfaces that may be misued. For example, if the number of values in a
+    /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
+    /// the PrimitiveBuilder's [Self::finish] will panic.
+    fn finish(&mut self) -> Array;
 }
 
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {

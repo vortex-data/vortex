@@ -147,7 +147,7 @@ fn random_list_offset<O: OffsetPType>(
                 .vortex_expect("can append value");
         }
     }
-    Ok(builder.finish().vortex_expect("builder cannot error"))
+    Ok(builder.finish())
 }
 
 fn random_list_scalar(

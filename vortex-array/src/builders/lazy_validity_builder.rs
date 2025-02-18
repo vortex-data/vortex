@@ -127,14 +127,14 @@ impl LazyNullBufferBuilder {
         Some(NullBuffer::new(self.inner.take()?.finish()))
     }
 
-    pub fn finish_with_nullability(&mut self, nullability: Nullability) -> VortexResult<Validity> {
+    pub fn finish_with_nullability(&mut self, nullability: Nullability) -> Validity {
         let nulls = self.finish();
-        Ok(match (nullability, nulls) {
+        match (nullability, nulls) {
             (NonNullable, None) => Validity::NonNullable,
             (Nullable, None) => Validity::AllValid,
             (Nullable, Some(arr)) => Validity::from(arr),
             _ => vortex_panic!("Invalid nullability/nulls combination"),
-        })
+        }
     }
 
     #[inline]
