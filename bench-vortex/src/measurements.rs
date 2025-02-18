@@ -15,7 +15,7 @@ pub trait ToGeneric {
 #[derive(Serialize)]
 pub struct JsonValue {
     pub name: String,
-    pub storage: Option<String>,
+    pub storage: String,
     pub unit: String,
     pub value: u128,
     pub commit_id: String,
@@ -25,6 +25,7 @@ pub struct JsonValue {
 pub struct GenericMeasurement {
     pub id: usize,
     pub name: String,
+    pub storage: String,
     pub format: Format,
     pub time: Duration,
 }
@@ -39,7 +40,7 @@ impl ToJson for GenericMeasurement {
     fn to_json(&self) -> JsonValue {
         JsonValue {
             name: self.name.clone(),
-            storage: None,
+            storage: self.storage.clone(),
             unit: "ns".to_string(),
             value: self.time.as_nanos(),
             commit_id: crate::GIT_COMMIT_ID.to_string(),
@@ -68,7 +69,7 @@ impl ToJson for QueryMeasurement {
 
         JsonValue {
             name,
-            storage: Some(self.storage.to_string()),
+            storage: self.storage.clone(),
             unit: "ns".to_string(),
             value: self.time.as_nanos(),
             commit_id: crate::GIT_COMMIT_ID.to_string(),
@@ -87,6 +88,7 @@ impl ToGeneric for QueryMeasurement {
                 query_idx = self.query_idx,
                 storage = self.storage,
             ),
+            storage: self.storage.clone(),
             format: self.format,
             time: self.time,
         }

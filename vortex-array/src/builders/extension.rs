@@ -82,8 +82,8 @@ impl ArrayBuilder for ExtensionBuilder {
         array.storage().canonicalize_into(self.storage.as_mut())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        let storage = self.storage.finish()?;
-        Ok(ExtensionArray::new(self.ext_dtype(), storage).into_array())
+    fn finish(&mut self) -> Array {
+        let storage = self.storage.finish();
+        ExtensionArray::new(self.ext_dtype(), storage).into_array()
     }
 }

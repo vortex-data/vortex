@@ -135,23 +135,35 @@ impl ArrayBuilder for StructBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> Array {
         let len = self.len();
-        let fields: Vec<Array> = self
+        let fields = self
             .builders
             .iter_mut()
             .map(|builder| builder.finish())
-            .try_collect()?;
+            .collect::<Vec<_>>();
+
+        if fields.len() > 1 {
+            let expected_length = fields[0].len();
+            for (index, field) in fields[1..].iter().enumerate() {
+                assert_eq!(
+                    field.len(),
+                    expected_length,
+                    "Field {} does not have expected length {}",
+                    index,
+                    expected_length
+                );
+            }
+        }
 
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::Array(self.validity.finish()?),
+            Nullability::Nullable => Validity::Array(self.validity.finish()),
         };
 
-        Ok(
-            StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)?
-                .into_array(),
-        )
+        StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)
+            .vortex_expect("Fields must all have same length.")
+            .into_array()
     }
 }
 
@@ -179,7 +191,7 @@ mod tests {
             .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
-        let struct_ = builder.finish().unwrap();
+        let struct_ = builder.finish();
         assert_eq!(struct_.len(), 1);
         assert_eq!(struct_.dtype(), &dtype);
     }
