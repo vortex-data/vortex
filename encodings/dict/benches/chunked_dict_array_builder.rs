@@ -12,25 +12,15 @@ fn main() {
 }
 
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
-    (8000, 10, 20),
-    (8000, 100, 20),
-    (8000, 1000, 20),
-    (8000, 10, 200),
-    (8000, 100, 200),
-    (8000, 1000, 200),
-    (8000, 10, 1000),
-    (8000, 100, 1000),
-    (8000, 1000, 1000),
-    // Too slow for CI
-    // (32_000, 10, 100),
-    // (32_000, 100, 100),
-    // (32_000, 1000, 100),
-    // (32_000, 10, 1000),
-    // (32_000, 100, 1000),
-    // (32_000, 1000, 1000),
+    (1000, 10, 10),
+    (1000, 100, 10),
+    (1000, 1000, 10),
+    (1000, 10, 100),
+    (1000, 100, 100),
+    (1000, 1000, 100),
 ];
 
-#[divan::bench(types = [u32, u64, f32, f64], args=BENCH_ARGS)]
+#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_canonical_into<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -44,11 +34,11 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
         .bench_local_values(|chunk| {
             let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
             chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
 }
 
-#[divan::bench(types = [u32, u64, f32, f64], args=BENCH_ARGS)]
+#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -73,7 +63,7 @@ fn make_dict_fsst_chunks<T: NativePType>(
         .into_array()
 }
 
-#[divan::bench(args=BENCH_ARGS)]
+#[divan::bench(args = BENCH_ARGS)]
 fn chunked_dict_fsst_canonical_into(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -85,11 +75,11 @@ fn chunked_dict_fsst_canonical_into(
         .bench_local_values(|chunk| {
             let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
             chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
-            builder.finish().vortex_unwrap()
+            builder.finish()
         })
 }
 
-#[divan::bench(args=BENCH_ARGS)]
+#[divan::bench(args = BENCH_ARGS)]
 fn chunked_dict_fsst_into_canonical(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),

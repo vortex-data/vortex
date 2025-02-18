@@ -28,7 +28,7 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
             idx += chunk.len();
         }
 
-        bool_builder.finish().map(Some)
+        Ok(Some(bool_builder.finish()))
     }
 }
 

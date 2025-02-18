@@ -222,7 +222,7 @@ pub fn unpack_primitive<T: NativePType, UnsignedT: NativePType + BitPacking>(
         |x| unsafe { std::mem::transmute(x) },
     )?;
     assert!(builder.len() == n, "{} {}", builder.len(), n);
-    builder.finish_into_primitive()
+    Ok(builder.finish_into_primitive())
 }
 
 pub(crate) fn unpack_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(
@@ -730,7 +730,7 @@ mod test {
             .clone()
             .canonicalize_into(&mut primitive_builder)
             .unwrap();
-        let ca_into = primitive_builder.finish().unwrap();
+        let ca_into = primitive_builder.finish();
 
         assert_eq!(
             into_ca.as_slice::<i32>(),
@@ -740,7 +740,7 @@ mod test {
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
         primitive_builder.extend_from_array(chunked).unwrap();
-        let ca_into = primitive_builder.finish().unwrap();
+        let ca_into = primitive_builder.finish();
 
         assert_eq!(
             into_ca.as_slice::<i32>(),
