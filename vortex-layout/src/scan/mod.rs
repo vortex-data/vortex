@@ -249,13 +249,11 @@ impl<D: ScanDriver> Scan<D> {
     /// frequent polling to make progress.
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         // Create a single LayoutReader that is reused for the entire scan.
-        let scan_executor = Arc::new(ScanExecutor {
-            segment_reader: self.driver.segment_reader(),
-        });
+        let segment_reader = self.driver.segment_reader();
         let task_executor = self.task_executor.clone();
         let reader: Arc<dyn LayoutReader> = self
             .layout
-            .reader(scan_executor.clone(), self.ctx.clone())?;
+            .reader(segment_reader.clone(), self.ctx.clone())?;
 
         let pruning = self
             .filter
@@ -286,7 +284,6 @@ impl<D: ScanDriver> Scan<D> {
                 let projection = projection.clone();
                 let pruning = pruning.clone();
                 let reader = reader.clone();
-                let scan_executor = scan_executor.clone();
 
                 // This future is a processing task
                 async move {
@@ -306,7 +303,8 @@ impl<D: ScanDriver> Scan<D> {
                     } else {
                         let mut array = reader.evaluate_expr(row_mask, projection).await?;
                         if self.canonicalize {
-                            array = scan_executor.evaluate(&array, &[ScanTask::Canonicalize])?;
+                            let task = ScanTask::Canonicalize;
+                            array = task.execute(&array)?;
                         }
 
                         VortexResult::Ok(Some(array))

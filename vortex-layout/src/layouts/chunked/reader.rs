@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::scan::ScanExecutor;
+use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
 
 type PruningCache = Arc<OnceCell<Option<Mask>>>;
@@ -23,7 +23,7 @@ type PruningCache = Arc<OnceCell<Option<Mask>>>;
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<ScanExecutor>,
+    segment_reader: Arc<dyn AsyncSegmentReader>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
@@ -39,7 +39,7 @@ impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<ScanExecutor>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -71,7 +71,7 @@ impl ChunkedReader {
         Ok(Self {
             layout,
             ctx,
-            executor,
+            segment_reader,
             pruning_result: Arc::new(RwLock::new(HashMap::new())),
             stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
@@ -101,7 +101,7 @@ impl ChunkedReader {
                         let stats_layout = self.layout.child(nchunks, stats_dtype.clone(), "stats")?;
 
                         let stats_array = stats_layout
-                            .reader(self.executor.clone(), self.ctx.clone())?
+                            .reader(self.segment_reader.clone(), self.ctx.clone())?
                             .evaluate_expr(
                                 RowMask::new_valid_between(0, nchunks as u64),
                                 Identity::new_expr(),
@@ -161,7 +161,7 @@ impl ChunkedReader {
             let child_layout =
                 self.layout
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
-            child_layout.reader(self.executor.clone(), self.ctx.clone())
+            child_layout.reader(self.segment_reader.clone(), self.ctx.clone())
         })
     }
 

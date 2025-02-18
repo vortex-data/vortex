@@ -9,14 +9,14 @@ use vortex_expr::transform::partition::{partition, PartitionedExpr};
 use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
-use crate::scan::ScanExecutor;
+use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutReader, LayoutReaderExt, LayoutVTable};
 
 #[derive(Clone)]
 pub struct StructReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<ScanExecutor>,
+    segment_reader: Arc<dyn AsyncSegmentReader>,
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: Option<HashMap<FieldName, usize>>,
@@ -27,7 +27,7 @@ impl StructReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<ScanExecutor>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -55,15 +55,11 @@ impl StructReader {
         Ok(Self {
             layout,
             ctx,
-            executor,
+            segment_reader,
             field_readers,
             field_lookup,
             partitioned_expr_cache: Arc::new(Default::default()),
         })
-    }
-
-    pub(crate) fn executor(&self) -> &ScanExecutor {
-        self.executor.as_ref()
     }
 
     /// Return the [`StructDType`] of this layout.
@@ -87,7 +83,7 @@ impl StructReader {
             let child_layout =
                 self.layout
                     .child(idx, self.struct_dtype().field_by_index(idx)?, name)?;
-            child_layout.reader(self.executor.clone(), self.ctx.clone())
+            child_layout.reader(self.segment_reader.clone(), self.ctx.clone())
         })
     }
 

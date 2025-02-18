@@ -35,7 +35,11 @@ impl ExprEvaluator for FlatReader {
             tasks.push(ScanTask::Expr(expr));
         }
 
-        self.executor().evaluate(&array, &tasks)
+        let mut array = array;
+        for task in tasks {
+            array = task.execute(&array)?;
+        }
+        Ok(array)
     }
 
     async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
@@ -57,7 +61,6 @@ mod test {
     use vortex_expr::{gt, ident, lit, Identity};
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::RowMask;
@@ -72,7 +75,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .reader(ScanExecutor::new(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(
                     RowMask::new_valid_between(0, layout.row_count()),
@@ -98,7 +101,7 @@ mod test {
 
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
-                .reader(ScanExecutor::new(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
@@ -123,7 +126,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .reader(ScanExecutor::new(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
                 .await
