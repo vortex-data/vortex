@@ -16,5 +16,9 @@ categories = { workspace = true }
 [dependencies]
 witchcraft-metrics = "1.0.1"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Enable the JS feature of getrandom (via rand) to supprt wasm32 target
+getrandom = { workspace = true, features = ["js"] }
+
 [lints]
 workspace = true
