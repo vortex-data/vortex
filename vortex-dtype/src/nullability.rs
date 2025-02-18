@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ops::BitOr;
 
 /// Whether an instance of a DType can be `null or not
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -34,6 +35,17 @@ impl Display for Nullability {
         match self {
             Self::NonNullable => write!(f, ""),
             Self::Nullable => write!(f, "?"),
+        }
+    }
+}
+
+impl BitOr for Nullability {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::Nullable, _) | (_, Self::Nullable) => Self::Nullable,
+            _ => Self::NonNullable,
         }
     }
 }

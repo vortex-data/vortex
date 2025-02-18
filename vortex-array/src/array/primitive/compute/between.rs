@@ -3,7 +3,7 @@ use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::array::{BoolArray, PrimitiveArray, PrimitiveEncoding};
-use crate::compute::BetweenFn;
+use crate::compute::{BetweenFn, Operator};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray};
 
@@ -12,51 +12,41 @@ impl BetweenFn<PrimitiveArray> for PrimitiveEncoding {
         &self,
         arr: &PrimitiveArray,
         lower: &Array,
+        lower_op: Operator,
         upper: &Array,
+        upper_op: Operator,
     ) -> VortexResult<Option<Array>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
         };
 
-        // if ptype.is_int() {
         match_each_native_ptype!(arr.ptype(), |$P| {
-            between_impl::<$P>(arr, $P::try_from(lower)?, $P::try_from(upper)?)
+            between_impl::<$P>(arr, $P::try_from(lower)?, lower_op, $P::try_from(upper)?, upper_op)
         })
         .map(Some)
-        // } else if ptype.is_float() {
-        //     match_each_float_ptype!(arr.ptype(), |$P| {
-        //         between_float_impl::<$P>(arr, $P::try_from(lower)?, $P::try_from(upper)?)
-        //     })
-        //     .map(Some)
-        // } else {
-        //     vortex_panic!("not impl")
-        // }
     }
 }
-
-// fn between_impl<T: NativePType>(arr: &PrimitiveArray, lower: T, upper: T) -> VortexResult<Array> {
-//     let slice = arr.as_slice::<T>();
-//
-//     Ok(BoolArray::from(collect_bool(arr.len(), |idx| {
-//         let i = unsafe { slice.get_unchecked(idx) };
-//         i >= &lower && i <= &upper
-//     }))
-//     .into_array())
-// }
 
 fn between_impl<T: NativePType + Copy>(
     arr: &PrimitiveArray,
     lower: T,
+    lower_op: Operator,
     upper: T,
+    upper_op: Operator,
 ) -> VortexResult<Array> {
-    let slice = arr.as_slice::<T>();
-    let min1 = T::from_usize(2).unwrap();
-    let max2 = T::from_usize(400).unwrap();
+    // match (lower_op, upper_op) {
+    //     (Operator::Lte, Operator)
+    // }
 
-    let bool_buf = BooleanBuffer::collect_bool(arr.len(), |idx| {
-        let i = *unsafe { slice.get_unchecked(idx) };
-        // ((i > min1) & (i < max2)) as bool | ((i >= lower) & (i <= upper)) as bool
-        ((i > min1) && (i < max2)) | ((i >= lower) && (i <= upper))
-    });
-    Ok(BoolArray::from(bool_buf).into_array())
+    let lower_fn = lower_op.to_fn();
+    let upper_fn = upper_op.to_fn();
+
+    let slice = arr.as_slice::<T>();
+    Ok(
+        BoolArray::from(BooleanBuffer::collect_bool(arr.len(), |idx| {
+            let i = *unsafe { slice.get_unchecked(idx) };
+            lower_fn(lower, i) & upper_fn(i, upper)
+        }))
+        .into_array(),
+    )
 }

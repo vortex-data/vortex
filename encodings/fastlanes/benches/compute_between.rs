@@ -51,57 +51,10 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
         .into_array()
 }
 
-const BENCH_ARGS: &[usize] = &[
-    1_000,
-    10_000,
-    100_000,
-    600_000,
-    1_000_000,
-    10_000_000,
-    100_000_000,
-    // 1_000_000_000,
-];
+const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
 
 #[divan::bench(
-    types = [f64],
-    args = BENCH_ARGS,
-)]
-fn old_two_raw_prim_test_between<T: NativePType>(bencher: Bencher, len: usize)
-where
-    T: NumCast,
-    vortex_scalar::Scalar: From<T>,
-{
-    let min2 = T::from_usize(2).unwrap();
-    let max2 = T::from_usize(400).unwrap();
-    let min = T::from_usize(5561).unwrap();
-    let max = T::from_usize(6032).unwrap();
-    let mut rng = StdRng::seed_from_u64(0);
-    let arr = generate_primitive_array::<T>(&mut rng, len);
-
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            binary_boolean(
-                &binary_boolean(
-                    &compare(&arr, ConstantArray::new(min2, arr.len()), Operator::Gt).unwrap(),
-                    &compare(&arr, ConstantArray::new(max2, arr.len()), Operator::Lt).unwrap(),
-                    BinaryOperator::And,
-                )
-                .unwrap(),
-                &binary_boolean(
-                    &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).unwrap(),
-                    &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).unwrap(),
-                    BinaryOperator::And,
-                )
-                .unwrap(),
-                BinaryOperator::And,
-            )
-            .unwrap()
-        })
-}
-
-#[divan::bench(
-    types = [f64],
+    types = [i32, i64, u32, u64, f32, f64],
     args = BENCH_ARGS,
 )]
 fn old_raw_prim_test_between<T: NativePType>(bencher: Bencher, len: usize)
@@ -127,7 +80,7 @@ where
 }
 
 #[divan::bench(
-    types = [f64],
+    types = [i32, i64, u32, u64, f32, f64],
     args = BENCH_ARGS,
 )]
 fn new_raw_prim_test_between<T: NativePType>(bencher: Bencher, len: usize)
@@ -240,8 +193,6 @@ where
     let max = T::from_usize(6032).unwrap();
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
-
-    // println!("{}", arr.tree_display());
 
     bencher
         .with_inputs(|| arr.clone())
