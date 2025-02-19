@@ -3,7 +3,7 @@ use num_traits::NumCast;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_alp::{alp_encode, ALPArray};
-use vortex_array::array::{ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::compute::StrictComparison::NonStrict;
 use vortex_array::compute::{
     between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,

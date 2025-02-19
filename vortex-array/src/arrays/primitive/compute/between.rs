@@ -2,7 +2,7 @@ use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
-use crate::array::{BoolArray, PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{BetweenFn, BetweenOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray};

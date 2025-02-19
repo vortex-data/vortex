@@ -1,7 +1,7 @@
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 
-use crate::array::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::compute::{binary_boolean, compare, BinaryOperator, Operator};
 use crate::{Array, Canonical, Encoding, IntoArray};
 

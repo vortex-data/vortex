@@ -1,6 +1,6 @@
 mod compare;
 
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     between, filter, scalar_at, slice, take, BetweenFn, BetweenOptions, CompareFn, FilterFn,
     ScalarAtFn, SliceFn, TakeFn,
