@@ -296,6 +296,10 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
+        if !file_scan_config.output_ordering.is_empty() {
+            return not_impl_err!("Vortex doesn't respect output ordering");
+        }
+
         let exec = VortexExec::try_new(
             file_scan_config,
             metrics,
