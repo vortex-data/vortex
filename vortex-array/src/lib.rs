@@ -12,6 +12,7 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
+pub mod array;
 pub use canonical::*;
 pub use children::*;
 pub use context::*;
@@ -23,7 +24,6 @@ pub use paste;
 
 pub mod accessor;
 pub mod aliases;
-pub mod array;
 pub mod arrays;
 pub mod arrow;
 pub mod builders;

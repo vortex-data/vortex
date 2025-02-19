@@ -13,6 +13,7 @@ use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
+use crate::array::ArrayRef;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{
     filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, take,
@@ -79,12 +80,12 @@ impl PatchesMetadata {
 pub struct Patches {
     array_len: usize,
     offset: usize,
-    indices: Array,
-    values: Array,
+    indices: ArrayRef,
+    values: ArrayRef,
 }
 
 impl Patches {
-    pub fn new(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
+    pub fn new(array_len: usize, offset: usize, indices: ArrayRef, values: ArrayRef) -> Self {
         assert_eq!(
             indices.len(),
             values.len(),

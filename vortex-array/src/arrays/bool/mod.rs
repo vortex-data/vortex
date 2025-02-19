@@ -21,6 +21,7 @@ pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 pub use data::*;
+pub use encoding::*;
 
 use crate::builders::ArrayBuilder;
 use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
