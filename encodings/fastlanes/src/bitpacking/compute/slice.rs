@@ -13,7 +13,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
         let offset_stop = stop + array.offset() as usize;
         let offset = offset_start % 1024;
         let block_start = max(0, offset_start - offset);
-        let block_stop = ((offset_stop + 1023) / 1024) * 1024;
+        let block_stop = offset_stop.div_ceil(1024) * 1024;
 
         let encoded_start = (block_start / 8) * array.bit_width() as usize;
         let encoded_stop = (block_stop / 8) * array.bit_width() as usize;

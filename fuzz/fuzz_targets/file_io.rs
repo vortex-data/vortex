@@ -85,9 +85,8 @@ fn compare_struct(expected: Array, actual: Array) {
         actual.len()
     );
 
-    if expected.dtype().as_struct().unwrap().names().len() == 0
-        && expected.dtype().as_struct().unwrap().names().len()
-            == actual.dtype().as_struct().unwrap().names().len()
+    if expected.dtype().as_struct().unwrap().names().is_empty()
+        && actual.dtype().as_struct().unwrap().names().is_empty()
     {
         return;
     }

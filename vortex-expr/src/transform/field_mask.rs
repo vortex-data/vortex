@@ -73,9 +73,7 @@ mod test {
         DType::Struct(
             Arc::new(StructDType::new(
                 ["A".into(), "B".into(), "C".into()].into(),
-                iter::repeat(DType::Primitive(PType::I32, NonNullable))
-                    .take(3)
-                    .collect(),
+                iter::repeat_n(DType::Primitive(PType::I32, NonNullable), 3).collect(),
             )),
             NonNullable,
         )

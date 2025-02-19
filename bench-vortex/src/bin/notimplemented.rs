@@ -1,5 +1,3 @@
-#![feature(float_next_up_down)]
-
 use std::process::ExitCode;
 use std::sync::Arc;
 

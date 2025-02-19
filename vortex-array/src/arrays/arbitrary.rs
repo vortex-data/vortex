@@ -26,9 +26,8 @@ impl<'a> Arbitrary<'a> for Array {
 fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
     let reminder = n % parts;
     let division = (n - reminder) / parts;
-    iter::repeat(division)
-        .take(parts - reminder)
-        .chain(iter::repeat(division + 1).take(reminder))
+    iter::repeat_n(division, parts - reminder)
+        .chain(iter::repeat_n(division + 1, reminder))
         .collect()
 }
 
