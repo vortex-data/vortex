@@ -464,9 +464,15 @@ impl Scheme for SparseScheme {
         assert!(allowed_cascading > 0);
         let mask = stats.src.validity().to_logical(stats.src.len())?;
 
-        // Dominant value is null
-        if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
-            // Find the non-null values, and filter to those.
+        if mask.all_false() {
+            // Array is constant NULL
+            return Ok(ConstantArray::new(
+                Scalar::null(stats.source().dtype().clone()),
+                stats.src.len(),
+            )
+            .into_array());
+        } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
+            // Array is dominated by NULL but has non-NULL values
             let non_null = mask.not();
             let non_null_values = filter(stats.source().as_ref(), &non_null)?;
             let non_null_indices = match non_null.indices() {
@@ -474,11 +480,14 @@ impl Scheme for SparseScheme {
                     // We already know that the mask is 90%+ false
                     unreachable!()
                 }
-                AllOr::None => Buffer::<u32>::empty().into_array(),
+                AllOr::None => {
+                    // we know there are some non-NULL values
+                    unreachable!()
+                }
                 AllOr::Some(values) => {
                     let buffer: Buffer<u32> = values
                         .iter()
-                        .map(|&v| v.try_into().vortex_expect("u32"))
+                        .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
                         .collect();
 
                     buffer.into_array()
@@ -495,7 +504,6 @@ impl Scheme for SparseScheme {
         }
 
         // Dominant value is non-null
-
         let (top_pvalue, top_count) = stats.typed.top_value_and_count();
 
         if top_count == (stats.value_count + stats.null_count) {
