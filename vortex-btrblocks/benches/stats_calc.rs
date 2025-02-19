@@ -2,44 +2,37 @@
 #![allow(unexpected_cfgs)]
 
 #[cfg(not(codspeed))]
-use vortex_buffer::{Buffer, BufferMut};
-
-#[cfg(not(codspeed))]
-fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
-    let mut output = BufferMut::with_capacity(64_000);
-    let mut run = 0;
-    let mut value = 0;
-    for _ in 0..64_000 {
-        if run == 0 {
-            value = rand::random::<u32>() % distinct;
-            run = std::cmp::max(rand::random::<u32>() % max_run, 1);
-        }
-        output.push(value);
-        run -= 1;
-    }
-
-    output.freeze()
-}
-
-#[cfg(not(codspeed))]
-#[derive(Debug, Copy, Clone)]
-enum Distribution {
-    LowCardinality,
-    ShortRuns,
-    LongRuns,
-}
-
-#[cfg(not(codspeed))]
 #[divan::bench_group(items_count = 64_000u32, bytes_count = 256_000u32)]
-mod stats {
+mod benchmarks {
     use divan::Bencher;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::integer::IntegerStats;
     use vortex_btrblocks::{CompressorStats, GenerateStatsOptions};
-    use vortex_buffer::Buffer;
+    use vortex_buffer::{Buffer, BufferMut};
 
-    use crate::{generate_dataset, Distribution};
+    fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
+        let mut output = BufferMut::with_capacity(64_000);
+        let mut run = 0;
+        let mut value = 0;
+        for _ in 0..64_000 {
+            if run == 0 {
+                value = rand::random::<u32>() % distinct;
+                run = std::cmp::max(rand::random::<u32>() % max_run, 1);
+            }
+            output.push(value);
+            run -= 1;
+        }
+
+        output.freeze()
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    enum Distribution {
+        LowCardinality,
+        ShortRuns,
+        LongRuns,
+    }
 
     fn generate_low_cardinality() -> PrimitiveArray {
         let values: Buffer<u32> = (0..1024).cycle().take(64_000).collect();
