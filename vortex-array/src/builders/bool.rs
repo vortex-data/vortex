@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::arrays::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayRef, Canonical, IntoArray, IntoCanonical};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
@@ -73,7 +73,7 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_n_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         let array = array.into_canonical()?;
         let Canonical::Bool(array) = array else {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
@@ -85,7 +85,7 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         assert_eq!(
             self.nulls.len(),
             self.inner.len(),
@@ -108,9 +108,9 @@ mod tests {
 
     use crate::arrays::{BoolArray, ChunkedArray};
     use crate::builders::builder_with_capacity;
-    use crate::{Array, IntoArray, IntoCanonical};
+    use crate::{ArrayRef, IntoArray, IntoCanonical};
 
-    fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
+    fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
 
         (0..chunk_count)

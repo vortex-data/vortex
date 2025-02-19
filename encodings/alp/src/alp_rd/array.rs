@@ -10,7 +10,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, Array, Canonical, IntoArrayVariant, SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArrayVariant, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -37,9 +37,9 @@ pub struct ALPRDMetadata {
 impl ALPRDArray {
     pub fn try_new(
         dtype: DType,
-        left_parts: Array,
+        left_parts: ArrayRef,
         left_parts_dict: impl AsRef<[u16]>,
-        right_parts: Array,
+        right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<Self> {
@@ -150,14 +150,14 @@ impl ALPRDArray {
     ///
     /// These are bit-packed and dictionary encoded, and cannot directly be interpreted without
     /// the metadata of this array.
-    pub fn left_parts(&self) -> Array {
+    pub fn left_parts(&self) -> ArrayRef {
         self.as_ref()
             .child(0, &self.left_parts_dtype(), self.len())
             .vortex_expect("ALPRDArray: left_parts child")
     }
 
     /// The rightmost (least significant) bits of the floating point values stored in the array.
-    pub fn right_parts(&self) -> Array {
+    pub fn right_parts(&self) -> ArrayRef {
         self.as_ref()
             .child(1, &self.right_parts_dtype(), self.len())
             .vortex_expect("ALPRDArray: right_parts child")

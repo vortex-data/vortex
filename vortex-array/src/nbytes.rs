@@ -2,9 +2,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::visitor::ArrayVisitor;
-use crate::Array;
+use crate::ArrayRef;
 
-impl Array {
+impl ArrayRef {
     /// Total size of the array in bytes, including all children and buffers.
     pub fn nbytes(&self) -> usize {
         let mut visitor = NBytesVisitor::default();
@@ -19,7 +19,7 @@ impl Array {
 struct NBytesVisitor(usize);
 
 impl ArrayVisitor for NBytesVisitor {
-    fn visit_child(&mut self, _name: &str, array: &Array) -> VortexResult<()> {
+    fn visit_child(&mut self, _name: &str, array: &ArrayRef) -> VortexResult<()> {
         self.0 += array.nbytes();
         Ok(())
     }

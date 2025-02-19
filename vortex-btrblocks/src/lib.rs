@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, Canonical, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, Canonical, IntoArray, IntoCanonical};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -38,7 +38,7 @@ impl Default for GenerateStatsOptions {
 
 /// Stats for the compressor.
 pub trait CompressorStats: Clone {
-    type ArrayType: Deref<Target = Array>;
+    type ArrayType: Deref<Target =ArrayRef>;
 
     // Generate with options.
     fn generate(input: &Self::ArrayType) -> Self {
@@ -101,7 +101,7 @@ pub trait Scheme: Debug {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[Self::CodeType],
-    ) -> VortexResult<Array>;
+    ) -> VortexResult<ArrayRef>;
 }
 
 pub struct SchemeTree {
@@ -145,7 +145,7 @@ const MAX_CASCADE: usize = 3;
 ///
 /// Compressors expose a `compress` function.
 pub trait Compressor {
-    type ArrayType: Deref<Target = Array>;
+    type ArrayType: Deref<Target =ArrayRef>;
     type SchemeType: Scheme<StatsType = Self::StatsType> + ?Sized;
 
     // Stats type instead?
@@ -160,7 +160,7 @@ pub trait Compressor {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
-    ) -> VortexResult<Array>
+    ) -> VortexResult<ArrayRef>
     where
         Self::SchemeType: 'static,
     {
@@ -234,7 +234,7 @@ pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {
     #[allow(clippy::only_used_in_recursion)]
-    pub fn compress(&self, array: Array) -> VortexResult<Array> {
+    pub fn compress(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
         // println!("compressing array of len {}", array.len());
         match array.into_canonical()? {
             Canonical::Null(null_array) => Ok(null_array.into_array()),

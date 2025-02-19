@@ -5,7 +5,7 @@ use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::patches::Patches;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -72,6 +72,6 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
     Patches::new(len, 0, indices.into_array(), values)
 }
 
-fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> Array {
+fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {
     Buffer::from_iter((0..n_indices).map(|_| rng.gen_range(0..(array_len as u64)))).into_array()
 }

@@ -1,11 +1,11 @@
-use arrow_array::{Array as ArrowArray, ArrayRef};
+use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::arrow::infer_data_type;
 use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
-use crate::{Array, IntoCanonical};
+use crate::{ArrayRef, IntoCanonical};
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<A> {
@@ -19,27 +19,27 @@ pub trait ToArrowFn<A> {
     ///
     /// Implementation can return None if the conversion cannot be specialized by this encoding.
     /// In this case, the default conversion via `into_canonical` will be used.
-    fn to_arrow(&self, array: &A, data_type: &DataType) -> VortexResult<Option<ArrayRef>>;
+    fn to_arrow(&self, array: &A, data_type: &DataType) -> VortexResult<Option<ArrowArrayRef>>;
 }
 
-impl<E: Encoding> ToArrowFn<Array> for E
+impl<E: Encoding> ToArrowFn<ArrayRef> for E
 where
     E: ToArrowFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn preferred_arrow_data_type(&self, array: &Array) -> VortexResult<Option<DataType>> {
+    fn preferred_arrow_data_type(&self, array: &ArrayRef) -> VortexResult<Option<DataType>> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         ToArrowFn::preferred_arrow_data_type(encoding, array_ref)
     }
 
-    fn to_arrow(&self, array: &Array, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
+    fn to_arrow(&self, array: &ArrayRef, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         ToArrowFn::to_arrow(encoding, array_ref, data_type)
     }
 }
 
 /// Return the preferred Arrow [`DataType`] of the array.
-pub fn preferred_arrow_data_type<A: AsRef<Array>>(array: A) -> VortexResult<DataType> {
+pub fn preferred_arrow_data_type<A: AsRef<ArrayRef>>(array: A) -> VortexResult<DataType> {
     let array = array.as_ref();
 
     if let Some(result) = array
@@ -56,7 +56,7 @@ pub fn preferred_arrow_data_type<A: AsRef<Array>>(array: A) -> VortexResult<Data
 }
 
 /// Convert the array to an Arrow array of the given type.
-pub fn to_arrow<A: AsRef<Array>>(array: A, data_type: &DataType) -> VortexResult<ArrayRef> {
+pub fn to_arrow<A: AsRef<ArrayRef>>(array: A, data_type: &DataType) -> VortexResult<ArrayRef> {
     let array = array.as_ref();
 
     if let Some(result) = array

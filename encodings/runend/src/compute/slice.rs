@@ -1,11 +1,11 @@
 use vortex_array::compute::{slice, SliceFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::{RunEndArray, RunEndEncoding};
 
 impl SliceFn<RunEndArray> for RunEndEncoding {
-    fn slice(&self, array: &RunEndArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let new_length = stop - start;
 
         let (slice_begin, slice_end) = if new_length == 0 {

@@ -6,7 +6,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{Array, ContextRef};
+use vortex_array::{ArrayRef, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -47,7 +47,7 @@ impl<R: AsyncRead> ArrayStream for AsyncIPCReader<R> {
 }
 
 impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
-    type Item = VortexResult<Array>;
+    type Item = VortexResult<ArrayRef>;
 
     fn poll_next(
         self: Pin<&mut Self>,

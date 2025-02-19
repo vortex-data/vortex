@@ -39,7 +39,7 @@ impl EncodingCompressor for FSSTCompressor {
         constants::FSST_COST
     }
 
-    fn can_compress(&self, array: &vortex_array::Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &vortex_array::ArrayRef) -> Option<&dyn EncodingCompressor> {
         // FSST arrays must have DType::Utf8.
         //
         // Note that while it can accept binary data, it is unlikely to perform well.
@@ -57,7 +57,7 @@ impl EncodingCompressor for FSSTCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &vortex_array::Array,
+        array: &vortex_array::ArrayRef,
         // TODO(aduffy): reuse compressor from sample run if we have saved it off.
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,

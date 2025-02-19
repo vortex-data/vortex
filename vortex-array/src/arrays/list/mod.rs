@@ -1,4 +1,4 @@
-mod compute;
+// mod compute;
 
 use std::fmt::Display;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ use crate::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use crate::{impl_encoding, Array, Canonical, RkyvMetadata};
+use crate::{impl_encoding, ArrayRef, Canonical, RkyvMetadata};
 
 impl_encoding!(
     "vortex.list",
@@ -64,7 +64,7 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
-    pub fn try_new(elements: Array, offsets: Array, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> VortexResult<Self> {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();
@@ -139,14 +139,14 @@ impl ListArray {
     }
 
     // TODO: fetches the elements at index
-    pub fn elements_at(&self, index: usize) -> VortexResult<Array> {
+    pub fn elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         slice(self.elements(), start, end)
     }
 
     // TODO: fetches the offsets of the array ignoring validity
-    pub fn offsets(&self) -> Array {
+    pub fn offsets(&self) -> ArrayRef {
         // TODO: find cheap transform
         self.as_ref()
             .child(1, &self.metadata().offset_ptype.into(), self.len() + 1)
@@ -154,7 +154,7 @@ impl ListArray {
     }
 
     // TODO: fetches the elements of the array ignoring validity
-    pub fn elements(&self) -> Array {
+    pub fn elements(&self) -> ArrayRef {
         let dtype = self
             .dtype()
             .as_list_element()
@@ -217,7 +217,7 @@ impl ListArray {
     pub fn from_iter_slow<O: OffsetPType, I: IntoIterator>(
         iter: I,
         dtype: Arc<DType>,
-    ) -> VortexResult<Array>
+    ) -> VortexResult<ArrayRef>
     where
         I::Item: IntoIterator,
         <I::Item as IntoIterator>::Item: Into<Scalar>,
@@ -240,7 +240,7 @@ impl ListArray {
     pub fn from_iter_opt_slow<O: OffsetPType, I: IntoIterator<Item = Option<T>>, T>(
         iter: I,
         dtype: Arc<DType>,
-    ) -> VortexResult<Array>
+    ) -> VortexResult<ArrayRef>
     where
         T: IntoIterator,
         T::Item: Into<Scalar>,

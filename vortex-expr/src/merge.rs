@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
@@ -50,7 +50,7 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
@@ -143,13 +143,13 @@ impl VortexExpr for Merge {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::{Array, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
 
-    fn primitive_field(array: &Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {

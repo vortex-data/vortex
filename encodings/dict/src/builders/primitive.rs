@@ -7,7 +7,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -52,7 +52,7 @@ impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    fn encode(&mut self, array: &Array) -> VortexResult<Array> {
+    fn encode(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
@@ -93,7 +93,7 @@ where
         Ok(codes.into_array())
     }
 
-    fn values(&mut self) -> VortexResult<Array> {
+    fn values(&mut self) -> VortexResult<ArrayRef> {
         Ok(PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array())
     }
 }

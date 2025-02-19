@@ -19,7 +19,7 @@ use crate::compute::{
     try_cast, SearchResult, SearchSortedSide,
 };
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayRef, IntoArray, IntoArrayVariant};
 
 #[derive(
     Copy,
@@ -79,12 +79,12 @@ impl PatchesMetadata {
 pub struct Patches {
     array_len: usize,
     offset: usize,
-    indices: Array,
-    values: Array,
+    indices: ArrayRef,
+    values: ArrayRef,
 }
 
 impl Patches {
-    pub fn new(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
+    pub fn new(array_len: usize, offset: usize, indices: ArrayRef, values: ArrayRef) -> Self {
         assert_eq!(
             indices.len(),
             values.len(),
@@ -122,7 +122,7 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
-    pub fn new_unchecked(array_len: usize, offset: usize, indices: Array, values: Array) -> Self {
+    pub fn new_unchecked(array_len: usize, offset: usize, indices: ArrayRef, values: ArrayRef) -> Self {
         Self {
             array_len,
             offset,
@@ -131,7 +131,7 @@ impl Patches {
         }
     }
 
-    pub fn into_parts(self) -> (usize, usize, Array, Array) {
+    pub fn into_parts(self) -> (usize, usize, ArrayRef, ArrayRef) {
         (self.array_len, self.offset, self.indices, self.values)
     }
 
@@ -147,19 +147,19 @@ impl Patches {
         self.values.dtype()
     }
 
-    pub fn indices(&self) -> &Array {
+    pub fn indices(&self) -> &ArrayRef {
         &self.indices
     }
 
-    pub fn into_indices(self) -> Array {
+    pub fn into_indices(self) -> ArrayRef {
         self.indices
     }
 
-    pub fn values(&self) -> &Array {
+    pub fn values(&self) -> &ArrayRef {
         &self.values
     }
 
-    pub fn into_values(self) -> Array {
+    pub fn into_values(self) -> ArrayRef {
         self.values
     }
 
@@ -299,7 +299,7 @@ impl Patches {
     }
 
     /// Take the indices from the patches.
-    pub fn take(&self, take_indices: &Array) -> VortexResult<Option<Self>> {
+    pub fn take(&self, take_indices: &ArrayRef) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
@@ -350,7 +350,7 @@ impl Patches {
 
     pub fn map_values<F>(self, f: F) -> VortexResult<Self>
     where
-        F: FnOnce(Array) -> VortexResult<Array>,
+        F: FnOnce(ArrayRef) -> VortexResult<ArrayRef>,
     {
         let values = f(self.values)?;
         if self.indices.len() != values.len() {
@@ -365,10 +365,10 @@ impl Patches {
 }
 
 fn take_search<T: NativePType + TryFrom<usize>>(
-    indices: &Array,
+    indices: &ArrayRef,
     take_indices: PrimitiveArray,
     indices_offset: usize,
-) -> VortexResult<Option<(Array, Array)>>
+) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
     VortexError: From<<usize as TryFrom<T>>::Error>,
@@ -411,7 +411,7 @@ fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices_offset: usize,
     min_index: usize,
     max_index: usize,
-) -> VortexResult<Option<(Array, Array)>>
+) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
     VortexError: From<<I as TryFrom<usize>>::Error>,
@@ -466,7 +466,7 @@ where
 fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
     patch_indices: &[T],
     offset: usize,
-    patch_values: &Array,
+    patch_values: &ArrayRef,
     mask_indices: &[usize],
 ) -> VortexResult<Option<Patches>> {
     let true_count = mask_indices.len();

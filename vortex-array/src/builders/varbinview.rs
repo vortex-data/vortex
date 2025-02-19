@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayRef, Canonical, IntoArray, IntoCanonical};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
@@ -158,7 +158,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     #[inline]
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         let array = if let Some(array) = VarBinViewArray::maybe_from(&array) {
             array
         } else {
@@ -185,7 +185,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 

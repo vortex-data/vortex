@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::invert;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -39,7 +39,7 @@ impl VortexExpr for Not {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         let child_result = self.child.evaluate(batch)?;
         invert(&child_result)
     }

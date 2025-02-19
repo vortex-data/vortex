@@ -477,7 +477,7 @@ pub mod test_harness {
     use rand::Rng as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
+    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant as _};
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
@@ -488,7 +488,7 @@ pub mod test_harness {
         len: usize,
         fraction_patches: f64,
         fraction_null: f64,
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let values = (0..len)
             .map(|_| {
                 let mut v = rng.gen_range(0..100i32);

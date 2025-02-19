@@ -8,7 +8,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable};
-use vortex_array::{encoding_ids, impl_encoding, Array, IntoArray, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayRef, IntoArray, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
@@ -32,9 +32,9 @@ pub struct DateTimePartsMetadata {
 impl DateTimePartsArray {
     pub fn try_new(
         dtype: DType,
-        days: Array,
-        seconds: Array,
-        subseconds: Array,
+        days: ArrayRef,
+        seconds: ArrayRef,
+        subseconds: ArrayRef,
     ) -> VortexResult<Self> {
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
             vortex_bail!(
@@ -76,7 +76,7 @@ impl DateTimePartsArray {
         )
     }
 
-    pub fn days(&self) -> Array {
+    pub fn days(&self) -> ArrayRef {
         self.as_ref()
             .child(
                 0,
@@ -86,13 +86,13 @@ impl DateTimePartsArray {
             .vortex_expect("DatetimePartsArray missing days array")
     }
 
-    pub fn seconds(&self) -> Array {
+    pub fn seconds(&self) -> ArrayRef {
         self.as_ref()
             .child(1, &self.metadata().seconds_ptype.into(), self.len())
             .vortex_expect("DatetimePartsArray missing seconds array")
     }
 
-    pub fn subseconds(&self) -> Array {
+    pub fn subseconds(&self) -> ArrayRef {
         self.as_ref()
             .child(2, &self.metadata().subseconds_ptype.into(), self.len())
             .vortex_expect("DatetimePartsArray missing subseconds array")
@@ -119,7 +119,7 @@ impl VariantsVTable<DateTimePartsArray> for DateTimePartsEncoding {
 }
 
 impl ExtensionArrayTrait for DateTimePartsArray {
-    fn storage_data(&self) -> Array {
+    fn storage_data(&self) -> ArrayRef {
         // FIXME(ngates): this needs to be a tuple array so we can implement Compare
         // we don't want to write validity twice, so we pull it up to the top
         let days = try_cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();

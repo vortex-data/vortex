@@ -9,7 +9,7 @@ use crate::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTa
 use crate::{impl_encoding, EmptyMetadata};
 
 mod canonical;
-mod compute;
+// mod compute;
 mod variants;
 
 impl_encoding!(

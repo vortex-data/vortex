@@ -6,7 +6,7 @@ use crate::arrays::varbin::VarBinArray;
 use crate::arrays::{VarBinEncoding, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical, IntoArray};
+use crate::{ArrayRef, Canonical, IntoArray};
 
 impl CanonicalVTable<VarBinArray> for VarBinEncoding {
     fn into_canonical(&self, array: VarBinArray) -> VortexResult<Canonical> {
@@ -20,7 +20,7 @@ impl CanonicalVTable<VarBinArray> for VarBinEncoding {
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
-        VarBinViewArray::try_from(Array::from_arrow(array, nullable)).map(Canonical::VarBinView)
+        VarBinViewArray::try_from(ArrayRef::from_arrow(array, nullable)).map(Canonical::VarBinView)
     }
 }
 

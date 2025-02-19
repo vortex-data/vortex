@@ -2,13 +2,13 @@ use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{Stat, Statistics};
 use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
-pub fn downscale_integer_array(array: Array) -> VortexResult<Array> {
+pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
     if !array.is_encoding(PrimitiveEncoding.id()) {
         // This can happen if e.g. the array is ConstantArray.
         return Ok(array);

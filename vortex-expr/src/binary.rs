@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -47,7 +47,7 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 

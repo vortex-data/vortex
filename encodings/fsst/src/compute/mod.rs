@@ -6,7 +6,7 @@ use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -15,29 +15,29 @@ use vortex_scalar::Scalar;
 use crate::{FSSTArray, FSSTEncoding};
 
 impl ComputeVTable for FSSTEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 }
 
 impl SliceFn<FSSTArray> for FSSTEncoding {
-    fn slice(&self, array: &FSSTArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &FSSTArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         // Slicing an FSST array leaves the symbol table unmodified,
         // only slicing the `codes` array.
         Ok(FSSTArray::try_new(
@@ -53,7 +53,7 @@ impl SliceFn<FSSTArray> for FSSTEncoding {
 
 impl TakeFn<FSSTArray> for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, array: &FSSTArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &FSSTArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols(),
@@ -67,7 +67,7 @@ impl TakeFn<FSSTArray> for FSSTEncoding {
     fn take_into(
         &self,
         array: &FSSTArray,
-        indices: &Array,
+        indices: &ArrayRef,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         builder.extend_from_array(take(array, indices)?)
@@ -91,7 +91,7 @@ impl ScalarAtFn<FSSTArray> for FSSTEncoding {
 
 impl FilterFn<FSSTArray> for FSSTEncoding {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols(),

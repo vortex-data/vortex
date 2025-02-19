@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_error::VortexResult;
 
 use crate::compress::runend_decode_bools;
@@ -10,9 +10,9 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
     fn compare(
         &self,
         lhs: &RunEndArray,
-        rhs: &Array,
+        rhs: &ArrayRef,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
             return compare(

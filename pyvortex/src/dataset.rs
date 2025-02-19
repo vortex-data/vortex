@@ -15,7 +15,7 @@ use vortex::expr::{ident, ExprRef, Select};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::{ArrayRef, IntoArray, IntoArrayVariant};
 
 use crate::arrays::PyArray;
 use crate::expr::PyExpr;
@@ -38,8 +38,8 @@ pub async fn read_array_from_reader<F: FileType>(
     vortex_file: &VortexFile<F>,
     projection: ExprRef,
     filter: Option<ExprRef>,
-    indices: Option<Array>,
-) -> VortexResult<Array> {
+    indices: Option<ArrayRef>,
+) -> VortexResult<ArrayRef> {
     let mut scan = vortex_file.scan().with_projection(projection);
 
     if let Some(filter) = filter {
@@ -111,7 +111,7 @@ impl TokioFileDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<Array> {
+    ) -> PyResult<ArrayRef> {
         Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
@@ -201,7 +201,7 @@ impl ObjectStoreUrlDataset {
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<&PyArray>,
-    ) -> PyResult<Array> {
+    ) -> PyResult<ArrayRef> {
         Ok(read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,

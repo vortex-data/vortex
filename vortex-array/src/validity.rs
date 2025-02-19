@@ -13,9 +13,9 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayRef, IntoArray, IntoArrayVariant};
 
-impl Array {
+impl ArrayRef {
     /// Return whether the element at the given index is valid (true) or null (false).
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
         if !self.dtype().is_nullable() {
@@ -85,7 +85,7 @@ impl Display for ValidityMetadata {
 impl ValidityMetadata {
     pub fn to_validity<F>(&self, array_fn: F) -> Validity
     where
-        F: FnOnce() -> Array,
+        F: FnOnce() -> ArrayRef,
     {
         match self {
             Self::NonNullable => Validity::NonNullable,
@@ -106,7 +106,7 @@ pub enum Validity {
     /// All items are null
     AllInvalid,
     /// Specified items are null
-    Array(Array),
+    Array(ArrayRef),
 }
 
 impl Validity {
@@ -155,7 +155,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
-    pub fn into_array(self) -> Option<Array> {
+    pub fn into_array(self) -> Option<ArrayRef> {
         match self {
             Self::Array(a) => Some(a),
             _ => None,
@@ -163,7 +163,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns a reference to the array array, otherwise returns `None`.
-    pub fn as_array(&self) -> Option<&Array> {
+    pub fn as_array(&self) -> Option<&ArrayRef> {
         match self {
             Self::Array(a) => Some(a),
             _ => None,
@@ -227,7 +227,7 @@ impl Validity {
         }
     }
 
-    pub fn take(&self, indices: &Array) -> VortexResult<Self> {
+    pub fn take(&self, indices: &ArrayRef) -> VortexResult<Self> {
         match self {
             Self::NonNullable => match indices.validity_mask()?.boolean_buffer() {
                 AllOr::All => {
@@ -263,7 +263,7 @@ impl Validity {
     /// buffer.
     ///
     /// Failure to do so may result in UB.
-    pub unsafe fn take_unchecked(&self, indices: &Array) -> VortexResult<Self> {
+    pub unsafe fn take_unchecked(&self, indices: &ArrayRef) -> VortexResult<Self> {
         match self {
             v @ Self::NonNullable | v @ Self::AllValid => {
                 match indices.validity_mask()?.boolean_buffer() {
@@ -373,7 +373,7 @@ impl Validity {
         self,
         len: usize,
         indices_offset: usize,
-        indices: &Array,
+        indices: &ArrayRef,
         patches: Validity,
     ) -> VortexResult<Self> {
         match (&self, &patches) {
@@ -463,7 +463,7 @@ impl Validity {
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
     ///     as that is always nonnullable
-    fn from_array(value: Array, nullability: Nullability) -> Self {
+    fn from_array(value: ArrayRef, nullability: Nullability) -> Self {
         if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
             vortex_panic!("Expected a non-nullable boolean array")
         }
@@ -586,7 +586,7 @@ impl Validity {
 }
 
 impl IntoArray for Mask {
-    fn into_array(self) -> Array {
+    fn into_array(self) -> ArrayRef {
         match self {
             Self::AllTrue(len) => ConstantArray::new(true, len).into_array(),
             Self::AllFalse(len) => ConstantArray::new(false, len).into_array(),
@@ -596,7 +596,7 @@ impl IntoArray for Mask {
 }
 
 impl IntoArray for &MaskValues {
-    fn into_array(self) -> Array {
+    fn into_array(self) -> ArrayRef {
         BoolArray::new(self.boolean_buffer().clone(), Nullability::NonNullable).into_array()
     }
 }
@@ -610,7 +610,7 @@ mod tests {
 
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
+    use crate::{ArrayRef, IntoArray};
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
@@ -670,7 +670,7 @@ mod tests {
     #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid)]
     fn validity_take(
         #[case] validity: Validity,
-        #[case] indices: Array,
+        #[case] indices: ArrayRef,
         #[case] expected: Validity,
     ) {
         assert_eq!(validity.take(&indices).unwrap(), expected);

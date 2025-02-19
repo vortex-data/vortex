@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
 use crate::compute::{binary_numeric, slice, try_cast};
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{ArrayRef, IntoArray, IntoCanonical};
 
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -114,7 +114,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         self.nulls.append_validity_mask(array.validity_mask()?);
 
         let list = array.into_canonical()?.into_list()?;
@@ -140,7 +140,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         assert_eq!(
             self.index_builder.len(),
             self.nulls.len() + 1,

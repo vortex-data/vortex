@@ -3,7 +3,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
@@ -35,7 +35,7 @@ pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
 
 pub fn alp_encode_components(
     parray: &PrimitiveArray,
-) -> VortexResult<(Exponents, Array, Option<Patches>)> {
+) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)> {
     match parray.ptype() {
         PType::F32 => alp_encode_components_typed::<f32>(parray),
         PType::F64 => alp_encode_components_typed::<f64>(parray),
@@ -46,7 +46,7 @@ pub fn alp_encode_components(
 #[allow(clippy::cast_possible_truncation)]
 fn alp_encode_components_typed<T>(
     values: &PrimitiveArray,
-) -> VortexResult<(Exponents, Array, Option<Patches>)>
+) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,

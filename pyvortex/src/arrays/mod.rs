@@ -15,7 +15,7 @@ use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexError, VortexExpect};
 use vortex::mask::Mask;
-use vortex::{Array, Encoding};
+use vortex::{ArrayRef, Encoding};
 
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
@@ -124,10 +124,10 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     ]
 #[pyclass(name = "Array", module = "vortex", sequence, subclass, frozen)]
 #[derive(Clone)]
-pub struct PyArray(Array);
+pub struct PyArray(ArrayRef);
 
 impl Deref for PyArray {
-    type Target = Array;
+    type Target = ArrayRef;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -135,9 +135,9 @@ impl Deref for PyArray {
 }
 
 impl PyArray {
-    /// Initialize a [`PyArray`] from a Vortex [`Array`], ensuring we return the correct typed
+    /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
-    pub fn init(py: Python, array: Array) -> PyResult<Bound<PyArray>> {
+    pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyArray>> {
         match array.dtype() {
             DType::Null => Self::with_subclass(py, array, PyNullTypeArray),
             DType::Bool(_) => Self::with_subclass(py, array, PyBoolTypeArray),
@@ -182,7 +182,7 @@ impl PyArray {
 
     fn with_subclass<S: PyClass<BaseType = PyArray>>(
         py: Python,
-        array: Array,
+        array: ArrayRef,
         subclass: S,
     ) -> PyResult<Bound<PyArray>> {
         Ok(Bound::new(
@@ -193,11 +193,11 @@ impl PyArray {
         .downcast_into::<PyArray>()?)
     }
 
-    pub fn inner(&self) -> &Array {
+    pub fn inner(&self) -> &ArrayRef {
         &self.0
     }
 
-    pub fn into_inner(self) -> Array {
+    pub fn into_inner(self) -> ArrayRef {
         self.0
     }
 }
@@ -664,7 +664,7 @@ pub trait AsArrayRef<T> {
 
 impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
 where
-    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
     fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
         <&<A::Encoding as Encoding>::Array>::try_from(self.as_super().inner())

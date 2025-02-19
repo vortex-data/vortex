@@ -6,7 +6,7 @@ pub use ext::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::ArrayRef;
 
 mod adapter;
 mod ext;
@@ -15,14 +15,14 @@ pub const ITER_BATCH_SIZE: usize = 1024;
 
 /// A stream of array chunks along with a DType.
 /// Analogous to Arrow's RecordBatchReader.
-pub trait ArrayIterator: Iterator<Item = VortexResult<Array>> {
+pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayRef>> {
     fn dtype(&self) -> &DType;
 }
 
 pub type AccessorRef<T> = Arc<dyn Accessor<T>>;
 
 /// Define the basic behavior required for batched iterators
-pub trait Accessor<T>: Send + Sync + Deref<Target = Array> {
+pub trait Accessor<T>: Send + Sync + Deref<Target =ArrayRef> {
     fn batch_size(&self, start_idx: usize) -> usize {
         usize::min(ITER_BATCH_SIZE, self.len() - start_idx)
     }

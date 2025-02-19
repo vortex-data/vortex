@@ -30,7 +30,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::validity::Validity;
-use vortex::{Array, ContextRef, IntoArray};
+use vortex::{ArrayRef, ContextRef, IntoArray};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
@@ -214,7 +214,7 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
     }
 }
 
-pub fn fetch_taxi_data() -> Array {
+pub fn fetch_taxi_data() -> ArrayRef {
     let file = File::open(taxi_data_parquet()).unwrap();
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
     let reader = builder.with_batch_size(BATCH_SIZE).build().unwrap();
@@ -224,7 +224,7 @@ pub fn fetch_taxi_data() -> Array {
         reader
             .into_iter()
             .map(|batch_result| batch_result.unwrap())
-            .map(Array::try_from)
+            .map(ArrayRef::try_from)
             .map(Result::unwrap)
             .collect_vec(),
         DType::from_arrow(schema),
@@ -233,7 +233,7 @@ pub fn fetch_taxi_data() -> Array {
     .into_array()
 }
 
-pub fn compress_taxi_data() -> Array {
+pub fn compress_taxi_data() -> ArrayRef {
     CompressionStrategy::compress(&SamplingCompressor::default(), &fetch_taxi_data()).unwrap()
 }
 

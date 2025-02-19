@@ -1,12 +1,12 @@
 use vortex_array::compute::{filter, FilterFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl FilterFn<ALPRDArray> for ALPRDEncoding {
-    fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.filter(mask))

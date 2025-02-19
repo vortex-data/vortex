@@ -9,22 +9,22 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{Array, Canonical, IntoArray, IntoArrayVariant};
+use crate::{ArrayRef, Canonical, IntoArray, IntoArrayVariant};
 
 pub trait FilterFn<A> {
     /// Filter an array by the provided predicate.
     ///
     /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
     /// leaving only `Mask::Values` to be handled by this function.
-    fn filter(&self, array: &A, mask: &Mask) -> VortexResult<Array>;
+    fn filter(&self, array: &A, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FilterFn<Array> for E
+impl<E: Encoding> FilterFn<ArrayRef> for E
 where
     E: FilterFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn filter(&self, array: &Array, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
@@ -63,7 +63,7 @@ where
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: &Array, mask: &Mask) -> VortexResult<Array> {
+pub fn filter(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -102,7 +102,7 @@ pub fn filter(array: &Array, mask: &Mask) -> VortexResult<Array> {
     Ok(filtered)
 }
 
-fn filter_impl(array: &Array, mask: &Mask) -> VortexResult<Array> {
+fn filter_impl(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
     // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
     let values = match &mask {
@@ -130,14 +130,14 @@ fn filter_impl(array: &Array, mask: &Mask) -> VortexResult<Array> {
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    Ok(Array::from_arrow(filtered, array.dtype().is_nullable()))
+    Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
-impl TryFrom<Array> for Mask {
+impl TryFrom<ArrayRef> for Mask {
     type Error = VortexError;
 
     /// Converts from a possible nullable boolean array. Null values are treated as false.
-    fn try_from(array: Array) -> Result<Self, Self::Error> {
+    fn try_from(array: ArrayRef) -> Result<Self, Self::Error> {
         if !matches!(array.dtype(), DType::Bool(_)) {
             vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
         }

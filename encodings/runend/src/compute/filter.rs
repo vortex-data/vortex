@@ -7,7 +7,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Canonical, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Canonical, IntoArray, IntoArrayVariant};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
@@ -19,7 +19,7 @@ use crate::{RunEndArray, RunEndEncoding};
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterFn<RunEndArray> for RunEndEncoding {
-    fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
         match mask {
             Mask::AllTrue(_) => Ok(array.clone().into_array()),
             Mask::AllFalse(_) => Ok(Canonical::empty(array.dtype()).into()),
@@ -51,7 +51,7 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
 }
 
 // We expose this function to our benchmarks.
-pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<Array> {
+pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
     let primitive_run_ends = array.ends().into_primitive()?;
     let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
         filter_run_end_primitive(

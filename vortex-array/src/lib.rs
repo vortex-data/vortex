@@ -1,9 +1,9 @@
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
 #![feature(substr_range)]
-//! Vortex crate containing core logic for encoding and memory representation of [arrays](Array).
+//! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
-//! At the heart of Vortex are [arrays](Array) and [encodings](vtable::EncodingVTable).
+//! At the heart of Vortex are [arrays](ArrayRef) and [encodings](vtable::EncodingVTable).
 //! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
@@ -12,11 +12,10 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
-pub mod array;
+pub use array::*;
 pub use canonical::*;
 pub use children::*;
 pub use context::*;
-pub use data::*;
 pub use encoding::*;
 pub use metadata::*;
 pub use partial_ord::*;
@@ -24,6 +23,7 @@ pub use paste;
 
 pub mod accessor;
 pub mod aliases;
+mod array;
 pub mod arrays;
 pub mod arrow;
 pub mod builders;
@@ -32,7 +32,6 @@ mod children;
 pub mod compress;
 pub mod compute;
 mod context;
-mod data;
 mod encoding;
 pub mod iter;
 mod macros;
@@ -58,17 +57,17 @@ pub mod flatbuffers {
 
 /// A depth-first pre-order iterator over a Array.
 pub struct ArrayChildrenIterator {
-    stack: Vec<Array>,
+    stack: Vec<ArrayRef>,
 }
 
 impl ArrayChildrenIterator {
-    pub fn new(array: Array) -> Self {
+    pub fn new(array: ArrayRef) -> Self {
         Self { stack: vec![array] }
     }
 }
 
 impl Iterator for ArrayChildrenIterator {
-    type Item = Array;
+    type Item = ArrayRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.stack.pop()?;
@@ -79,9 +78,9 @@ impl Iterator for ArrayChildrenIterator {
     }
 }
 
-/// Consume `self` and turn it into an [`Array`] infallibly.
+/// Consume `self` and turn it into an [`ArrayRef`] infallibly.
 ///
 /// Implementation of this array should never fail.
 pub trait IntoArray {
-    fn into_array(self) -> Array;
+    fn into_array(self) -> ArrayRef;
 }

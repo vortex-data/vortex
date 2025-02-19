@@ -8,7 +8,7 @@ use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
     StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, Array, Encoding, IntoArrayVariant, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Encoding, IntoArrayVariant, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
@@ -41,10 +41,10 @@ impl FSSTArray {
     /// which tells the decoder to emit the following byte without doing a table lookup.
     pub fn try_new(
         dtype: DType,
-        symbols: Array,
-        symbol_lengths: Array,
-        codes: Array,
-        uncompressed_lengths: Array,
+        symbols: ArrayRef,
+        symbol_lengths: ArrayRef,
+        codes: ArrayRef,
+        uncompressed_lengths: ArrayRef,
     ) -> VortexResult<Self> {
         // Check: symbols must be a u64 array
         if symbols.dtype() != &SYMBOLS_DTYPE {
@@ -105,21 +105,21 @@ impl FSSTArray {
     }
 
     /// Access the symbol table array
-    pub fn symbols(&self) -> Array {
+    pub fn symbols(&self) -> ArrayRef {
         self.as_ref()
             .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len)
             .vortex_expect("FSSTArray symbols child")
     }
 
     /// Access the symbol table array
-    pub fn symbol_lengths(&self) -> Array {
+    pub fn symbol_lengths(&self) -> ArrayRef {
         self.as_ref()
             .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len)
             .vortex_expect("FSSTArray symbol_lengths child")
     }
 
     /// Access the codes array
-    pub fn codes(&self) -> Array {
+    pub fn codes(&self) -> ArrayRef {
         self.as_ref()
             .child(2, &self.codes_dtype(), self.len())
             .vortex_expect("FSSTArray codes child")
@@ -132,7 +132,7 @@ impl FSSTArray {
     }
 
     /// Get the uncompressed length for each element in the array.
-    pub fn uncompressed_lengths(&self) -> Array {
+    pub fn uncompressed_lengths(&self) -> ArrayRef {
         self.as_ref()
             .child(3, &self.uncompressed_lengths_dtype(), self.len())
             .vortex_expect("FSST uncompressed_lengths child")

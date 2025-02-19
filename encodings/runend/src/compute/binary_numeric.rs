@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::BinaryNumericOperator;
 
@@ -10,9 +10,9 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
     fn binary_numeric(
         &self,
         array: &RunEndArray,
-        rhs: &Array,
+        rhs: &ArrayRef,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
         };

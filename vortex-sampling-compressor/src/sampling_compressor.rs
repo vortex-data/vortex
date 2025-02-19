@@ -12,7 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, Encoding, EncodingId, IntoCanonical};
+use vortex_array::{ArrayRef, Encoding, EncodingId, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -42,7 +42,7 @@ impl Display for SamplingCompressor<'_> {
 
 impl CompressionStrategy for SamplingCompressor<'_> {
     #[allow(clippy::same_name_method)]
-    fn compress(&self, array: &Array) -> VortexResult<Array> {
+    fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
@@ -130,7 +130,7 @@ impl<'a> SamplingCompressor<'a> {
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
-        arr: &Array,
+        arr: &ArrayRef,
         like: Option<&CompressionTree<'a>>,
     ) -> VortexResult<CompressedArray<'a>> {
         if arr.is_empty() {
@@ -177,7 +177,7 @@ impl<'a> SamplingCompressor<'a> {
         ))
     }
 
-    pub(crate) fn compress_array(&self, array: &Array) -> VortexResult<CompressedArray<'a>> {
+    pub(crate) fn compress_array(&self, array: &ArrayRef) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
         if array.is_encoding(ConstantEncoding::ID) {
@@ -258,7 +258,7 @@ impl<'a> SamplingCompressor<'a> {
             )
             .into_iter()
             .map(|(start, stop)| slice(array, start, stop))
-            .collect::<VortexResult<Vec<Array>>>()?,
+            .collect::<VortexResult<Vec<ArrayRef>>>()?,
             array.dtype().clone(),
         )?
         .into_canonical()?
@@ -283,7 +283,7 @@ impl<'a> SamplingCompressor<'a> {
 
 pub(crate) fn find_best_compression<'a>(
     candidates: Vec<&'a dyn EncodingCompressor>,
-    sample: &Array,
+    sample: &ArrayRef,
     ctx: &SamplingCompressor<'a>,
 ) -> VortexResult<CompressedArray<'a>> {
     let mut best = None;

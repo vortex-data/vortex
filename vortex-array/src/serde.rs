@@ -10,7 +10,7 @@ use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::stats::Statistics;
-use crate::{Array, ContextRef};
+use crate::{ArrayRef, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -22,7 +22,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl Array {
+impl ArrayRef {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -138,12 +138,12 @@ impl Array {
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
-    array: &'a Array,
+    array: &'a ArrayRef,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(array: &'a Array) -> Self {
+    pub fn new(array: &'a ArrayRef) -> Self {
         Self {
             array,
             buffer_idx: 0,
@@ -207,11 +207,11 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
     }
 }
 
-/// [`ArrayParts`] represents the information from an [`Array`] that makes up the serialized
+/// [`ArrayParts`] represents the information from an [`ArrayRef`] that makes up the serialized
 /// form. For example, it uses stores integer encoding IDs rather than a reference to an encoding
 /// vtable, and it doesn't store any [`DType`] information.
 ///
-/// An [`ArrayParts`] can be fully decoded into an [`Array`] using the `decode` function.
+/// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
 pub struct ArrayParts {
     // Typed as fb::Array
     flatbuffer: FlatBuffer,
@@ -230,9 +230,9 @@ impl Debug for ArrayParts {
 }
 
 impl ArrayParts {
-    /// Decode an [`ArrayParts`] into an [`Array`].
-    pub fn decode(self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<Array> {
-        Array::try_new_viewed(
+    /// Decode an [`ArrayParts`] into an [`ArrayRef`].
+    pub fn decode(self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+        ArrayRef::try_new_viewed(
             ctx,
             dtype,
             len,

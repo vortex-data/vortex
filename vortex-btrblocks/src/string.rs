@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult};
@@ -143,7 +143,7 @@ impl Scheme for UncompressedScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[StringCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
     }
 }
@@ -188,7 +188,7 @@ impl Scheme for DictScheme {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[StringCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let dict = dict_encode(&stats.source().clone().into_array())?;
 
         // If we are not allowed to cascade, do not attempt codes or values compression.
@@ -232,7 +232,7 @@ impl Scheme for FSSTScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[StringCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let compressor = fsst_train_compressor(&stats.src.clone().into_array())?;
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
 

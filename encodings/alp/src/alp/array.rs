@@ -9,7 +9,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, SerdeMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -31,7 +31,7 @@ pub struct ALPMetadata {
 
 impl ALPArray {
     pub fn try_new(
-        encoded: Array,
+        encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<Self> {
@@ -73,7 +73,7 @@ impl ALPArray {
         )
     }
 
-    pub fn encode(array: Array) -> VortexResult<Array> {
+    pub fn encode(array: ArrayRef) -> VortexResult<ArrayRef> {
         if let Some(parray) = PrimitiveArray::maybe_from(array) {
             Ok(alp_encode(&parray)?.into_array())
         } else {
@@ -81,7 +81,7 @@ impl ALPArray {
         }
     }
 
-    pub fn encoded(&self) -> Array {
+    pub fn encoded(&self) -> ArrayRef {
         self.as_ref()
             .child(0, &self.encoded_dtype(), self.len())
             .vortex_expect("Missing encoded child in ALPArray")

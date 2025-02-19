@@ -2,26 +2,26 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayRef, IntoArray, IntoArrayVariant};
 
 pub trait InvertFn<A> {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
-    fn invert(&self, array: &A) -> VortexResult<Array>;
+    fn invert(&self, array: &A) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> InvertFn<Array> for E
+impl<E: Encoding> InvertFn<ArrayRef> for E
 where
     E: InvertFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn invert(&self, array: &Array) -> VortexResult<Array> {
+    fn invert(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         InvertFn::invert(encoding, array_ref)
     }
 }
 
 /// Logically invert a boolean array.
-pub fn invert(array: &Array) -> VortexResult<Array> {
+pub fn invert(array: &ArrayRef) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::Bool(..)) {
         vortex_bail!("Expected boolean array, got {}", array.dtype());
     }

@@ -1,18 +1,12 @@
-use std::fmt::{Debug, Display};
-
 use arrow_array::BooleanArray;
 use arrow_buffer::MutableBuffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 
 use crate::validity::Validity;
-use crate::variants::BoolArrayTrait;
-use crate::visitor::ArrayVisitor;
-use crate::vtable::{CanonicalVTable, ValidateVTable};
-use crate::IntoArray;
 
 mod array;
-pub mod compute;
+// pub mod compute;
 mod data;
 mod encoding;
 mod patch;
@@ -22,9 +16,6 @@ pub use array::*;
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 pub use data::*;
 pub use encoding::*;
-
-use crate::builders::ArrayBuilder;
-use crate::vtable::{ValidityVTable, VariantsVTable, VisitorVTable};
 
 impl BoolArray {
     /// Create a new BoolArray from a set of indices and a length.

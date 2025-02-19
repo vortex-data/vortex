@@ -2,10 +2,10 @@ use std::ops::Deref;
 
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::ArrayRef;
 
 /// Trait for arrays that support iterative access to their elements.
-pub trait ArrayAccessor<Item: ?Sized>: Deref<Target = Array> {
+pub trait ArrayAccessor<Item: ?Sized>: Deref<Target =ArrayRef> {
     /// Iterate over each element of the array, in-order.
     ///
     /// The function `f` will be passed an [`Iterator`], it can call [`next`][Iterator::next] on the

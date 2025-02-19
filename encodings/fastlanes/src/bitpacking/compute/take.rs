@@ -3,7 +3,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -19,7 +19,7 @@ use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
 impl TakeFn<BitPackedArray> for BitPackedEncoding {
-    fn take(&self, array: &BitPackedArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &BitPackedArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
             return take(array.clone().into_primitive()?, indices);

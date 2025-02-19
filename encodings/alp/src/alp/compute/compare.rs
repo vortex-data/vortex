@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -14,9 +14,9 @@ impl CompareFn<ALPArray> for ALPEncoding {
     fn compare(
         &self,
         lhs: &ALPArray,
-        rhs: &Array,
+        rhs: &ArrayRef,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         if lhs.patches().is_some() {
             // TODO(joe): support patches
             return Ok(None);
@@ -48,7 +48,7 @@ fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,
     operator: Operator,
-) -> VortexResult<Option<Array>>
+) -> VortexResult<Option<ArrayRef>>
 where
     F::ALPInt: Into<Scalar>,
     <F as ALPFloat>::ALPInt: Debug,

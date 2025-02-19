@@ -2,7 +2,7 @@ use divan::Bencher;
 use rand::distributions::{Distribution, Standard};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
-use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray, IntoCanonical};
 use vortex_dict::test::{gen_dict_fsst_test_data, gen_dict_primitive_chunks};
 use vortex_dtype::NativePType;
 use vortex_error::VortexUnwrap;
@@ -56,7 +56,7 @@ fn make_dict_fsst_chunks<T: NativePType>(
     len: usize,
     unique_values: usize,
     chunk_count: usize,
-) -> Array {
+) -> ArrayRef {
     (0..chunk_count)
         .map(|_| gen_dict_fsst_test_data::<T>(len, unique_values, 20, 30).into_array())
         .collect::<ChunkedArray>()

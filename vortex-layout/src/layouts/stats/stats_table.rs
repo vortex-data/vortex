@@ -6,7 +6,7 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderEx
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -18,7 +18,7 @@ use vortex_scalar::Scalar;
 #[derive(Clone)]
 pub struct StatsTable {
     // The struct array backing the stats table
-    array: Array,
+    array: ArrayRef,
     // The statistics that are included in the table.
     stats: Arc<[Stat]>,
 }
@@ -26,7 +26,7 @@ pub struct StatsTable {
 impl StatsTable {
     /// Create StatsTable of given column_dtype from given array. Validates that the array matches expected
     /// structure for given list of stats
-    pub fn try_new(column_dtype: DType, array: Array, stats: Arc<[Stat]>) -> VortexResult<Self> {
+    pub fn try_new(column_dtype: DType, array: ArrayRef, stats: Arc<[Stat]>) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
@@ -34,7 +34,7 @@ impl StatsTable {
     }
 
     /// Create StatsTable without validating return array against expected stats
-    pub fn unchecked_new(array: Array, stats: Arc<[Stat]>) -> Self {
+    pub fn unchecked_new(array: ArrayRef, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 
@@ -50,7 +50,7 @@ impl StatsTable {
     }
 
     /// The struct array backing the stats table
-    pub fn array(&self) -> &Array {
+    pub fn array(&self) -> &ArrayRef {
         &self.array
     }
 
@@ -104,7 +104,7 @@ impl StatsTable {
     }
 
     /// Return the array for a given stat.
-    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<Array>> {
+    pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
         Ok(self
             .array
             .as_struct_array()
@@ -143,7 +143,7 @@ impl StatsAccumulator {
         &self.stats
     }
 
-    pub fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.compute_stat(*s) {
                 builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;

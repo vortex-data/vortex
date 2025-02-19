@@ -1,6 +1,6 @@
 use vortex_array::compute::{FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 
 use crate::BitPackedEncoding;
 
@@ -11,23 +11,23 @@ mod slice;
 mod take;
 
 impl ComputeVTable for BitPackedEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<Array>> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 }

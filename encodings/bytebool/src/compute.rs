@@ -3,7 +3,7 @@ use vortex_array::compute::{FillForwardFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -12,29 +12,29 @@ use vortex_scalar::Scalar;
 use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ComputeVTable for ByteBoolEncoding {
-    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<Array>> {
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayRef>> {
         None
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 }
 
 impl MaskFn<ByteBoolArray> for ByteBoolEncoding {
-    fn mask(&self, array: &ByteBoolArray, mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &ByteBoolArray, mask: Mask) -> VortexResult<ArrayRef> {
         ByteBoolArray::try_new(array.buffer().clone(), array.validity().mask(&mask)?)
             .map(IntoArray::into_array)
     }
@@ -50,7 +50,7 @@ impl ScalarAtFn<ByteBoolArray> for ByteBoolEncoding {
 }
 
 impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
-    fn slice(&self, array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ByteBoolArray::try_new(
             array.buffer().slice(start..stop),
             array.validity().slice(start, stop)?,
@@ -60,7 +60,7 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 }
 
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
-    fn take(&self, array: &ByteBoolArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &ByteBoolArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
         let indices = indices.clone().into_primitive()?;
         let bools = array.as_slice();
@@ -106,7 +106,7 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
 }
 
 impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
-    fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<Array> {
+    fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
         if array.dtype().nullability() == Nullability::NonNullable {
             return Ok(array.clone().into_array());

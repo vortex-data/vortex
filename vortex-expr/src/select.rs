@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -125,7 +125,7 @@ impl VortexExpr for Select {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()

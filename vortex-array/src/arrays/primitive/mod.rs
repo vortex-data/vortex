@@ -19,9 +19,9 @@ use crate::visitor::ArrayVisitor;
 use crate::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use crate::{impl_encoding, Array, Canonical, IntoArray, IntoCanonical, RkyvMetadata};
+use crate::{impl_encoding, ArrayRef, Canonical, IntoArray, IntoCanonical, RkyvMetadata};
 
-mod compute;
+// mod compute;
 mod patch;
 mod stats;
 
@@ -337,13 +337,13 @@ impl<T: NativePType> FromIterator<T> for PrimitiveArray {
 }
 
 impl<T: NativePType> IntoArray for Buffer<T> {
-    fn into_array(self) -> Array {
+    fn into_array(self) -> ArrayRef {
         PrimitiveArray::new(self, Validity::NonNullable).into_array()
     }
 }
 
 impl<T: NativePType> IntoArray for BufferMut<T> {
-    fn into_array(self) -> Array {
+    fn into_array(self) -> ArrayRef {
         self.freeze().into_array()
     }
 }

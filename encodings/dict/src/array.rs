@@ -9,7 +9,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use vortex_array::{
-    encoding_ids, impl_encoding, Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
     SerdeMetadata,
 };
 use vortex_dtype::{
@@ -35,7 +35,7 @@ pub struct DictMetadata {
 }
 
 impl DictArray {
-    pub fn try_new(mut codes: Array, values: Array) -> VortexResult<Self> {
+    pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
@@ -71,7 +71,7 @@ impl DictArray {
     }
 
     #[inline]
-    pub fn codes(&self) -> Array {
+    pub fn codes(&self) -> ArrayRef {
         self.as_ref()
             .child(
                 0,
@@ -82,7 +82,7 @@ impl DictArray {
     }
 
     #[inline]
-    pub fn values(&self) -> Array {
+    pub fn values(&self) -> ArrayRef {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().values_len)
             .vortex_expect("DictArray is missing its values child array")
@@ -99,7 +99,7 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: Array = array.values().into_canonical()?.into_array();
+                let canonical_values: ArrayRef = array.values().into_canonical()?.into_array();
                 take(canonical_values, array.codes())?.into_canonical()
             }
             DType::Primitive(ptype, _)
@@ -138,7 +138,7 @@ impl CanonicalVTable<DictArray> for DictEncoding {
             // copies of the view pointers.
             // TODO(joe): is the above still true?, investigate this.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: Array = array.values().into_canonical()?.into_array();
+                let canonical_values: ArrayRef = array.values().into_canonical()?.into_array();
                 take_into(canonical_values, array.codes(), builder)
             }
             // Non-string case: take and then canonicalize
@@ -229,7 +229,7 @@ mod test {
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical, SerdeMetadata};
+    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant, IntoCanonical, SerdeMetadata};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};
@@ -312,7 +312,7 @@ mod test {
         len: usize,
         unique_values: usize,
         chunk_count: usize,
-    ) -> Array
+    ) -> ArrayRef
     where
         Standard: Distribution<T>,
     {

@@ -29,7 +29,7 @@ use vortex::error::{VortexError, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
-use vortex::{Array, IntoCanonical};
+use vortex::{ArrayRef, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;
 
@@ -40,7 +40,7 @@ pub struct VortexFooter {
     pub dtype_range: Range<u64>,
 }
 
-pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
+pub async fn open_vortex(path: &Path) -> VortexResult<ArrayRef> {
     let file = TokioFile::open(path).unwrap();
 
     VortexOpenOptions::file(file)
@@ -72,7 +72,7 @@ pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<i
 
     Ok(ArrayIteratorAdapter::new(
         DType::from_arrow(reader.schema()),
-        reader.map(|br| br.map_err(VortexError::from).and_then(Array::try_from)),
+        reader.map(|br| br.map_err(VortexError::from).and_then(ArrayRef::try_from)),
     ))
 }
 
@@ -98,7 +98,7 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
 async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: Buffer<u64>,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayRef> {
     VortexOpenOptions::file(reader)
         .open()
         .await?
@@ -108,7 +108,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .into_canonical()
-        .map(Array::from)
+        .map(ArrayRef::from)
 }
 
 pub async fn take_vortex_object_store(
@@ -116,7 +116,7 @@ pub async fn take_vortex_object_store(
     fs: Arc<dyn ObjectStore>,
     path: object_store::path::Path,
     indices: Buffer<u64>,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayRef> {
     take_vortex(
         ObjectStoreReadAt::new(fs.clone(), path, Some(scheme)),
         indices,
@@ -124,7 +124,7 @@ pub async fn take_vortex_object_store(
     .await
 }
 
-pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<Array> {
+pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
     take_vortex(TokioFile::open(path)?, indices).await
 }
 

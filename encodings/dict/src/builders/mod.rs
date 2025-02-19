@@ -2,7 +2,7 @@ use bytes::BytesDictBuilder;
 use primitive::PrimitiveDictBuilder;
 use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -12,12 +12,12 @@ mod bytes;
 mod primitive;
 
 pub trait DictEncoder {
-    fn encode(&mut self, array: &Array) -> VortexResult<Array>;
+    fn encode(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef>;
 
-    fn values(&mut self) -> VortexResult<Array>;
+    fn values(&mut self) -> VortexResult<ArrayRef>;
 }
 
-pub fn dict_encode(array: &Array) -> VortexResult<DictArray> {
+pub fn dict_encode(array: &ArrayRef) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = PrimitiveArray::maybe_from(array) {
         match_each_native_ptype!(pa.ptype(), |$P| {
             &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())

@@ -7,7 +7,7 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, Array, Canonical, EmptyMetadata, IntoArrayVariant,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, EmptyMetadata, IntoArrayVariant,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -20,7 +20,7 @@ use crate::zigzag_decode;
 impl_encoding!("vortex.zigzag", encoding_ids::ZIGZAG, ZigZag, EmptyMetadata);
 
 impl ZigZagArray {
-    pub fn try_new(encoded: Array) -> VortexResult<Self> {
+    pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
         let encoded_dtype = encoded.dtype().clone();
         if !encoded_dtype.is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
@@ -42,13 +42,13 @@ impl ZigZagArray {
         )
     }
 
-    pub fn encode(array: &Array) -> VortexResult<ZigZagArray> {
+    pub fn encode(array: &ArrayRef) -> VortexResult<ZigZagArray> {
         PrimitiveArray::try_from(array.clone())
             .map_err(|_| vortex_err!("ZigZag can only encoding primitive arrays"))
             .and_then(zigzag_encode)
     }
 
-    pub fn encoded(&self) -> Array {
+    pub fn encoded(&self) -> ArrayRef {
         let ptype = PType::try_from(self.dtype()).unwrap_or_else(|err| {
             vortex_panic!(err, "Failed to convert DType {} to PType", self.dtype())
         });

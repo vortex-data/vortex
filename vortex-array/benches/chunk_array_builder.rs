@@ -3,7 +3,7 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::{BoolArray, ChunkedArray};
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, VarBinViewBuilder};
-use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::VortexUnwrap;
 
@@ -115,7 +115,7 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
         .bench_local_values(|chunk| chunk.into_canonical())
 }
 
-fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
+fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
 
     const SPAN_LEN: usize = 10;
@@ -140,7 +140,7 @@ fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
         .into_array()
 }
 
-fn make_bool_chunks(len: usize, chunk_count: usize) -> Array {
+fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
 
     (0..chunk_count)
@@ -149,7 +149,7 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> Array {
         .into_array()
 }
 
-fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> Array {
+fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(123);
 
     (0..chunk_count)

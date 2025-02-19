@@ -8,13 +8,13 @@ mod benchmarks {
     use rand::prelude::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
-    use vortex_array::{Array, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
     use vortex_btrblocks::integer::IntCompressor;
     use vortex_btrblocks::Compressor;
     use vortex_buffer::buffer_mut;
     use vortex_sampling_compressor::SamplingCompressor;
 
-    fn make_clickbench_window_name() -> Array {
+    fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.
         let mut values = buffer_mut![-1i32; 1_000_000];
         let mut visited = HashSet::new();

@@ -4,7 +4,7 @@ mod stats;
 use vortex_alp::{alp_encode, ALPArray, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
@@ -101,7 +101,7 @@ impl Scheme for UncompressedScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
     }
 }
@@ -145,7 +145,7 @@ impl Scheme for ConstantScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let scalar = stats
             .source()
             .as_constant()
@@ -207,7 +207,7 @@ impl Scheme for ALPScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let alp = alp_encode(stats.source())?;
         let alp_ints = alp.encoded().into_primitive()?;
 
@@ -263,7 +263,7 @@ impl Scheme for ALPRDScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let encoder = match stats.source().ptype() {
             PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
             PType::F64 => RDEncoder::new(stats.source().as_slice::<f64>()),
@@ -314,7 +314,7 @@ impl Scheme for DictScheme {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let dict_array = dictionary_encode(stats)?;
 
         // Only compress the codes.
@@ -382,7 +382,7 @@ impl Scheme for RunEndScheme {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[FloatCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let (ends, values) = runend_encode(stats.source())?;
         // Integer compress the ends, leave the values uncompressed.
         let compressed_ends = IntCompressor::compress(

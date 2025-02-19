@@ -1,6 +1,6 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult};
@@ -8,9 +8,9 @@ use vortex_error::{VortexError, VortexResult};
 use crate::{timestamp, DateTimePartsArray};
 
 pub struct TemporalParts {
-    pub days: Array,
-    pub seconds: Array,
-    pub subseconds: Array,
+    pub days: ArrayRef,
+    pub seconds: ArrayRef,
+    pub subseconds: ArrayRef,
 }
 
 /// Compress a `TemporalArray` into day, second, and subseconds components.

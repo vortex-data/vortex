@@ -4,9 +4,9 @@ use vortex_dtype::{DType, Nullability};
 
 use super::{BoolArray, PrimitiveArray, VarBinViewArray};
 use crate::validity::Validity;
-use crate::{Array, IntoArray as _};
+use crate::{ArrayRef, IntoArray as _};
 
-impl FromIterator<Option<bool>> for Array {
+impl FromIterator<Option<bool>> for ArrayRef {
     fn from_iter<T: IntoIterator<Item = Option<bool>>>(iter: T) -> Self {
         BoolArray::from_iter(iter).into_array()
     }
@@ -14,19 +14,19 @@ impl FromIterator<Option<bool>> for Array {
 
 macro_rules! impl_from_primitive_for_array {
     ($P:ty) => {
-        impl From<Buffer<$P>> for Array {
+        impl From<Buffer<$P>> for ArrayRef {
             fn from(value: Buffer<$P>) -> Self {
                 PrimitiveArray::new(value, Validity::NonNullable).into_array()
             }
         }
 
-        impl From<BufferMut<$P>> for Array {
+        impl From<BufferMut<$P>> for ArrayRef {
             fn from(value: BufferMut<$P>) -> Self {
                 PrimitiveArray::new(value.freeze(), Validity::NonNullable).into_array()
             }
         }
 
-        impl FromIterator<Option<$P>> for Array {
+        impl FromIterator<Option<$P>> for ArrayRef {
             fn from_iter<T: IntoIterator<Item = Option<$P>>>(iter: T) -> Self {
                 PrimitiveArray::from_option_iter(iter).into_array()
             }
@@ -46,19 +46,19 @@ impl_from_primitive_for_array!(f16);
 impl_from_primitive_for_array!(f32);
 impl_from_primitive_for_array!(f64);
 
-impl FromIterator<Option<String>> for Array {
+impl FromIterator<Option<String>> for ArrayRef {
     fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
         VarBinViewArray::from_iter(iter, DType::Utf8(Nullability::Nullable)).into_array()
     }
 }
 
-impl FromIterator<Option<BufferString>> for Array {
+impl FromIterator<Option<BufferString>> for ArrayRef {
     fn from_iter<T: IntoIterator<Item = Option<BufferString>>>(iter: T) -> Self {
         VarBinViewArray::from_iter(iter, DType::Utf8(Nullability::Nullable)).into_array()
     }
 }
 
-impl FromIterator<Option<ByteBuffer>> for Array {
+impl FromIterator<Option<ByteBuffer>> for ArrayRef {
     fn from_iter<T: IntoIterator<Item = Option<ByteBuffer>>>(iter: T) -> Self {
         VarBinViewArray::from_iter(iter, DType::Binary(Nullability::Nullable)).into_array()
     }

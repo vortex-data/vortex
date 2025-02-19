@@ -12,7 +12,7 @@ use crate::builders::ArrayBuilder;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant as _, IntoCanonical};
+use crate::{ArrayRef, IntoArray, IntoArrayVariant as _, IntoCanonical};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     pub values: BufferMut<T>,
@@ -156,7 +156,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         let array = array.into_canonical()?.into_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");
@@ -169,7 +169,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         self.finish_into_primitive().into_array()
     }
 }

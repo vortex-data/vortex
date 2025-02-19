@@ -3,7 +3,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -13,25 +13,25 @@ use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 use crate::{ZigZagArray, ZigZagEncoding};
 
 impl ComputeVTable for ZigZagEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 }
 
 impl FilterFn<ZigZagArray> for ZigZagEncoding {
-    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let encoded = filter(&array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
@@ -61,13 +61,13 @@ impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
 }
 
 impl SliceFn<ZigZagArray> for ZigZagEncoding {
-    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ZigZagArray::try_new(slice(array.encoded(), start, stop)?)?.into_array())
     }
 }
 
 impl TakeFn<ZigZagArray> for ZigZagEncoding {
-    fn take(&self, array: &ZigZagArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &ZigZagArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }

@@ -1,12 +1,12 @@
 use vortex_array::compute::{fill_null, take, TakeFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl TakeFn<ALPRDArray> for ALPRDEncoding {
-    fn take(&self, array: &ALPRDArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &ALPRDArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let taken_left_parts = take(array.left_parts(), indices)?;
         let left_parts_exceptions = array
             .left_parts_patches()

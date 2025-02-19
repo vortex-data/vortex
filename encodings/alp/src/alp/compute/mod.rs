@@ -5,7 +5,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -13,23 +13,23 @@ use vortex_scalar::Scalar;
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ComputeVTable for ALPEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 }
@@ -59,7 +59,7 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
 }
 
 impl TakeFn<ALPArray> for ALPEncoding {
-    fn take(&self, array: &ALPArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &ALPArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let taken_encoded = take(array.encoded(), indices)?;
         let taken_patches = array
             .patches()
@@ -79,7 +79,7 @@ impl TakeFn<ALPArray> for ALPEncoding {
 }
 
 impl SliceFn<ALPArray> for ALPEncoding {
-    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<ArrayRef> {
         Ok(ALPArray::try_new(
             slice(array.encoded(), start, end)?,
             array.exponents(),
@@ -94,7 +94,7 @@ impl SliceFn<ALPArray> for ALPEncoding {
 }
 
 impl FilterFn<ALPArray> for ALPEncoding {
-    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))

@@ -3,11 +3,11 @@ use vortex_error::VortexResult;
 
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::Array;
+use crate::ArrayRef;
 
 pub trait ArrayVisitor {
     /// Visit a child of this array.
-    fn visit_child(&mut self, _name: &str, _array: &Array) -> VortexResult<()> {
+    fn visit_child(&mut self, _name: &str, _array: &ArrayRef) -> VortexResult<()> {
         Ok(())
     }
 

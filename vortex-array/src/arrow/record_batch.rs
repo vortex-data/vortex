@@ -6,9 +6,9 @@ use vortex_error::{vortex_err, VortexError, VortexResult};
 use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayRef, IntoArray, IntoArrayVariant};
 
-impl TryFrom<RecordBatch> for Array {
+impl TryFrom<RecordBatch> for ArrayRef {
     type Error = VortexError;
 
     fn try_from(value: RecordBatch) -> VortexResult<Self> {
@@ -23,7 +23,7 @@ impl TryFrom<RecordBatch> for Array {
                 .columns()
                 .iter()
                 .zip(value.schema().fields())
-                .map(|(array, field)| Array::from_arrow(array.clone(), field.is_nullable()))
+                .map(|(array, field)| ArrayRef::from_arrow(array.clone(), field.is_nullable()))
                 .collect(),
             value.num_rows(),
             Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType
@@ -32,10 +32,10 @@ impl TryFrom<RecordBatch> for Array {
     }
 }
 
-impl TryFrom<Array> for RecordBatch {
+impl TryFrom<ArrayRef> for RecordBatch {
     type Error = VortexError;
 
-    fn try_from(value: Array) -> VortexResult<Self> {
+    fn try_from(value: ArrayRef) -> VortexResult<Self> {
         let struct_arr = value.into_struct().map_err(|err| {
             vortex_err!("RecordBatch can only be constructed from a Vortex StructArray: {err}")
         })?;

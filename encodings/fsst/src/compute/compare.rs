@@ -2,7 +2,7 @@ use fsst::Symbol;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{compare, compare_lengths_to_empty, CompareFn, Operator};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -13,9 +13,9 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
     fn compare(
         &self,
         lhs: &FSSTArray,
-        rhs: &Array,
+        rhs: &ArrayRef,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
             Some(constant) => {
                 compare_fsst_constant(lhs, &ConstantArray::new(constant, lhs.len()), operator)
@@ -31,7 +31,7 @@ fn compare_fsst_constant(
     left: &FSSTArray,
     right: &ConstantArray,
     operator: Operator,
-) -> VortexResult<Option<Array>> {
+) -> VortexResult<Option<ArrayRef>> {
     let rhs_scalar = right.scalar();
     let is_rhs_empty = match rhs_scalar.dtype() {
         DType::Binary(_) => rhs_scalar

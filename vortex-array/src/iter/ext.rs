@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use crate::arrays::ChunkedArray;
 use crate::iter::ArrayIterator;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{Array, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
 pub trait ArrayIteratorExt: ArrayIterator {
     fn into_stream(self) -> impl ArrayStream
@@ -17,12 +17,12 @@ pub trait ArrayIteratorExt: ArrayIterator {
     /// Collect the iterator into a single `Array`.
     ///
     /// If the iterator yields multiple chunks, they will be returned as a [`ChunkedArray`].
-    fn into_array_data(self) -> VortexResult<Array>
+    fn into_array_data(self) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
         let dtype = self.dtype().clone();
-        let mut chunks: Vec<Array> = self.try_collect()?;
+        let mut chunks: Vec<ArrayRef> = self.try_collect()?;
         if chunks.len() == 1 {
             Ok(chunks.remove(0))
         } else {

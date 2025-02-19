@@ -7,7 +7,7 @@ use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayRef, Canonical, IntoArray, IntoCanonical};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
@@ -74,7 +74,7 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         let array = array.into_canonical()?;
         let Canonical::Extension(array) = array else {
             vortex_bail!("Expected Extension array, got {:?}", array);
@@ -82,7 +82,7 @@ impl ArrayBuilder for ExtensionBuilder {
         array.storage().canonicalize_into(self.storage.as_mut())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         let storage = self.storage.finish();
         ExtensionArray::new(self.ext_dtype(), storage).into_array()
     }

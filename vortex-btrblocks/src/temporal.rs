@@ -1,7 +1,7 @@
 //! Specialized compressor for DateTimeParts metadata.
 
 use vortex_array::arrays::TemporalArray;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_datetime_parts::{split_temporal, DateTimePartsArray, TemporalParts};
 use vortex_error::VortexResult;
 
@@ -10,7 +10,7 @@ use crate::integer::IntCompressor;
 use crate::{Compressor, MAX_CASCADE};
 
 /// Compress a temporal array into a `DateTimePartsArray`.
-pub fn compress_temporal(array: TemporalArray) -> VortexResult<Array> {
+pub fn compress_temporal(array: TemporalArray) -> VortexResult<ArrayRef> {
     let dtype = array.dtype().clone();
     let TemporalParts {
         days,

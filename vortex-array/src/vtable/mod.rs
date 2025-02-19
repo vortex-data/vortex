@@ -25,7 +25,7 @@ pub use variants::*;
 pub use visitor::*;
 
 use crate::encoding::EncodingId;
-use crate::Array;
+use crate::ArrayRef;
 
 /// A reference to an array VTable, either static or arc'd.
 #[derive(Debug, Clone)]
@@ -72,14 +72,14 @@ pub trait EncodingVTable:
     + Sync
     + Send
     + Debug
-    + CanonicalVTable<Array>
+    + CanonicalVTable<ArrayRef>
     + ComputeVTable
-    + MetadataVTable<Array>
-    + StatisticsVTable<Array>
-    + ValidateVTable<Array>
-    + ValidityVTable<Array>
-    + VariantsVTable<Array>
-    + VisitorVTable<Array>
+    + MetadataVTable<ArrayRef>
+    + StatisticsVTable<ArrayRef>
+    + ValidateVTable<ArrayRef>
+    + ValidityVTable<ArrayRef>
+    + VariantsVTable<ArrayRef>
+    + VisitorVTable<ArrayRef>
 {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;

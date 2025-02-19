@@ -10,7 +10,7 @@ use vortex::error::VortexExpect;
 use vortex::layout::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex::Array;
+use vortex::ArrayRef;
 
 use crate::browse::app::{AppState, LayoutCursor};
 
@@ -105,7 +105,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         .vortex_expect("FlatLayout missing segment");
     let buffer = app.read_segment(segment_id);
 
-    let array = Array::deserialize(
+    let array = ArrayRef::deserialize(
         buffer,
         ALL_ENCODINGS_CONTEXT.clone(),
         app.cursor.layout().dtype().clone(),
@@ -140,7 +140,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<Array> = (0..struct_array.nfields())
+        let field_arrays: Vec<ArrayRef> = (0..struct_array.nfields())
             .map(|x| {
                 struct_array
                     .maybe_null_field_by_idx(x)

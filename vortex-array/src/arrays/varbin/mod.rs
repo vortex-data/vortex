@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-pub use compute::compute_min_max;
+// pub use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
@@ -19,13 +19,13 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ValidateVTable;
-use crate::{impl_encoding, Array, RkyvMetadata};
+use crate::{impl_encoding, ArrayRef, RkyvMetadata};
 
 mod accessor;
 mod array;
 pub mod builder;
 mod canonical;
-mod compute;
+// mod compute;
 mod stats;
 mod variants;
 
@@ -53,7 +53,7 @@ impl Display for VarBinMetadata {
 
 impl VarBinArray {
     pub fn try_new(
-        offsets: Array,
+        offsets: ArrayRef,
         bytes: ByteBuffer,
         dtype: DType,
         validity: Validity,
@@ -98,7 +98,7 @@ impl VarBinArray {
     }
 
     #[inline]
-    pub fn offsets(&self) -> Array {
+    pub fn offsets(&self) -> ArrayRef {
         self.as_ref()
             .child(
                 0,
@@ -223,7 +223,7 @@ impl VarBinArray {
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, ByteBuffer, Array, Validity) {
+    pub fn into_parts(self) -> (DType, ByteBuffer, ArrayRef, Validity) {
         (
             self.dtype().clone(),
             self.bytes(),
@@ -303,10 +303,10 @@ mod test {
     use crate::arrays::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
-    use crate::{Array, IntoArray};
+    use crate::{ArrayRef, IntoArray};
 
     #[fixture]
-    fn binary_array() -> Array {
+    fn binary_array() -> ArrayRef {
         let values = Buffer::copy_from("hello worldhello world this is a long string".as_bytes());
         let offsets = PrimitiveArray::from_iter([0, 11, 44]);
 
@@ -321,7 +321,7 @@ mod test {
     }
 
     #[rstest]
-    pub fn test_scalar_at(binary_array: Array) {
+    pub fn test_scalar_at(binary_array: ArrayRef) {
         assert_eq!(binary_array.len(), 2);
         assert_eq!(scalar_at(&binary_array, 0).unwrap(), "hello world".into());
         assert_eq!(
@@ -331,7 +331,7 @@ mod test {
     }
 
     #[rstest]
-    pub fn slice_array(binary_array: Array) {
+    pub fn slice_array(binary_array: ArrayRef) {
         let binary_arr = slice(&binary_array, 1, 2).unwrap();
         assert_eq!(
             scalar_at(&binary_arr, 0).unwrap(),

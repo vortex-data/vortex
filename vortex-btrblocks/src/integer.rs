@@ -10,7 +10,7 @@ pub use stats::IntegerStats;
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
@@ -64,7 +64,7 @@ impl IntCompressor {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let stats = IntegerStats::generate_opts(
             array,
             GenerateStatsOptions {
@@ -153,7 +153,7 @@ impl Scheme for UncompressedScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         Ok(stats.source().clone().into_array())
     }
 }
@@ -201,7 +201,7 @@ impl Scheme for ConstantScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         // We only use Constant encoding if the entire array is constant, never if one of
         // the child arrays yields a constant value.
         let scalar = stats
@@ -267,7 +267,7 @@ impl Scheme for FORScheme {
         is_sample: bool,
         _allowed_cascading: usize,
         excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let for_array = for_compress(stats.src.clone())?;
         let biased = for_array.encoded().into_primitive()?;
         let biased_stats = IntegerStats::generate_opts(
@@ -333,7 +333,7 @@ impl Scheme for ZigZagScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
         let encoded = zag.encoded().into_primitive()?;
@@ -399,7 +399,7 @@ impl Scheme for BitPackingScheme {
         _is_sample: bool,
         _allowed_cascading: usize,
         _excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let bw = find_best_bit_width(stats.source())?;
         // If best bw is determined to be the current bit-width, return the original array.
         if bw as usize == stats.source().ptype().bit_width() {
@@ -464,7 +464,7 @@ impl Scheme for SparseScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
         let mask = stats.src.validity().to_logical(stats.src.len())?;
@@ -608,7 +608,7 @@ impl Scheme for DictScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
         // TODO(aduffy): we can be more prescriptive: we know that codes will EITHER be
@@ -671,7 +671,7 @@ impl Scheme for RunEndScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
         // run-end encode the ends

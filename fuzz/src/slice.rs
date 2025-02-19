@@ -3,11 +3,11 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
-pub fn slice_canonical_array(array: &Array, start: usize, stop: usize) -> VortexResult<Array> {
+pub fn slice_canonical_array(array: &ArrayRef, start: usize, stop: usize) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let bool_buff = array.validity_mask()?.to_boolean_buffer();
 

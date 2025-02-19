@@ -10,7 +10,7 @@ use crate::vtable::{
     CanonicalVTable, ComputeVTable, EncodingVTable, MetadataVTable, StatisticsVTable,
     ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use crate::{Array, Canonical};
+use crate::{ArrayRef, Canonical};
 
 /// An encoding of an array that we cannot interpret.
 ///
@@ -25,14 +25,14 @@ use crate::{Array, Canonical};
 #[derive(Debug, Clone, Copy)]
 pub struct OpaqueEncoding(pub u16);
 
-impl VariantsVTable<Array> for OpaqueEncoding {}
+impl VariantsVTable<ArrayRef> for OpaqueEncoding {}
 
-impl MetadataVTable<Array> for OpaqueEncoding {
+impl MetadataVTable<ArrayRef> for OpaqueEncoding {
     fn validate_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<()> {
         Ok(())
     }
 
-    fn display_metadata(&self, _array: &Array, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn display_metadata(&self, _array: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("OpaqueMetadata")
     }
 }
@@ -47,8 +47,8 @@ impl EncodingVTable for OpaqueEncoding {
     }
 }
 
-impl CanonicalVTable<Array> for OpaqueEncoding {
-    fn into_canonical(&self, _array: Array) -> VortexResult<Canonical> {
+impl CanonicalVTable<ArrayRef> for OpaqueEncoding {
+    fn into_canonical(&self, _array: ArrayRef) -> VortexResult<Canonical> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
             self.0
@@ -58,33 +58,33 @@ impl CanonicalVTable<Array> for OpaqueEncoding {
 
 impl ComputeVTable for OpaqueEncoding {}
 
-impl StatisticsVTable<Array> for OpaqueEncoding {}
+impl StatisticsVTable<ArrayRef> for OpaqueEncoding {}
 
-impl ValidateVTable<Array> for OpaqueEncoding {}
+impl ValidateVTable<ArrayRef> for OpaqueEncoding {}
 
-impl ValidityVTable<Array> for OpaqueEncoding {
-    fn is_valid(&self, _array: &Array, _index: usize) -> VortexResult<bool> {
+impl ValidityVTable<ArrayRef> for OpaqueEncoding {
+    fn is_valid(&self, _array: &ArrayRef, _index: usize) -> VortexResult<bool> {
         vortex_panic!(
             "OpaqueEncoding: is_valid cannot be called for opaque array ({})",
             self.0
         )
     }
 
-    fn all_valid(&self, _array: &Array) -> VortexResult<bool> {
+    fn all_valid(&self, _array: &ArrayRef) -> VortexResult<bool> {
         vortex_panic!(
             "OpaqueEncoding: all_valid cannot be called for opaque array ({})",
             self.0
         )
     }
 
-    fn all_invalid(&self, _array: &Array) -> VortexResult<bool> {
+    fn all_invalid(&self, _array: &ArrayRef) -> VortexResult<bool> {
         vortex_panic!(
             "OpaqueEncoding: all_invalid cannot be called for opaque array ({})",
             self.0
         )
     }
 
-    fn validity_mask(&self, _array: &Array) -> VortexResult<Mask> {
+    fn validity_mask(&self, _array: &ArrayRef) -> VortexResult<Mask> {
         vortex_panic!(
             "OpaqueEncoding: validity_mask cannot be called for opaque array ({})",
             self.0
@@ -92,8 +92,8 @@ impl ValidityVTable<Array> for OpaqueEncoding {
     }
 }
 
-impl VisitorVTable<Array> for OpaqueEncoding {
-    fn accept(&self, _array: &Array, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<ArrayRef> for OpaqueEncoding {
+    fn accept(&self, _array: &ArrayRef, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
             self.0

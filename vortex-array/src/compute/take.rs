@@ -5,7 +5,7 @@ use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
 use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, IntoArray, IntoCanonical};
 
 pub trait TakeFn<A> {
     /// Create a new array by taking the values from the `array` at the
@@ -14,7 +14,7 @@ pub trait TakeFn<A> {
     /// # Panics
     ///
     /// Using `indices` that are invalid for the given `array` will cause a panic.
-    fn take(&self, array: &A, indices: &Array) -> VortexResult<Array>;
+    fn take(&self, array: &A, indices: &ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Create a new array by taking the values from the `array` at the
     /// given `indices`.
@@ -24,7 +24,7 @@ pub trait TakeFn<A> {
     /// This take variant will not perform bounds checking on indices, so it is the caller's
     /// responsibility to ensure that the `indices` are all valid for the provided `array`.
     /// Failure to do so could result in out of bounds memory access or UB.
-    unsafe fn take_unchecked(&self, array: &A, indices: &Array) -> VortexResult<Array> {
+    unsafe fn take_unchecked(&self, array: &A, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         self.take(array, indices)
     }
 
@@ -33,27 +33,27 @@ pub trait TakeFn<A> {
     fn take_into(
         &self,
         array: &A,
-        indices: &Array,
+        indices: &ArrayRef,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         builder.extend_from_array(self.take(array, indices)?)
     }
 }
 
-impl<E: Encoding> TakeFn<Array> for E
+impl<E: Encoding> TakeFn<ArrayRef> for E
 where
     E: TakeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn take(&self, array: &Array, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &ArrayRef, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         TakeFn::take(encoding, array_ref, indices)
     }
 
     fn take_into(
         &self,
-        array: &Array,
-        indices: &Array,
+        array: &ArrayRef,
+        indices: &ArrayRef,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
@@ -61,15 +61,11 @@ where
     }
 }
 
-pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
     //  the filter function since they're typically optimised for this case.
     // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
     //  such that canonicalize does less work.
-
-    let array = array.as_ref();
-    let indices = indices.as_ref();
-
     if indices.all_invalid()? {
         return Ok(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
@@ -129,8 +125,8 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 }
 
 pub fn take_into(
-    array: impl AsRef<Array>,
-    indices: impl AsRef<Array>,
+    array: &dyn Array,
+    indices: &dyn Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
     let array = array.as_ref();
@@ -176,7 +172,7 @@ pub fn take_into(
     Ok(())
 }
 
-fn derive_take_stats(arr: &Array) -> StatsSet {
+fn derive_take_stats(arr: &ArrayRef) -> StatsSet {
     let stats = arr.stats_set();
 
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
@@ -195,7 +191,11 @@ fn derive_take_stats(arr: &Array) -> StatsSet {
     stats
 }
 
-fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexResult<Array> {
+fn take_impl(
+    array: &ArrayRef,
+    indices: &ArrayRef,
+    checked_indices: bool,
+) -> VortexResult<ArrayRef> {
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.vtable().take_fn() {
@@ -226,8 +226,8 @@ fn take_impl(array: &Array, indices: &Array, checked_indices: bool) -> VortexRes
 }
 
 fn take_into_impl(
-    array: &Array,
-    indices: &Array,
+    array: &ArrayRef,
+    indices: &ArrayRef,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
     let result_nullability = array.dtype().nullability() | indices.dtype().nullability();

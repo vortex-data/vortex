@@ -114,12 +114,12 @@ mod tests {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ChunkedArray, VarBinArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant, IntoCanonical};
     use vortex_dtype::{DType, Nullability};
 
     use crate::{fsst_compress, fsst_train_compressor};
 
-    fn make_data() -> (Array, Vec<Option<Vec<u8>>>) {
+    fn make_data() -> (ArrayRef, Vec<Option<Vec<u8>>>) {
         const STRING_COUNT: usize = 1000;
         let mut rng = StdRng::seed_from_u64(0);
         let mut strings = Vec::with_capacity(STRING_COUNT);
@@ -155,7 +155,7 @@ mod tests {
 
     fn make_data_chunked() -> (ChunkedArray, Vec<Option<Vec<u8>>>) {
         #[allow(clippy::type_complexity)]
-        let (arr_vec, data_vec): (Vec<Array>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
+        let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array).unwrap();

@@ -2,7 +2,7 @@
 
 use std::ops::Deref;
 
-use arrow_array::ArrayRef;
+use arrow_array::{Array, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -13,7 +13,7 @@ use crate::arrays::{
 use crate::arrow::IntoArrowArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
-use crate::{Array, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -51,7 +51,7 @@ pub enum Canonical {
 }
 
 impl Deref for Canonical {
-    type Target = Array;
+    type Target = dyn Array;
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
@@ -120,7 +120,7 @@ impl Canonical {
     }
 }
 
-/// Canonicalize an [`Array`] into one of the [`Canonical`] array forms.
+/// Canonicalize an [`ArrayRef`] into one of the [`Canonical`] array forms.
 ///
 /// # Invariants
 ///
@@ -197,8 +197,8 @@ where
     }
 }
 
-impl IntoCanonical for Array {
-    /// Canonicalize an [`Array`] into one of the [`Canonical`] array forms.
+impl IntoCanonical for ArrayRef {
+    /// Canonicalize an [`ArrayRef`] into one of the [`Canonical`] array forms.
     ///
     /// # Invariants
     ///
@@ -219,14 +219,14 @@ impl IntoCanonical for Array {
         Ok(canonical)
     }
 
-    /// Canonicalize an [`Array`] into an existing [`ArrayBuilder`].
+    /// Canonicalize an [`ArrayRef`] into an existing [`ArrayBuilder`].
     fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.vtable().canonicalize_into(self.clone(), builder)
     }
 }
 
-impl IntoArrowArray for Array {
-    /// Convert this [`Array`] into an Arrow [`ArrayRef`] by using the array's preferred
+impl IntoArrowArray for ArrayRef {
+    /// Convert this [`ArrayRef`] into an Arrow [`ArrayRef`] by using the array's preferred
     /// Arrow [`DataType`].
     fn into_arrow_preferred(self) -> VortexResult<ArrayRef> {
         let data_type = preferred_arrow_data_type(&self)?;
@@ -241,9 +241,9 @@ impl IntoArrowArray for Array {
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
 /// owned pointer to the underlying concrete array type.
 ///
-/// This combined with the above [IntoCanonical] impl for [Array] allows simple two-way conversions
+/// This combined with the above [IntoCanonical] impl for [ArrayRef] allows simple two-way conversions
 /// between arbitrary Vortex encodings and canonical Arrow-compatible encodings.
-impl From<Canonical> for Array {
+impl From<Canonical> for ArrayRef {
     fn from(value: Canonical) -> Self {
         match value {
             Canonical::Null(a) => a.into_array(),
@@ -257,8 +257,8 @@ impl From<Canonical> for Array {
     }
 }
 
-impl AsRef<Array> for Canonical {
-    fn as_ref(&self) -> &Array {
+impl AsRef<ArrayRef> for Canonical {
+    fn as_ref(&self) -> &ArrayRef {
         match self {
             Canonical::Null(a) => a.as_ref(),
             Canonical::Bool(a) => a.as_ref(),
@@ -272,7 +272,7 @@ impl AsRef<Array> for Canonical {
 }
 
 impl IntoArray for Canonical {
-    fn into_array(self) -> Array {
+    fn into_array(self) -> ArrayRef {
         match self {
             Canonical::Null(a) => a.into_array(),
             Canonical::Bool(a) => a.into_array(),
@@ -302,7 +302,7 @@ mod test {
 
     use crate::arrays::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
-    use crate::{Array, IntoArray};
+    use crate::{ArrayRef, IntoArray};
 
     #[test]
     fn test_canonicalize_nested_struct() {
@@ -393,7 +393,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = Array::from_arrow(&arrow_struct, true);
+        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true);
 
         assert_eq!(
             &arrow_struct,
@@ -417,7 +417,7 @@ mod test {
         );
         let list_data_type = arrow_list.data_type();
 
-        let vortex_list = Array::from_arrow(&arrow_list, true);
+        let vortex_list = ArrayRef::from_arrow(&arrow_list, true);
 
         let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 

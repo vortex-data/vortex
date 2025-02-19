@@ -16,7 +16,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::Array;
+use crate::ArrayRef;
 
 mod bound;
 pub mod flatbuffers;
@@ -299,7 +299,7 @@ pub trait Statistics {
     fn retain_only(&self, stats: &[Stat]);
 }
 
-impl Array {
+impl ArrayRef {
     pub fn statistics(&self) -> &(dyn Statistics + '_) {
         self
     }
@@ -428,7 +428,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &Array) -> u8 {
+pub fn trailing_zeros(array: &ArrayRef) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()

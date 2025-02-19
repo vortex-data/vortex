@@ -1,12 +1,12 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::TakeFn;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseEncoding};
 
 impl TakeFn<SparseArray> for SparseEncoding {
-    fn take(&self, array: &SparseArray, take_indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &SparseArray, take_indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let Some(new_patches) = array.patches().take(take_indices)? else {
             let result_nullability =
                 array.dtype().nullability() | take_indices.dtype().nullability();
@@ -26,7 +26,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
@@ -37,7 +37,7 @@ mod test {
         Scalar::null_typed::<f64>()
     }
 
-    fn sparse_array() -> Array {
+    fn sparse_array() -> ArrayRef {
         SparseArray::try_new(
             buffer![0u64, 37, 47, 99].into_array(),
             PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),

@@ -13,7 +13,7 @@ use futures::{StreamExt, TryStreamExt};
 use rand::distributions::{Alphanumeric, DistString};
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
@@ -92,7 +92,7 @@ impl DataSink for VortexSink {
         let dtype = DType::from_arrow(data.schema());
         let stream = data
             .map_err(VortexError::from)
-            .map(|rb| rb.and_then(Array::try_from))
+            .map(|rb| rb.and_then(ArrayRef::try_from))
             .map_ok(|rb| {
                 row_counter.fetch_add(rb.len() as u64, Ordering::SeqCst);
                 rb

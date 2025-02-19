@@ -13,7 +13,7 @@ use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
+use crate::{ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
 
 impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
     fn into_canonical(&self, array: ChunkedArray) -> VortexResult<Canonical> {
@@ -34,7 +34,7 @@ impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
 }
 
 pub(crate) fn try_canonicalize_chunks(
-    chunks: Vec<Array>,
+    chunks: Vec<ArrayRef>,
     validity: Validity,
     dtype: &DType,
 ) -> VortexResult<Canonical> {
@@ -81,12 +81,12 @@ pub(crate) fn try_canonicalize_chunks(
         DType::Extension(ext_dtype) => {
             // Recursively apply canonicalization and packing to the storage array backing
             // each chunk of the extension array.
-            let storage_chunks: Vec<Array> = chunks
+            let storage_chunks: Vec<ArrayRef> = chunks
                 .iter()
                 // Extension-typed arrays can be compressed into something that is not an
                 // ExtensionArray, so we should canonicalize each chunk into ExtensionArray first.
                 .map(|chunk| chunk.clone().into_extension().map(|ext| ext.storage()))
-                .collect::<VortexResult<Vec<Array>>>()?;
+                .collect::<VortexResult<Vec<ArrayRef>>>()?;
             let storage_dtype = ext_dtype.storage_dtype().clone();
             let chunked_storage =
                 ChunkedArray::try_new(storage_chunks, storage_dtype)?.into_array();
@@ -130,7 +130,7 @@ pub(crate) fn try_canonicalize_chunks(
     }
 }
 
-fn pack_lists(chunks: &[Array], validity: Validity, dtype: &DType) -> VortexResult<ListArray> {
+fn pack_lists(chunks: &[ArrayRef], validity: Validity, dtype: &DType) -> VortexResult<ListArray> {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
     let mut offsets = BufferMut::<i64>::with_capacity(len + 1);
     offsets.push(0);
@@ -180,7 +180,7 @@ fn pack_lists(chunks: &[Array], validity: Validity, dtype: &DType) -> VortexResu
 /// It is expected this function is only called from [try_canonicalize_chunks], and thus all chunks have
 /// been checked to have the same DType already.
 fn swizzle_struct_chunks(
-    chunks: &[Array],
+    chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructDType,
 ) -> VortexResult<StructArray> {
@@ -208,7 +208,7 @@ fn swizzle_struct_chunks(
 ///
 /// It is expected this function is only called from [try_canonicalize_chunks], and thus all chunks have
 /// been checked to have the same DType already.
-fn pack_bools(chunks: &[Array], validity: Validity) -> VortexResult<BoolArray> {
+fn pack_bools(chunks: &[ArrayRef], validity: Validity) -> VortexResult<BoolArray> {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut buffer = BooleanBufferBuilder::new(len);
     for chunk in chunks {
@@ -225,7 +225,7 @@ fn pack_bools(chunks: &[Array], validity: Validity) -> VortexResult<BoolArray> {
 /// It is expected this function is only called from [try_canonicalize_chunks], and thus all chunks have
 /// been checked to have the same DType already.
 fn pack_primitives<T: NativePType>(
-    chunks: &[Array],
+    chunks: &[ArrayRef],
     validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
     let total_len = chunks.iter().map(|a| a.len()).sum();
@@ -243,7 +243,7 @@ fn pack_primitives<T: NativePType>(
 /// It is expected this function is only called from [try_canonicalize_chunks], and thus all chunks have
 /// been checked to have the same DType already.
 fn pack_views(
-    chunks: &[Array],
+    chunks: &[ArrayRef],
     dtype: &DType,
     validity: Validity,
 ) -> VortexResult<VarBinViewArray> {

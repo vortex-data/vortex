@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{and, compare, or, try_cast, CompareFn, Operator};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -14,9 +14,9 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
     fn compare(
         &self,
         lhs: &DateTimePartsArray,
-        rhs: &Array,
+        rhs: &ArrayRef,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -57,7 +57,7 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
 fn compare_eq(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
-) -> VortexResult<Option<Array>> {
+) -> VortexResult<Option<ArrayRef>> {
     let mut comparison = compare_dtp(&lhs.days(), ts_parts.days, Operator::Eq)?;
     if comparison.statistics().compute_max::<bool>() == Some(false) {
         // All values are different.
@@ -85,7 +85,7 @@ fn compare_eq(
 fn compare_ne(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
-) -> VortexResult<Option<Array>> {
+) -> VortexResult<Option<ArrayRef>> {
     let mut comparison = compare_dtp(&lhs.days(), ts_parts.days, Operator::NotEq)?;
     if comparison.statistics().compute_min::<bool>() == Some(true) {
         // All values are different.
@@ -113,7 +113,7 @@ fn compare_ne(
 fn compare_lt(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
-) -> VortexResult<Option<Array>> {
+) -> VortexResult<Option<ArrayRef>> {
     let days_lt = compare_dtp(&lhs.days(), ts_parts.days, Operator::Lt)?;
     if days_lt.statistics().compute_min::<bool>() == Some(true) {
         // All values on the lhs are smaller.
@@ -126,7 +126,7 @@ fn compare_lt(
 fn compare_gt(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
-) -> VortexResult<Option<Array>> {
+) -> VortexResult<Option<ArrayRef>> {
     let days_gt = compare_dtp(&lhs.days(), ts_parts.days, Operator::Gt)?;
     if days_gt.statistics().compute_min::<bool>() == Some(true) {
         // All values on the lhs are larger.
@@ -136,7 +136,7 @@ fn compare_gt(
     Ok(None)
 }
 
-fn compare_dtp(lhs: &Array, rhs: i64, operator: Operator) -> VortexResult<Array> {
+fn compare_dtp(lhs: &ArrayRef, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
     match try_cast(ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
         Ok(casted) => compare(lhs, casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.

@@ -5,7 +5,6 @@ use arrow_array::builder::ArrayBuilder;
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_flatbuffers::dtype::Null;
 use vortex_mask::Mask;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl};
@@ -58,6 +57,11 @@ impl BoolArray {
     /// Returns the underlying [`BooleanBuffer`] of the array.
     pub fn boolean_buffer(&self) -> &BooleanBuffer {
         &self.buffer
+    }
+
+    /// Returns the underlying [`Validity`] of the array.
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 

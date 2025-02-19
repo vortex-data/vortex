@@ -28,9 +28,9 @@ use crate::arrays::{
 use crate::arrow::FromArrowArray;
 use crate::stats::{Precision, Stat, Statistics as _};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
-impl From<ArrowBuffer> for Array {
+impl From<ArrowBuffer> for ArrayRef {
     fn from(value: ArrowBuffer) -> Self {
         PrimitiveArray::from_byte_buffer(
             ByteBuffer::from_arrow_buffer(value, Alignment::of::<u8>()),
@@ -41,13 +41,13 @@ impl From<ArrowBuffer> for Array {
     }
 }
 
-impl From<BooleanBuffer> for Array {
+impl From<BooleanBuffer> for ArrayRef {
     fn from(value: BooleanBuffer) -> Self {
         BoolArray::new(value, Nullability::NonNullable).into_array()
     }
 }
 
-impl<T> From<ScalarBuffer<T>> for Array
+impl<T> From<ScalarBuffer<T>> for ArrayRef
 where
     T: ArrowNativeType + NativePType,
 {
@@ -60,7 +60,7 @@ where
     }
 }
 
-impl<O> From<OffsetBuffer<O>> for Array
+impl<O> From<OffsetBuffer<O>> for ArrayRef
 where
     O: NativePType + OffsetSizeTrait,
 {
@@ -75,7 +75,7 @@ where
     }
 }
 
-impl<T: ArrowPrimitiveType> FromArrowArray<&ArrowPrimitiveArray<T>> for Array
+impl<T: ArrowPrimitiveType> FromArrowArray<&ArrowPrimitiveArray<T>> for ArrayRef
 where
     <T as ArrowPrimitiveType>::Native: NativePType,
 {
@@ -109,7 +109,7 @@ where
     }
 }
 
-impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for Array
+impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayRef
 where
     <T as ByteArrayType>::Offset: NativePType,
 {
@@ -130,7 +130,7 @@ where
     }
 }
 
-impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for Array {
+impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
     fn from_arrow(value: &GenericByteViewArray<T>, nullable: bool) -> Self {
         let dtype = match T::DATA_TYPE {
             DataType::BinaryView => DType::Binary(nullable.into()),
@@ -157,7 +157,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for Array {
     }
 }
 
-impl FromArrowArray<&ArrowBooleanArray> for Array {
+impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
         BoolArray::try_new(value.values().clone(), nulls(value.nulls(), nullable))
             .vortex_expect("Validity length cannot mismatch")
@@ -165,7 +165,7 @@ impl FromArrowArray<&ArrowBooleanArray> for Array {
     }
 }
 
-impl FromArrowArray<&ArrowStructArray> for Array {
+impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
         StructArray::try_new(
             value.column_names().iter().map(|s| (*s).into()).collect(),
@@ -183,7 +183,7 @@ impl FromArrowArray<&ArrowStructArray> for Array {
     }
 }
 
-impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for Array {
+impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayRef {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
         // Extract the validity of the underlying element array
         let elem_nullable = match value.data_type() {
@@ -194,7 +194,7 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
         ListArray::try_new(
             Self::from_arrow(value.values().clone(), elem_nullable),
             // offsets are always non-nullable
-            Array::from(value.offsets().clone()),
+            ArrayRef::from(value.offsets().clone()),
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
@@ -202,7 +202,7 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
     }
 }
 
-impl FromArrowArray<&ArrowNullArray> for Array {
+impl FromArrowArray<&ArrowNullArray> for ArrayRef {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
         assert!(nullable);
         NullArray::new(value.len()).into_array()
@@ -226,7 +226,7 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
     }
 }
 
-impl FromArrowArray<ArrowArrayRef> for Array {
+impl FromArrowArray<ArrowArrayRef> for ArrayRef {
     fn from_arrow(array: ArrowArrayRef, nullable: bool) -> Self {
         match array.data_type() {
             DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),

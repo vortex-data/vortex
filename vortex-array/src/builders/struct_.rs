@@ -10,7 +10,7 @@ use crate::arrays::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayRef, Canonical, IntoArray, IntoCanonical};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
@@ -96,7 +96,7 @@ impl ArrayBuilder for StructBuilder {
         self.validity.append_value(false);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         let array = array.into_canonical()?;
         let Canonical::Struct(array) = array else {
             vortex_bail!("Expected Canonical::Struct, found {:?}", array);
@@ -135,7 +135,7 @@ impl ArrayBuilder for StructBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         let len = self.len();
         let fields = self
             .builders

@@ -3,7 +3,7 @@ use vortex_error::{VortexError, VortexResult};
 use crate::compute::{min_max, MinMaxResult};
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
-use crate::Array;
+use crate::ArrayRef;
 
 /// Encoding VTable for computing array statistics.
 pub trait StatisticsVTable<Array: ?Sized> {
@@ -13,18 +13,18 @@ pub trait StatisticsVTable<Array: ?Sized> {
     }
 }
 
-impl<E: Encoding + 'static> StatisticsVTable<Array> for E
+impl<E: Encoding + 'static> StatisticsVTable<ArrayRef> for E
 where
     E: StatisticsVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn compute_statistics(&self, array: &Array, stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, array: &ArrayRef, stat: Stat) -> VortexResult<StatsSet> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }
 }
 
-impl Array {
+impl ArrayRef {
     /// Computes ths statistics for the given array and stat. This will update the stats of the array
     /// and return this [`StatsSet`].
     ///

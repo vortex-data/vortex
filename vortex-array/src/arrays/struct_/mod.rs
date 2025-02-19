@@ -15,9 +15,9 @@ use crate::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
+use crate::{impl_encoding, ArrayRef, Canonical, IntoArray, RkyvMetadata};
 
-mod compute;
+// mod compute;
 
 impl_encoding!(
     "vortex.struct",
@@ -49,7 +49,7 @@ impl StructArray {
         })
     }
 
-    pub fn fields(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn fields(&self) -> impl Iterator<Item =ArrayRef> + '_ {
         (0..self.nfields()).map(move |idx| {
             self.maybe_null_field_by_idx(idx)
                 .vortex_expect("never out of bounds")
@@ -58,7 +58,7 @@ impl StructArray {
 
     pub fn try_new(
         names: FieldNames,
-        mut fields: Vec<Array>,
+        mut fields: Vec<ArrayRef>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -97,9 +97,9 @@ impl StructArray {
         )
     }
 
-    pub fn from_fields<N: AsRef<str>>(items: &[(N, Array)]) -> VortexResult<Self> {
+    pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
-        let fields: Vec<Array> = items.iter().map(|(_, array)| array.clone()).collect();
+        let fields: Vec<ArrayRef> = items.iter().map(|(_, array)| array.clone()).collect();
         let len = fields
             .first()
             .map(|f| f.len())
@@ -157,7 +157,7 @@ impl VariantsVTable<StructArray> for StructEncoding {
 }
 
 impl StructArrayTrait for StructArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {
         let dtype = self
             .dtype()
             .as_struct()
@@ -166,7 +166,7 @@ impl StructArrayTrait for StructArray {
         self.child(idx, &dtype, self.len())
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef> {
         self.project(projection).map(|a| a.into_array())
     }
 }

@@ -6,7 +6,7 @@ use bit_vec::BitVec;
 use exponential_decay_histogram::ExponentialDecayHistogram;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::{FieldName, StructDType};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::forms::cnf::cnf;
@@ -114,7 +114,7 @@ impl FilterExpr {
     ///
     /// If we already have fields for a certain conjunct, we choose to evaluate it. Otherwise,
     /// we pick the first conjunct that we prefer based on our ordering.
-    fn next_conjunct(&self, remaining: &BitVec, fetched_fields: &[Option<Array>]) -> Option<usize> {
+    fn next_conjunct(&self, remaining: &BitVec, fetched_fields: &[Option<ArrayRef>]) -> Option<usize> {
         let read = self.ordering.read().vortex_expect("poisoned lock");
 
         // First try to find a conjunct that we've already fetched fields for.
@@ -191,7 +191,7 @@ pub struct FilterEvaluation {
     /// The parent filter expression.
     filter_expr: Arc<FilterExpr>,
     /// The fields that have been read.
-    field_arrays: Vec<Option<Array>>,
+    field_arrays: Vec<Option<ArrayRef>>,
     /// The conjunctions remaining to be evaluated.
     remaining: BitVec,
     /// The current pruning mask.

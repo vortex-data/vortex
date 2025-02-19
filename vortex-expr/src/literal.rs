@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -38,7 +38,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
 

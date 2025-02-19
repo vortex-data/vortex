@@ -32,7 +32,7 @@ use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::{ArrayRef, IntoArray, IntoArrayVariant};
 
 feature_flagged_allocator!();
 
@@ -110,7 +110,7 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 }
 
 #[inline(never)]
-fn vortex_compress_write(runtime: &Runtime, array: &Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
+fn vortex_compress_write(runtime: &Runtime, array: &ArrayRef, buf: &mut Vec<u8>) -> VortexResult<u64> {
     runtime
         .block_on(async {
             VortexWriteOptions::default()
@@ -136,7 +136,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
     })
 }
 
-fn vortex_compressed_written_size(runtime: &Runtime, array: &Array) -> VortexResult<u64> {
+fn vortex_compressed_written_size(runtime: &Runtime, array: &ArrayRef) -> VortexResult<u64> {
     vortex_compress_write(runtime, array, &mut Vec::new())
 }
 
@@ -148,7 +148,7 @@ fn benchmark_compress<F, U>(
     bench_name: &str,
 ) where
     F: Fn() -> U,
-    U: AsRef<Array>,
+    U: AsRef<ArrayRef>,
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {

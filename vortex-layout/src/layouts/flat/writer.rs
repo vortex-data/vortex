@@ -1,6 +1,6 @@
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -49,7 +49,7 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &Array, stats: &[Stat]) {
+fn retain_only_stats(array: &ArrayRef, stats: &[Stat]) {
     array.statistics().retain_only(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
@@ -57,7 +57,7 @@ fn retain_only_stats(array: &Array, stats: &[Stat]) {
 }
 
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()> {
         if self.layout.is_some() {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }

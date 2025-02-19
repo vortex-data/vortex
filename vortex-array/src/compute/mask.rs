@@ -7,19 +7,19 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
 pub trait MaskFn<A> {
     /// Replace masked values with null in array.
-    fn mask(&self, array: &A, mask: Mask) -> VortexResult<Array>;
+    fn mask(&self, array: &A, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> MaskFn<Array> for E
+impl<E: Encoding> MaskFn<ArrayRef> for E
 where
     E: MaskFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn mask(&self, array: &Array, mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         MaskFn::mask(encoding, array_ref, mask)
     }
@@ -55,7 +55,7 @@ where
 /// assert!(!masked.is_valid(4).unwrap());
 /// ```
 ///
-pub fn mask(array: &Array, mask: Mask) -> VortexResult<Array> {
+pub fn mask(array: &ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -99,7 +99,7 @@ pub fn mask(array: &Array, mask: Mask) -> VortexResult<Array> {
     Ok(masked)
 }
 
-fn mask_impl(array: &Array, mask: Mask) -> VortexResult<Array> {
+fn mask_impl(array: &ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
     if let Some(mask_fn) = array.vtable().mask_fn() {
         return mask_fn.mask(array, mask);
     }
@@ -112,7 +112,7 @@ fn mask_impl(array: &Array, mask: Mask) -> VortexResult<Array> {
 
     let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
-    Ok(Array::from_arrow(masked, true))
+    Ok(ArrayRef::from_arrow(masked, true))
 }
 
 #[cfg(feature = "test-harness")]
@@ -121,9 +121,9 @@ pub mod test_harness {
 
     use crate::arrays::BoolArray;
     use crate::compute::{mask, scalar_at};
-    use crate::{Array, IntoArray};
+    use crate::{ArrayRef, IntoArray};
 
-    pub fn test_mask(array: Array) {
+    pub fn test_mask(array: ArrayRef) {
         assert_eq!(array.len(), 5);
         test_heterogenous_mask(&array);
         test_empty_mask(&array);
@@ -131,7 +131,7 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    fn test_heterogenous_mask(array: &Array) {
+    fn test_heterogenous_mask(array: &ArrayRef) {
         let mask_array =
             Mask::try_from(BoolArray::from_iter([true, false, false, true, true]).into_array())
                 .unwrap();
@@ -151,7 +151,7 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    fn test_empty_mask(array: &Array) {
+    fn test_empty_mask(array: &ArrayRef) {
         let all_unmasked =
             Mask::try_from(BoolArray::from_iter([false, false, false, false, false]).into_array())
                 .unwrap();
@@ -180,7 +180,7 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    fn test_full_mask(array: &Array) {
+    fn test_full_mask(array: &ArrayRef) {
         let all_masked =
             Mask::try_from(BoolArray::from_iter([true, true, true, true, true]).into_array())
                 .unwrap();

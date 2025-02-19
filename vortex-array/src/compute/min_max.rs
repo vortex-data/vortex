@@ -2,7 +2,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat, Statistics};
-use crate::{Array, Encoding, IntoCanonical};
+use crate::{Array, ArrayRef, Encoding, IntoCanonical};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinMaxResult {
@@ -16,12 +16,12 @@ pub trait MinMaxFn<A> {
     fn min_max(&self, array: &A) -> VortexResult<Option<MinMaxResult>>;
 }
 
-impl<E: Encoding> MinMaxFn<Array> for E
+impl<E: Encoding> MinMaxFn<ArrayRef> for E
 where
     E: MinMaxFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn min_max(&self, array: &Array) -> VortexResult<Option<MinMaxResult>> {
+    fn min_max(&self, array: &ArrayRef) -> VortexResult<Option<MinMaxResult>> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         MinMaxFn::min_max(encoding, array_ref)
     }
@@ -33,7 +33,7 @@ where
 /// The return value dtype is the non-nullable version of the array dtype
 ///
 /// This will update the stats set of this array (as a side effect).
-pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
+pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
     let array = array.as_ref();
 
     let min = array

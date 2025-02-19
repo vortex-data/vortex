@@ -13,7 +13,7 @@ use crate::vtable::{
 };
 use crate::{impl_encoding, Canonical, EmptyMetadata};
 
-mod compute;
+// mod compute;
 
 impl_encoding!("vortex.null", encoding_ids::NULL, Null, EmptyMetadata);
 

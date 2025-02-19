@@ -9,11 +9,11 @@ use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
-fuzz_target!(|array_data: Array| -> Corpus {
+fuzz_target!(|array_data: ArrayRef| -> Corpus {
     if !array_data.dtype().is_struct() {
         return Corpus::Reject;
     }
@@ -69,7 +69,7 @@ fuzz_target!(|array_data: Array| -> Corpus {
     Corpus::Keep
 });
 
-fn compare_struct(expected: Array, actual: Array) {
+fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
     assert_eq!(
         expected.dtype(),
         actual.dtype(),

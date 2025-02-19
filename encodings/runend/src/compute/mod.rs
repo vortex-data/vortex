@@ -11,40 +11,40 @@ use vortex_array::compute::{
     BinaryNumericFn, CompareFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 
 use crate::RunEndEncoding;
 
 impl ComputeVTable for RunEndEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<Array>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayRef>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
         Some(self)
     }
 
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<Array>> {
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayRef>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 }

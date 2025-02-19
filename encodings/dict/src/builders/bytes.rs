@@ -6,7 +6,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, RandomState};
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -73,7 +73,7 @@ impl BytesDictBuilder {
         &mut self,
         accessor: A,
         len: usize,
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayRef> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<u64> = BufferMut::with_capacity(len);
 
@@ -116,7 +116,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode(&mut self, array: &Array) -> VortexResult<Array> {
+    fn encode(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         if &self.dtype != array.dtype() {
             vortex_bail!(
                 "Array DType {} does not match builder dtype {}",
@@ -137,7 +137,7 @@ impl DictEncoder for BytesDictBuilder {
         Ok(codes)
     }
 
-    fn values(&mut self) -> VortexResult<Array> {
+    fn values(&mut self) -> VortexResult<ArrayRef> {
         VarBinViewArray::try_new(
             self.views.clone().freeze(),
             vec![self.values.clone().freeze()],

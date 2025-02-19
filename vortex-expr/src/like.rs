@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{like, LikeOptions};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -62,7 +62,7 @@ impl VortexExpr for Like {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         let child = self.child().evaluate(batch)?;
         let pattern = self.pattern().evaluate(&child)?;
         like(

@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::Array;
+use crate::ArrayRef;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SearchSortedSide {
@@ -153,14 +153,14 @@ pub trait SearchSortedUsizeFn<A> {
     }
 }
 
-impl<E: Encoding> SearchSortedFn<Array> for E
+impl<E: Encoding> SearchSortedFn<ArrayRef> for E
 where
     E: SearchSortedFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
     fn search_sorted(
         &self,
-        array: &Array,
+        array: &ArrayRef,
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
@@ -170,7 +170,7 @@ where
 
     fn search_sorted_many(
         &self,
-        array: &Array,
+        array: &ArrayRef,
         values: &[Scalar],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
@@ -179,14 +179,14 @@ where
     }
 }
 
-impl<E: Encoding> SearchSortedUsizeFn<Array> for E
+impl<E: Encoding> SearchSortedUsizeFn<ArrayRef> for E
 where
     E: SearchSortedUsizeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
     fn search_sorted_usize(
         &self,
-        array: &Array,
+        array: &ArrayRef,
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
@@ -196,7 +196,7 @@ where
 
     fn search_sorted_usize_many(
         &self,
-        array: &Array,
+        array: &ArrayRef,
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
@@ -206,7 +206,7 @@ where
 }
 
 pub fn search_sorted<T: Into<Scalar>>(
-    array: &Array,
+    array: &ArrayRef,
     target: T,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
@@ -236,7 +236,7 @@ pub fn search_sorted<T: Into<Scalar>>(
 }
 
 pub fn search_sorted_usize(
-    array: &Array,
+    array: &ArrayRef,
     target: usize,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
@@ -272,7 +272,7 @@ pub fn search_sorted_usize(
 
 /// Search for many elements in the array.
 pub fn search_sorted_many<T: Into<Scalar> + Clone>(
-    array: &Array,
+    array: &ArrayRef,
     targets: &[T],
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
@@ -307,7 +307,7 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
 
 // Native functions for each of the values, cast up to u64 or down to something lower.
 pub fn search_sorted_usize_many(
-    array: &Array,
+    array: &ArrayRef,
     targets: &[usize],
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
@@ -475,7 +475,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
     }
 }
 
-impl IndexOrd<Scalar> for Array {
+impl IndexOrd<Scalar> for ArrayRef {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> Option<Ordering> {
         let scalar_a = scalar_at(self, idx).ok()?;
         scalar_a.partial_cmp(elem)
@@ -489,7 +489,7 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
     }
 }
 
-impl Len for Array {
+impl Len for ArrayRef {
     #[allow(clippy::same_name_method)]
     fn len(&self) -> usize {
         Self::len(self)

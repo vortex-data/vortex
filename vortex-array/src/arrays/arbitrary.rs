@@ -14,9 +14,9 @@ use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, Str
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{builders, Array, IntoArray as _, IntoArrayVariant};
+use crate::{builders, ArrayRef, IntoArray as _, IntoArrayVariant};
 
-impl<'a> Arbitrary<'a> for Array {
+impl<'a> Arbitrary<'a> for ArrayRef {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let dtype = u.arbitrary()?;
         random_array(u, &dtype, None)
@@ -32,7 +32,7 @@ fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
         .collect()
 }
 
-fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Array> {
+fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<ArrayRef> {
     let num_chunks = u.int_in_range(1..=3)?;
     let chunk_lens = len.map(|l| split_number_into_parts(l, num_chunks));
     let mut chunks = (0..num_chunks)
@@ -118,7 +118,7 @@ fn random_list(
     ldt: &Arc<DType>,
     n: Nullability,
     chunk_len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayRef> {
     match u.int_in_range(0..=5)? {
         0 => random_list_offset::<i16>(u, ldt, n, chunk_len),
         1 => random_list_offset::<i32>(u, ldt, n, chunk_len),
@@ -135,7 +135,7 @@ fn random_list_offset<O: OffsetPType>(
     ldt: &Arc<DType>,
     n: Nullability,
     chunk_len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayRef> {
     let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
     let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), n, 10);
     for _ in 0..list_len {
@@ -166,7 +166,7 @@ fn random_string(
     u: &mut Unstructured,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayRef> {
     match nullability {
         Nullability::NonNullable => {
             let v = arbitrary_vec_of_len::<String>(u, len)?;
@@ -191,7 +191,7 @@ fn random_bytes(
     u: &mut Unstructured,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayRef> {
     match nullability {
         Nullability::NonNullable => {
             let v = arbitrary_vec_of_len::<Vec<u8>>(u, len)?;
@@ -216,7 +216,7 @@ fn random_primitive<'a, T: Arbitrary<'a> + NativePType>(
     u: &mut Unstructured<'a>,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len::<T>(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
     Ok(PrimitiveArray::new(Buffer::copy_from(v), validity).into_array())
@@ -226,7 +226,7 @@ fn random_bool(
     u: &mut Unstructured,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
     Ok(BoolArray::try_new(BooleanBuffer::from(v), validity)

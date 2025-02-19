@@ -22,10 +22,10 @@ use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, Array, IntoArray, IntoCanonical, RkyvMetadata};
+use crate::{impl_encoding, ArrayRef, IntoArray, IntoCanonical, RkyvMetadata};
 
 mod canonical;
-mod compute;
+// mod compute;
 mod stats;
 mod variants;
 
@@ -52,7 +52,7 @@ impl Display for ChunkedMetadata {
 impl ChunkedArray {
     const ENDS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 
-    pub fn try_new(chunks: Vec<Array>, dtype: DType) -> VortexResult<Self> {
+    pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
@@ -62,7 +62,7 @@ impl ChunkedArray {
         Ok(Self::try_new_unchecked(chunks, dtype))
     }
 
-    pub fn try_new_unchecked(chunks: Vec<Array>, dtype: DType) -> Self {
+    pub fn try_new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 
         let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
@@ -89,7 +89,7 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk(&self, idx: usize) -> VortexResult<Array> {
+    pub fn chunk(&self, idx: usize) -> VortexResult<ArrayRef> {
         if idx >= self.nchunks() {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
@@ -108,7 +108,7 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> Array {
+    pub fn chunk_offsets(&self) -> ArrayRef {
         self.as_ref()
             .child(0, &Self::ENDS_DTYPE, self.nchunks() + 1)
             .vortex_expect("Missing chunk ends in ChunkedArray")
@@ -132,7 +132,7 @@ impl ChunkedArray {
         (index_chunk, index_in_chunk)
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn chunks(&self) -> impl Iterator<Item =ArrayRef> + '_ {
         (0..self.nchunks()).map(|c| {
             self.chunk(c).unwrap_or_else(|e| {
                 vortex_panic!(
@@ -145,7 +145,7 @@ impl ChunkedArray {
         })
     }
 
-    pub fn non_empty_chunks(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn non_empty_chunks(&self) -> impl Iterator<Item =ArrayRef> + '_ {
         self.chunks().filter(|c| !c.is_empty())
     }
 
@@ -205,9 +205,9 @@ impl ChunkedArray {
 
 impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
 
-impl FromIterator<Array> for ChunkedArray {
-    fn from_iter<T: IntoIterator<Item = Array>>(iter: T) -> Self {
-        let chunks: Vec<Array> = iter.into_iter().collect();
+impl FromIterator<ArrayRef> for ChunkedArray {
+    fn from_iter<T: IntoIterator<Item =ArrayRef>>(iter: T) -> Self {
+        let chunks: Vec<ArrayRef> = iter.into_iter().collect();
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())

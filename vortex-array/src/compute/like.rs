@@ -3,30 +3,30 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::Array;
+use crate::ArrayRef;
 
 pub trait LikeFn<A> {
-    fn like(&self, array: A, pattern: &Array, options: LikeOptions) -> VortexResult<Option<Array>>;
+    fn like(&self, array: A, pattern: &ArrayRef, options: LikeOptions) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> LikeFn<Array> for E
+impl<E: Encoding> LikeFn<ArrayRef> for E
 where
     E: LikeFn<E::Array>,
-    E::Array: TryFrom<Array, Error = VortexError>,
+    E::Array: TryFrom<ArrayRef, Error = VortexError>,
 {
     fn like(
         &self,
-        array: Array,
-        pattern: &Array,
+        array: ArrayRef,
+        pattern: &ArrayRef,
         options: LikeOptions,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let encoding = array.vtable().clone();
         LikeFn::like(
             encoding
                 .as_any()
                 .downcast_ref::<E>()
                 .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
-            <E::Array as TryFrom<Array>>::try_from(array)?,
+            <E::Array as TryFrom<ArrayRef>>::try_from(array)?,
             pattern,
             options,
         )
@@ -45,7 +45,7 @@ pub struct LikeOptions {
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult<Array> {
+pub fn like(array: ArrayRef, pattern: &ArrayRef, options: LikeOptions) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -97,10 +97,10 @@ pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: Array,
-    pattern: &Array,
+    array: ArrayRef,
+    pattern: &ArrayRef,
     options: LikeOptions,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayRef> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
     debug_assert_eq!(

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use vortex_array::compute::{filter, slice};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
@@ -9,7 +9,7 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
+    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
         assert!(row_mask.true_count() > 0);
 
         let mut array = self.array().await?.clone();

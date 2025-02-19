@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, VortexResult};
 
@@ -56,7 +56,7 @@ impl VortexExpr for GetItem {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
         let child = self.child.evaluate(batch)?;
         child
             .as_struct_array()

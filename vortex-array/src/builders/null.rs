@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{ArrayRef, IntoArray, IntoCanonical};
 
 pub struct NullBuilder {
     length: usize,
@@ -48,13 +48,13 @@ impl ArrayBuilder for NullBuilder {
         self.length += n;
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
         let array = array.into_canonical()?.into_null()?;
         self.append_nulls(array.len());
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         NullArray::new(self.length).into_array()
     }
 }

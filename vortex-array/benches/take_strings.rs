@@ -3,7 +3,7 @@
 use divan::Bencher;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::compute::take;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 
@@ -42,6 +42,6 @@ fn fixture(len: usize) -> VarBinArray {
 }
 
 // Fraction of the indices to take.
-fn indices(len: usize) -> Array {
+fn indices(len: usize) -> ArrayRef {
     Buffer::from_iter((0..len).filter_map(|x| (x % 2 == 0).then_some(x as u64))).into_array()
 }

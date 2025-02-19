@@ -7,7 +7,7 @@ use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
-use crate::{Array, IntoArray, SparseArray, SparseEncoding};
+use crate::{ArrayRef, IntoArray, SparseArray, SparseEncoding};
 
 /// Sparse arrays support all DTypes
 impl VariantsVTable<SparseArray> for SparseEncoding {
@@ -61,7 +61,7 @@ impl Utf8ArrayTrait for SparseArray {}
 impl BinaryArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {
         let new_patches = self.patches().map_values(|values| {
             values
                 .as_struct_array()
@@ -73,7 +73,7 @@ impl StructArrayTrait for SparseArray {
         Ok(SparseArray::try_new_from_patches(new_patches, self.len(), scalar)?.into_array())
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef> {
         let new_patches = self.patches().map_values(|values| {
             values
                 .as_struct_array()
@@ -90,7 +90,7 @@ impl StructArrayTrait for SparseArray {
 impl ListArrayTrait for SparseArray {}
 
 impl ExtensionArrayTrait for SparseArray {
-    fn storage_data(&self) -> Array {
+    fn storage_data(&self) -> ArrayRef {
         SparseArray::try_new_from_patches(
             self.patches()
                 .map_values(|values| {

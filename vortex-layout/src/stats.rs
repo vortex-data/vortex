@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -58,7 +58,7 @@ impl FileStatsLayoutWriter {
 }
 
 impl LayoutWriter for FileStatsLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()> {
         match chunk.as_struct_array() {
             None => {
                 self.stats_accumulators[0].push_chunk(&chunk)?;

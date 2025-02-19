@@ -5,40 +5,40 @@ use vortex_scalar::{BinaryNumericOperator, Scalar};
 use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray as _};
+use crate::{Array, ArrayRef, IntoArray as _};
 
 pub trait BinaryNumericFn<A> {
     fn binary_numeric(
         &self,
         array: &A,
-        other: &Array,
+        other: &ArrayRef,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>>;
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryNumericFn<Array> for E
+impl<E: Encoding> BinaryNumericFn<ArrayRef> for E
 where
     E: BinaryNumericFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
     fn binary_numeric(
         &self,
-        lhs: &Array,
-        rhs: &Array,
+        lhs: &ArrayRef,
+        rhs: &ArrayRef,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
         BinaryNumericFn::binary_numeric(encoding, array_ref, rhs, op)
     }
 }
 
 /// Point-wise add two numeric arrays.
-pub fn add(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Add)
 }
 
 /// Point-wise add a scalar value to this array on the right-hand-side.
-pub fn add_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
+pub fn add_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
@@ -48,12 +48,12 @@ pub fn add_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
 }
 
 /// Point-wise subtract two numeric arrays.
-pub fn sub(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn sub(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Sub)
 }
 
 /// Point-wise subtract a scalar value from this array on the right-hand-side.
-pub fn sub_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
+pub fn sub_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
@@ -63,12 +63,12 @@ pub fn sub_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
 }
 
 /// Point-wise multiply two numeric arrays.
-pub fn mul(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn mul(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Mul)
 }
 
 /// Point-wise multiply a scalar value into this array on the right-hand-side.
-pub fn mul_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
+pub fn mul_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
@@ -78,12 +78,12 @@ pub fn mul_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
 }
 
 /// Point-wise divide two numeric arrays.
-pub fn div(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn div(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Div)
 }
 
 /// Point-wise divide a scalar value into this array on the right-hand-side.
-pub fn div_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
+pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
@@ -92,7 +92,11 @@ pub fn div_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
     )
 }
 
-pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> VortexResult<Array> {
+pub fn binary_numeric(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    op: BinaryNumericOperator,
+) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {
         vortex_bail!(
             "Numeric operations aren't supported on arrays of different lengths {} {}",
@@ -142,7 +146,11 @@ pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> Vo
 ///
 /// Note that other encodings should handle a constant RHS value, so we can assume here that
 /// the RHS is not constant and expand to a full array.
-fn arrow_numeric(lhs: Array, rhs: Array, operator: BinaryNumericOperator) -> VortexResult<Array> {
+fn arrow_numeric(
+    lhs: ArrayRef,
+    rhs: ArrayRef,
+    operator: BinaryNumericOperator,
+) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
@@ -164,7 +172,7 @@ fn arrow_numeric(lhs: Array, rhs: Array, operator: BinaryNumericOperator) -> Vor
 }
 
 #[inline(always)]
-fn check_numeric_result(result: &Array, lhs: &Array, rhs: &Array) {
+fn check_numeric_result(result: &ArrayRef, lhs: &ArrayRef, rhs: &ArrayRef) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -192,10 +200,10 @@ pub mod test_harness {
 
     use crate::arrays::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{Array, IntoArray as _, IntoCanonical};
+    use crate::{ArrayRef, IntoArray as _, IntoCanonical};
 
     #[allow(clippy::unwrap_used)]
-    fn to_vec_of_scalar(array: &Array) -> Vec<Scalar> {
+    fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
         // Not fast, but obviously correct
         (0..array.len())
             .map(|index| scalar_at(array, index))
@@ -204,7 +212,7 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: Array)
+    pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
     where
         Scalar: From<T>,
     {

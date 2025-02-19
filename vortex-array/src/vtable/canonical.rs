@@ -3,7 +3,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::{Array, Canonical, IntoArray};
+use crate::{ArrayRef, Canonical, IntoArray};
 
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
@@ -17,12 +17,12 @@ pub trait CanonicalVTable<Array> {
     }
 }
 
-impl<E: Encoding> CanonicalVTable<Array> for E
+impl<E: Encoding> CanonicalVTable<ArrayRef> for E
 where
     E: CanonicalVTable<E::Array>,
-    E::Array: TryFrom<Array, Error = VortexError>,
+    E::Array: TryFrom<ArrayRef, Error = VortexError>,
 {
-    fn into_canonical(&self, data: Array) -> VortexResult<Canonical> {
+    fn into_canonical(&self, data: ArrayRef) -> VortexResult<Canonical> {
         let encoding = data.vtable().clone();
         CanonicalVTable::into_canonical(
             encoding
@@ -33,7 +33,7 @@ where
         )
     }
 
-    fn canonicalize_into(&self, array: Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn canonicalize_into(&self, array: ArrayRef, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let encoding = array.vtable().clone();
         CanonicalVTable::canonicalize_into(
             encoding

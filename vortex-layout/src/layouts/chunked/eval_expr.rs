@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
@@ -11,7 +11,7 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
+    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;
 

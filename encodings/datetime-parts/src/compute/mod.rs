@@ -7,7 +7,7 @@ use vortex_array::compute::{
     scalar_at, slice, CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
@@ -18,33 +18,33 @@ use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayRef>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
         Some(self)
     }
 }
 
 impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn slice(&self, array: &DateTimePartsArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &DateTimePartsArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
             slice(array.days(), start, stop)?,

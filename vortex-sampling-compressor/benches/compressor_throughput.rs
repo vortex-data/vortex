@@ -5,7 +5,7 @@ use divan::Bencher;
 use rand::{Rng, SeedableRng};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::try_cast;
-use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::PType;
 use vortex_error::vortex_panic;
@@ -64,7 +64,7 @@ fn decompress(bencher: Bencher, (compressor, ptype): (CompressorRef, PType)) {
         .bench_values(|compressed| compressed.into_canonical().unwrap())
 }
 
-fn fixture(ptype: PType) -> Array {
+fn fixture(ptype: PType) -> ArrayRef {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     let uint_array =
         Buffer::from_iter((0..u16::MAX as u64).map(|_| rng.gen_range(0u32..256))).into_array();

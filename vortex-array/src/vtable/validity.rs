@@ -2,7 +2,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::Encoding;
-use crate::Array;
+use crate::ArrayRef;
 
 pub trait ValidityVTable<Array> {
     /// Returns whether the `index` item is valid.
@@ -26,12 +26,12 @@ pub trait ValidityVTable<Array> {
     fn validity_mask(&self, array: &Array) -> VortexResult<Mask>;
 }
 
-impl<E: Encoding> ValidityVTable<Array> for E
+impl<E: Encoding> ValidityVTable<ArrayRef> for E
 where
     E: ValidityVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
 {
-    fn is_valid(&self, array: &Array, index: usize) -> VortexResult<bool> {
+    fn is_valid(&self, array: &ArrayRef, index: usize) -> VortexResult<bool> {
         let (array_ref, encoding) = array
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
@@ -39,28 +39,28 @@ where
         ValidityVTable::is_valid(encoding, array_ref, index)
     }
 
-    fn all_valid(&self, array: &Array) -> VortexResult<bool> {
+    fn all_valid(&self, array: &ArrayRef) -> VortexResult<bool> {
         let (array_ref, encoding) = array
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         ValidityVTable::all_valid(encoding, array_ref)
     }
 
-    fn all_invalid(&self, array: &Array) -> VortexResult<bool> {
+    fn all_invalid(&self, array: &ArrayRef) -> VortexResult<bool> {
         let (array_ref, encoding) = array
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         ValidityVTable::all_invalid(encoding, array_ref)
     }
 
-    fn invalid_count(&self, array: &Array) -> VortexResult<usize> {
+    fn invalid_count(&self, array: &ArrayRef) -> VortexResult<usize> {
         let (array_ref, encoding) = array
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         ValidityVTable::invalid_count(encoding, array_ref)
     }
 
-    fn validity_mask(&self, array: &Array) -> VortexResult<Mask> {
+    fn validity_mask(&self, array: &ArrayRef) -> VortexResult<Mask> {
         let (array_ref, encoding) = array
             .try_downcast_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
