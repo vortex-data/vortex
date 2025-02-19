@@ -34,13 +34,7 @@ impl Compressor for FloatCompressor {
     type StatsType = FloatStats;
 
     fn schemes() -> &'static [&'static Self::SchemeType] {
-        &[
-            &UncompressedScheme,
-            &ConstantScheme,
-            &ALPScheme,
-            &ALPRDScheme,
-            &DictScheme,
-        ]
+        &[&ConstantScheme, &ALPScheme, &ALPRDScheme, &DictScheme]
     }
 
     fn default_scheme() -> &'static Self::SchemeType {

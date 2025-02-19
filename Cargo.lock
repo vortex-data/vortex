@@ -5596,7 +5596,9 @@ dependencies = [
 name = "vortex-sparse"
 version = "0.24.0"
 dependencies = [
+ "codspeed-divan-compat",
  "itertools 0.14.0",
+ "rand",
  "rkyv",
  "rstest",
  "serde",

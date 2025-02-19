@@ -1,6 +1,6 @@
 mod builder;
 
-use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, NullArray, PrimitiveArray};
 use vortex_array::builders::{ArrayBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -8,8 +8,8 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Canonical, IntoCanonical};
 use vortex_buffer::buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::canonical::builder::{canonicalize_bool_into, canonicalize_primitive_into};
@@ -22,16 +22,18 @@ impl CanonicalVTable<SparseArray> for SparseEncoding {
             return ConstantArray::new(array.fill_scalar(), array.len()).into_canonical();
         }
 
-        if matches!(array.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(resolved_patches, &array.fill_scalar())
-        } else {
-            let ptype = PType::try_from(resolved_patches.values().dtype())?;
-            match_each_native_ptype!(ptype, |$P| {
-                canonicalize_sparse_primitives::<$P>(
-                    resolved_patches,
-                    &array.fill_scalar(),
-                )
-            })
+        match array.dtype() {
+            DType::Null => Ok(Canonical::Null(NullArray::new(array.len()))),
+            DType::Bool(_) => canonicalize_sparse_bools(resolved_patches, &array.fill_scalar()),
+            DType::Primitive(ptype, _) => {
+                match_each_native_ptype!(ptype, |$P| {
+                        canonicalize_sparse_primitives::<$P>(
+                        resolved_patches,
+                        &array.fill_scalar(),
+                    )
+                })
+            }
+            dtype => vortex_bail!("unsupported DType for SparseArray: {dtype}"),
         }
     }
 
@@ -59,7 +61,7 @@ impl CanonicalVTable<SparseArray> for SparseEncoding {
                     canonicalize_primitive_into(&array, builder)?;
                 });
             }
-            _ => unreachable!("unsupported SparseArray dtype {}", array.dtype()),
+            dtype => vortex_bail!("unsupported DType for SparseArray: {dtype}"),
         }
         Ok(())
     }

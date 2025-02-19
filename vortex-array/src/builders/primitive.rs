@@ -126,10 +126,10 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
         self.values.extend(iter);
-        self.extend_validity(mask)
+        self.extend_with_validity_mask(mask)
     }
 
-    fn extend_validity(&mut self, validity_mask: Mask) {
+    fn extend_with_validity_mask(&mut self, validity_mask: Mask) {
         self.nulls.append_validity_mask(validity_mask);
     }
 }
@@ -169,7 +169,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         self.values.extend_from_slice(array.as_slice::<T>());
 
-        self.extend_validity(array.validity_mask()?);
+        self.extend_with_validity_mask(array.validity_mask()?);
 
         Ok(())
     }
