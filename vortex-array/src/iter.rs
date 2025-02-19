@@ -1,10 +1,49 @@
+//! Iterator over slices of an array, and related utilities.
+
 use itertools::Itertools;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::arrays::ChunkedArray;
-use crate::iter::ArrayIterator;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::{Array, IntoArray};
+
+/// A stream of array chunks along with a DType.
+/// Analogous to Arrow's RecordBatchReader.
+pub trait ArrayIterator: Iterator<Item = VortexResult<Array>> {
+    fn dtype(&self) -> &DType;
+}
+
+pub struct ArrayIteratorAdapter<I> {
+    dtype: DType,
+    inner: I,
+}
+
+impl<I> ArrayIteratorAdapter<I> {
+    pub fn new(dtype: DType, inner: I) -> Self {
+        Self { dtype, inner }
+    }
+}
+
+impl<I> Iterator for ArrayIteratorAdapter<I>
+where
+    I: Iterator<Item = VortexResult<Array>>,
+{
+    type Item = VortexResult<Array>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+impl<I> ArrayIterator for ArrayIteratorAdapter<I>
+where
+    I: Iterator<Item = VortexResult<Array>>,
+{
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
 
 pub trait ArrayIteratorExt: ArrayIterator {
     fn into_stream(self) -> impl ArrayStream

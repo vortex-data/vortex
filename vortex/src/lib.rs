@@ -1,3 +1,5 @@
+#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"))]
+
 pub use vortex_array::*;
 pub use {
     vortex_buffer as buffer, vortex_datetime_dtype as datetime_dtype, vortex_dtype as dtype,

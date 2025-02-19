@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::partial_min;
+use crate::partial_ord::partial_min;
 use crate::stats::bound::IntersectionResult;
 use crate::stats::{LowerBound, Precision, Stat};
 

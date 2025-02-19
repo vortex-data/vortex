@@ -39,6 +39,7 @@ where
     fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
+/// Empty array metadata
 pub struct EmptyMetadata;
 impl ArrayMetadata for EmptyMetadata {}
 

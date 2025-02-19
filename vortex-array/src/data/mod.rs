@@ -18,8 +18,9 @@ use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::visitor::{ChildrenVisitor, NamedChildrenVisitor};
 use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
+use crate::{ArrayChildrenIterator, ContextRef};
 
 mod owned;
 mod statistics;
@@ -274,22 +275,22 @@ impl Array {
         match &self.0 {
             InnerArray::Owned(d) => d.children.to_vec(),
             InnerArray::Viewed(_) => {
-                let mut collector = ChildrenCollector::default();
+                let mut visitor = ChildrenVisitor::default();
                 self.vtable()
-                    .accept(self, &mut collector)
+                    .accept(self, &mut visitor)
                     .vortex_expect("Failed to get children");
-                collector.children()
+                visitor.children
             }
         }
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn named_children(&self) -> Vec<(String, Array)> {
-        let mut collector = NamedChildrenCollector::default();
+        let mut visitor = NamedChildrenVisitor::default();
         self.vtable()
-            .accept(&self.clone(), &mut collector)
+            .accept(&self.clone(), &mut visitor)
             .vortex_expect("Failed to get children");
-        collector.children()
+        visitor.children
     }
 
     /// Returns the number of child arrays
