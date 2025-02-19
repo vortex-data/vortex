@@ -1,14 +1,15 @@
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt;
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::tree::TreeFormatter;
 use vortex_array::{Array, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
+use crate::compressors::formatter::IndentFormatter;
 use crate::SamplingCompressor;
 
 pub mod alp;
@@ -20,6 +21,7 @@ pub mod date_time_parts;
 pub mod delta;
 pub mod dict;
 pub mod r#for;
+mod formatter;
 pub mod fsst;
 pub mod list;
 pub mod runend;
@@ -67,7 +69,7 @@ pub struct CompressionTree<'a> {
 }
 
 impl Debug for CompressionTree<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }
 }
@@ -81,8 +83,8 @@ pub trait EncoderMetadata: 'static + Send + Sync {
 }
 
 impl Display for CompressionTree<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut fmt = TreeFormatter::new(f, "".to_string());
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut fmt = IndentFormatter::new(f, "".to_string());
         visit_child("root", Some(self), &mut fmt)
     }
 }
@@ -90,8 +92,8 @@ impl Display for CompressionTree<'_> {
 fn visit_child(
     name: &str,
     child: Option<&CompressionTree>,
-    fmt: &mut TreeFormatter,
-) -> std::fmt::Result {
+    fmt: &mut IndentFormatter,
+) -> fmt::Result {
     fmt.indent(|f| {
         if let Some(child) = child {
             writeln!(f, "{name}: {}", child.compressor.id())?;

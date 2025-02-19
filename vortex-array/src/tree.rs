@@ -16,7 +16,7 @@ impl Array {
     }
 }
 
-pub struct TreeDisplayWrapper<'a>(pub &'a Array);
+struct TreeDisplayWrapper<'a>(&'a Array);
 
 impl fmt::Display for TreeDisplayWrapper<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -34,23 +34,20 @@ pub struct TreeFormatter<'a, 'b: 'a> {
     total_size: Option<usize>,
 }
 
-/// TODO(ngates): I think we want to go back to the old explicit style. It gives arrays more
-///  control over how their metadata etc is displayed.
 impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
     fn visit_child(&mut self, name: &str, array: &Array) -> VortexResult<()> {
         let nbytes = array.nbytes();
         let total_size = self.total_size.unwrap_or(nbytes);
         writeln!(
-            self.fmt,
-            "{}{}: {} nbytes={} ({:.2}%)",
-            self.indent,
+            self,
+            "{}: {} nbytes={} ({:.2}%)",
             name,
             array,
             format_size(nbytes, DECIMAL),
             100f64 * nbytes as f64 / total_size as f64
         )?;
         self.indent(|i| {
-            write!(i.fmt, "{}metadata: ", i.indent)?;
+            write!(i, "metadata: ")?;
             array.vtable().display_metadata(array, i.fmt)?;
             writeln!(i.fmt)
         })?;
@@ -72,9 +69,8 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
 
     fn visit_buffer(&mut self, buffer: &ByteBuffer) -> VortexResult<()> {
         Ok(writeln!(
-            self.fmt,
-            "{}buffer (align={}): {}",
-            self.indent,
+            self,
+            "buffer (align={}): {}",
             buffer.alignment(),
             format_size(buffer.len(), DECIMAL)
         )?)
