@@ -16,7 +16,7 @@ use vortex_layout::segments::SegmentWriter;
 use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 use vortex_sampling_compressor::compressors::CompressionTree;
-use vortex_sampling_compressor::{SamplingCompressor, DEFAULT_COMPRESSORS};
+use vortex_sampling_compressor::SamplingCompressor;
 
 /// The default Vortex file layout strategy.
 #[derive(Clone, Debug)]
