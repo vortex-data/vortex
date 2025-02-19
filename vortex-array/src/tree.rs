@@ -100,8 +100,4 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         self.indent = original_ident;
         res
     }
-
-    pub fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> fmt::Result {
-        write!(self.fmt, "{}{}", self.indent, fmt)
-    }
 }
