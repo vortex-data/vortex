@@ -58,4 +58,4 @@ tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
 
 [lints]
-# workspace = true
+workspace = true

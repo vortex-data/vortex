@@ -10,6 +10,7 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use itertools::Itertools as _;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use vortex_array::ContextRef;
+use vortex_error::VortexExpect as _;
 use vortex_expr::{Identity, VortexExpr};
 use vortex_file::VORTEX_FILE_EXTENSION;
 
@@ -17,6 +18,9 @@ use super::cache::FileLayoutCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
 use super::opener::VortexFileOpener;
 
+/// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
+///
+/// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) ctx: ContextRef,
@@ -43,6 +47,7 @@ impl VortexSource {
         }
     }
 
+    /// Sets a [`VortexExpr`] as a predicate
     pub fn with_predicate(&self, predicate: Arc<dyn VortexExpr>) -> Self {
         let mut source = self.clone();
         source.predicate = Some(predicate);
@@ -71,10 +76,12 @@ impl FileSource for VortexSource {
             self.ctx.clone(),
             scheme,
             object_store,
-            self.projection.clone().unwrap_or(Identity::new_expr()),
+            self.projection.clone().unwrap_or_else(Identity::new_expr),
             self.predicate.clone(),
             self.initial_read_cache.clone(),
-            self.arrow_schema.clone().unwrap(),
+            self.arrow_schema
+                .clone()
+                .vortex_expect("We should have a schema here"),
             batch_size,
         )?;
 
@@ -135,7 +142,7 @@ impl FileSource for VortexSource {
         let statistics = self
             .projected_statistics
             .clone()
-            .expect("projected_statistics must be set");
+            .vortex_expect("projected_statistics must be set");
 
         if self.predicate.is_some() {
             Ok(statistics.to_inexact())

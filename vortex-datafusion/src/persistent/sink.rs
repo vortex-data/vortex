@@ -4,12 +4,15 @@ use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion::datasource::physical_plan::FileSinkConfig;
+use datafusion::common::runtime::SpawnedTask;
+use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
+use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::{StreamExt, TryStreamExt};
+use object_store::ObjectStore;
 use rand::distributions::{Alphanumeric, DistString};
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -65,7 +68,10 @@ impl DataSink for VortexSink {
         &self,
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
-    ) -> datafusion_common::error::Result<u64> {
+    ) -> datafusion_common::Result<u64> {
+        // TODO: Once `FileSink` is fully implemented, this function should just be:
+        // FileSink::write_all(self, data, context).await
+
         let object_store = context
             .runtime_env()
             .object_store(&self.config.object_store_url)?;
@@ -108,6 +114,23 @@ impl DataSink for VortexSink {
         writer.shutdown().await?;
 
         Ok(row_counter.load(Ordering::SeqCst))
+    }
+}
+
+#[async_trait]
+impl FileSink for VortexSink {
+    fn config(&self) -> &FileSinkConfig {
+        &self.config
+    }
+
+    async fn spawn_writer_tasks_and_join(
+        &self,
+        _context: &Arc<TaskContext>,
+        _demux_task: SpawnedTask<datafusion_common::Result<()>>,
+        _file_stream_rx: DemuxedStreamReceiver,
+        _object_store: Arc<dyn ObjectStore>,
+    ) -> datafusion_common::Result<u64> {
+        unimplemented!()
     }
 }
 

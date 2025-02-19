@@ -303,7 +303,7 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
-        let predicate = make_vortex_predicate(filters).unwrap_or(Identity::new_expr());
+        let predicate = make_vortex_predicate(filters).unwrap_or_else(Identity::new_expr);
         let mut source = VortexSource::new(self.context.clone(), self.file_layout_cache.clone());
         source = source.with_predicate(predicate);
 
