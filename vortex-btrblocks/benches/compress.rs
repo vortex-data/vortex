@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used)]
+#![allow(unexpected_cfgs)]
+#![allow(unused_imports)]
 
+#[cfg(not(codspeed))]
 use divan::counter::{BytesCount, ItemsCount};
 use divan::Bencher;
 use rand::prelude::StdRng;
@@ -11,6 +14,7 @@ use vortex_btrblocks::Compressor;
 use vortex_buffer::buffer_mut;
 use vortex_sampling_compressor::SamplingCompressor;
 
+#[cfg(not(codspeed))]
 fn make_clickbench_window_name() -> Array {
     // A test that's meant to mirror the WindowName column from ClickBench.
     let mut values = buffer_mut![-1i32; 1_000_000];
@@ -30,6 +34,7 @@ fn make_clickbench_window_name() -> Array {
     values.freeze().into_array()
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn btrblocks(bencher: Bencher) {
     bencher
@@ -39,6 +44,7 @@ fn btrblocks(bencher: Bencher) {
         .bench_local_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn sampling_compressor(bencher: Bencher) {
     let compressor = SamplingCompressor::default();

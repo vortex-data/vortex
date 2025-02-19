@@ -1,7 +1,10 @@
 #![allow(clippy::cast_possible_truncation, clippy::use_debug)]
+#![allow(unexpected_cfgs)]
 
+#[cfg(not(codspeed))]
 use vortex_buffer::{Buffer, BufferMut};
 
+#[cfg(not(codspeed))]
 fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
     let mut output = BufferMut::with_capacity(64_000);
     let mut run = 0;
@@ -18,6 +21,7 @@ fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
     output.freeze()
 }
 
+#[cfg(not(codspeed))]
 #[derive(Debug, Copy, Clone)]
 enum Distribution {
     LowCardinality,
@@ -25,6 +29,7 @@ enum Distribution {
     LongRuns,
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench_group(items_count = 64_000u32, bytes_count = 256_000u32)]
 mod stats {
     use divan::Bencher;
@@ -77,6 +82,7 @@ mod stats {
         });
     }
 }
+
 fn main() {
     divan::main();
 }
