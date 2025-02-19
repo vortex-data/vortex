@@ -10,6 +10,7 @@ use std::sync::{Arc, LazyLock};
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use blob::SlowObjectStoreRegistry;
+use clap::ValueEnum;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
@@ -39,7 +40,6 @@ pub mod blob;
 pub mod clickbench;
 pub mod data_downloads;
 pub mod display;
-pub mod formats;
 pub mod measurements;
 pub mod public_bi_data;
 pub mod reader;
@@ -69,12 +69,17 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     )
 });
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
 pub enum Format {
+    #[clap(name = "csv")]
     Csv,
+    #[clap(name = "arrow")]
     Arrow,
+    #[clap(name = "parquet")]
     Parquet,
+    #[clap(name = "in-memory-vortex")]
     InMemoryVortex,
+    #[clap(name = "vortex")]
     OnDiskVortex,
 }
 
@@ -279,6 +284,14 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Ve
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
+    Ok(result)
+}
+
+pub async fn execute_physical_plan(
+    ctx: &SessionContext,
+    plan: Arc<dyn ExecutionPlan>,
+) -> VortexResult<Vec<RecordBatch>> {
+    let result = collect(plan.clone(), ctx.state().task_ctx()).await?;
     Ok(result)
 }
 

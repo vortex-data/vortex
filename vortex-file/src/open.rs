@@ -16,6 +16,7 @@ use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{Layout, LayoutContextRef, LayoutId};
+use vortex_metrics::VortexMetrics;
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{FileLayout, Postscript, Segment};
@@ -35,6 +36,7 @@ pub trait FileType: Sized {
         options: Self::Options,
         file_layout: FileLayout,
         segment_cache: Arc<dyn SegmentCache>,
+        metrics: Arc<VortexMetrics>,
     ) -> Self::ScanDriver;
 }
 
@@ -55,6 +57,7 @@ pub struct VortexOpenOptions<F: FileType> {
     file_layout: Option<FileLayout>,
     segment_cache: Arc<dyn SegmentCache>,
     initial_read_size: u64,
+    metrics: Arc<VortexMetrics>,
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
@@ -107,6 +110,12 @@ impl<F: FileType> VortexOpenOptions<F> {
     pub fn without_segment_cache(self) -> Self {
         self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
+
+    /// Configure a custom [`VortexMetrics`].
+    pub fn with_metrics(mut self, metrics: Arc<VortexMetrics>) -> Self {
+        self.metrics = metrics;
+        self
+    }
 }
 
 impl VortexOpenOptions<InMemoryVortexFile> {
@@ -121,6 +130,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
             file_layout: None,
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: 0,
+            metrics: Arc::new(VortexMetrics::default()),
         }
     }
 }
@@ -142,6 +152,7 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
                 CacheBuilder::new(1 << 30),
             )),
             initial_read_size: Self::INITIAL_READ_SIZE,
+            metrics: Arc::new(VortexMetrics::default()),
         }
     }
 }
@@ -161,6 +172,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             ctx: self.ctx.clone(),
             file_layout,
             segment_cache: self.segment_cache,
+            metrics: self.metrics,
             _marker: PhantomData,
         })
     }

@@ -46,8 +46,11 @@ impl ByteBoolArray {
             SerdeMetadata(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some([buffer.into_byte_buffer()].into()),
-            validity.into_array().map(|v| [v].into()),
+            [buffer.into_byte_buffer()].into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
     }

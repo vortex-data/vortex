@@ -79,7 +79,8 @@ impl SliceFn<DictArray> for DictEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
+    use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
+    use vortex_array::compute::test_harness::test_mask;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{Array, IntoArray, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
@@ -197,5 +198,38 @@ mod test {
             scalar_at(compared, 2).unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn test_mask_dict_array() {
+        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array())
+            .unwrap()
+            .into_array();
+        test_mask(array);
+
+        let array = dict_encode(
+            &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
+                .into_array(),
+        )
+        .unwrap()
+        .into_array();
+        test_mask(array);
+
+        let array = dict_encode(
+            &VarBinArray::from_iter(
+                [
+                    Some("hello"),
+                    None,
+                    Some("hello"),
+                    Some("good"),
+                    Some("good"),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array(),
+        )
+        .unwrap()
+        .into_array();
+        test_mask(array);
     }
 }

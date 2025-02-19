@@ -148,8 +148,11 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset: first_byte_bit_offset as u8,
             }),
-            Some(vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into()),
-            validity.into_array().map(|v| [v].into()),
+            vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
     }
@@ -258,6 +261,7 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use crate::array::{BoolArray, PrimitiveArray};
+    use crate::compute::test_harness::test_mask;
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
@@ -370,5 +374,10 @@ mod tests {
 
         let (values, _byte_bit_offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(values.as_slice(), &[254, 127]);
+    }
+
+    #[test]
+    fn test_mask_primitive_array() {
+        test_mask(BoolArray::from_iter([true, false, true, true, false]).into_array());
     }
 }

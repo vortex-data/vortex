@@ -107,9 +107,9 @@ impl<T> Push<T> for BufferMut<T> {
 fn push<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
     bencher
         .with_inputs(|| B::from_iter(iter::empty()))
-        .bench_local_values(|mut buffer| {
+        .bench_local_refs(|buffer| {
             for _ in 0..n {
-                Push::push(&mut buffer, 0)
+                Push::push(buffer, 0)
             }
         });
 }

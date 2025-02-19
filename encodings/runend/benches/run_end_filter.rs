@@ -1,93 +1,83 @@
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
 
-use std::iter::Iterator;
-
-use criterion::{criterion_group, criterion_main, Criterion};
-use num_traits::ToPrimitive;
+use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_runend::RunEndArray;
 use vortex_runend::_benchmarking::{filter_run_end, take_indices_unchecked};
 
-const LENS: [usize; 2] = [1000, 100_000];
-
-fn run_end_filter(c: &mut Criterion) {
-    evenly_spaced(c);
+fn main() {
+    divan::main();
 }
 
-/// Create RunEnd arrays where the runs are equal size, and the filter mask is evenly spaced.
-fn evenly_spaced(c: &mut Criterion) {
-    let mut group = c.benchmark_group("evenly_spaced");
+const BENCH_ARGS: &[(usize, usize, f64)] = &[
+    // length, run_step, filter_density
+    (1000, 4, 0.005),
+    (1000, 4, 0.01),
+    (1000, 4, 0.03),
+    (1000, 16, 0.005),
+    (1000, 16, 0.01),
+    (1000, 16, 0.03),
+    (1000, 256, 0.005),
+    (1000, 256, 0.01),
+    (1000, 256, 0.03),
+    (10_000, 4, 0.005),
+    (10_000, 4, 0.01),
+    (10_000, 4, 0.03),
+    (10_000, 16, 0.005),
+    (10_000, 16, 0.01),
+    (10_000, 16, 0.03),
+    (10_000, 256, 0.005),
+    (10_000, 256, 0.01),
+    (10_000, 256, 0.03),
+];
 
-    for &n in LENS.iter().rev() {
-        for run_step in [1usize << 2, 1 << 4, 1 << 8, 1 << 16] {
-            let ends = (0..=n)
-                .step_by(run_step)
-                .map(|x| x as u64)
-                .collect::<Buffer<_>>()
-                .into_array();
-            let run_count = ends.len() - 1;
-            let values = (0..ends.len())
-                .map(|x| x as u64)
-                .collect::<Buffer<_>>()
-                .into_array();
-            let array = RunEndArray::try_new(ends, values).unwrap();
+#[divan::bench(args = BENCH_ARGS)]
+fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
+    let (array, mask) = fixture(n, run_step, filter_density).unwrap();
 
-            for filter_density in [0.001, 0.01, 0.015, 0.020, 0.025, 0.030] {
-                let mask = Mask::from_indices(
-                    array.len(),
-                    // In this case, the benchmarks don't seem to change whether we evenly spread
-                    // the mask values or like here we pack them into the beginning of the mask.
-                    (0..array.len())
-                        .take(
-                            (filter_density * array.len() as f64)
-                                .round()
-                                .to_usize()
-                                .unwrap(),
-                        )
-                        .collect(),
-                );
+    let indices = mask.values().unwrap().indices();
 
-                if mask.true_count() == 0 {
-                    // Can skip these
-                    continue;
-                }
+    bencher
+        .with_inputs(|| (&array, indices))
+        .bench_refs(|(array, indices)| take_indices_unchecked(array, indices).unwrap());
+}
 
-                // Compute the ratio of true_count to run_count
-                let ratio = mask.true_count() as f64 / run_count as f64;
+#[divan::bench(args = BENCH_ARGS)]
+fn filter_runend(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
+    let (array, mask) = fixture(n, run_step, filter_density).unwrap();
 
-                group.bench_function(
-                    format!(
-                        "take_indices n: {}, run_count: {}, true_count: {}, ratio: {}",
-                        n,
-                        run_count,
-                        mask.true_count(),
-                        ratio
-                    ),
-                    |b| {
-                        b.iter(|| {
-                            take_indices_unchecked(&array, mask.values().unwrap().indices())
-                                .unwrap()
-                        });
-                    },
-                );
-                group.bench_function(
-                    format!(
-                        "filter_run_end n: {}, run_count: {}, true_count: {}, ratio: {}",
-                        n,
-                        run_count,
-                        mask.true_count(),
-                        ratio
-                    ),
-                    |b| {
-                        b.iter(|| filter_run_end(&array, &mask).unwrap());
-                    },
-                );
-            }
-        }
+    bencher
+        .with_inputs(|| (&array, &mask))
+        .bench_refs(|(array, mask)| filter_run_end(array, mask).unwrap());
+}
+
+fn fixture(n: usize, run_step: usize, filter_density: f64) -> Option<(RunEndArray, Mask)> {
+    let ends = (0..=n)
+        .step_by(run_step)
+        .map(|x| x as u64)
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let values = (0..ends.len())
+        .map(|x| x as u64)
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let array = RunEndArray::try_new(ends, values).unwrap();
+
+    let mask = Mask::from_indices(
+        array.len(),
+        (0..array.len())
+            .take((filter_density * array.len() as f64).round() as usize)
+            .collect(),
+    );
+
+    if mask.true_count() == 0 {
+        return None;
     }
-}
 
-criterion_group!(benches, run_end_filter);
-criterion_main!(benches);
+    Some((array, mask))
+}

@@ -35,8 +35,8 @@ impl ConstantArray {
             dtype,
             length,
             EmptyMetadata,
-            Some([value_buffer.into_inner()].into()),
-            None,
+            [value_buffer.into_inner()].into(),
+            vec![].into(),
             stats,
         )
         .vortex_expect("Failed to create Constant array")

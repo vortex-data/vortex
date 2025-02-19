@@ -102,7 +102,6 @@ mod tests {
     use vortex_expr::ident;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::RowMask;
@@ -119,7 +118,7 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), ident())
                 .await

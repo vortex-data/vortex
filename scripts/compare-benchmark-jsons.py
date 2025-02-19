@@ -20,7 +20,19 @@ base_commit_id = next(iter(base_commit_id))
 assert len(pr_commit_id) == 1, pr_commit_id
 pr_commit_id = next(iter(pr_commit_id))
 
-df3 = pd.merge(base, pr, on="name", how="inner", suffixes=("_base", "_pr"))
+if "storage" not in base:
+    # For whatever reason, the base lacks storage. Might be an old database of results. Might be a
+    # database of results without any storage fields.
+    base["storage"] = pd.NA
+
+if "storage" not in pr:
+    # Not all benchmarks have a "storage" key. If none of the JSON objects in the PR results file
+    # had a "storage" key, then the PR DataFrame will lack that key and the join will fail.
+    pr["storage"] = pd.NA
+
+# NB: `pd.merge` considers two null key values to be equal, so benchmarks without storage keys will
+# match.
+df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base", "_pr"))
 
 assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
 

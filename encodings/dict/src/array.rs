@@ -64,8 +64,8 @@ impl DictArray {
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
             }),
-            None,
-            Some([codes, values].into()),
+            vec![].into(),
+            [codes, values].into(),
             StatsSet::default(),
         )
     }
@@ -351,7 +351,7 @@ mod test {
             .vortex_unwrap();
 
         let into_prim = array.into_primitive().unwrap();
-        let prim_into = builder.finish().unwrap().into_primitive().unwrap();
+        let prim_into = builder.finish().into_primitive().unwrap();
 
         assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
         assert_eq!(

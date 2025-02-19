@@ -11,13 +11,9 @@ impl CastFn<BoolArray> for BoolEncoding {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
         }
 
-        // If the types are the same, return the array,
-        // otherwise set the array nullability as the dtype nullability.
-        if dtype.is_nullable() || array.all_valid()? {
-            Ok(BoolArray::new(array.boolean_buffer(), dtype.nullability()).into_array())
-        } else {
-            vortex_bail!("Cannot cast null array to non-nullable type");
-        }
+        let new_nullability = dtype.nullability();
+        let new_validity = array.validity().cast_nullability(new_nullability)?;
+        BoolArray::try_new(array.boolean_buffer(), new_validity).map(IntoArray::into_array)
     }
 }
 

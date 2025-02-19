@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
 use crate::compute::{
-    CastFn, CompareFn, FilterFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
+    CastFn, CompareFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::Array;
@@ -13,6 +13,7 @@ use crate::Array;
 mod cast;
 mod compare;
 mod filter;
+mod mask;
 mod min_max;
 mod slice;
 mod take;
@@ -28,6 +29,10 @@ impl ComputeVTable for VarBinEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
         Some(self)
     }
 

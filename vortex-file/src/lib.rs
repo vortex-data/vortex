@@ -86,7 +86,6 @@
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the "linear and
 //! contiguous memory".
 
-pub mod exec;
 mod file;
 mod footer;
 mod generic;
