@@ -1,6 +1,6 @@
 #![allow(clippy::cast_possible_truncation)]
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
@@ -160,7 +160,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::ConstantArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
 

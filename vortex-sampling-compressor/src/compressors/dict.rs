@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{PrimitiveEncoding, VarBinEncoding, VarBinViewEncoding};
+use vortex_array::arrays::{PrimitiveEncoding, VarBinEncoding, VarBinViewEncoding};
 use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::{DictArray, DictEncoding};

@@ -4,7 +4,7 @@ use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArrayVariant;
 use vortex_dtype::{match_each_integer_ptype, NativePType};

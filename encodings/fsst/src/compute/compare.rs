@@ -1,5 +1,5 @@
 use fsst::Symbol;
-use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray};
+use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{compare, compare_lengths_to_empty, CompareFn, Operator};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
@@ -109,7 +109,7 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{ConstantArray, VarBinArray};
+    use vortex_array::arrays::{ConstantArray, VarBinArray};
     use vortex_array::compute::{compare, scalar_at, Operator};
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};

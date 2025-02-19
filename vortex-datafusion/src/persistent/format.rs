@@ -302,6 +302,10 @@ impl FileFormat for VortexFormat {
         if !file_scan_config.table_partition_cols.is_empty() {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
+      
+        if !file_scan_config.output_ordering.is_empty() {
+            return not_impl_err!("Vortex doesn't support output ordering");
+        }
 
         let mut source = VortexSource::new(self.context.clone(), self.file_layout_cache.clone());
 

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::BoolArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::BoolArrayTrait;

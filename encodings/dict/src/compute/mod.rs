@@ -79,7 +79,7 @@ impl SliceFn<DictArray> for DictEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
+    use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_mask;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{Array, IntoArray, IntoArrayVariant};

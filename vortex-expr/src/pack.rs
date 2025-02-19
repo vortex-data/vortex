@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
@@ -140,7 +140,7 @@ impl VortexExpr for Pack {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::array::{PrimitiveArray, StructArray};
+    use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;

@@ -1,6 +1,6 @@
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
-use vortex_array::array::{VarBinArray, VarBinEncoding};
+use vortex_array::arrays::{VarBinArray, VarBinEncoding};
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};

@@ -27,7 +27,7 @@ use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
 use tracing::level_filters::LevelFilter;
-use vortex::array::{ChunkedArray, StructArray};
+use vortex::arrays::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::{VortexError, VortexExpect, VortexResult};

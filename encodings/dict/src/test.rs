@@ -3,7 +3,7 @@
 use rand::distributions::{Alphanumeric, Distribution, Standard};
 use rand::prelude::{SliceRandom, StdRng};
 use rand::{Rng, SeedableRng};
-use vortex_array::array::{ChunkedArray, PrimitiveArray, VarBinArray};
+use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;

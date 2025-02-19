@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use pyo3::{pyclass, pymethods, Bound, PyRef, PyResult};
-use vortex::array::ChunkedEncoding;
+use vortex::arrays::ChunkedEncoding;
 
 use crate::arrays::{AsArrayRef, EncodingSubclass, PyArray};
 

@@ -1,6 +1,6 @@
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::array::ChunkedArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
 use vortex_array::{Array, IntoArray};
 use vortex_error::VortexExpect;

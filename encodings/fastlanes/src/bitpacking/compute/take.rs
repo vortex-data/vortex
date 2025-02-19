@@ -1,5 +1,5 @@
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -126,7 +126,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 mod test {
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng};
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, IntoArrayVariant};

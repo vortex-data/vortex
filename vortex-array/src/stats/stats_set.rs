@@ -563,7 +563,7 @@ mod test {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::stats::{Precision, Stat, Statistics, StatsSet};
     use crate::IntoArray as _;
 

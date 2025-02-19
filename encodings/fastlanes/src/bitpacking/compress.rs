@@ -2,7 +2,7 @@ use std::ops::DerefMut as _;
 
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -130,7 +130,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     let bit_width = bit_width as usize;
 
     // How many fastlanes vectors we will process.
-    let num_chunks = (array.len() + 1023) / 1024;
+    let num_chunks = array.len().div_ceil(1024);
     let num_full_chunks = array.len() / 1024;
     let packed_len = 128 * bit_width / size_of::<T>();
     // packed_len says how many values of size T we're going to include.
@@ -296,7 +296,7 @@ where
 
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
-    let num_chunks = (offset + length + 1023) / 1024;
+    let num_chunks = (offset + length).div_ceil(1024);
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     assert_eq!(
         packed.len(),
@@ -445,7 +445,7 @@ fn best_bit_width(bit_width_freq: &[usize], bytes_per_exception: usize) -> Vorte
     let mut best_cost = len * bytes_per_exception;
     let mut best_width = 0;
     for (bit_width, freq) in bit_width_freq.iter().enumerate() {
-        let packed_cost = ((bit_width * len) + 7) / 8; // round up to bytes
+        let packed_cost = (bit_width * len).div_ceil(8); // round up to bytes
 
         num_packed += *freq;
         let exceptions_cost = (len - num_packed) * bytes_per_exception;
@@ -475,7 +475,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 pub mod test_harness {
     use rand::rngs::StdRng;
     use rand::Rng as _;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
     use vortex_buffer::BufferMut;
@@ -515,7 +515,7 @@ pub mod test_harness {
 mod test {
     use rand::rngs::StdRng;
     use rand::SeedableRng as _;
-    use vortex_array::array::ChunkedArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::compute::slice;
     use vortex_array::{IntoArrayVariant, IntoCanonical as _};
     use vortex_buffer::buffer;

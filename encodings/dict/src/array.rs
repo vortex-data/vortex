@@ -225,7 +225,7 @@ mod test {
     use rand::distributions::{Distribution, Standard};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::Validity;

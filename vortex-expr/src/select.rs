@@ -187,7 +187,7 @@ impl PartialEq for Select {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::array::StructArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_array::array::VarBinArray;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::compute::take;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;

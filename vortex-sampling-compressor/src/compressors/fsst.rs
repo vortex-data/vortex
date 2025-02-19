@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{VarBinEncoding, VarBinViewEncoding};
+use vortex_array::arrays::{VarBinEncoding, VarBinViewEncoding};
 use vortex_array::{Encoding, EncodingId, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
@@ -80,7 +80,7 @@ mod tests {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::array::StructArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;

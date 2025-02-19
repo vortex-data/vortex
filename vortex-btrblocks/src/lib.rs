@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
 
-use vortex_array::array::{ExtensionArray, ListArray, StructArray, TemporalArray};
+use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, Canonical, IntoArray, IntoCanonical};
 use vortex_datetime_dtype::TemporalMetadata;

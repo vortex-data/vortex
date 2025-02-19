@@ -7,7 +7,7 @@ use arrow_schema::SchemaRef;
 use datafusion_common::{exec_datafusion_err, DataFusionError, Result as DFResult};
 use datafusion_execution::RecordBatchStream;
 use futures::Stream;
-use vortex_array::array::ChunkedArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::IntoArrayVariant;
 use vortex_dtype::FieldNames;
 

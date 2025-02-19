@@ -6,7 +6,7 @@ use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
-use vortex_array::array::ChunkedArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
@@ -85,9 +85,8 @@ fn compare_struct(expected: Array, actual: Array) {
         actual.len()
     );
 
-    if expected.dtype().as_struct().unwrap().names().len() == 0
-        && expected.dtype().as_struct().unwrap().names().len()
-            == actual.dtype().as_struct().unwrap().names().len()
+    if expected.dtype().as_struct().unwrap().names().is_empty()
+        && actual.dtype().as_struct().unwrap().names().is_empty()
     {
         return;
     }

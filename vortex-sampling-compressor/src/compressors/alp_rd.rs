@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEncoder};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;

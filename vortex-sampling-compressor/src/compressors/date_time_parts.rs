@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::TemporalArray;
+use vortex_array::arrays::TemporalArray;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{

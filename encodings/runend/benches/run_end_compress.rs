@@ -2,7 +2,7 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::{IntoArray, IntoCanonical};
 use vortex_buffer::Buffer;
@@ -17,11 +17,9 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 4),
     (1000, 16),
     (1000, 256),
-    (1000, 65536),
     (10_000, 4),
     (10_000, 16),
     (10_000, 256),
-    (10_000, 65536),
 ];
 
 #[divan::bench(args = BENCH_ARGS)]

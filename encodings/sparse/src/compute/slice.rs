@@ -1,4 +1,4 @@
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_error::VortexResult;
 
 use crate::compute::SliceFn;

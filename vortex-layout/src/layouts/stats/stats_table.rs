@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::compute::try_cast;
 use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};

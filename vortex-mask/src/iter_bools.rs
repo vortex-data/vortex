@@ -15,8 +15,8 @@ impl Mask {
         F: FnMut(&mut dyn Iterator<Item = bool>) -> T,
     {
         match self.boolean_buffer() {
-            AllOr::All => f(&mut iter::repeat(true).take(self.len())),
-            AllOr::None => f(&mut iter::repeat(false).take(self.len())),
+            AllOr::All => f(&mut iter::repeat_n(true, self.len())),
+            AllOr::None => f(&mut iter::repeat_n(false, self.len())),
             AllOr::Some(buffer) => f(&mut buffer.iter()),
         }
     }

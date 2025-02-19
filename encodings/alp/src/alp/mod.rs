@@ -104,7 +104,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             })
             .unwrap_or(size_of::<Self::ALPInt>() * 8);
 
-        let encoded_bytes = (encoded.len() * bits_per_encoded + 7) / 8;
+        let encoded_bytes = (encoded.len() * bits_per_encoded).div_ceil(8);
         // each patch is a value + a position
         // in practice, patch positions are in [0, u16::MAX] because of how we chunk
         let patch_bytes = patches.len() * (size_of::<Self>() + size_of::<u16>());

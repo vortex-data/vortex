@@ -27,7 +27,7 @@ impl CastFn<DateTimePartsArray> for DateTimePartsEncoding {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::array::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::try_cast;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray as _};

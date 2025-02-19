@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use vortex_array::array::ChunkedArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
 use vortex_array::{Array, IntoArray, IntoCanonical};
 use vortex_dtype::DType;

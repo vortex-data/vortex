@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
@@ -120,7 +120,7 @@ impl BitPackedArray {
 
         // expected packed size is in bytes
         let expected_packed_size =
-            ((length + offset as usize + 1023) / 1024) * (128 * bit_width as usize);
+            (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
         if packed.len() != expected_packed_size {
             return Err(vortex_err!(
                 "Expected {} packed bytes, got {}",
@@ -327,7 +327,7 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;

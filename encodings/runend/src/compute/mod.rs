@@ -51,7 +51,7 @@ impl ComputeVTable for RunEndEncoding {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::IntoArray;
 

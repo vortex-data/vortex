@@ -23,7 +23,7 @@ pub use paste;
 
 pub mod accessor;
 pub mod aliases;
-pub mod array;
+pub mod arrays;
 pub mod arrow;
 pub mod builders;
 mod canonical;

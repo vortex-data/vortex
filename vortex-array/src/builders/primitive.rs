@@ -6,7 +6,7 @@ use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullab
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::{BoolArray, PrimitiveArray};
+use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
 use crate::patches::Patches;

@@ -90,7 +90,7 @@ impl PartialEq for BinaryExpr {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::{BoolArray, PrimitiveArray };
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
@@ -113,7 +113,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::{BoolArray, PrimitiveArray };
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
@@ -136,7 +136,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::{BoolArray, PrimitiveArray };
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
@@ -159,7 +159,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::{BoolArray, PrimitiveArray };
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
@@ -182,7 +182,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::{BoolArray, PrimitiveArray };
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
@@ -205,7 +205,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::{BoolArray, PrimitiveArray };
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
@@ -228,7 +228,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::BoolArray;
+/// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_expr::{ ident, lit, or};
 ///
@@ -249,7 +249,7 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::BoolArray;
+/// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, IntoArrayVariant};
 /// use vortex_expr::{and, ident, lit};
 ///

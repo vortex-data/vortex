@@ -447,7 +447,7 @@ pub fn trailing_zeros(array: &Array) -> u8 {
 mod test {
     use enum_iterator::all;
 
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::stats::Stat;
 
     #[test]

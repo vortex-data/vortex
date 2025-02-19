@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{StructArray, StructEncoding};
+use vortex_array::arrays::{StructArray, StructEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray};

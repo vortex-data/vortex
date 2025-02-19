@@ -3,7 +3,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Schema};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
-use crate::array::StructArray;
+use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
 use crate::{Array, IntoArray, IntoArrayVariant};

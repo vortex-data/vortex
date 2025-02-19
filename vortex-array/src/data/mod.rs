@@ -9,7 +9,7 @@ use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
-use crate::array::{
+use crate::arrays::{
     BoolEncoding, ChunkedArray, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
