@@ -36,7 +36,7 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 
 #[divan::bench(args = BENCH_ARGS)]
 fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
-    let (array, mask) = fixture(n, run_step, filter_density).unwrap();
+    let (array, mask) = fixture(n, run_step, filter_density);
 
     let indices = mask.values().unwrap().indices();
 
@@ -47,14 +47,14 @@ fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, 
 
 #[divan::bench(args = BENCH_ARGS)]
 fn filter_runend(bencher: Bencher, (n, run_step, filter_density): (usize, usize, f64)) {
-    let (array, mask) = fixture(n, run_step, filter_density).unwrap();
+    let (array, mask) = fixture(n, run_step, filter_density);
 
     bencher
         .with_inputs(|| (&array, &mask))
         .bench_refs(|(array, mask)| filter_run_end(array, mask).unwrap());
 }
 
-fn fixture(n: usize, run_step: usize, filter_density: f64) -> Option<(RunEndArray, Mask)> {
+fn fixture(n: usize, run_step: usize, filter_density: f64) -> (RunEndArray, Mask) {
     let ends = (0..=n)
         .step_by(run_step)
         .map(|x| x as u64)
@@ -75,9 +75,7 @@ fn fixture(n: usize, run_step: usize, filter_density: f64) -> Option<(RunEndArra
             .collect(),
     );
 
-    if mask.true_count() == 0 {
-        return None;
-    }
+    assert_ne!(mask.true_count(), 0);
 
-    Some((array, mask))
+    (array, mask)
 }

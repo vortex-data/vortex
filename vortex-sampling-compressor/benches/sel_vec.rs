@@ -1,13 +1,13 @@
 #![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
-//! Various tests for the selection vector being present.
 
-use criterion::{BenchmarkId, Criterion};
-use rand::Rng;
+use divan::Bencher;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use vortex_alp::ALPEncoding;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Encoding, IntoArray, IntoCanonical};
+use vortex_array::{Encoding, IntoArray, IntoCanonical};
 use vortex_dtype::PType;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
@@ -15,80 +15,95 @@ use vortex_sampling_compressor::compressors::bitpacked::BITPACK_NO_PATCHES;
 use vortex_sampling_compressor::compressors::EncodingCompressor;
 use vortex_sampling_compressor::SamplingCompressor;
 
-// criterion benchmark setup:
-fn bench_sel_vec(c: &mut Criterion) {
-    let mut group = c.benchmark_group("filter_then_canonical");
+fn main() {
+    divan::main();
+}
 
-    // Run ALP + BitPacking.
-    let compressor = SamplingCompressor::default().including_only(&[
-        &ALPCompressor as &dyn EncodingCompressor,
-        &BITPACK_NO_PATCHES,
-        // &FoRCompressor,
-    ]);
+const BENCH_ARGS: &[(usize, f64)] = &[
+    // array length, selectivity ratios
+    (65536, 0.001), // 0.1%
+    (65536, 0.01),  // 1%
+    (65536, 0.1),   // 10%
+    (65536, 0.5),   // 50%
+    (65536, 0.9),   // 90%
+    (65536, 0.99),  // 99%
+    (65536, 0.999), // 99.9%
+    (65536, 1.0),   // 100%
+];
 
+/// Benchmark the filter-then-canonical approach
+/// This tests performance when filtering is done before decompressing
+#[divan::bench(args = BENCH_ARGS)]
+fn filter_then_canonical(bencher: Bencher, (max, selectivity): (usize, f64)) {
     // Create a low-precision primitive array of f64
     let arr = PrimitiveArray::from_iter((0..=65535).map(|x| (x as f64) * 0.2f64));
     assert_eq!(arr.ptype(), PType::F64);
+
+    // Setup compressor with ALP + BitPacking
+    let compressor = SamplingCompressor::default().including_only(&[
+        &ALPCompressor as &dyn EncodingCompressor,
+        &BITPACK_NO_PATCHES,
+    ]);
+
+    // Compress the array using ALP encoding
+    let arr = compressor
+        .compress(&arr.into_array(), None)
+        .unwrap()
+        .into_array();
+
+    assert_eq!(arr.encoding(), ALPEncoding::ID);
+
+    // Create mask with given selectivity
+    let true_count = (selectivity * max as f64) as usize;
+    let mask = create_mask(max, true_count);
+    assert_eq!(mask.len(), max);
+    assert_eq!(mask.true_count(), true_count);
+
+    bencher
+        .with_inputs(|| (&arr, &mask))
+        .bench_refs(|(arr, mask)| {
+            let filtered = filter(arr, mask).unwrap();
+            filtered.into_canonical().unwrap().into_array()
+        });
+}
+
+/// Benchmarks when decompression happens before filtering.
+#[divan::bench(args = BENCH_ARGS)]
+fn canonical_then_filter(bencher: Bencher, (max, selectivity): (usize, f64)) {
+    // Create test array and compress it
+    let arr = PrimitiveArray::from_iter((0..=65535).map(|x| (x as f64) * 0.2f64));
+    let compressor = SamplingCompressor::default().including_only(&[
+        &ALPCompressor as &dyn EncodingCompressor,
+        &BITPACK_NO_PATCHES,
+    ]);
 
     let arr = compressor
         .compress(&arr.into_array(), None)
         .unwrap()
         .into_array();
-    assert_eq!(arr.encoding(), ALPEncoding::ID);
 
-    println!("tree: {}", arr.tree_display());
+    // Create filter mask with desired selectivity
+    let true_count = (selectivity * max as f64) as usize;
+    let mask = create_mask(max, true_count);
 
-    // Try for various mask
-    let max = 65536;
-    for selectivity in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999, 1.0] {
-        // Create a random mask of the given size
-        let true_count = (selectivity * max as f64) as usize;
-        // Create a randomized mask with the correct length and true_count.
-        let mask = create_mask(max, true_count);
-        assert_eq!(mask.len(), max);
-        assert_eq!(mask.true_count(), true_count);
-        group.bench_with_input(
-            BenchmarkId::from_parameter(selectivity),
-            &mask,
-            |b, mask| {
-                // Filter then into_canonical
-                b.iter(|| filter_then_canonical(&arr, mask))
-            },
-        );
-    }
-    group.finish();
-
-    let mut group = c.benchmark_group("canonical_then_filter");
-    for selectivity in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999, 1.0] {
-        let true_count = (selectivity * max as f64) as usize;
-        let mask = create_mask(max, true_count);
-        group.bench_with_input(
-            BenchmarkId::from_parameter(selectivity),
-            &mask,
-            |b, mask| {
-                b.iter_with_setup(
-                    || arr.clone(),
-                    |arr| {
-                        let canonical = arr.into_canonical().unwrap().into_array();
-                        filter(&canonical, mask).unwrap()
-                    },
-                )
-            },
-        );
-    }
-    group.finish();
+    bencher
+        .with_inputs(|| (arr.clone(), &mask))
+        .bench_values(|(arr, mask)| {
+            let canonical = arr.into_canonical().unwrap().into_array();
+            filter(&canonical, mask)
+        });
 }
 
-fn filter_then_canonical(array: &Array, mask: &Mask) -> Array {
-    let filtered = filter(array, mask).unwrap();
-    filtered.into_canonical().unwrap().into_array()
-}
-
+/// Create a mask with randomly distributed true values.
+///
+/// # Arguments
+/// * `len` - Length of the mask
+/// * `true_count` - Number of true values to include in the mask
 fn create_mask(len: usize, true_count: usize) -> Mask {
     let mut mask = vec![false; len];
-    // randomly distribute true_count true values
-    let mut rng = rand::thread_rng();
+    let mut rng = StdRng::seed_from_u64(0);
     let mut set = 0;
+    // Randomly distribute true values until we reach the desired count
     while set < true_count {
         let index = rng.gen_range(0..len);
         if !mask[index] {
@@ -98,6 +113,3 @@ fn create_mask(len: usize, true_count: usize) -> Mask {
     }
     Mask::from_iter(mask)
 }
-
-criterion::criterion_group!(sel_vec, bench_sel_vec);
-criterion::criterion_main!(sel_vec);

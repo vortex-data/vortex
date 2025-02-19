@@ -5698,6 +5698,7 @@ version = "0.24.0"
 dependencies = [
  "arbitrary",
  "codspeed-criterion-compat",
+ "codspeed-divan-compat",
  "fsst-rs",
  "itertools 0.14.0",
  "jiff",

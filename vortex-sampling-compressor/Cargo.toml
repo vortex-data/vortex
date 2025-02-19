@@ -37,6 +37,7 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
+divan = { workspace = true }
 jiff = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }

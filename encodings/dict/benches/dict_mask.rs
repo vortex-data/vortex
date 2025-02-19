@@ -2,10 +2,10 @@
 
 use divan::Bencher;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng as _};
+use rand::{Rng, SeedableRng};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::mask;
-use vortex_array::IntoArray as _;
+use vortex_array::IntoArray;
 use vortex_dict::DictArray;
 use vortex_mask::Mask;
 
