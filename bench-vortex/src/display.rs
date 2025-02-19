@@ -103,9 +103,9 @@ fn color(baseline: MeasurementValue, value: MeasurementValue, mode: RatioMode) -
             }
         }
         RatioMode::Throughput => {
-            if value < (baseline + baseline / 10) {
+            if value < (baseline - baseline / 2) {
                 Color::BG_RED
-            } else if value < (baseline + baseline / 2) {
+            } else if value < (baseline - baseline / 10) {
                 Color::BG_YELLOW
             } else {
                 Color::BG_BRIGHT_GREEN

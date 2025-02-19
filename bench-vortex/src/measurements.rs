@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::ops::{Add, Div};
+use std::ops::{Add, Div, Sub};
 use std::time::Duration;
 
 use serde::{Serialize, Serializer};
@@ -88,6 +88,20 @@ impl Add<MeasurementValue> for MeasurementValue {
     }
 }
 
+impl Sub<MeasurementValue> for MeasurementValue {
+    type Output = MeasurementValue;
+
+    fn sub(self, rhs: MeasurementValue) -> Self::Output {
+        match (self, rhs) {
+            (MeasurementValue::Float(a), MeasurementValue::Float(b)) => {
+                MeasurementValue::Float(a - b)
+            }
+            (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a - b),
+            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+        }
+    }
+}
+
 impl PartialOrd<Self> for MeasurementValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
@@ -101,7 +115,7 @@ impl PartialOrd<Self> for MeasurementValue {
 #[derive(Serialize)]
 pub struct JsonValue {
     pub name: String,
-    pub storage: String,
+    pub storage: Option<String>,
     pub unit: Cow<'static, str>,
     pub value: MeasurementValue,
     pub time: Option<u128>,
@@ -158,7 +172,7 @@ impl ToJson for TimingMeasurement {
     fn to_json(&self) -> JsonValue {
         JsonValue {
             name: self.name.clone(),
-            storage: self.storage.clone(),
+            storage: Some(self.storage.clone()),
             unit: Cow::from("ns"),
             value: MeasurementValue::Int(self.time.as_nanos()),
             bytes: None,
@@ -189,7 +203,7 @@ impl ToJson for QueryMeasurement {
 
         JsonValue {
             name,
-            storage: self.storage.clone(),
+            storage: Some(self.storage.clone()),
             unit: Cow::from("ns"),
             value: MeasurementValue::Int(self.time.as_nanos()),
             bytes: None,
@@ -215,7 +229,6 @@ impl ToTable for QueryMeasurement {
 pub struct ThroughputMeasurement {
     pub name: String,
     pub format: Format,
-    pub storage: String,
     pub time: Duration,
     pub bytes: u64,
 }
@@ -230,7 +243,7 @@ impl ToJson for ThroughputMeasurement {
 
         JsonValue {
             name,
-            storage: self.storage.clone(),
+            storage: None,
             unit: Cow::from("bytes / μs"),
             value: MeasurementValue::Float((self.bytes as f64) / self.time.as_micros() as f64),
             time: Some(self.time.as_nanos()),
@@ -255,7 +268,6 @@ impl ToTable for ThroughputMeasurement {
 #[derive(Clone, Debug)]
 pub struct RatioMeasurement {
     pub name: String,
-    pub storage: String,
     pub format: Format,
     pub value: f64,
 }
@@ -264,7 +276,7 @@ impl ToJson for RatioMeasurement {
     fn to_json(&self) -> JsonValue {
         JsonValue {
             name: self.name.clone(),
-            storage: self.storage.clone(),
+            storage: None,
             unit: Cow::from("ratio"),
             value: MeasurementValue::Float(self.value),
             time: None,

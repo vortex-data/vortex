@@ -66,7 +66,6 @@ where
     if formats.contains(&Format::OnDiskVortex) {
         throughputs.push(ThroughputMeasurement {
             name: format!("compress time/{}", bench_name),
-            storage: "nvme".to_string(),
             bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 compressed_size.store(
@@ -83,13 +82,11 @@ where
         let compressed_size_f64 = compressed_size.load(Ordering::SeqCst) as f64;
         ratios.push(RatioMeasurement {
             name: format!("vortex:raw size/{}", bench_name),
-            storage: "nvme".to_string(),
             format: Format::OnDiskVortex,
             value: compressed_size_f64 / (uncompressed_size as f64),
         });
         ratios.push(RatioMeasurement {
             name: format!("vortex size/{}", bench_name),
-            storage: "nvme".to_string(),
             format: Format::OnDiskVortex,
             value: compressed_size_f64,
         });
@@ -101,7 +98,6 @@ where
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
         throughputs.push(ThroughputMeasurement {
             name: format!("compress time/{}", bench_name),
-            storage: "nvme".to_string(),
             bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 parquet_compressed_size.store(
@@ -120,7 +116,6 @@ where
         progress.inc(1);
         ratios.push(RatioMeasurement {
             name: format!("vortex:parquet-zstd size/{}", bench_name),
-            storage: "nvme".to_string(),
             format: Format::OnDiskVortex,
             value: compressed_size.load(Ordering::SeqCst) as f64
                 / parquet_compressed_size.into_inner() as f64,
@@ -140,7 +135,6 @@ where
 
         throughputs.push(ThroughputMeasurement {
             name: format!("decompress time/{}", bench_name),
-            storage: "nvme".to_string(),
             bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 vortex_decompress_read(buffer.clone()).await.unwrap()
@@ -166,7 +160,6 @@ where
 
         throughputs.push(ThroughputMeasurement {
             name: format!("decompress time/{}", bench_name),
-            storage: "nvme".to_string(),
             bytes: uncompressed_size as u64,
             time: run(runtime, iterations, || async {
                 parquet_decompress_read(buffer.clone());
