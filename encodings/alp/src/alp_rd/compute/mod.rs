@@ -1,16 +1,21 @@
-use vortex_array::compute::{FilterFn, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{FilterFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
 use vortex_array::Array;
 
 use crate::ALPRDEncoding;
 
 mod filter;
+mod mask;
 mod scalar_at;
 mod slice;
 mod take;
 
 impl ComputeVTable for ALPRDEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
         Some(self)
     }
 

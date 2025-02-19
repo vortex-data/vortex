@@ -6,6 +6,7 @@ members = [
     "pyvortex",
     "vortex",
     "vortex-array",
+    "vortex-btrblocks",
     "vortex-buffer",
     "vortex-datafusion",
     "vortex-datetime-dtype",
@@ -165,6 +166,7 @@ witchcraft-metrics = "1.0.1"
 vortex = { version = "0.24.0", path = "./vortex" }
 vortex-alp = { version = "0.24.0", path = "./encodings/alp" }
 vortex-array = { version = "0.24.0", path = "./vortex-array" }
+vortex-btrblocks = { version = "0.24.0", path = "./vortex-btrblocks" }
 vortex-buffer = { version = "0.24.0", path = "./vortex-buffer" }
 vortex-bytebool = { version = "0.24.0", path = "./encodings/bytebool" }
 vortex-datafusion = { version = "0.24.0", path = "./vortex-datafusion" }

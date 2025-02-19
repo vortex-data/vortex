@@ -180,6 +180,11 @@ impl TemporalArray {
     pub fn ext_dtype(&self) -> Arc<ExtDType> {
         self.ext.ext_dtype().clone()
     }
+
+    /// Retrieve the DType of the array. This will be a `DType::Extension` variant.
+    pub fn dtype(&self) -> &DType {
+        self.ext.dtype()
+    }
 }
 
 impl From<TemporalArray> for Array {

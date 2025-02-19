@@ -8,7 +8,7 @@ use crate::validity::Validity;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
-const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
+pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<ChunkedArray> for ChunkedEncoding {
     fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<Array> {
@@ -32,7 +32,7 @@ impl FilterFn<ChunkedArray> for ChunkedEncoding {
 /// When we rewrite a set of slices in a filter predicate into chunk addresses, we want to account
 /// for the fact that some chunks will be wholly skipped.
 #[derive(Clone)]
-enum ChunkFilter {
+pub(crate) enum ChunkFilter {
     All,
     None,
     Slices(Vec<(usize, usize)>),
@@ -45,6 +45,29 @@ fn filter_slices(
 ) -> VortexResult<Vec<Array>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
+    let chunk_filters = chunk_filters(array, slices)?;
+
+    // Now, apply the chunk filter to every slice.
+    for (chunk, chunk_filter) in array.chunks().zip(chunk_filters.into_iter()) {
+        match chunk_filter {
+            // All => preserve the entire chunk unfiltered.
+            ChunkFilter::All => result.push(chunk),
+            // None => whole chunk is filtered out, skip
+            ChunkFilter::None => {}
+            // Slices => turn the slices into a boolean buffer.
+            ChunkFilter::Slices(slices) => {
+                result.push(filter(&chunk, &Mask::from_slices(chunk.len(), slices))?);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+pub(crate) fn chunk_filters(
+    array: &ChunkedArray,
+    slices: impl Iterator<Item = (usize, usize)>,
+) -> VortexResult<Vec<ChunkFilter>> {
     // Pre-materialize the chunk ends for performance.
     // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
     let chunk_ends = array.chunk_offsets().into_primitive()?;
@@ -99,21 +122,7 @@ fn filter_slices(
         }
     }
 
-    // Now, apply the chunk filter to every slice.
-    for (chunk, chunk_filter) in array.chunks().zip(chunk_filters.into_iter()) {
-        match chunk_filter {
-            // All => preserve the entire chunk unfiltered.
-            ChunkFilter::All => result.push(chunk),
-            // None => whole chunk is filtered out, skip
-            ChunkFilter::None => {}
-            // Slices => turn the slices into a boolean buffer.
-            ChunkFilter::Slices(slices) => {
-                result.push(filter(&chunk, &Mask::from_slices(chunk.len(), slices))?);
-            }
-        }
-    }
-
-    Ok(result)
+    Ok(chunk_filters)
 }
 
 /// Filter the chunks using indices.
@@ -171,7 +180,7 @@ fn filter_indices(
 
 // Mirrors the find_chunk_idx method on ChunkedArray, but avoids all of the overhead
 // from scalars, dtypes, and metadata cloning.
-fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
+pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
     let chunk_id = chunk_ends
         .search_sorted(&(idx as u64), SearchSortedSide::Right)
         .to_ends_index(chunk_ends.len())

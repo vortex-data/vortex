@@ -91,8 +91,8 @@ impl VarBinArray {
             dtype,
             length,
             RkyvMetadata(metadata),
-            Some([bytes].into()),
-            Some(children.into()),
+            [bytes].into(),
+            children.into(),
             StatsSet::default(),
         )
     }

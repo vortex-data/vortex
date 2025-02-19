@@ -261,8 +261,11 @@ impl VarBinViewArray {
             dtype,
             array_len,
             RkyvMetadata(metadata),
-            Some(array_buffers.into()),
-            validity.into_array().map(|v| [v].into()),
+            array_buffers.into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
     }

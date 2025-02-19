@@ -2,16 +2,21 @@ use arrow_array::{new_null_array, ArrayRef};
 use arrow_schema::DataType;
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
         Some(self)
     }
@@ -30,6 +35,12 @@ impl ComputeVTable for NullEncoding {
 
     fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
         Some(self)
+    }
+}
+
+impl MaskFn<NullArray> for NullEncoding {
+    fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<Array> {
+        Ok(array.clone().into_array())
     }
 }
 

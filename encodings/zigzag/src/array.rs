@@ -36,8 +36,8 @@ impl ZigZagArray {
             dtype,
             len,
             EmptyMetadata,
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )
     }

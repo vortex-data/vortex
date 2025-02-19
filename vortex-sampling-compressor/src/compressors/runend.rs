@@ -16,6 +16,12 @@ pub struct RunEndCompressor {
     ree_threshold: f32,
 }
 
+impl Default for RunEndCompressor {
+    fn default() -> Self {
+        DEFAULT_RUN_END_COMPRESSOR
+    }
+}
+
 impl EncodingCompressor for RunEndCompressor {
     fn id(&self) -> &str {
         RunEndEncoding::ID.as_ref()

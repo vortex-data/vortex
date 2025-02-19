@@ -91,8 +91,8 @@ impl StructArray {
             RkyvMetadata(StructMetadata {
                 validity: validity_metadata,
             }),
-            None,
-            Some(fields.into()),
+            vec![].into(),
+            fields.into(),
             StatsSet::default(),
         )
     }

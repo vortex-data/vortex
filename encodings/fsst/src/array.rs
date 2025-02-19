@@ -98,8 +98,8 @@ impl FSSTArray {
                 codes_nullability,
                 uncompressed_lengths_ptype,
             }),
-            None,
-            Some(children),
+            vec![].into(),
+            children,
             StatsSet::default(),
         )
     }

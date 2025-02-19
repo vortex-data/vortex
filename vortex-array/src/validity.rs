@@ -1,7 +1,7 @@
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
 use std::fmt::{Debug, Display};
-use std::ops::BitAnd;
+use std::ops::{BitAnd, Not};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use serde::{Deserialize, Serialize};
@@ -285,6 +285,9 @@ impl Validity {
         }
     }
 
+    /// Keep only the entries for which the mask is true.
+    ///
+    /// The result has length equal to the number of true values in mask.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
         //  if we happen to be NonNullable, AllValid, or AllInvalid.
@@ -293,6 +296,27 @@ impl Validity {
                 Ok(v.clone())
             }
             Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
+        }
+    }
+
+    /// Set to false any entries for which the mask is true.
+    ///
+    /// The result is always nullable. The result has the same length as self.
+    pub fn mask(&self, mask: &Mask) -> VortexResult<Self> {
+        match mask.boolean_buffer() {
+            AllOr::All => Ok(Validity::AllInvalid),
+            AllOr::None => Ok(self.clone()),
+            AllOr::Some(make_invalid) => Ok(match self {
+                Validity::NonNullable | Validity::AllValid => {
+                    Validity::Array(BoolArray::from(make_invalid.not()).into_array())
+                }
+                Validity::AllInvalid => Validity::AllInvalid,
+                Validity::Array(is_valid) => {
+                    let is_valid = BoolArray::try_from(is_valid.clone())?.boolean_buffer();
+                    let keep_valid = make_invalid.not();
+                    Validity::from(is_valid.bitand(&keep_valid))
+                }
+            }),
         }
     }
 
@@ -402,6 +426,35 @@ impl Validity {
         match self {
             Self::NonNullable => Self::AllValid,
             _ => self,
+        }
+    }
+
+    /// Convert into a non-nullable variant
+    pub fn into_non_nullable(self) -> Option<Validity> {
+        match self {
+            Self::NonNullable => Some(Self::NonNullable),
+            Self::AllValid => Some(Self::NonNullable),
+            Self::AllInvalid => None,
+            Self::Array(is_valid) => {
+                is_valid
+                    .statistics()
+                    .compute_min::<bool>()
+                    .vortex_expect("validity array must support min")
+                    .then(|| {
+                        // min true => all true
+                        Self::NonNullable
+                    })
+            }
+        }
+    }
+
+    /// Convert into a variant compatible with the given nullability, if possible.
+    pub fn cast_nullability(self, nullability: Nullability) -> VortexResult<Validity> {
+        match nullability {
+            Nullability::NonNullable => self.into_non_nullable().ok_or_else(|| {
+                vortex_err!("Cannot cast array with invalid values to non-nullable type.")
+            }),
+            Nullability::Nullable => Ok(self.into_nullable()),
         }
     }
 

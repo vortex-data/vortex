@@ -81,8 +81,8 @@ impl ChunkedArray {
             dtype,
             curr_offset.try_into().vortex_unwrap(),
             RkyvMetadata(ChunkedMetadata { nchunks }),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )
         .vortex_expect("Constructing chunked array")

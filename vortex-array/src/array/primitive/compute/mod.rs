@@ -1,6 +1,6 @@
 use crate::array::PrimitiveEncoding;
 use crate::compute::{
-    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
+    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
@@ -11,6 +11,7 @@ mod cast;
 mod fill;
 mod fill_null;
 mod filter;
+mod mask;
 mod min_max;
 mod scalar_at;
 mod search_sorted;
@@ -20,6 +21,10 @@ mod to_arrow;
 
 impl ComputeVTable for PrimitiveEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
         Some(self)
     }
 

@@ -51,6 +51,10 @@ harness = false
 required-features = ["test-harness"]
 
 [[bench]]
+name = "dict_mask"
+harness = false
+
+[[bench]]
 name = "chunked_dict_array_builder"
 harness = false
 required-features = ["test-harness"]
