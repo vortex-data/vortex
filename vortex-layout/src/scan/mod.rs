@@ -4,9 +4,9 @@ use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
 use futures::{stream, Stream, StreamExt};
 use itertools::Itertools;
 pub use split_by::*;
-use vortex_array::arrow::{FromArrowArray as _, IntoArrowArray as _};
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{Array, ContextRef};
+use vortex_array::{Array, ContextRef, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};
@@ -278,15 +278,10 @@ impl<D: ScanDriver> Scan<D> {
                     } else {
                         let mut array = reader.evaluate_expr(row_mask, projection).await?;
                         if self.canonicalize {
-                            // TODO(ngates): replace this with into_canonical. We want a fully recursive
-                            //  canonicalize here, so we pretend by converting via Arrow.
-                            let is_nullable = array.dtype().is_nullable();
-                            array = Array::from_arrow(
-                                array.clone().into_arrow_preferred()?,
-                                is_nullable,
-                            );
+                            let mut builder = builder_with_capacity(array.dtype(), array.len());
+                            array.canonicalize_into(builder.as_mut())?;
+                            array = builder.finish();
                         }
-
                         VortexResult::Ok(Some(array))
                     }
                 }
