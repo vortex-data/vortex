@@ -3,6 +3,7 @@ mod stats;
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::{Deref, Not};
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
@@ -16,7 +17,7 @@ use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{bitpack_encode, find_best_bit_width, for_compress, FoRArray};
-use vortex_mask::Mask;
+use vortex_mask::{AllOr, Mask};
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
 use vortex_scalar::Scalar;
@@ -423,14 +424,9 @@ impl Scheme for SparseScheme {
         &self,
         stats: &IntegerStats,
         _is_sample: bool,
-        allowed_cascading: usize,
+        _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
-        // We must have at least one level of cascading after Sparse for it to be useful.
-        if allowed_cascading == 0 {
-            return Ok(0.0);
-        }
-
         if stats.value_count == 0 {
             // All nulls should use ConstantScheme
             return Ok(0.0);
@@ -466,10 +462,40 @@ impl Scheme for SparseScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
-
         let mask = stats.src.validity().to_logical(stats.src.len())?;
 
-        // Find the top value and all positions it occurs in.
+        // Dominant value is null
+        if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
+            // Find the non-null values, and filter to those.
+            let non_null = mask.not();
+            let non_null_values = filter(stats.source().as_ref(), &non_null)?;
+            let non_null_indices = match non_null.indices() {
+                AllOr::All => {
+                    // We already know that the mask is 90%+ false
+                    unreachable!()
+                }
+                AllOr::None => Buffer::<u32>::empty().into_array(),
+                AllOr::Some(values) => {
+                    let buffer: Buffer<u32> = values
+                        .iter()
+                        .map(|&v| v.try_into().vortex_expect("u32"))
+                        .collect();
+
+                    buffer.into_array()
+                }
+            };
+
+            return Ok(SparseArray::try_new(
+                non_null_indices,
+                non_null_values,
+                stats.src.len(),
+                Scalar::null(stats.source().dtype().clone()),
+            )?
+            .into_array());
+        }
+
+        // Dominant value is non-null
+
         let (top_pvalue, top_count) = stats.typed.top_value_and_count();
 
         if top_count == (stats.value_count + stats.null_count) {
