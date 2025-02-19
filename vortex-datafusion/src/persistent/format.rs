@@ -297,7 +297,7 @@ impl FileFormat for VortexFormat {
         }
 
         if !file_scan_config.output_ordering.is_empty() {
-            return not_impl_err!("Vortex doesn't respect output ordering");
+            return not_impl_err!("Vortex doesn't support output ordering");
         }
 
         let exec = VortexExec::try_new(
