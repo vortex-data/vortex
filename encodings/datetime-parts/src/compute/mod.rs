@@ -41,6 +41,8 @@ impl ComputeVTable for DateTimePartsEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
         Some(self)
     }
+
+    // TODO(joe): implement `between_fn` this is used at lot.
 }
 
 impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
