@@ -11,12 +11,12 @@ use crate::vtable::EncodingVTable;
 use crate::Array;
 
 impl Array {
-    pub fn tree_display<'a>(&'a self) -> impl fmt::Display + 'a {
+    pub fn tree_display(&self) -> impl fmt::Display + use<'_> {
         TreeDisplayWrapper(self)
     }
 }
 
-pub struct TreeDisplayWrapper<'a>(&'a Array);
+pub struct TreeDisplayWrapper<'a>(pub &'a Array);
 
 impl fmt::Display for TreeDisplayWrapper<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -99,5 +99,9 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         let res = indented(self);
         self.indent = original_ident;
         res
+    }
+
+    pub fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> fmt::Result {
+        write!(self.fmt, "{}{}", self.indent, fmt)
     }
 }
