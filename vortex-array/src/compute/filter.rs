@@ -30,7 +30,30 @@ where
     }
 }
 
-/// Return a new array by applying a boolean predicate to select items from a base Array.
+/// Keep only the elements for which the corresponding mask value is true.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::IntoArray;
+/// use vortex_array::array::{BoolArray, PrimitiveArray};
+/// use vortex_array::compute::{scalar_at, filter, mask};
+/// use vortex_mask::Mask;
+/// use vortex_scalar::Scalar;
+///
+/// let array =
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
+///         .into_array();
+/// let mask = Mask::try_from(
+///     BoolArray::from_iter([true, false, false, false, true]).into_array(),
+/// )
+/// .unwrap();
+///
+/// let filtered = filter(&array, &mask).unwrap();
+/// assert_eq!(filtered.len(), 2);
+/// assert_eq!(scalar_at(&filtered, 0).unwrap(), Scalar::from(Some(0_i32)));
+/// assert_eq!(scalar_at(&filtered, 1).unwrap(), Scalar::from(Some(2_i32)));
+/// ```
 ///
 /// # Performance
 ///

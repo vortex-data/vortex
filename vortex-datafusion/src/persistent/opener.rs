@@ -11,7 +11,8 @@ use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
 use vortex_file::{SplitBy, VortexOpenOptions};
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::{InstrumentedReadAt, ObjectStoreReadAt};
+use vortex_metrics::VortexMetrics;
 
 use super::cache::FileLayoutCache;
 
@@ -54,10 +55,16 @@ impl VortexFileOpener {
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let read_at = ObjectStoreReadAt::new(
-            self.object_store.clone(),
-            file_meta.location().clone(),
-            Some(self.scheme.clone()),
+        let metrics = VortexMetrics::default_with_tags(
+            [("filename", file_meta.location().to_string())].as_slice(),
+        );
+        let read_at = InstrumentedReadAt::new(
+            ObjectStoreReadAt::new(
+                self.object_store.clone(),
+                file_meta.location().clone(),
+                Some(self.scheme.clone()),
+            ),
+            &metrics,
         );
 
         let filter = self.filter.clone();

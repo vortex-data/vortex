@@ -7,7 +7,7 @@ use ratatui::widgets::{
 };
 use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
-use vortex::file::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID};
+use vortex::layout::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::Array;
@@ -242,6 +242,16 @@ fn child_name(cursor: &LayoutCursor, nth: usize) -> String {
             }
         }
         FLAT_LAYOUT_ID => format!("Page {nth}"),
+        STATS_LAYOUT_ID => {
+            // 0th child is the data, 1st child is stats.
+            if nth == 0 {
+                "Data".to_string()
+            } else if nth == 1 {
+                "Stats".to_string()
+            } else {
+                format!("Unknown {nth}")
+            }
+        }
         _ => format!("Unknown {nth}"),
     }
 }

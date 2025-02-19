@@ -4,17 +4,22 @@ mod take;
 mod to_arrow;
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
-use crate::compute::{CastFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
+use crate::compute::{CastFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray};
 
 impl ComputeVTable for VarBinViewEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
         Some(self)
     }
 
@@ -61,6 +66,18 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
     }
 }
 
+impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
+    fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<Array> {
+        VarBinViewArray::try_new(
+            array.views(),
+            array.buffers().collect(),
+            array.dtype().as_nullable(),
+            array.validity().mask(&mask)?,
+        )
+        .map(IntoArray::into_array)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -68,6 +85,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::compute::test_harness::test_mask;
     use crate::compute::{take, take_into};
     use crate::{IntoArray, IntoArrayVariant};
 
@@ -94,6 +112,24 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             [Some("one".to_string()), Some("four".to_string())]
+        );
+    }
+
+    #[test]
+    fn take_mask_var_bin_view_array() {
+        test_mask(
+            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
+        );
+
+        test_mask(
+            VarBinViewArray::from_iter_nullable_str([
+                Some("one"),
+                None,
+                Some("three"),
+                Some("four"),
+                Some("five"),
+            ])
+            .into_array(),
         );
     }
 

@@ -1,23 +1,14 @@
 use std::iter;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
-use async_once_cell::OnceCell;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_array::ContextRef;
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
-use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, Identity};
-use vortex_mask::Mask;
+use vortex_error::{vortex_panic, VortexResult};
 
-use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
-
-type PruningCache = Arc<OnceCell<Option<Mask>>>;
+use crate::{Layout, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
@@ -25,10 +16,6 @@ pub struct ChunkedReader {
     ctx: ContextRef,
     segment_reader: Arc<dyn AsyncSegmentReader>,
 
-    /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
-    pruning_result: Arc<RwLock<HashMap<ExprRef, PruningCache>>>,
-    /// Shared stats table
-    stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     /// Row offset for each chunk
@@ -72,87 +59,9 @@ impl ChunkedReader {
             layout,
             ctx,
             segment_reader,
-            pruning_result: Arc::new(RwLock::new(HashMap::new())),
-            stats_table: Arc::new(OnceCell::new()),
             chunk_readers,
             chunk_offsets,
         })
-    }
-
-    /// Get or initialize the stats table.
-    ///
-    /// Only the first successful caller will initialize the stats table, all other callers will
-    /// resolve to the same result.
-    pub(crate) async fn stats_table(&self) -> VortexResult<Option<&StatsTable>> {
-        self.stats_table
-            .get_or_try_init(async {
-                Ok(match self.layout.metadata() {
-                    None => None,
-                    Some(metadata) => {
-                        // The final child is the statistics table.
-                        let nchunks = self.layout.nchildren() - 1;
-
-                        // Figure out which stats are present
-                        let present_stats = stats_from_bitset_bytes(metadata.as_ref());
-
-                        let layout_dtype = self.layout.dtype();
-                        let stats_dtype =
-                            StatsTable::dtype_for_stats_table(layout_dtype, &present_stats);
-                        let stats_layout = self.layout.child(nchunks, stats_dtype.clone(), "stats")?;
-
-                        let stats_array = stats_layout
-                            .reader(self.segment_reader.clone(), self.ctx.clone())?
-                            .evaluate_expr(
-                                RowMask::new_valid_between(0, nchunks as u64),
-                                Identity::new_expr(),
-                            )
-                            .await?;
-
-                        if &stats_dtype != stats_array.dtype() {
-                            vortex_bail!("Expected stats DType {stats_dtype} doesn't match read stats dtype {}", stats_array.dtype())
-                        }
-
-                        // SAFETY: This is only fine to call because we perfrorm validation above
-                        Some(StatsTable::unchecked_new(
-                            stats_array,
-                            present_stats.into(),
-                        ))
-                    }
-                })
-            })
-            .await
-            .map(|opt| opt.as_ref())
-    }
-
-    /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    pub(crate) async fn pruning_mask(&self, expr: &ExprRef) -> VortexResult<Option<Mask>> {
-        let cell = self
-            .pruning_result
-            .write()?
-            .entry(expr.clone())
-            .or_insert_with(|| Arc::new(OnceCell::new()))
-            .clone();
-
-        cell.get_or_try_init(async {
-            let pruning_predicate = PruningPredicate::try_new(expr);
-            if let Some(p) = &pruning_predicate {
-                log::debug!("Constructed pruning predicate for expr: {}: {}", expr, p);
-            }
-            Ok(if let Some(stats_table) = self.stats_table().await? {
-                if let Some(predicate) = pruning_predicate {
-                    predicate
-                        .evaluate(stats_table.array())?
-                        .map(Mask::try_from)
-                        .transpose()?
-                } else {
-                    None
-                }
-            } else {
-                None
-            })
-        })
-        .await
-        .cloned()
     }
 
     /// Return the child reader for the chunk.

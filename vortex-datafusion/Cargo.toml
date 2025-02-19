@@ -49,6 +49,7 @@ vortex-expr = { workspace = true, features = ["datafusion"] }
 vortex-file = { workspace = true, features = ["object_store", "tokio"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
 vortex-layout = { workspace = true, features = ["tokio"] }
+vortex-metrics = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -58,6 +59,7 @@ url = { workspace = true }
 
 [features]
 tracing = ["dep:tracing", "dep:tracing-futures", "vortex-io/tracing"]
+
 
 [lints]
 workspace = true

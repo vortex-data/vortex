@@ -40,10 +40,7 @@ impl StatsTable {
 
     /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
-        assert!(
-            present_stats.is_sorted_by_key(|s| u8::from(*s)),
-            "Stats must be sorted"
-        );
+        assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
             Arc::new(StructDType::from_iter(present_stats.iter().map(|stat| {
                 (stat.name(), stat.dtype(column_dtype).as_nullable())
@@ -172,7 +169,7 @@ impl StatsAccumulator {
             .iter()
             .zip(self.builders.iter_mut())
             // We sort the stats so the DType is deterministic based on which stats are present.
-            .sorted_unstable_by_key(|(&s, _builder)| u8::from(s))
+            .sorted_unstable_by_key(|(&s, _builder)| s)
         {
             let values = builder.finish();
 

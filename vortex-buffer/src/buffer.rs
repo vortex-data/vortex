@@ -469,7 +469,7 @@ impl Buf for ByteBuffer {
     }
 }
 
-/// Owned iterator over a `Buffer<T>`.
+/// Owned iterator over a [`Buffer`].
 pub struct BufferIterator<T> {
     buffer: Buffer<T>,
     index: usize,

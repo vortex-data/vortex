@@ -7,14 +7,14 @@ use ratatui::widgets::ListState;
 use vortex::buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::{
-    FileLayout, Segment, VortexOpenOptions, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID,
-};
+use vortex::file::{FileLayout, Segment, VortexOpenOptions};
 use vortex::io::TokioFile;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex_layout::layouts::chunked::stats_table::StatsTable;
+use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{Layout, LayoutVTableRef};
+use vortex_layout::{
+    Layout, LayoutVTableRef, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID,
+};
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub enum Tab {
@@ -32,6 +32,7 @@ pub enum Encoding {
     Flat,
     Chunked,
     Columnar,
+    Stats,
     Unknown,
 }
 
@@ -43,6 +44,8 @@ impl From<u16> for Encoding {
             Encoding::Chunked
         } else if value == COLUMNAR_LAYOUT_ID.0 {
             Encoding::Columnar
+        } else if value == STATS_LAYOUT_ID.0 {
+            Encoding::Stats
         } else {
             Encoding::Unknown
         }
@@ -97,6 +100,18 @@ impl LayoutCursor {
                     .expect("struct dtype component access"),
                 // Flat layouts have no children
                 FLAT_LAYOUT_ID => unreachable!("flat layouts have no children"),
+                STATS_LAYOUT_ID => {
+                    if component == 0 {
+                        // This is the child data
+                        dtype.clone()
+                    } else {
+                        // Otherwise, it's the stats table
+                        let present_stats = stats_from_bitset_bytes(
+                            &layout.metadata().expect("extracting stats").as_ref()[4..],
+                        );
+                        StatsTable::dtype_for_stats_table(&dtype, &present_stats)
+                    }
+                }
                 _ => todo!("unknown DType"),
             };
 

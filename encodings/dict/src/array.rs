@@ -64,8 +64,8 @@ impl DictArray {
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
             }),
-            None,
-            Some([codes, values].into()),
+            vec![].into(),
+            [codes, values].into(),
             StatsSet::default(),
         )
     }

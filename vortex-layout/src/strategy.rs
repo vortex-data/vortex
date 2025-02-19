@@ -58,7 +58,6 @@ impl LayoutStrategy for ChunkedStrategy {
             dtype,
             ChunkedLayoutOptions {
                 chunk_strategy: self.chunk_strategy.clone(),
-                ..Default::default()
             },
         )
         .boxed())

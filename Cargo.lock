@@ -1887,6 +1887,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_filter"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "186e05a59d4c50738528153b83b0b0194d3a29507dfec16eccd4b342903397d0"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcaee3d8e3cfc3fd92428d477bc97fc29ec8716d180c0d74c643bb26166660e0"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "env_filter",
+ "humantime",
+ "log",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4366,6 +4389,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.10.1",
+ "serde",
+]
+
+[[package]]
 name = "serde-wasm-bindgen"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5288,7 +5321,6 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "backtrace",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "enum-iterator",
  "flatbuffers 25.2.10",
@@ -5317,6 +5349,36 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-btrblocks"
+version = "0.24.0"
+dependencies = [
+ "arrow-buffer",
+ "codspeed-divan-compat",
+ "env_logger",
+ "itertools 0.14.0",
+ "log",
+ "num-traits",
+ "rand",
+ "rustc-hash",
+ "vortex-alp",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-datetime-dtype",
+ "vortex-datetime-parts",
+ "vortex-dict",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-fsst",
+ "vortex-mask",
+ "vortex-runend",
+ "vortex-sampling-compressor",
+ "vortex-scalar",
+ "vortex-sparse",
+ "vortex-zigzag",
 ]
 
 [[package]]
@@ -5383,6 +5445,7 @@ dependencies = [
  "vortex-file",
  "vortex-io",
  "vortex-layout",
+ "vortex-metrics",
 ]
 
 [[package]]
@@ -5417,7 +5480,6 @@ name = "vortex-dict"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "num-traits",
  "rand",
@@ -5497,7 +5559,6 @@ version = "0.24.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
- "codspeed-criterion-compat",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
@@ -5539,6 +5600,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-io",
  "vortex-layout",
+ "vortex-metrics",
  "vortex-sampling-compressor",
 ]
 
@@ -5604,6 +5666,7 @@ dependencies = [
  "tracing",
  "vortex-buffer",
  "vortex-error",
+ "vortex-metrics",
  "wasm-bindgen-futures",
 ]
 
@@ -5662,6 +5725,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-metrics"
+version = "0.24.0"
+dependencies = [
+ "getrandom 0.2.15",
+ "witchcraft-metrics",
+]
+
+[[package]]
 name = "vortex-proto"
 version = "0.24.0"
 dependencies = [
@@ -5674,7 +5745,7 @@ name = "vortex-runend"
 version = "0.24.0"
 dependencies = [
  "arrow-buffer",
- "codspeed-criterion-compat",
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "rand",
@@ -6209,6 +6280,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
 dependencies = [
  "bitflags 2.8.0",
+]
+
+[[package]]
+name = "witchcraft-metrics"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "867a74dec702d742179279ab0b5bcab72ca5858c0c3ccf870bdb5c99f54d675b"
+dependencies = [
+ "exponential-decay-histogram",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]

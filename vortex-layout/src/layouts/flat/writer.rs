@@ -32,7 +32,7 @@ impl LayoutStrategy for FlatLayoutOptions {
     }
 }
 
-/// Writer for the flat layout.
+/// Writer for a [`FlatLayout`].
 pub struct FlatLayoutWriter {
     options: FlatLayoutOptions,
     dtype: DType,

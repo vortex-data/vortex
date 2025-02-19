@@ -83,3 +83,21 @@ impl FilterFn<ConstantArray> for ConstantEncoding {
         Ok(ConstantArray::new(array.scalar(), mask.true_count()).into_array())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_dtype::half::f16;
+    use vortex_scalar::Scalar;
+
+    use super::ConstantArray;
+    use crate::compute::test_harness::test_mask;
+    use crate::IntoArray as _;
+
+    #[test]
+    fn test_mask_constant() {
+        test_mask(ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
+        test_mask(ConstantArray::new(Scalar::from(3u16), 5).into_array());
+        test_mask(ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
+        test_mask(ConstantArray::new(Scalar::from(f16::from_f32(3.0f32)), 5).into_array());
+    }
+}

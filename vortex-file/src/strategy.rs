@@ -1,18 +1,18 @@
 //! This module defines the default layout strategy for a Vortex file.
 
-use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::array::ChunkedArray;
-use vortex_array::compute::slice;
-use vortex_array::stats::STATS_TO_WRITE;
-use vortex_array::{Array, IntoArray, IntoCanonical};
+use vortex_array::stats::{PRUNING_STATS, STATS_TO_WRITE};
+use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_layout::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
 use vortex_layout::layouts::flat::writer::FlatLayoutOptions;
+use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
+use vortex_layout::writers::{RepartitionWriter, RepartitionWriterOptions};
 use vortex_layout::{Layout, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 use vortex_sampling_compressor::compressors::CompressionTree;
 use vortex_sampling_compressor::{SamplingCompressor, DEFAULT_COMPRESSORS};
@@ -22,22 +22,7 @@ static COMPRESSOR: LazyLock<Arc<SamplingCompressor<'static>>> =
 
 /// The default Vortex file layout strategy.
 #[derive(Clone)]
-pub struct VortexLayoutStrategy {
-    /// The minimum size of a block in bytes. The block will be cut at the next multiple
-    /// of the `block_len` larger than this size.
-    pub minimum_block_size: usize,
-    /// The divisor for the number of rows in a block.
-    pub block_len_multiple: usize,
-}
-
-impl Default for VortexLayoutStrategy {
-    fn default() -> Self {
-        Self {
-            minimum_block_size: 8 * (1 << 20), // 8MB
-            block_len_multiple: 8 * 1024,      // 8192 rows
-        }
-    }
-}
+pub struct VortexLayoutStrategy;
 
 impl LayoutStrategy for VortexLayoutStrategy {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
@@ -47,134 +32,55 @@ impl LayoutStrategy for VortexLayoutStrategy {
                 .map(|w| w.boxed());
         }
 
-        // Then we re-chunk each column per our strategy...
-        Ok(ColumnChunker::new(
-            dtype.clone(),
-            // ...compress each chunk using a sampling compressor...
-            SamplingCompressorWriter {
-                compressor: COMPRESSOR.clone(),
-                compress_like: None,
-                child: ChunkedLayoutWriter::new(
-                    dtype,
-                    ChunkedLayoutOptions {
-                        // ...and write each chunk as a flat layout.
-                        chunk_strategy: Arc::new(FlatLayoutOptions::default()),
-                        ..Default::default()
-                    },
-                )
-                .boxed(),
-            }
+        // Otherwise, we finish with compressing the chunks.
+        let writer: Box<dyn LayoutWriter> = SamplingCompressorWriter {
+            compressor: COMPRESSOR.clone(),
+            compress_like: None,
+            child: ChunkedLayoutWriter::new(
+                dtype,
+                ChunkedLayoutOptions {
+                    // ...and write each chunk as a flat layout.
+                    chunk_strategy: Arc::new(FlatLayoutOptions::default()),
+                },
+            )
             .boxed(),
-            self.clone(),
-        )
-        .boxed())
-    }
-}
+        }
+        .boxed();
 
-/// Each column is chunked into multiples of 8096 values, of at least 1MB in uncompressed size.
-struct ColumnChunker {
-    dtype: DType,
-    chunks: VecDeque<Array>,
-    row_count: usize,
-    nbytes: usize,
-    writer: Box<dyn LayoutWriter>,
-    options: VortexLayoutStrategy,
-}
-
-impl ColumnChunker {
-    pub fn new(dtype: DType, writer: Box<dyn LayoutWriter>, options: VortexLayoutStrategy) -> Self {
-        Self {
-            dtype,
-            chunks: VecDeque::new(),
-            row_count: 0,
-            nbytes: 0,
+        // Prior to compression, re-partition into size-based chunks.
+        let writer = RepartitionWriter::new(
+            dtype.clone(),
             writer,
-            options,
-        }
-    }
+            RepartitionWriterOptions {
+                block_size_minimum: 8 * (1 << 20), // 1 MB
+                block_len_multiple: 8192,          // 8K rows
+            },
+        )
+        .boxed();
 
-    fn flush(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<()> {
-        if self.nbytes >= self.options.minimum_block_size {
-            let nblocks = self.row_count / self.options.block_len_multiple;
+        // Prior to repartitioning, we record statistics
+        let writer = RepartitionWriter::new(
+            dtype.clone(),
+            StatsLayoutWriter::try_new(
+                dtype,
+                writer,
+                Arc::new(FlatLayout),
+                StatsLayoutOptions {
+                    block_size: 8192,
+                    stats: PRUNING_STATS.into(),
+                },
+            )?
+            .boxed(),
+            RepartitionWriterOptions {
+                // No minimum block size in bytes
+                block_size_minimum: 0,
+                // Always repartition into 8K row blocks
+                block_len_multiple: 8192,
+            },
+        )
+        .boxed();
 
-            // If we don't have a full block, then continue anyway.
-            if nblocks == 0 {
-                // TODO(ngates): if we exceed a maximum block size, regardless of row count we should
-                //  flush the chunk. This can happen for columns with very large cells.
-                return Ok(());
-            }
-
-            if nblocks > 1 {
-                // TODO(ngates): if we have _too_ many blocks, then we might look into slicing
-                //  the chunks to be smaller blocks.
-            }
-
-            let mut chunks = Vec::with_capacity(self.chunks.len());
-            let mut remaining = nblocks * self.options.block_len_multiple;
-
-            while remaining > 0 {
-                let chunk = self.chunks.pop_front().vortex_expect("chunk is missing");
-                self.row_count -= chunk.len();
-                self.nbytes -= chunk.nbytes();
-
-                let len = chunk.len();
-
-                if len > remaining {
-                    let left = slice(&chunk, 0, remaining)?;
-                    let right = slice(&chunk, remaining, len)?;
-                    self.row_count += right.len();
-                    self.nbytes += right.nbytes();
-                    self.chunks.push_front(right);
-
-                    chunks.push(left);
-                    remaining = 0;
-                } else {
-                    chunks.push(chunk);
-                    remaining -= len;
-                }
-            }
-
-            // Combine the chunks to and flush them to the layout.
-            assert!(!chunks.is_empty());
-            let chunk = ChunkedArray::try_new_unchecked(chunks, self.dtype.clone())
-                .into_canonical()?
-                .into_array();
-
-            self.writer.push_chunk(segments, chunk)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl LayoutWriter for ColumnChunker {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
-        // We make sure the chunks are canonical so our nbytes measurement is accurate.
-        let chunk = chunk.into_canonical()?.into_array();
-
-        // Split chunks into 8192 blocks to make sure we don't over-size them.
-        let mut offset = 0;
-        while offset < chunk.len() {
-            let end = (offset + self.options.block_len_multiple).min(chunk.len());
-            let c = slice(&chunk, offset, end)?;
-            self.row_count += c.len();
-            self.nbytes += c.nbytes();
-            self.chunks.push_back(c);
-            offset = end;
-
-            self.flush(segments)?;
-        }
-
-        Ok(())
-    }
-
-    fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
-        let chunk =
-            ChunkedArray::try_new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
-                .into_canonical()?
-                .into_array();
-        self.writer.push_chunk(segments, chunk)?;
-        self.writer.finish(segments)
+        Ok(writer)
     }
 }
 

@@ -44,7 +44,19 @@ pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::UncompressedSizeInBytes,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Sequence,
+    IntoPrimitive,
+    TryFromPrimitive,
+)]
 #[repr(u8)]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
