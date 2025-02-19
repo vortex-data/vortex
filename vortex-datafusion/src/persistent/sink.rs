@@ -132,43 +132,6 @@ mod tests {
     use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
 
     #[tokio::test]
-    async fn insert_into() {
-        let dir = TempDir::new().unwrap();
-
-        let factory = VortexFormatFactory::default_config();
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        session
-            .sql(&format!(
-                "CREATE EXTERNAL TABLE my_tbl \
-                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
-            STORED AS vortex 
-            LOCATION '{}/*';",
-                dir.path().to_str().unwrap()
-            ))
-            .await
-            .unwrap();
-
-        session
-            .sql("INSERT INTO my_tbl VALUES ('hello', 42::INT);")
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
-
-        let my_tbl = session.table("my_tbl").await.unwrap();
-
-        my_tbl.clone().show().await.unwrap();
-
-        assert_eq!(my_tbl.count().await.unwrap(), 1);
-    }
-
-    // TODO(adam): Seems like this now panics due to a Vortex issue
-    #[tokio::test]
-    #[should_panic] // This test is not working due to <https://github.com/apache/datafusion/issues/14394>
     async fn test_insert_into() {
         let dir = TempDir::new().unwrap();
 
@@ -220,7 +183,7 @@ mod tests {
             .unwrap();
 
         session
-            .sql("INSERT INTO my_tbl VALUES ('hello', 42::INT);")
+            .sql("INSERT INTO my_tbl VALUES ('world', 24);")
             .await
             .unwrap()
             .collect()
