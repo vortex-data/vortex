@@ -5,7 +5,7 @@ use vortex_dtype::{DType, ExtDType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ExtScalar;
 
-use crate::array::ExtensionArray;
+use crate::arrays::ExtensionArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
 

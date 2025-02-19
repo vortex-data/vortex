@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::MaskFn;
 use crate::{Array, IntoArray};
 

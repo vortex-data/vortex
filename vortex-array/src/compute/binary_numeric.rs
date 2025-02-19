@@ -2,7 +2,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
-use crate::array::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, IntoArray as _};
@@ -190,7 +190,7 @@ pub mod test_harness {
     use vortex_error::{vortex_err, VortexResult};
     use vortex_scalar::{BinaryNumericOperator, PrimitiveScalar, Scalar};
 
-    use crate::array::ConstantArray;
+    use crate::arrays::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
     use crate::{Array, IntoArray as _, IntoCanonical};
 
@@ -288,7 +288,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, sub_scalar};
     use crate::IntoArray;

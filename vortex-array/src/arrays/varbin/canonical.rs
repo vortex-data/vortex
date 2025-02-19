@@ -2,8 +2,8 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::array::varbin::VarBinArray;
-use crate::array::{VarBinEncoding, VarBinViewArray};
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::{VarBinEncoding, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::vtable::CanonicalVTable;
 use crate::{Array, Canonical, IntoArray};
@@ -29,7 +29,7 @@ mod test {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::varbin::builder::VarBinBuilder;
+    use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::canonical::IntoArrayVariant;
 
     #[rstest]

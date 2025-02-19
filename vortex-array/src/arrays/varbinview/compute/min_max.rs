@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::array::{compute_min_max, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{compute_min_max, VarBinViewArray, VarBinViewEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 
 impl MinMaxFn<VarBinViewArray> for VarBinViewEncoding {

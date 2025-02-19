@@ -96,7 +96,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
 
-    use crate::array::{BoolArray, NullArray, PrimitiveArray};
+    use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{min_max, MinMaxResult};
     use crate::validity::Validity::NonNullable;
 

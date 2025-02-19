@@ -6,7 +6,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::{BinaryView, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;

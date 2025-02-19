@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::compute::MaskFn;
 use crate::{Array, IntoArray};
 
@@ -22,7 +22,7 @@ impl MaskFn<VarBinArray> for VarBinEncoding {
 mod test {
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::compute::test_harness::test_mask;
     use crate::IntoArray as _;
 

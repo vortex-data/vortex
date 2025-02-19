@@ -16,7 +16,7 @@
 use vortex_dtype::{Nullability, PType};
 use vortex_scalar::Scalar;
 
-use crate::array::{
+use crate::arrays::{
     BoolMetadata, ChunkedMetadata, ConstantMetadata, ListMetadata, NullMetadata, PrimitiveMetadata,
     SparseMetadata, StructMetadata, VarBinMetadata, VarBinViewMetadata,
 };

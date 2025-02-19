@@ -5,7 +5,7 @@ use arrow_schema::{DataType, Field, Fields};
 use itertools::Itertools;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{StructArray, StructEncoding};
+use crate::arrays::{StructArray, StructEncoding};
 use crate::compute::{to_arrow, ToArrowFn};
 use crate::variants::StructArrayTrait;
 
@@ -79,7 +79,7 @@ mod tests {
     use vortex_dtype::FieldNames;
 
     use super::*;
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrow::IntoArrowArray;
     use crate::validity::Validity;
     use crate::IntoArray as _;

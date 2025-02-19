@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
-use crate::array::{VarBinArray, VarBinEncoding};
+use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 
 impl MinMaxFn<VarBinArray> for VarBinEncoding {
@@ -44,7 +44,7 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::array::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::compute::{min_max, MinMaxResult};
     use crate::stats::{Stat, Statistics};
 

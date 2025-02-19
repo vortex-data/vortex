@@ -10,7 +10,7 @@ use arrow_schema::DataType;
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::ToArrowFn;
 use crate::variants::PrimitiveArrayTrait;
 

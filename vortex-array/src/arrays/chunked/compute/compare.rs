@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::builders::{ArrayBuilder, BoolBuilder};
 use crate::compute::{compare, slice, CompareFn, Operator};
 use crate::Array;
@@ -35,7 +35,7 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::IntoArray;
 
     #[test]

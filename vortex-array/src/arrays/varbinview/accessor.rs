@@ -3,7 +3,7 @@ use std::iter;
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::array::varbinview::VarBinViewArray;
+use crate::arrays::varbinview::VarBinViewArray;
 use crate::validity::Validity;
 use crate::IntoArrayVariant;
 

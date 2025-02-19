@@ -11,8 +11,8 @@ use vortex_error::{
 };
 use vortex_scalar::Scalar;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::varbin::builder::VarBinBuilder;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
@@ -299,8 +299,8 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::varbin::VarBinArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::{Array, IntoArray};

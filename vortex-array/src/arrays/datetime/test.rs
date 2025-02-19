@@ -2,7 +2,7 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 
-use crate::array::{PrimitiveArray, TemporalArray};
+use crate::arrays::{PrimitiveArray, TemporalArray};
 use crate::validity::Validity;
 use crate::{IntoArray, IntoArrayVariant};
 

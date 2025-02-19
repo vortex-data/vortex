@@ -4,7 +4,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::array::varbin::VarBinArray;
+use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::IntoArrayVariant;

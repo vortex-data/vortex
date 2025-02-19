@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::array::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::InvertFn;
 use crate::{Array, IntoArray};
 

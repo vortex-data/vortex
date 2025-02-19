@@ -1,4 +1,4 @@
-use crate::array::PrimitiveEncoding;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
     CastFn, FillForwardFn, FillNullFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
     SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,

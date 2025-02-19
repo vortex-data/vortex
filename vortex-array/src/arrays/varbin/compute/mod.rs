@@ -2,8 +2,8 @@ pub use min_max::compute_min_max;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::varbin::{varbin_scalar, VarBinArray};
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::{varbin_scalar, VarBinArray};
+use crate::arrays::VarBinEncoding;
 use crate::compute::{
     CastFn, CompareFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
 };

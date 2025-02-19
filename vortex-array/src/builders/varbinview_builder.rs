@@ -5,7 +5,7 @@ use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::array::{BinaryView, VarBinViewArray};
+use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};

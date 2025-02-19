@@ -7,7 +7,7 @@ use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, T
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{vortex_panic, VortexError};
 
-use crate::array::ExtensionArray;
+use crate::arrays::ExtensionArray;
 use crate::variants::ExtensionArrayTrait;
 use crate::{Array, IntoArray};
 

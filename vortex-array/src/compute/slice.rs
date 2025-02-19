@@ -131,7 +131,7 @@ fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<
 mod tests {
     use vortex_scalar::Scalar;
 
-    use crate::array::{ConstantArray, PrimitiveArray};
+    use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
 

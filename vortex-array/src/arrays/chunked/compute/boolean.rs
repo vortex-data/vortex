@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{binary_boolean, slice, BinaryBooleanFn, BinaryOperator};
 use crate::{Array, IntoArray};
 
@@ -32,7 +32,7 @@ impl BinaryBooleanFn<ChunkedArray> for ChunkedEncoding {
 mod tests {
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::{BoolArray, ChunkedArray};
+    use crate::arrays::{BoolArray, ChunkedArray};
     use crate::compute::{binary_boolean, BinaryOperator};
     use crate::{IntoArray, IntoArrayVariant};
 

@@ -3,7 +3,7 @@ use arrow_cast::cast;
 use arrow_schema::DataType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{varbinview_as_arrow, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{varbinview_as_arrow, VarBinViewArray, VarBinViewEncoding};
 use crate::compute::ToArrowFn;
 
 impl ToArrowFn<VarBinViewArray> for VarBinViewEncoding {

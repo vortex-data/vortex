@@ -14,7 +14,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
@@ -276,8 +276,8 @@ mod test {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::array::list::ListArray;
-    use crate::array::PrimitiveArray;
+    use crate::arrays::list::ListArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
     use crate::IntoArray;

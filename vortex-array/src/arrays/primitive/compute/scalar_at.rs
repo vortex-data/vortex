@@ -2,8 +2,8 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::ScalarAtFn;
 use crate::variants::PrimitiveArrayTrait;
 

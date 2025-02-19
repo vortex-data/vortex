@@ -4,7 +4,7 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::FillForwardFn;
 use crate::validity::Validity;
 use crate::{Array, IntoArray};
@@ -49,7 +49,7 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod test {
-    use crate::array::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::validity::Validity;
     use crate::{compute, IntoArray};
 

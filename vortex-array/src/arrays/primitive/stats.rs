@@ -10,8 +10,8 @@ use vortex_error::{vortex_panic, VortexError, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::min_max;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
@@ -311,7 +311,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::array::primitive::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::stats::{Stat, Statistics};
 
     #[test]

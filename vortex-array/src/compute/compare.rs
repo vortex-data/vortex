@@ -7,7 +7,7 @@ use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, Canonical, IntoArray};
@@ -254,7 +254,7 @@ mod tests {
     use itertools::Itertools;
 
     use super::*;
-    use crate::array::{BoolArray, ConstantArray};
+    use crate::arrays::{BoolArray, ConstantArray};
     use crate::validity::Validity;
     use crate::{IntoArray, IntoArrayVariant};
 

@@ -2,8 +2,8 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -71,7 +71,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::try_cast;
     use crate::validity::Validity;
     use crate::{IntoArray, IntoArrayVariant};

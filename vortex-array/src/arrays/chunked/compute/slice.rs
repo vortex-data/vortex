@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::chunked::ChunkedArray;
-use crate::array::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::ChunkedEncoding;
 use crate::compute::{slice, SliceFn};
 use crate::{Array, IntoArray};
 
@@ -46,7 +46,7 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
 mod tests {
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
-    use crate::array::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::{Array, IntoArray, IntoArrayVariant};
 

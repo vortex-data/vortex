@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
@@ -170,7 +170,7 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability;
 
-    use crate::array::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::stats::{Stat, Statistics};
 
     #[test]

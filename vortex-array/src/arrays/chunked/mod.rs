@@ -12,7 +12,7 @@ use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
-use crate::array::primitive::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -263,7 +263,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexResult;
 
-    use crate::array::chunked::ChunkedArray;
+    use crate::arrays::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
     use crate::{assert_arrays_eq, IntoArray, IntoArrayVariant};

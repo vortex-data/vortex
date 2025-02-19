@@ -2,7 +2,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
+use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -197,7 +197,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
 
-    use crate::array::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::filter;
     use crate::IntoArray;
 

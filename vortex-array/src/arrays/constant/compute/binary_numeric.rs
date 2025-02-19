@@ -1,7 +1,7 @@
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::BinaryNumericOperator;
 
-use crate::array::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::BinaryNumericFn;
 use crate::{Array, IntoArray as _};
 

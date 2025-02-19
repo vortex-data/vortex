@@ -1,7 +1,7 @@
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::{BoolArray, BoolEncoding, ConstantArray};
+use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -35,7 +35,7 @@ mod tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::compute::fill_null;
     use crate::validity::Validity;
     use crate::IntoArrayVariant;

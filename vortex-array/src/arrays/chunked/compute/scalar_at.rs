@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{scalar_at, ScalarAtFn};
 
 impl ScalarAtFn<ChunkedArray> for ChunkedEncoding {
@@ -16,7 +16,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::array::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::scalar_at;
     use crate::IntoArray;
 

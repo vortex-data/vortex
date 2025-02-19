@@ -4,9 +4,9 @@ use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskIter};
 
-use crate::array::varbin::builder::VarBinBuilder;
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -183,12 +183,12 @@ mod test {
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::varbin::compute::filter::{
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
     };
-    use crate::array::varbin::VarBinArray;
-    use crate::array::BoolArray;
+    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::BoolArray;
     use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::IntoArray;

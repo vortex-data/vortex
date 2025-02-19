@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{fill_null, FillNullFn};
 use crate::{Array, IntoArray};
 
@@ -23,7 +23,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::{BoolArray, ChunkedArray};
+    use crate::arrays::{BoolArray, ChunkedArray};
     use crate::compute::fill_null;
     use crate::validity::Validity;
     use crate::IntoArray;

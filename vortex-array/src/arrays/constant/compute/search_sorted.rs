@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{SearchResult, SearchSortedFn, SearchSortedSide};
 
 impl SearchSortedFn<ConstantArray> for ConstantEncoding {
@@ -32,7 +32,7 @@ impl SearchSortedFn<ConstantArray> for ConstantEncoding {
 
 #[cfg(test)]
 mod test {
-    use crate::array::constant::ConstantArray;
+    use crate::arrays::constant::ConstantArray;
     use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
     use crate::IntoArray;
 

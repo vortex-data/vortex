@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
+use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
 use crate::compute::{fill_null, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
@@ -131,8 +131,8 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
     use crate::compute::{scalar_at, take};
     use crate::validity::Validity;
     use crate::IntoArray as _;

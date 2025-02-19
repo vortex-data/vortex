@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::{BinaryView, VarBinViewArray};
+use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
@@ -218,7 +218,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::accessor::ArrayAccessor;
-    use crate::array::VarBinViewArray;
+    use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 
     #[test]

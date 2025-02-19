@@ -3,9 +3,9 @@ use num_traits::PrimInt;
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
-use crate::array::varbin::builder::VarBinBuilder;
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;

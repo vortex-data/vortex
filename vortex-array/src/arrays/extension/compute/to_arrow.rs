@@ -10,7 +10,7 @@ use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{ExtensionArray, ExtensionEncoding, TemporalArray};
+use crate::arrays::{ExtensionArray, ExtensionEncoding, TemporalArray};
 use crate::canonical::IntoArrayVariant;
 use crate::compute::{to_arrow, try_cast, ToArrowFn};
 use crate::IntoArray;

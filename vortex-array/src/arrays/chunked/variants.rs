@@ -3,8 +3,8 @@ use std::sync::Arc;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
-use crate::array::chunked::ChunkedArray;
-use crate::array::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::ChunkedEncoding;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,

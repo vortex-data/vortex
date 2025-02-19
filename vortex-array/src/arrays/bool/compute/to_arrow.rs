@@ -4,7 +4,7 @@ use arrow_array::{ArrayRef, BooleanArray as ArrowBoolArray};
 use arrow_schema::DataType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ToArrowFn;
 
 impl ToArrowFn<BoolArray> for BoolEncoding {

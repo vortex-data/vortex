@@ -260,7 +260,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
 
-    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;

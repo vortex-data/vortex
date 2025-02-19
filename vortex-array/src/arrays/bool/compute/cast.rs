@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::CastFn;
 use crate::{Array, IntoArray};
 
@@ -19,8 +19,8 @@ impl CastFn<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use crate::array::bool::{DType, Nullability};
-    use crate::array::BoolArray;
+    use crate::arrays::bool::{DType, Nullability};
+    use crate::arrays::BoolArray;
     use crate::compute::try_cast;
 
     #[test]

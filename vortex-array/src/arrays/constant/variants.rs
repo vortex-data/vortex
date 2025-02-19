@@ -2,8 +2,8 @@ use vortex_dtype::FieldName;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::constant::ConstantArray;
-use crate::array::ConstantEncoding;
+use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantEncoding;
 use crate::iter::Accessor;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,

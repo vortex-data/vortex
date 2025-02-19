@@ -5,8 +5,8 @@ use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
     IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
     SearchSortedUsizeFn,
@@ -134,7 +134,7 @@ mod test {
     use vortex_dtype::Nullability;
 
     use super::*;
-    use crate::array::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::compute::search_sorted;
     use crate::IntoArray;
 

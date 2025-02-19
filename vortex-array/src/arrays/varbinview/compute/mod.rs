@@ -7,9 +7,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::varbin::varbin_scalar;
-use crate::array::varbinview::VarBinViewArray;
-use crate::array::VarBinViewEncoding;
+use crate::arrays::varbin::varbin_scalar;
+use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::VarBinViewEncoding;
 use crate::compute::{CastFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
 use crate::{Array, IntoArray};
@@ -83,7 +83,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::accessor::ArrayAccessor;
-    use crate::array::VarBinViewArray;
+    use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
     use crate::compute::test_harness::test_mask;
     use crate::compute::{take, take_into};

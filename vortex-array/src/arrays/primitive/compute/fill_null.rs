@@ -5,8 +5,8 @@ use vortex_dtype::{match_each_native_ptype, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::{ConstantArray, PrimitiveEncoding};
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
@@ -50,8 +50,8 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
     use crate::compute::fill_null;
     use crate::validity::Validity;
     use crate::{IntoArray, IntoArrayVariant};

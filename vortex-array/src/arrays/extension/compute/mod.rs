@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::extension::ExtensionArray;
-use crate::array::ExtensionEncoding;
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::ExtensionEncoding;
 use crate::compute::{
     filter, min_max, scalar_at, slice, take, CastFn, CompareFn, FilterFn, MinMaxFn, MinMaxResult,
     ScalarAtFn, SliceFn, TakeFn, ToArrowFn,

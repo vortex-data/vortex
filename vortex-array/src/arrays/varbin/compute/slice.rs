@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::compute::{slice, SliceFn};
 use crate::{Array, IntoArray};
 

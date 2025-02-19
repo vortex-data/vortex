@@ -21,7 +21,7 @@ use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
-use crate::array::{
+use crate::arrays::{
     BoolArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray,
     VarBinViewArray,
 };

@@ -5,7 +5,7 @@ use arrow::pyarrow::FromPyArrow;
 use arrow::record_batch::RecordBatchReader;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use vortex::array::ChunkedArray;
+use vortex::arrays::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};

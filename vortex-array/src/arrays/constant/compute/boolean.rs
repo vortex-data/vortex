@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
 use crate::{Array, IntoArray};
 
@@ -77,8 +77,8 @@ fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
 mod test {
     use rstest::rstest;
 
-    use crate::array::constant::ConstantArray;
-    use crate::array::BoolArray;
+    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::BoolArray;
     use crate::compute::{and, or, scalar_at};
     use crate::{Array, IntoArray, IntoArrayVariant};
 

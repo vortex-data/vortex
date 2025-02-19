@@ -5,8 +5,8 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::null::NullArray;
-use crate::array::NullEncoding;
+use crate::arrays::null::NullArray;
+use crate::arrays::NullEncoding;
 use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
@@ -98,7 +98,7 @@ mod test {
     use vortex_dtype::DType;
     use vortex_mask::Mask;
 
-    use crate::array::null::NullArray;
+    use crate::arrays::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
     use crate::IntoArray;
 

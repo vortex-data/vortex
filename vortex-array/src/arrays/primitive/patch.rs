@@ -2,7 +2,7 @@ use arrow_buffer::ArrowNativeType;
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
-use crate::array::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;

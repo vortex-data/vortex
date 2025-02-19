@@ -1,7 +1,7 @@
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{min_max, MinMaxFn, MinMaxResult};
 use crate::{partial_max, partial_min};
 

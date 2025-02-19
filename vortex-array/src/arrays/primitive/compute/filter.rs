@@ -3,8 +3,8 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::array::primitive::PrimitiveArray;
-use crate::array::PrimitiveEncoding;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveEncoding;
 use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray};
@@ -63,7 +63,7 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
-    use crate::array::primitive::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::filter;
     use crate::IntoArrayVariant;
 

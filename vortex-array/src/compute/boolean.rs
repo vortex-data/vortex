@@ -171,7 +171,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::array::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::canonical::IntoArrayVariant;
     use crate::compute::scalar_at;
     use crate::IntoArray;

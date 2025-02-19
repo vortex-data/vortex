@@ -11,7 +11,7 @@ use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
 
 use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, StructArray};
-use crate::array::{VarBinArray, VarBinViewArray};
+use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
 use crate::{builders, Array, IntoArray as _, IntoArrayVariant};

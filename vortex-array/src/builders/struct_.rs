@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
-use crate::array::StructArray;
+use crate::arrays::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;

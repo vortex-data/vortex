@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::{ListArray, ListEncoding};
+use crate::arrays::{ListArray, ListEncoding};
 use crate::compute::{
     scalar_at, slice, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
 };
@@ -80,7 +80,7 @@ impl MinMaxFn<ListArray> for ListEncoding {
 
 #[cfg(test)]
 mod test {
-    use crate::array::{ListArray, PrimitiveArray};
+    use crate::arrays::{ListArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
     use crate::IntoArray as _;

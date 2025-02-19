@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::SliceFn;
 use crate::{Array, IntoArray};
 

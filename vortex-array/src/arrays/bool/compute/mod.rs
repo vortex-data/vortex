@@ -1,4 +1,4 @@
-use crate::array::BoolEncoding;
+use crate::arrays::BoolEncoding;
 use crate::compute::{
     BinaryBooleanFn, CastFn, FillForwardFn, FillNullFn, FilterFn, InvertFn, MaskFn, MinMaxFn,
     ScalarAtFn, SliceFn, TakeFn, ToArrowFn,

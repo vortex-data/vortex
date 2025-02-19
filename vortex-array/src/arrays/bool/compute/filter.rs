@@ -2,7 +2,7 @@ use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::FilterFn;
 use crate::{Array, IntoArray};
 
@@ -73,8 +73,8 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
-    use crate::array::bool::compute::filter::{filter_indices, filter_slices};
-    use crate::array::BoolArray;
+    use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
+    use crate::arrays::BoolArray;
     use crate::compute::filter;
     use crate::{IntoArray, IntoArrayVariant};
 

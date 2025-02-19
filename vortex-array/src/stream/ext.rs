@@ -3,7 +3,7 @@ use std::future::Future;
 use futures_util::TryStreamExt;
 use vortex_error::VortexResult;
 
-use crate::array::ChunkedArray;
+use crate::arrays::ChunkedArray;
 use crate::stream::take_rows::TakeRows;
 use crate::stream::{ArrayStream, ArrayStreamAdapter, SendableArrayStream};
 use crate::{Array, IntoArray};

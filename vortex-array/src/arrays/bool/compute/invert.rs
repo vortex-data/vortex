@@ -2,7 +2,7 @@ use std::ops::Not;
 
 use vortex_error::VortexResult;
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::InvertFn;
 use crate::{Array, IntoArray};
 

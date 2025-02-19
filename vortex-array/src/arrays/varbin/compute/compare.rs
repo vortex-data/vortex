@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
-use crate::array::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
+use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{compare_lengths_to_empty, CompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait as _;

@@ -5,7 +5,7 @@ use arrow_schema::{DataType, Field, FieldRef};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{ListArray, ListEncoding};
+use crate::arrays::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
 use crate::compute::{try_cast, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;

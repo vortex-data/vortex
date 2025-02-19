@@ -1,5 +1,5 @@
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use crate::vtable::VariantsVTable;
 

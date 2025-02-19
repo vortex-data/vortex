@@ -6,8 +6,8 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::struct_::StructArray;
-use crate::array::StructEncoding;
+use crate::arrays::struct_::StructArray;
+use crate::arrays::StructEncoding;
 use crate::compute::{
     filter, scalar_at, slice, take, try_cast, CastFn, FilterFn, MaskFn, MinMaxFn, MinMaxResult,
     ScalarAtFn, SliceFn, TakeFn, ToArrowFn,
@@ -172,7 +172,7 @@ mod tests {
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructDType};
     use vortex_mask::Mask;
 
-    use crate::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
+    use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::test_harness::test_mask;
     use crate::compute::{filter, try_cast};
     use crate::validity::Validity;

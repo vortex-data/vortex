@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::array::{VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::compute::CastFn;
 use crate::{Array, IntoArray};
 
@@ -29,7 +29,7 @@ mod tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::VarBinViewArray;
+    use crate::arrays::VarBinViewArray;
     use crate::compute::try_cast;
 
     #[rstest]

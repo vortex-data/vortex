@@ -233,10 +233,10 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
-    use crate::array::primitive::PrimitiveArray;
-    use crate::array::struct_::StructArray;
-    use crate::array::varbin::VarBinArray;
-    use crate::array::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
+    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
     use crate::IntoArray;

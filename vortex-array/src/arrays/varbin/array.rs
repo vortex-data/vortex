@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{ValidityVTable, VisitorVTable};
 

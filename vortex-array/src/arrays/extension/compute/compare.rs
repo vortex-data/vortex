@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::array::{ConstantArray, ExtensionArray, ExtensionEncoding};
+use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{compare, CompareFn, Operator};
 use crate::Array;
 

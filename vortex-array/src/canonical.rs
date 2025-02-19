@@ -7,7 +7,7 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::array::{
+use crate::arrays::{
     BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
@@ -300,7 +300,7 @@ mod test {
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
-    use crate::array::{ConstantArray, StructArray};
+    use crate::arrays::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
     use crate::{Array, IntoArray};
 

@@ -4,8 +4,8 @@ use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::chunked::ChunkedArray;
-use crate::array::ChunkedEncoding;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::ChunkedEncoding;
 use crate::compute::{
     scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast, SearchSortedSide, TakeFn,
 };
@@ -123,7 +123,7 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &Array) -> VortexResult<A
 mod test {
     use vortex_buffer::buffer;
 
-    use crate::array::chunked::ChunkedArray;
+    use crate::arrays::chunked::ChunkedArray;
     use crate::compute::take;
     use crate::{IntoArray, IntoArrayVariant};
 

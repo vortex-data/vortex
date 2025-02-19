@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::array::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 use crate::variants::PrimitiveArrayTrait;
 

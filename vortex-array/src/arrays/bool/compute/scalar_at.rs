@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::array::{BoolArray, BoolEncoding};
+use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ScalarAtFn;
 
 impl ScalarAtFn<BoolArray> for BoolEncoding {

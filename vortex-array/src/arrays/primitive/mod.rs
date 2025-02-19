@@ -391,7 +391,7 @@ impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
     use crate::IntoArray as _;

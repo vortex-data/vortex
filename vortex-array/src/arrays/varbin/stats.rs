@@ -4,8 +4,8 @@ use std::ops::Deref;
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::accessor::ArrayAccessor;
-use crate::array::varbin::VarBinArray;
-use crate::array::VarBinEncoding;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinEncoding;
 use crate::compute::scalar_at;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
@@ -110,7 +110,7 @@ mod test {
     use vortex_buffer::{BufferString, ByteBuffer};
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::varbin::VarBinArray;
+    use crate::arrays::varbin::VarBinArray;
 
     fn array(dtype: DType) -> VarBinArray {
         VarBinArray::from_vec(

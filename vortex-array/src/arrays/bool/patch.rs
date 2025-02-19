@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::array::BoolArray;
+use crate::arrays::BoolArray;
 use crate::patches::Patches;
 use crate::variants::PrimitiveArrayTrait;
 use crate::IntoArrayVariant;
@@ -37,7 +37,7 @@ impl BoolArray {
 mod tests {
     use arrow_buffer::BooleanBuffer;
 
-    use crate::array::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::compute::slice;
     use crate::IntoArrayVariant;
 

@@ -3,7 +3,7 @@ use std::any::Any;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::array::NullArray;
+use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::{Array, IntoArray, IntoCanonical};
 
