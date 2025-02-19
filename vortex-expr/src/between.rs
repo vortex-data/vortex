@@ -68,10 +68,6 @@ impl VortexExpr for Between {
         let lower_val = self.lower.evaluate(batch)?;
         let upper_arr_val = self.upper.evaluate(batch)?;
 
-        // println!("arr_val: {}", arr_val.dtype());
-        // println!("lower_val: {}", lower_val.dtype());
-        // println!("upper_arr_val: {}", upper_arr_val.dtype());
-
         between(
             &arr_val,
             &lower_val,

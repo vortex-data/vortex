@@ -36,8 +36,6 @@ impl MutNodeVisitor for MatchBetween {
                 return Ok(TransformResult::no(node));
             }
 
-            // println!("here lhs {}, rhs {}", lhs, rhs);
-
             if lhs.lhs().as_any().is::<GetItem>()
                 && lhs.lhs().eq(rhs.lhs())
                 && is_between_operator_pair(lhs.op(), rhs.op())

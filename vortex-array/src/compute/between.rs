@@ -80,20 +80,6 @@ pub fn between(
     );
 
     Ok(result)
-
-    // println!("between {:?}", arr.encoding());
-    // let arr = arr.clone().into_canonical()?.into_array();
-    //
-    // if let Some(result) = arr
-    //     .vtable()
-    //     .between_fn()
-    //     .and_then(|f| f.between(&arr, lower, upper).transpose())
-    //     .transpose()?
-    // {
-    //     return Ok(result);
-    // }
-
-    // todo!("between {:?}", arr.encoding())
 }
 
 fn between_impl(
@@ -107,20 +93,16 @@ fn between_impl(
     let lower = lower.as_ref();
     let upper = upper.as_ref();
 
-    if let Some(lower) = ConstantArray::maybe_from(lower) {
-        if lower.scalar().is_null() {
-            return Ok(
-                Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),
-            );
-        }
+    if ConstantArray::maybe_from(lower).is_some_and(|v| v.scalar().is_null()) {
+        return Ok(
+            Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),
+        );
     }
 
-    if let Some(upper) = ConstantArray::maybe_from(upper) {
-        if upper.scalar().is_null() {
-            return Ok(
-                Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),
-            );
-        }
+    if let Some(upper) = ConstantArray::maybe_from(upper).is_some_and(|v| v.scalar().is_null()) {
+        return Ok(
+            Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),
+        );
     }
 
     if let Some(result) = arr

@@ -40,6 +40,7 @@ fn between_impl<T: NativePType + Copy>(
     let slice = arr.as_slice::<T>();
     BoolArray::try_new(
         BooleanBuffer::collect_bool(arr.len(), |idx| {
+            // We only iterate upto arr len and |arr| == |slice|.
             let i = *unsafe { slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
