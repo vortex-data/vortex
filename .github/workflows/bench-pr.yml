@@ -22,40 +22,6 @@ jobs:
         with:
           labels: benchmark
 
-  codspeed_bench:
-    name: Benchmark with Codspeed
-    needs: label_trigger
-    runs-on: ubuntu-latest-large
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-
-      - name: Install Codspeed
-        shell: bash
-        run: cargo install --force cargo-codspeed --locked
-
-      - name: Build benchmarks
-        env:
-          RUSTFLAGS: "-C target-cpu=native"
-        # We want to run micro-benchmarks with release profile.
-        # We run with all features since we feature gate bench utils.
-        run: |
-          cargo codspeed build --features test-harness \
-            --exclude bench-vortex \
-            --exclude vortex-datafusion \
-            --exclude vortex-tui \
-            --exclude vortex-fuzz \
-            --exclude pyvortex \
-            --exclude xtask \
-            --workspace \
-            --profile bench
-
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
-        with:
-          run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-
   bench:
     needs: label_trigger
     runs-on: [ self-hosted, gcp ]
