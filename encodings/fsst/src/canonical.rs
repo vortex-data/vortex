@@ -1,6 +1,6 @@
 use arrow_array::builder::make_view;
 use fsst::Decompressor;
-use vortex_array::array::{BinaryView, VarBinArray, VarBinViewArray};
+use vortex_array::arrays::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
@@ -112,7 +112,7 @@ mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{ChunkedArray, VarBinArray};
+    use vortex_array::arrays::{ChunkedArray, VarBinArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
     use vortex_dtype::{DType, Nullability};

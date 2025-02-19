@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArray;
 use vortex_btrblocks::integer::dictionary::dictionary_encode;

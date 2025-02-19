@@ -4,7 +4,7 @@ use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
-use crate::array::BoolArray;
+use crate::arrays::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
@@ -107,7 +107,7 @@ mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
 
-    use crate::array::{BoolArray, ChunkedArray};
+    use crate::arrays::{BoolArray, ChunkedArray};
     use crate::builders::builder_with_capacity;
     use crate::{Array, IntoArray, IntoCanonical};
 

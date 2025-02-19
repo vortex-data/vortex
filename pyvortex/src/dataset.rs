@@ -7,7 +7,7 @@ use futures::TryStreamExt;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::array::ChunkedArray;
+use vortex::arrays::ChunkedArray;
 use vortex::arrow::infer_schema;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;

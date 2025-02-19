@@ -20,7 +20,7 @@ use object_store::path::Path as ObjectStorePath;
 use object_store::ObjectStore;
 use tokio::fs::OpenOptions;
 use url::Url;
-use vortex::array::ChunkedArray;
+use vortex::arrays::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;

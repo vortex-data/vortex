@@ -3,7 +3,7 @@
 use divan::Bencher;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
-use vortex_array::array::{VarBinArray, VarBinViewArray};
+use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::IntoCanonical;
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};

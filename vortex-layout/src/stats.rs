@@ -6,20 +6,20 @@ use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::layouts::chunked::stats_table::StatsAccumulator;
+use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::{Layout, LayoutWriter};
 
 /// A layout writer that computes aggregate statistics for all fields.
 ///
 /// Note: for now this only collects top-level struct fields.
-pub struct StatsLayoutWriter {
+pub struct FileStatsLayoutWriter {
     inner: Box<dyn LayoutWriter>,
     stats: Arc<[Stat]>,
     stats_accumulators: Vec<StatsAccumulator>,
 }
 
-impl StatsLayoutWriter {
+impl FileStatsLayoutWriter {
     pub fn new(
         inner: Box<dyn LayoutWriter>,
         dtype: &DType,
@@ -57,7 +57,7 @@ impl StatsLayoutWriter {
     }
 }
 
-impl LayoutWriter for StatsLayoutWriter {
+impl LayoutWriter for FileStatsLayoutWriter {
     fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
         match chunk.as_struct_array() {
             None => {

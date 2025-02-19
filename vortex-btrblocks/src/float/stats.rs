@@ -3,7 +3,7 @@ use std::hash::Hash;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArrayVariant;
 use vortex_dtype::half::f16;

@@ -9,11 +9,11 @@
 //! 1. The [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout). A contiguously serialized array of buffers, with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
 //!
 //! 2. The [`StructLayout`](vortex_layout::layouts::struct_::StructLayout). Each column of a
-//!    [`StructArray`][vortex_array::array::StructArray] is sequentially laid out at known offsets.
+//!    [`StructArray`][vortex_array::arrays::StructArray] is sequentially laid out at known offsets.
 //!    This permits reading a subset of columns in time linear in the number of kept columns.
 //!
 //! 3. The [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout). Each chunk of a
-//!    [`ChunkedArray`](vortex_array::array::ChunkedArray) is sequentially laid out at known
+//!    [`ChunkedArray`](vortex_array::arrays::ChunkedArray) is sequentially laid out at known
 //!    offsets. This permits reading a subset of rows in time linear in the number of kept rows.
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
@@ -113,8 +113,6 @@ pub const V1_FOOTER_FBS_SIZE: usize = 32;
 
 /// Constants that will never change (i.e., doing so would break backwards compatibility)
 mod forever_constant {
-    use vortex_layout::LayoutId;
-
     /// The extension for Vortex files
     pub const VORTEX_FILE_EXTENSION: &str = "vortex";
 
@@ -124,13 +122,6 @@ mod forever_constant {
     pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
     /// The size of the EOF marker in bytes
     pub const EOF_SIZE: usize = 8;
-
-    /// The layout ID for a flat layout
-    pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
-    /// The layout ID for a chunked layout
-    pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
-    /// The layout ID for a column layout
-    pub const COLUMNAR_LAYOUT_ID: LayoutId = LayoutId(3);
 
     #[cfg(test)]
     mod test {
@@ -143,9 +134,6 @@ mod forever_constant {
             assert_eq!(MAX_FOOTER_SIZE, 65527);
             assert_eq!(MAGIC_BYTES, *b"VTXF");
             assert_eq!(EOF_SIZE, 8);
-            assert_eq!(FLAT_LAYOUT_ID, LayoutId(1));
-            assert_eq!(CHUNKED_LAYOUT_ID, LayoutId(2));
-            assert_eq!(COLUMNAR_LAYOUT_ID, LayoutId(3));
         }
     }
 }

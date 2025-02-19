@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::array::ChunkedArray;
+use crate::arrays::ChunkedArray;
 use crate::iter::ArrayIterator;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::{Array, IntoArray};

@@ -3,7 +3,7 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::Stat;
 use vortex_array::IntoArray;
 use vortex_buffer::Buffer;

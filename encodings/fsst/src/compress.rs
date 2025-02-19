@@ -2,8 +2,8 @@
 
 use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{VarBinArray, VarBinViewArray};
+use vortex_array::arrays::builder::VarBinBuilder;
+use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;

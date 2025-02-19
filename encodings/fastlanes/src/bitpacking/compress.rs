@@ -2,7 +2,7 @@ use std::ops::DerefMut as _;
 
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -475,7 +475,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 pub mod test_harness {
     use rand::rngs::StdRng;
     use rand::Rng as _;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, IntoArrayVariant as _};
     use vortex_buffer::BufferMut;
@@ -515,7 +515,7 @@ pub mod test_harness {
 mod test {
     use rand::rngs::StdRng;
     use rand::SeedableRng as _;
-    use vortex_array::array::ChunkedArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::compute::slice;
     use vortex_array::{IntoArrayVariant, IntoCanonical as _};
     use vortex_buffer::buffer;

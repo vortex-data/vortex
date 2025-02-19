@@ -4,7 +4,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
-use vortex_layout::stats::StatsLayoutWriter;
+use vortex_layout::stats::FileStatsLayoutWriter;
 use vortex_layout::{LayoutStrategy, LayoutWriter};
 
 use crate::footer::{FileLayout, Postscript, Segment};
@@ -19,7 +19,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy::default()),
+            strategy: Box::new(VortexLayoutStrategy),
         }
     }
 }
@@ -40,7 +40,7 @@ impl VortexWriteOptions {
         mut stream: S,
     ) -> VortexResult<W> {
         // Set up the root layout
-        let mut layout_writer = StatsLayoutWriter::new(
+        let mut layout_writer = FileStatsLayoutWriter::new(
             self.strategy.new_writer(stream.dtype())?,
             stream.dtype(),
             PRUNING_STATS.into(),

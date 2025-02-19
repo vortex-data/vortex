@@ -5,7 +5,7 @@ use divan::Bencher;
 use rand::distributions::Uniform;
 use rand::prelude::StdRng;
 use rand::{thread_rng, Rng, SeedableRng};
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;

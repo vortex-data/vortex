@@ -3,7 +3,7 @@
 use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::array::{ChunkedArray, ConstantArray, VarBinArray};
+use vortex_array::arrays::{ChunkedArray, ConstantArray, VarBinArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{IntoArray, IntoCanonical};

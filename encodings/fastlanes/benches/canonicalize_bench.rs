@@ -1,7 +1,7 @@
 use divan::Bencher;
 use rand::prelude::StdRng;
 use rand::SeedableRng;
-use vortex_array::array::ChunkedArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
 use vortex_array::{IntoArray, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexUnwrap};

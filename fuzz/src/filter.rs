@@ -1,5 +1,7 @@
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::arrays::{
+    BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray,
+};
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};

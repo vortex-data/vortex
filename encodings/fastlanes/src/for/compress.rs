@@ -1,5 +1,5 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{Stat, Statistics as _};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{IntoArray, IntoArrayVariant};

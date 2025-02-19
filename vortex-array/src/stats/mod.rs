@@ -44,7 +44,19 @@ pub const STATS_TO_WRITE: &[Stat] = &[
     Stat::UncompressedSizeInBytes,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Sequence,
+    IntoPrimitive,
+    TryFromPrimitive,
+)]
 #[repr(u8)]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
@@ -435,7 +447,7 @@ pub fn trailing_zeros(array: &Array) -> u8 {
 mod test {
     use enum_iterator::all;
 
-    use crate::array::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::stats::Stat;
 
     #[test]

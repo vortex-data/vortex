@@ -2,7 +2,7 @@ use std::simd;
 
 use num_traits::AsPrimitive;
 use simd::num::SimdUint;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::{Alignment, BufferMut};
 use vortex_dtype::{NativePType, Nullability};
 

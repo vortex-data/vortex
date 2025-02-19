@@ -38,7 +38,7 @@ impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::scalar_at;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;

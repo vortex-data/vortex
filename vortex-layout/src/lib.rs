@@ -20,13 +20,16 @@ pub mod stats;
 mod strategy;
 pub mod vtable;
 mod writer;
+pub mod writers;
 
 /// The layout ID for a flat layout
-pub(crate) const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
+pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
 /// The layout ID for a chunked layout
-pub(crate) const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
+pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
 /// The layout ID for a column layout
-pub(crate) const COLUMNAR_LAYOUT_ID: LayoutId = LayoutId(3);
+pub const COLUMNAR_LAYOUT_ID: LayoutId = LayoutId(3);
+/// The layout ID for a stats layout
+pub const STATS_LAYOUT_ID: LayoutId = LayoutId(4);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct LayoutId(pub u16);

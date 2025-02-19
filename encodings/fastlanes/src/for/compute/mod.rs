@@ -139,7 +139,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
     use vortex_array::IntoArray;
 

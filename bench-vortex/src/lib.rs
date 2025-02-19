@@ -22,7 +22,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rand::{Rng, SeedableRng as _};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
-use vortex::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
+use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::{DType, Nullability, PType, StructDType};
