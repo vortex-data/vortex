@@ -4,17 +4,21 @@
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
 //!
 //! A layout is a serialized array which is stored in some linear and contiguous block of
-//! memory. Layouts are recursively defined in terms of one of three kinds:
+//! memory. Layouts are recursive, and there are currently three types:
 //!
 //! 1. The [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout). A contiguously serialized array of buffers, with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
 //!
 //! 2. The [`StructLayout`](vortex_layout::layouts::struct_::StructLayout). Each column of a
 //!    [`StructArray`][vortex_array::arrays::StructArray] is sequentially laid out at known offsets.
-//!    This permits reading a subset of columns in time linear in the number of kept columns.
+//!    This permits reading a subset of columns in linear time, as well as constant-time random
+//!    access to any column.
 //!
 //! 3. The [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout). Each chunk of a
 //!    [`ChunkedArray`](vortex_array::arrays::ChunkedArray) is sequentially laid out at known
-//!    offsets. This permits reading a subset of rows in time linear in the number of kept rows.
+//!    offsets. Finding the chunks containing row range is an `Nlog(N)` operation of searching the
+//!    offsets.
+//!
+//! 4. The [`StatsLayout`](vortex_layout::layouts::stats::StatsLayout).
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
 //! neither contain a description of the kind of layout (e.g. flat, column of flat, chunked of
@@ -34,15 +38,17 @@
 //! Succinctly, the file format specification is as follows:
 //!
 //! 1. Data is written first, in a form that is describable by a Layout (typically Array IPC Messages).
-//!    a. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays, and then writes the "metadata" arrays (i.e., per-column statistics)
-//!
+//!    1. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays,
+//!        and then writes the "metadata" arrays (i.e., per-column statistics)
 //! 2. We write what is collectively referred to as the "Footer", which contains:
-//!    a. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
-//!    b. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst those byte ranges that we wrote in part 1.
-//!    c. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout flatbuffers within the file.
-//!    d. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
+//!    1. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
+//!    2. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
+//!        the those byte ranges that we wrote in part 1.
+//!    3. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout
+//!        flatbuffers within the file.
+//!    4. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
 //!
-//! ## Reified File Format
+//! ## Illustrated File Format
 //! ```text
 //! ┌────────────────────────────┐
 //! │                            │
@@ -77,12 +83,13 @@
 //! containing chunked layouts containing flat layouts. The outer chunked layout represents row
 //! groups. The inner chunked layout represents pages.
 //!
-//! All the chunks of a chunked layout and all the columns of a column layout need not use the same
-//! layout.
+//! Layouts are adaptive, and the writer is free to build arbitrarily complex layouts to suit their
+//! goals of locality or parallelism. For example, one may write a column in a Struct Layout with
+//! or without chunking, or completely elide statistics to save space or if they are not needed, for
+//! example if the metadata is being stored in an external index.
 //!
 //! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
-//! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the "linear and
-//! contiguous memory".
+//! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
 mod file;
 mod footer;

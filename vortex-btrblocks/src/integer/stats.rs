@@ -148,8 +148,6 @@ impl CompressorStats for IntegerStats {
     }
 }
 
-// const MAX_DICT_SIZE: u32 = 4096;
-
 fn typed_int_stats<T: NativePType + Hash + PrimInt>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
@@ -162,6 +160,22 @@ where
         return IntegerStats {
             src: array.clone(),
             null_count: 0,
+            value_count: 0,
+            average_run_length: 0,
+            distinct_values_count: 0,
+            typed: TypedStats {
+                min: T::max_value(),
+                max: T::min_value(),
+                top_value: T::default(),
+                top_count: 0,
+                distinct_values: HashMap::with_hasher(FxBuildHasher),
+            }
+            .into(),
+        };
+    } else if array.all_invalid().vortex_expect("all_invalid") {
+        return IntegerStats {
+            src: array.clone(),
+            null_count: array.len().try_into().vortex_expect("null_count"),
             value_count: 0,
             average_run_length: 0,
             distinct_values_count: 0,
