@@ -9,7 +9,7 @@ use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
-use datafusion_physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
+use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
 use object_store::ObjectStoreScheme;
@@ -19,12 +19,14 @@ use vortex_expr::{and, VortexExpr};
 
 use super::cache::FileLayoutCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
+use super::metrics::VortexExecMetrics;
+use crate::persistent::metrics::PARTITION_LABEL;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
 pub(crate) struct VortexExec {
     file_scan_config: FileScanConfig,
-    metrics: ExecutionPlanMetricsSet,
+    metrics: VortexExecMetrics,
     predicate: Option<Arc<dyn VortexExpr>>,
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
@@ -37,7 +39,7 @@ pub(crate) struct VortexExec {
 impl VortexExec {
     pub fn try_new(
         file_scan_config: FileScanConfig,
-        metrics: ExecutionPlanMetricsSet,
+        metrics: VortexExecMetrics,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: ContextRef,
         initial_read_cache: FileLayoutCache,
@@ -122,6 +124,9 @@ impl ExecutionPlan for VortexExec {
         context: Arc<TaskContext>,
     ) -> DFResult<SendableRecordBatchStream> {
         log::debug!("Executing partition {partition}");
+        let partition_metrics = self
+            .metrics
+            .child_with_tags([(PARTITION_LABEL, partition.to_string())].as_slice());
         let object_store = context
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
@@ -137,8 +142,14 @@ impl ExecutionPlan for VortexExec {
             self.initial_read_cache.clone(),
             self.projected_arrow_schema.clone(),
             context.session_config().batch_size(),
+            partition_metrics,
         )?;
-        let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
+        let stream = FileStream::new(
+            &self.file_scan_config,
+            partition,
+            opener,
+            &self.metrics.execution_plan,
+        )?;
 
         Ok(Box::pin(stream))
     }
@@ -148,7 +159,7 @@ impl ExecutionPlan for VortexExec {
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
-        Some(self.metrics.clone_inner())
+        Some(self.metrics.metrics_set())
     }
 
     fn repartitioned(

@@ -17,7 +17,6 @@ use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::insert::DataSinkExec;
-use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
@@ -277,8 +276,6 @@ impl FileFormat for VortexFormat {
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        let metrics = ExecutionPlanMetricsSet::new();
-
         if file_scan_config
             .file_groups
             .iter()
@@ -298,7 +295,7 @@ impl FileFormat for VortexFormat {
 
         let exec = VortexExec::try_new(
             file_scan_config,
-            metrics,
+            Default::default(),
             filters.cloned(),
             self.context.clone(),
             self.file_layout_cache.clone(),

@@ -14,7 +14,10 @@ readme = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+parking_lot = { workspace = true }
+vortex-error = { workspace = true }
 witchcraft-metrics = { workspace = true }
+
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Enable the JS feature of getrandom (via rand) to supprt wasm32 target

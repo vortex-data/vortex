@@ -3,22 +3,34 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use witchcraft_metrics::{Metric, MetricRegistry, Metrics, MetricsIter};
+use parking_lot::Mutex;
+use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 
 /// A metric registry for various performance metrics.
 #[derive(Default)]
 pub struct VortexMetrics {
     registry: MetricRegistry,
     default_tags: DefaultTags,
+    children: Arc<Mutex<Vec<Arc<VortexMetrics>>>>,
+}
+
+impl Debug for VortexMetrics {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexMetrics")
+            .field("default_tags", &self.default_tags)
+            .field("children", &self.children)
+            .finish_non_exhaustive()
+    }
 }
 
 // re-export exposed metric types
-pub use witchcraft_metrics::{Counter, Histogram, MetricId, Timer};
+pub use witchcraft_metrics::{Counter, Histogram, Metric, MetricId, Tags, Timer};
 
 /// Default tags for metrics used in [`VortexMetrics`].
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct DefaultTags(BTreeMap<Cow<'static, str>, Cow<'static, str>>);
 
 impl<K, V> From<&[(K, V)]> for DefaultTags
@@ -42,15 +54,23 @@ impl VortexMetrics {
         Self {
             registry,
             default_tags: default_tags.into(),
+            children: Default::default(),
         }
     }
 
     /// Create an empty metric registry with default tags.
-    pub fn default_with_tags(default_tags: impl Into<DefaultTags>) -> Self {
-        Self {
-            registry: MetricRegistry::default(),
-            default_tags: default_tags.into(),
-        }
+    pub fn new_with_tags(default_tags: impl Into<DefaultTags>) -> Self {
+        Self::new(MetricRegistry::default(), default_tags)
+    }
+
+    /// Create a new metrics registry with additional tags. Metrics created in the
+    /// child registry will be included in this registry's snapshots.
+    pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> Arc<Self> {
+        let child = Arc::new(Self::new_with_tags(
+            self.default_tags.merge(&additional_tags.into()),
+        ));
+        self.children.lock().push(child.clone());
+        child
     }
 
     /// Returns the counter with the specified ID, creating a default instance if absent.
@@ -94,27 +114,29 @@ impl VortexMetrics {
     /// Modifications to the registry after this method is called will not affect the state of the returned `MetricsSnapshot`.
     ///
     /// Note: Tag values may contain sensitive information and should be properly sanitized before external exposure.
-    pub fn metrics(&self) -> MetricsSnapshot<'_> {
-        MetricsSnapshot {
-            snapshot: self.registry.metrics(),
-            default_tags: &self.default_tags,
-        }
+    pub fn metrics(&self) -> MetricsSnapshot {
+        let children = self.children.lock();
+        let snapshots = children.iter().map(|c| c.metrics());
+        MetricsSnapshot(
+            std::iter::once((self.default_tags.clone(), self.registry.metrics()))
+                .chain(snapshots.flat_map(|snapshots| snapshots.0.into_iter()))
+                .collect(),
+        )
     }
 }
 
 /// A snapshot of the metrics in a registry with default tags.
-pub struct MetricsSnapshot<'a> {
-    snapshot: Metrics,
-    default_tags: &'a DefaultTags,
-}
+pub struct MetricsSnapshot(Vec<(DefaultTags, Metrics)>);
 
-impl MetricsSnapshot<'_> {
+impl MetricsSnapshot {
     /// Create an iterator over the metrics snapshot.
-    pub fn iter(&self) -> VortexMetricsIter<'_> {
-        VortexMetricsIter {
-            iter: self.snapshot.iter(),
-            default_tags: self.default_tags,
-        }
+    pub fn iter(&self) -> impl Iterator<Item = (MetricId, &Metric)> {
+        self.0
+            .iter()
+            .flat_map(|(default_tags, metrics)| VortexMetricsIter {
+                iter: metrics.iter(),
+                default_tags,
+            })
     }
 }
 
@@ -142,5 +164,122 @@ impl<'a> Iterator for VortexMetricsIter<'a> {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.iter.size_hint()
+    }
+}
+
+impl DefaultTags {
+    fn merge(&self, other: &Self) -> Self {
+        DefaultTags(
+            self.0
+                .iter()
+                .chain(other.0.iter())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_tags() -> Result<(), &'static str> {
+        let tags = &[("file", "a"), ("partition", "1")];
+        let metrics = VortexMetrics::new_with_tags(tags.as_slice());
+
+        // Create a metric to verify tags
+        let counter = metrics.counter("test.counter");
+        counter.inc();
+        let snapshot = metrics.metrics();
+        let (name, metric) = snapshot.iter().next().unwrap();
+        assert_eq!(
+            name,
+            MetricId::new("test.counter")
+                .with_tag("file", "a")
+                .with_tag("partition", "1")
+        );
+        match metric {
+            Metric::Counter(c) => assert_eq!(c.count(), 1),
+            _ => return Err("metric is not a counter"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiple_children_with_different_tags() -> Result<(), &'static str> {
+        let parent_tags = &[("service", "vortex")];
+        let parent = VortexMetrics::new_with_tags(parent_tags.as_slice());
+
+        let child1_tags = &[("instance", "child1")];
+        let child2_tags = &[("instance", "child2")];
+
+        let child1 = parent.child_with_tags(child1_tags.as_slice());
+        let child2 = parent.child_with_tags(child2_tags.as_slice());
+
+        // Create same metric in both children
+        let counter1 = child1.counter("test.counter");
+        let counter2 = child2.counter("test.counter");
+
+        counter1.inc();
+        counter2.add(2);
+
+        // Verify child1 metrics
+        let child1_snapshot = child1.metrics();
+        let (name, metric) = child1_snapshot.iter().next().unwrap();
+        assert_eq!(
+            name,
+            MetricId::new("test.counter")
+                .with_tag("service", "vortex")
+                .with_tag("instance", "child1")
+        );
+        match metric {
+            Metric::Counter(c) => assert_eq!(c.count(), 1),
+            _ => return Err("metric is not a counter"),
+        }
+
+        // Verify child2 metrics
+        let child2_snapshot = child2.metrics();
+        let (name, metric) = child2_snapshot.iter().next().unwrap();
+        assert_eq!(
+            name,
+            MetricId::new("test.counter")
+                .with_tag("service", "vortex")
+                .with_tag("instance", "child2")
+        );
+        match metric {
+            Metric::Counter(c) => assert_eq!(c.count(), 2),
+            _ => return Err("metric is not a counter"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_tag_overriding() -> Result<(), &'static str> {
+        let parent_tags = &[("service", "vortex"), ("environment", "test")];
+        let parent = VortexMetrics::new_with_tags(parent_tags.as_slice());
+
+        // Child tries to override parent's service tag
+        let child_tags = &[("service", "override"), ("instance", "child1")];
+        let child = parent.child_with_tags(child_tags.as_slice());
+
+        let child_counter = child.counter("test.counter");
+        child_counter.inc();
+
+        // Verify child metrics have the overridden tag value
+        let child_snapshot = child.metrics();
+        let (name, metric) = child_snapshot.iter().next().unwrap();
+        assert_eq!(
+            name,
+            MetricId::new("test.counter")
+                .with_tag("service", "override")
+                .with_tag("environment", "test")
+                .with_tag("instance", "child1")
+        );
+        match metric {
+            Metric::Counter(c) => assert_eq!(c.count(), 1),
+            _ => return Err("metric is not a counter"),
+        }
+        Ok(())
     }
 }
