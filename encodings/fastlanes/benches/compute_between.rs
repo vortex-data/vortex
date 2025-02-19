@@ -4,7 +4,10 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_alp::{alp_encode, ALPArray};
 use vortex_array::array::{ConstantArray, PrimitiveArray};
-use vortex_array::compute::{between, binary_boolean, compare, BinaryOperator, Operator};
+use vortex_array::compute::StrictComparison::NonStrict;
+use vortex_array::compute::{
+    between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
+};
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
@@ -102,9 +105,11 @@ where
             between(
                 &arr,
                 ConstantArray::new(min, arr.len()),
-                Operator::Lte,
                 ConstantArray::new(max, arr.len()),
-                Operator::Lte,
+                &BetweenOptions {
+                    lower_strict: NonStrict,
+                    upper_strict: NonStrict,
+                },
             )
             .vortex_expect("")
         })
@@ -155,9 +160,11 @@ where
             between(
                 &arr,
                 ConstantArray::new(min, arr.len()),
-                Operator::Lte,
                 ConstantArray::new(max, arr.len()),
-                Operator::Lte,
+                &BetweenOptions {
+                    lower_strict: NonStrict,
+                    upper_strict: NonStrict,
+                },
             )
         })
 }
@@ -207,9 +214,11 @@ where
             between(
                 &arr,
                 ConstantArray::new(min, arr.len()),
-                Operator::Lte,
                 ConstantArray::new(max, arr.len()),
-                Operator::Lte,
+                &BetweenOptions {
+                    lower_strict: NonStrict,
+                    upper_strict: NonStrict,
+                },
             )
         })
 }
