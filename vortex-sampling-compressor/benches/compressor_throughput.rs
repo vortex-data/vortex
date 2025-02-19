@@ -97,7 +97,7 @@ mod varbinview {
         bencher
             .with_inputs(|| dict.clone())
             .counter(divan::counter::BytesCount::new(
-                varbinview_arr.clone().into_array().nbytes() as u64,
+                varbinview_arr.into_array().nbytes() as u64,
             ))
             .bench_values(|dict| dict.into_canonical().unwrap())
     }
@@ -112,7 +112,7 @@ mod varbinview {
         bencher
             .with_inputs(|| fsst_array.clone())
             .counter(divan::counter::BytesCount::new(
-                varbinview_arr.clone().into_array().nbytes(),
+                varbinview_arr.into_array().nbytes(),
             ))
             .bench_values(|fsst_array| fsst_array.into_canonical().unwrap())
     }
