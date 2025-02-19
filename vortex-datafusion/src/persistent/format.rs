@@ -34,7 +34,7 @@ use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
 use super::sink::VortexSink;
-use super::VortexSource;
+use super::source::VortexSource;
 use crate::can_be_pushed_down;
 use crate::converter::{bound_to_datafusion, directional_bound_to_df_precision};
 
