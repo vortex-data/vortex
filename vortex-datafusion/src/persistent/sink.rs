@@ -12,16 +12,14 @@ use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use object_store::ObjectStore;
-use rand::distributions::{Alphanumeric, DistString};
 use tokio_stream::wrappers::ReceiverStream;
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::Array;
 use vortex_dtype::DType;
-use vortex_error::VortexError;
-use vortex_file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
+use vortex_file::VortexWriteOptions;
 use vortex_io::{ObjectStoreWriter, VortexWrite};
 
 pub struct VortexSink {
@@ -133,6 +131,41 @@ mod tests {
 
     use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
 
+    #[tokio::test]
+    async fn insert_into() {
+        let dir = TempDir::new().unwrap();
+
+        let factory = VortexFormatFactory::default_config();
+        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
+        register_vortex_format_factory(factory, &mut session_state_builder);
+        let session = SessionContext::new_with_state(session_state_builder.build());
+
+        session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE my_tbl \
+                (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+            STORED AS vortex 
+            LOCATION '{}/*';",
+                dir.path().to_str().unwrap()
+            ))
+            .await
+            .unwrap();
+
+        session
+            .sql("INSERT INTO my_tbl VALUES ('hello', 42::INT);")
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+
+        let my_tbl = session.table("my_tbl").await.unwrap();
+
+        my_tbl.clone().show().await.unwrap();
+
+        assert_eq!(my_tbl.count().await.unwrap(), 1);
+    }
+
     // TODO(adam): Seems like this now panics due to a Vortex issue
     #[tokio::test]
     #[should_panic] // This test is not working due to <https://github.com/apache/datafusion/issues/14394>
@@ -144,7 +177,7 @@ mod tests {
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
 
-        let df = session
+        session
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                     (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
@@ -155,7 +188,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(df.clone().count().await.unwrap(), 0);
         let my_tbl = session.table("my_tbl").await.unwrap();
 
         // Its valuable to have two insert code paths because they actually behave slightly differently
