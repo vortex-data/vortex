@@ -227,7 +227,7 @@ impl RowMask {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::{buffer, Buffer};

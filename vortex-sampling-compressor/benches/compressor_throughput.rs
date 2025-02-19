@@ -83,7 +83,7 @@ fn fixture(ptype: PType) -> Array {
 mod varbinview {
     use rand::distributions::Alphanumeric;
     use rand::seq::SliceRandom;
-    use vortex_array::array::VarBinViewArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_dict::builders::dict_encode;
     use vortex_fsst::{fsst_compress, fsst_train_compressor};
 

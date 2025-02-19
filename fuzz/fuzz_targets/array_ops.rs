@@ -2,7 +2,7 @@
 
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{
+use vortex_array::arrays::{
     BoolEncoding, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };

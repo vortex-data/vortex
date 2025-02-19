@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::trailing_zeros;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};

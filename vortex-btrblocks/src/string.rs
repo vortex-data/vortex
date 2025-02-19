@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::VarBinViewArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::DictArray;
@@ -242,7 +242,7 @@ impl Scheme for FSSTScheme {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::VarBinViewArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_dtype::{DType, Nullability};
 
     use crate::string::StringCompressor;

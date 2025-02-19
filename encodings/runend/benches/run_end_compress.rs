@@ -2,7 +2,7 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::{IntoArray, IntoCanonical};
 use vortex_buffer::Buffer;

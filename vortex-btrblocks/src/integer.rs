@@ -7,7 +7,7 @@ use std::ops::Deref;
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
-use vortex_array::array::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};

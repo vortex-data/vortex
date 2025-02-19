@@ -2,7 +2,7 @@ mod dictionary;
 mod stats;
 
 use vortex_alp::{alp_encode, ALPArray, RDEncoder};
-use vortex_array::array::{ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dict::DictArray;

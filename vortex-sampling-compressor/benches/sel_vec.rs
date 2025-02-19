@@ -4,7 +4,7 @@ use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_alp::ALPEncoding;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Encoding, IntoArray, IntoCanonical};

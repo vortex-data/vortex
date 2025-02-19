@@ -8,7 +8,7 @@ use futures::{pin_mut, StreamExt, TryStreamExt};
 use futures_executor::block_on;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex_array::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};

@@ -1,6 +1,6 @@
 use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{Array, IntoArray, IntoArrayVariant};

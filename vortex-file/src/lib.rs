@@ -9,11 +9,11 @@
 //! 1. The [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout). A contiguously serialized array of buffers, with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
 //!
 //! 2. The [`StructLayout`](vortex_layout::layouts::struct_::StructLayout). Each column of a
-//!    [`StructArray`][vortex_array::array::StructArray] is sequentially laid out at known offsets.
+//!    [`StructArray`][vortex_array::arrays::StructArray] is sequentially laid out at known offsets.
 //!    This permits reading a subset of columns in time linear in the number of kept columns.
 //!
 //! 3. The [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout). Each chunk of a
-//!    [`ChunkedArray`](vortex_array::array::ChunkedArray) is sequentially laid out at known
+//!    [`ChunkedArray`](vortex_array::arrays::ChunkedArray) is sequentially laid out at known
 //!    offsets. This permits reading a subset of rows in time linear in the number of kept rows.
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They

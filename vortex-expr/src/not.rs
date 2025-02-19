@@ -70,7 +70,7 @@ pub fn not(operand: ExprRef) -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::BoolArray;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::IntoArrayVariant;
     use vortex_dtype::{DType, Nullability};
 

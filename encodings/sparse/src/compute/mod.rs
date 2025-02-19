@@ -1,4 +1,4 @@
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     BinaryNumericFn, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
     SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
@@ -103,7 +103,7 @@ impl FilterFn<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
     use vortex_array::compute::{
         filter, search_sorted, slice, try_cast, SearchResult, SearchSortedSide,

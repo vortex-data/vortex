@@ -6,7 +6,7 @@ use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
-use vortex_array::array::ChunkedArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{compare, Operator};
 use vortex_array::{Array, IntoArray, IntoArrayVariant};

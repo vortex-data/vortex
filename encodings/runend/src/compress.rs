@@ -1,6 +1,6 @@
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
-use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
@@ -269,7 +269,7 @@ pub fn runend_decode_typed_bool(
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;

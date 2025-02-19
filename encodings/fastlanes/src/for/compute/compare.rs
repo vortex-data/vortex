@@ -1,7 +1,7 @@
 use std::ops::Shr;
 
 use num_traits::WrappingSub;
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{Array, IntoArray};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
@@ -68,7 +68,7 @@ where
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
     use vortex_buffer::buffer;

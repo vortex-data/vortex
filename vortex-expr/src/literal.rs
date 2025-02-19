@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::{Array, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -62,7 +62,7 @@ impl VortexExpr for Literal {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::array::PrimitiveArray;
+/// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
 /// use vortex_expr::{lit, Literal};
 /// use vortex_scalar::Scalar;

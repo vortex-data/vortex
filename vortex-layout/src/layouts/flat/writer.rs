@@ -94,7 +94,7 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stats::{Stat, Statistics};
     use vortex_array::validity::Validity;
     use vortex_array::IntoArray;

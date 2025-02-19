@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;

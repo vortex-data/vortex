@@ -14,7 +14,7 @@ use std::ops::{Shl, Shr};
 use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};

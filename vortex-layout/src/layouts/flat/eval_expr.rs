@@ -48,7 +48,7 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;

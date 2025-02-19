@@ -43,7 +43,7 @@ impl TakeFn<ALPRDArray> for ALPRDEncoding {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::IntoArrayVariant;
 

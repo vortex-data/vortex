@@ -3,7 +3,7 @@ use std::ops::AddAssign;
 
 use arrow_buffer::BooleanBuffer;
 use num_traits::AsPrimitive;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -108,7 +108,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::slice;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_mask::Mask;
