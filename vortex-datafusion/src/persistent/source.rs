@@ -1,22 +1,53 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use arrow_schema::SchemaRef;
 use datafusion::datasource::data_source::FileSource;
+use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig};
-use datafusion_common::{Result as DFResult, Statistics};
+use datafusion_common::{internal_datafusion_err, Result as DFResult, Statistics};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use itertools::Itertools as _;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use vortex_array::ContextRef;
+use vortex_expr::{Identity, VortexExpr};
+use vortex_file::VORTEX_FILE_EXTENSION;
 
+use super::cache::FileLayoutCache;
+use super::config::{ConfigProjection, FileScanConfigExt};
 use super::opener::VortexFileOpener;
-use crate::persistent::execution::repartition_by_size;
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct VortexSource {
-    batch_size: Option<usize>,
-    projected_statistics: Option<Statistics>,
-    context: ContextRef,
-    metrics: ExecutionPlanMetricsSet,
+    pub(crate) ctx: ContextRef,
+    pub(crate) initial_read_cache: FileLayoutCache,
+    pub(crate) predicate: Option<Arc<dyn VortexExpr>>,
+    pub(crate) projection: Option<Arc<dyn VortexExpr>>,
+    pub(crate) batch_size: Option<usize>,
+    pub(crate) projected_statistics: Option<Statistics>,
+    pub(crate) arrow_schema: Option<SchemaRef>,
+    pub(crate) metrics: ExecutionPlanMetricsSet,
+}
+
+impl VortexSource {
+    pub(crate) fn new(ctx: ContextRef, initial_read_cache: FileLayoutCache) -> Self {
+        Self {
+            ctx,
+            initial_read_cache,
+            projection: None,
+            batch_size: None,
+            projected_statistics: None,
+            arrow_schema: None,
+            predicate: None,
+            metrics: ExecutionPlanMetricsSet::default(),
+        }
+    }
+
+    pub fn with_predicate(&self, predicate: Arc<dyn VortexExpr>) -> Self {
+        let mut source = self.clone();
+        source.predicate = Some(predicate);
+        source
+    }
 }
 
 impl FileSource for VortexSource {
@@ -24,20 +55,27 @@ impl FileSource for VortexSource {
         &self,
         object_store: DFResult<Arc<dyn ObjectStore>>,
         base_config: &FileScanConfig,
-        partition: usize,
+        _partition: usize,
     ) -> DFResult<Arc<dyn FileOpener>> {
-        let (scheme, _) = ObjectStoreScheme::parse(self.file_scan_config.object_store_url.as_ref())
+        let object_store = object_store?;
+        let (scheme, _) = ObjectStoreScheme::parse(base_config.object_store_url.as_ref())
             .map_err(object_store::Error::from)?;
+
+        let Some(batch_size) = self.batch_size else {
+            return Err(internal_datafusion_err!(
+                "batch_size must be supplied to VortexSource"
+            ));
+        };
 
         let opener = VortexFileOpener::new(
             self.ctx.clone(),
             scheme,
             object_store,
-            self.projection.clone(),
+            self.projection.clone().unwrap_or(Identity::new_expr()),
             self.predicate.clone(),
             self.initial_read_cache.clone(),
-            self.projected_arrow_schema.clone(),
-            context.session_config().batch_size(),
+            self.arrow_schema.clone().unwrap(),
+            batch_size,
         )?;
 
         Ok(Arc::new(opener))
@@ -53,16 +91,40 @@ impl FileSource for VortexSource {
         Arc::new(source)
     }
 
-    fn with_schema(&self, schema: arrow_schema::SchemaRef) -> Arc<dyn FileSource> {
-        todo!()
+    fn with_schema(&self, schema: SchemaRef) -> Arc<dyn FileSource> {
+        // todo(adam): does this need to the same as `with_projection`?
+        let mut source = self.clone();
+        source.arrow_schema = Some(schema);
+        Arc::new(source)
     }
 
     fn with_projection(&self, config: &FileScanConfig) -> Arc<dyn FileSource> {
-        todo!()
+        let ConfigProjection {
+            arrow_schema,
+            constraints: _constraints,
+            statistics,
+            orderings: _,
+            projection_expr,
+        } = config.project_for_vortex();
+
+        let statistics = if self.predicate.is_some() {
+            statistics.to_inexact()
+        } else {
+            statistics
+        };
+
+        let mut source = self.clone();
+        source.projection = Some(projection_expr);
+        source.arrow_schema = Some(arrow_schema);
+        source.projected_statistics = Some(statistics);
+
+        Arc::new(source)
     }
 
     fn with_statistics(&self, statistics: Statistics) -> Arc<dyn FileSource> {
-        todo!()
+        let mut source = self.clone();
+        source.projected_statistics = Some(statistics);
+        Arc::new(source)
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
@@ -70,11 +132,20 @@ impl FileSource for VortexSource {
     }
 
     fn statistics(&self) -> DFResult<Statistics> {
-        todo!()
+        let statistics = self
+            .projected_statistics
+            .clone()
+            .expect("projected_statistics must be set");
+
+        if self.predicate.is_some() {
+            Ok(statistics.to_inexact())
+        } else {
+            Ok(statistics)
+        }
     }
 
     fn file_type(&self) -> &str {
-        "vortex"
+        VORTEX_FILE_EXTENSION
     }
 
     fn supports_repartition(&self, config: &FileScanConfig) -> bool {
@@ -99,5 +170,74 @@ impl FileSource for VortexSource {
         new_config.file_groups = repartition_by_size(file_groups, target_partitions);
 
         Ok(Some(new_config))
+    }
+}
+
+pub(crate) fn repartition_by_size(
+    file_groups: Vec<Vec<PartitionedFile>>,
+    desired_partitions: usize,
+) -> Vec<Vec<PartitionedFile>> {
+    let all_files = file_groups.into_iter().concat();
+    let total_file_count = all_files.len();
+    let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
+    let target_partition_size = total_size / (desired_partitions + 1);
+
+    let mut partitions = Vec::with_capacity(desired_partitions);
+
+    let mut curr_partition_size = 0;
+    let mut curr_partition = Vec::default();
+
+    for file in all_files.into_iter() {
+        curr_partition_size += file.object_meta.size;
+        curr_partition.push(file);
+
+        if curr_partition_size >= target_partition_size {
+            curr_partition_size = 0;
+            partitions.push(std::mem::take(&mut curr_partition));
+        }
+    }
+
+    // If we we're still missing the last partition
+    if !curr_partition.is_empty() && partitions.len() != desired_partitions {
+        partitions.push(std::mem::take(&mut curr_partition));
+    // If we already have enough partitions
+    } else if !curr_partition.is_empty() {
+        for (idx, file) in curr_partition.into_iter().enumerate() {
+            let new_part_idx = idx % partitions.len();
+            partitions[new_part_idx].push(file);
+        }
+    }
+
+    // Assert that we have the correct number of partitions and that the total number of files is right
+    assert_eq!(
+        partitions.len(),
+        usize::min(desired_partitions, total_file_count)
+    );
+    assert_eq!(total_file_count, partitions.iter().flatten().count());
+
+    partitions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_repartition_test() {
+        let file_groups = vec![vec![
+            PartitionedFile::new("a", 100),
+            PartitionedFile::new("b", 25),
+            PartitionedFile::new("c", 25),
+            PartitionedFile::new("d", 25),
+            PartitionedFile::new("e", 50),
+        ]];
+
+        repartition_by_size(file_groups, 2);
+
+        let file_groups = vec![(0..100)
+            .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
+            .collect()];
+
+        repartition_by_size(file_groups, 16);
     }
 }

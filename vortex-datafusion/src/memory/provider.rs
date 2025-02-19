@@ -180,7 +180,7 @@ mod test {
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::functions_aggregate::count::count_distinct;
     use datafusion::prelude::SessionContext;
-    use datafusion_common::{Column, TableReference};
+    use datafusion_common::{Column, Spans, TableReference};
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex_array::{Array, IntoArray};
@@ -244,6 +244,7 @@ mod test {
                         table: "orders".into(),
                     }),
                     name: "o_orderstatus".to_string(),
+                    spans: Spans::new(),
                 }
                 .into(),
             ),

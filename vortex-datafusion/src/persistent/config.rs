@@ -35,6 +35,7 @@ pub struct ConfigProjection {
     pub arrow_schema: SchemaRef,
     pub constraints: Constraints,
     pub statistics: Statistics,
+    #[allow(dead_code)]
     pub orderings: Vec<LexOrdering>,
     pub projection_expr: Arc<dyn VortexExpr>,
 }

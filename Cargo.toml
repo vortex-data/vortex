@@ -74,12 +74,12 @@ criterion = { package = "codspeed-criterion-compat", features = [
     "html_reports",
 ], version = "2.7.2" }
 crossterm = "0.28"
-datafusion = { version = "45", default-features = false, path = "../datafusion/datafusion/core" }
-datafusion-common = {version = "45", path = "../datafusion/datafusion/common"}
-datafusion-execution = {version = "45", path = "../datafusion/datafusion/execution"}
-datafusion-expr = {version = "45", path = "../datafusion/datafusion/expr"}
-datafusion-physical-expr = {version = "45", path = "../datafusion/datafusion/physical-expr"}
-datafusion-physical-plan = {version = "45", path = "../datafusion/datafusion/physical-plan"}
+datafusion = { version = "45", default-features = false, git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
+datafusion-common = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
+datafusion-execution = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
+datafusion-expr = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
+datafusion-physical-expr = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
+datafusion-physical-plan = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"

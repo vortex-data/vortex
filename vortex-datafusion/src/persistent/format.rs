@@ -18,7 +18,6 @@ use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::insert::DataSinkExec;
-use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
@@ -28,11 +27,12 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{stats, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::datafusion::convert_expr_to_vortex;
+use vortex_expr::{and, Identity, VortexExpr};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
-use super::execution::VortexExec;
 use super::sink::VortexSink;
 use super::VortexSource;
 use crate::can_be_pushed_down;
@@ -155,7 +155,10 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self) -> Arc<dyn FileSource> {
-        Arc::new(VortexSource::default())
+        Arc::new(VortexSource::new(
+            self.context.clone(),
+            self.file_layout_cache.clone(),
+        ))
     }
 
     async fn infer_schema(
@@ -283,8 +286,6 @@ impl FileFormat for VortexFormat {
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        let metrics = ExecutionPlanMetricsSet::new();
-
         if file_scan_config
             .file_groups
             .iter()
@@ -302,16 +303,11 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
-        let exec = VortexExec::try_new(
-            file_scan_config,
-            metrics,
-            filters.cloned(),
-            self.context.clone(),
-            self.file_layout_cache.clone(),
-        )?
-        .into_arc();
+        let predicate = make_vortex_predicate(filters).unwrap_or(Identity::new_expr());
+        let mut source = VortexSource::new(self.context.clone(), self.file_layout_cache.clone());
+        source = source.with_predicate(predicate);
 
-        Ok(exec)
+        Ok(file_scan_config.with_source(Arc::new(source)).build())
     }
 
     async fn create_writer_physical_plan(
@@ -351,6 +347,22 @@ impl FileFormat for VortexFormat {
             Ok(FilePushdownSupport::NotSupportedForFilter)
         }
     }
+}
+
+pub(crate) fn make_vortex_predicate(
+    predicate: Option<&Arc<dyn PhysicalExpr>>,
+) -> Option<Arc<dyn VortexExpr>> {
+    predicate
+        // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+        // will rerun the filter expression anyway.
+        .and_then(|expr| {
+            // This splits expressions into conjunctions and converts them to vortex expressions.
+            // Any inconvertible expressions are dropped since true /\ a == a.
+            datafusion_physical_expr::split_conjunction(expr)
+                .into_iter()
+                .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
+                .reduce(and)
+        })
 }
 
 #[cfg(test)]

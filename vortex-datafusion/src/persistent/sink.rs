@@ -115,6 +115,7 @@ impl DataSink for VortexSink {
 mod tests {
     use std::sync::Arc;
 
+    use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
     use datafusion::prelude::SessionContext;
     use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
@@ -122,6 +123,7 @@ mod tests {
 
     use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
 
+    // TODO(adam): Seems like this now panics due to a Vortex issue
     #[tokio::test]
     #[should_panic] // This test is not working due to <https://github.com/apache/datafusion/issues/14394>
     async fn test_insert_into() {
@@ -155,10 +157,12 @@ mod tests {
             ]],
         };
 
+        let tbl_provider = session.table_provider("my_tbl").await.unwrap();
+
         let logical_plan = LogicalPlanBuilder::insert_into(
             LogicalPlan::Values(values.clone()),
             "my_tbl",
-            my_tbl.schema().as_arrow(),
+            Arc::new(DefaultTableSource::new(tbl_provider)),
             datafusion_expr::dml::InsertOp::Append,
         )
         .unwrap()

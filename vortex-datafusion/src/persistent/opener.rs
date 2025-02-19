@@ -71,7 +71,7 @@ impl FileOpener for VortexFileOpener {
 
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
-                .with_ctx(ctx.clone())
+                .with_ctx(ctx)
                 .with_file_layout(
                     file_layout_cache
                         .try_get(&file_meta.object_meta, object_store)
@@ -82,8 +82,8 @@ impl FileOpener for VortexFileOpener {
 
             Ok(vxf
                 .scan()
-                .with_projection(projection.clone())
-                .with_some_filter(filter.clone())
+                .with_projection(projection)
+                .with_some_filter(filter)
                 .with_canonicalize(true)
                 // DataFusion likes ~8k row batches. Ideally we would respect the config,
                 // but at the moment our scanner has too much overhead to process small
