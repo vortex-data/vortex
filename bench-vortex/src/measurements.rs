@@ -266,18 +266,19 @@ impl ToTable for ThroughputMeasurement {
 }
 
 #[derive(Clone, Debug)]
-pub struct RatioMeasurement {
+pub struct CustomUnitMeasurement {
     pub name: String,
     pub format: Format,
+    pub unit: Cow<'static, str>,
     pub value: f64,
 }
 
-impl ToJson for RatioMeasurement {
+impl ToJson for CustomUnitMeasurement {
     fn to_json(&self) -> JsonValue {
         JsonValue {
             name: self.name.clone(),
             storage: None,
-            unit: Cow::from("ratio"),
+            unit: self.unit.clone(),
             value: MeasurementValue::Float(self.value),
             time: None,
             bytes: None,
@@ -286,13 +287,13 @@ impl ToJson for RatioMeasurement {
     }
 }
 
-impl ToTable for RatioMeasurement {
+impl ToTable for CustomUnitMeasurement {
     fn to_table(&self) -> TableValue {
         TableValue {
             id: None,
             name: self.name.clone(),
             format: self.format,
-            unit: Cow::from("ratio"),
+            unit: self.unit.clone(),
             value: MeasurementValue::Float(self.value),
         }
     }

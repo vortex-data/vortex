@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::LazyCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -12,13 +13,13 @@ use crate::bench_run::run;
 use crate::compress::chunked_to_vec_record_batch;
 use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
 use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
-use crate::measurements::{RatioMeasurement, ThroughputMeasurement};
+use crate::measurements::{CustomUnitMeasurement, ThroughputMeasurement};
 use crate::Format;
 
 #[derive(Default)]
 pub struct CompressMeasurements {
     pub throughputs: Vec<ThroughputMeasurement>,
-    pub ratios: Vec<RatioMeasurement>,
+    pub ratios: Vec<CustomUnitMeasurement>,
 }
 
 impl Extend<CompressMeasurements> for CompressMeasurements {
@@ -80,14 +81,16 @@ where
         progress.inc(1);
 
         let compressed_size_f64 = compressed_size.load(Ordering::SeqCst) as f64;
-        ratios.push(RatioMeasurement {
+        ratios.push(CustomUnitMeasurement {
             name: format!("vortex:raw size/{}", bench_name),
             format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
             value: compressed_size_f64 / (uncompressed_size as f64),
         });
-        ratios.push(RatioMeasurement {
+        ratios.push(CustomUnitMeasurement {
             name: format!("vortex size/{}", bench_name),
             format: Format::OnDiskVortex,
+            unit: Cow::from("value"),
             value: compressed_size_f64,
         });
     }
@@ -114,9 +117,10 @@ where
         });
 
         progress.inc(1);
-        ratios.push(RatioMeasurement {
+        ratios.push(CustomUnitMeasurement {
             name: format!("vortex:parquet-zstd size/{}", bench_name),
             format: Format::OnDiskVortex,
+            unit: Cow::from("ratio"),
             value: compressed_size.load(Ordering::SeqCst) as f64
                 / parquet_compressed_size.into_inner() as f64,
         });
