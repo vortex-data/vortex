@@ -175,8 +175,8 @@ impl ValidateVTable<ListArray> for ListEncoding {}
 
 impl VisitorVTable<ListArray> for ListEncoding {
     fn accept(&self, array: &ListArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("offsets", &array.offsets())?;
         visitor.visit_child("elements", &array.elements())?;
+        visitor.visit_child("offsets", &array.offsets())?;
         visitor.visit_validity(&array.validity())
     }
 }

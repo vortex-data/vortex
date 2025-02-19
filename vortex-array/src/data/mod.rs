@@ -190,14 +190,12 @@ impl Array {
                 // v.flatbuffer()
                 //     .metadata()
                 //     .map(|bytes| v.flatbuffer.clone().into_inner().slice_ref(bytes.bytes())),
-                self.metadata_bytes().map(|b| ByteBuffer::copy_from(b)),
-                Some(self.byte_buffers().collect()),
-                Some(
-                    self.children()
-                        .into_iter()
-                        .map(|a| a.into_owned_array())
-                        .collect(),
-                ),
+                self.metadata_bytes().map(ByteBuffer::copy_from),
+                self.byte_buffers().collect(),
+                self.children()
+                    .into_iter()
+                    .map(|a| a.into_owned_array())
+                    .collect(),
                 self.statistics().stats_set(),
             )
             .vortex_expect("Failed to create owned array"),
