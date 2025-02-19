@@ -108,6 +108,9 @@ jobs:
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
     runs-on: ubuntu-latest
+    env:
+      # disable lints for build, they will be caught in Rust lint job.
+      RUSTFLAGS: "-A warnings"
     strategy:
       fail-fast: false
       matrix:
@@ -186,7 +189,8 @@ jobs:
     env:
       # Disable incremental compilation to get accurate coverage
       CARGO_INCREMENTAL: "0"
-      RUSTFLAGS: "-Cinstrument-coverage"
+      # Disable lints when running tests. They will be caught by the Rust lint job.
+      RUSTFLAGS: "-Cinstrument-coverage -A warnings"
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
@@ -235,6 +239,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
+      RUSTFLAGS: "-A warnings"
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
