@@ -64,7 +64,7 @@ impl LayoutStrategy for VortexLayoutStrategy {
             StatsLayoutWriter::try_new(
                 dtype,
                 writer,
-                &FlatLayout,
+                Arc::new(FlatLayout),
                 StatsLayoutOptions {
                     block_size: 8192,
                     stats: PRUNING_STATS.into(),
