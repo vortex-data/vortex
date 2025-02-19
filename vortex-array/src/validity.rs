@@ -320,6 +320,7 @@ impl Validity {
         }
     }
 
+    // TODO(ngates): rename to to_mask
     pub fn to_logical(&self, length: usize) -> VortexResult<Mask> {
         Ok(match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
@@ -469,6 +470,14 @@ impl Validity {
         match nullability {
             Nullability::NonNullable => Self::NonNullable,
             Nullability::Nullable => Self::Array(value),
+        }
+    }
+
+    /// Returns the length of the validity array, if it exists.
+    pub fn maybe_len(&self) -> Option<usize> {
+        match self {
+            Self::NonNullable | Self::AllValid | Self::AllInvalid => None,
+            Self::Array(a) => Some(a.len()),
         }
     }
 }

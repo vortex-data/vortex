@@ -80,7 +80,6 @@ impl ArrayBuilder for BoolBuilder {
         };
 
         self.inner.append_buffer(&array.boolean_buffer());
-
         self.nulls.append_validity_mask(array.validity_mask()?);
 
         Ok(())

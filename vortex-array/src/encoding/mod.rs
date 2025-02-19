@@ -58,7 +58,6 @@ pub trait Encoding: 'static {
     const ID: EncodingId;
 
     type Array;
-    type Metadata: SerializeMetadata + DeserializeMetadata;
 }
 
 #[doc = "Encoding ID constants for all Vortex-provided encodings"]
