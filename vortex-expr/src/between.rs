@@ -2,38 +2,35 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use vortex_array::compute::between;
+use vortex_array::compute::{between, BetweenOptions};
 use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 
-use crate::{ExprRef, Operator, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Between {
     arr: ExprRef,
     lower: ExprRef,
-    lower_op: Operator,
     upper: ExprRef,
-    upper_op: Operator,
+    options: BetweenOptions,
 }
 
 impl Between {
     pub fn between(
         arr: ExprRef,
         lower: ExprRef,
-        lower_op: Operator,
         upper: ExprRef,
-        upper_op: Operator,
+        options: BetweenOptions,
     ) -> ExprRef {
         Arc::new(Self {
             arr,
             lower,
-            lower_op,
             upper,
-            upper_op,
+            options,
         })
     }
 }
@@ -43,7 +40,11 @@ impl Display for Between {
         write!(
             f,
             "({} {} {} {} {})",
-            self.lower, self.lower_op, self.arr, self.upper_op, self.upper
+            self.lower,
+            self.options.lower_strict.to_operator(),
+            self.arr,
+            self.options.upper_strict.to_operator(),
+            self.upper
         )
     }
 }
@@ -52,9 +53,8 @@ impl PartialEq for Between {
     fn eq(&self, other: &Between) -> bool {
         self.arr.eq(&other.arr)
             && other.lower.eq(&self.lower)
-            && self.lower_op == other.lower_op
             && other.upper.eq(&self.upper)
-            && self.upper_op == other.upper_op
+            && self.options == other.options
     }
 }
 
@@ -65,20 +65,10 @@ impl VortexExpr for Between {
 
     fn unchecked_evaluate(&self, batch: &Array) -> VortexResult<Array> {
         let arr_val = self.arr.evaluate(batch)?;
-        let lower_val = self.lower.evaluate(batch)?;
+        let lower_arr_val = self.lower.evaluate(batch)?;
         let upper_arr_val = self.upper.evaluate(batch)?;
 
-        between(
-            &arr_val,
-            &lower_val,
-            self.lower_op
-                .maybe_cmp_operator()
-                .ok_or_else(|| vortex_err!("must be a cmp operator"))?,
-            &upper_arr_val,
-            self.upper_op
-                .maybe_cmp_operator()
-                .ok_or_else(|| vortex_err!("must be a cmp operator"))?,
-        )
+        between(&arr_val, &lower_arr_val, &upper_arr_val, &self.options)
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -89,9 +79,8 @@ impl VortexExpr for Between {
         Arc::new(Self {
             arr: children[0].clone(),
             lower: children[1].clone(),
-            lower_op: self.lower_op,
             upper: children[2].clone(),
-            upper_op: self.upper_op,
+            options: self.options.clone(),
         })
     }
 

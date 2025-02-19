@@ -2,8 +2,8 @@ mod compare;
 
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{
-    between, filter, scalar_at, slice, take, BetweenFn, CompareFn, FilterFn, Operator, ScalarAtFn,
-    SliceFn, TakeFn,
+    between, filter, scalar_at, slice, take, BetweenFn, BetweenOptions, CompareFn, FilterFn,
+    ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
@@ -120,9 +120,8 @@ impl BetweenFn<ALPArray> for ALPEncoding {
         &self,
         array: &ALPArray,
         lower: &Array,
-        lower_op: Operator,
         upper: &Array,
-        upper_op: Operator,
+        options: &BetweenOptions,
     ) -> VortexResult<Option<Array>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
@@ -133,7 +132,7 @@ impl BetweenFn<ALPArray> for ALPEncoding {
         }
 
         match_each_alp_float_ptype!(array.ptype(), |$F| {
-            between_impl::<$F>(array, $F::try_from(lower)?, lower_op, $F::try_from(upper)?, upper_op)
+            between_impl::<$F>(array, $F::try_from(lower)?, $F::try_from(upper)?, options)
         })
         .map(Some)
     }
@@ -142,9 +141,8 @@ impl BetweenFn<ALPArray> for ALPEncoding {
 fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,
     lower: T,
-    lower_op: Operator,
     upper: T,
-    upper_op: Operator,
+    options: &BetweenOptions,
 ) -> VortexResult<Array>
 where
     Scalar: From<T::ALPInt>,
@@ -156,8 +154,7 @@ where
     between(
         array.encoded(),
         ConstantArray::new(lower_enc, array.len()),
-        lower_op,
         ConstantArray::new(upper_enc, array.len()),
-        upper_op,
+        options,
     )
 }

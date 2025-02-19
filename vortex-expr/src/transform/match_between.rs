@@ -1,3 +1,4 @@
+use vortex_array::compute::{BetweenOptions, StrictComparison};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::between::Between;
@@ -88,28 +89,50 @@ impl MutNodeVisitor for MatchBetween {
             };
 
             // Check if the operators form an inequality.
-            if is_between_operator_pair(left_op, right_op) {
-                let expr = Between::between(eq.clone(), left, left_op, right, right_op);
-                return Ok(TransformResult::yes(expr));
-            } else if is_between_operator_pair(left_op.swap(), right_op.swap()) {
-                let expr =
-                    Between::between(eq.clone(), left, left_op.swap(), right, right_op.swap());
-                return Ok(TransformResult::yes(expr));
-            }
+            let (left_op, right_op) = if let (Some(left_op), Some(right_op)) = (
+                maybe_strict_comparison(left_op),
+                maybe_strict_comparison(right_op),
+            ) {
+                (left_op, right_op)
+            } else if let (Some(left_op), Some(right_op)) = (
+                maybe_strict_comparison(left_op.swap()),
+                maybe_strict_comparison(right_op.swap()),
+            ) {
+                (left_op, right_op)
+            } else {
+                return Ok(TransformResult::no(node));
+            };
+
+            let expr = Between::between(
+                eq.clone(),
+                left,
+                right,
+                BetweenOptions {
+                    lower_strict: left_op,
+                    upper_strict: right_op,
+                },
+            );
+            return Ok(TransformResult::yes(expr));
         }
         Ok(TransformResult::no(node))
     }
 }
 
-fn is_between_operator_pair(lhs_op: Operator, rhs_op: Operator) -> bool {
-    matches!(lhs_op, Operator::Lte | Operator::Lt) && matches!(rhs_op, Operator::Lte | Operator::Lt)
+fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
+    match op {
+        Operator::Lt => Some(StrictComparison::Strict),
+        Operator::Lte => Some(StrictComparison::NonStrict),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::compute::{BetweenOptions, StrictComparison};
+
     use crate::between::Between;
     use crate::transform::match_between::find_between;
-    use crate::{and, col, gt_eq, lit, lt, Operator};
+    use crate::{and, col, gt_eq, lit, lt};
 
     #[test]
     fn test_match_between() {
@@ -118,7 +141,15 @@ mod tests {
 
         // 2 < x <= 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lte),
+            &Between::between(
+                col("x"),
+                lit(2),
+                lit(5),
+                BetweenOptions {
+                    lower_strict: StrictComparison::Strict,
+                    upper_strict: StrictComparison::NonStrict,
+                }
+            ),
             &find
         );
     }
@@ -130,7 +161,15 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lte, lit(5), Operator::Lt),
+            &Between::between(
+                col("x"),
+                lit(2),
+                lit(5),
+                BetweenOptions {
+                    lower_strict: StrictComparison::NonStrict,
+                    upper_strict: StrictComparison::Strict,
+                }
+            ),
             &find
         );
     }
@@ -142,7 +181,15 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lte, lit(5), Operator::Lte),
+            &Between::between(
+                col("x"),
+                lit(2),
+                lit(5),
+                BetweenOptions {
+                    lower_strict: StrictComparison::NonStrict,
+                    upper_strict: StrictComparison::NonStrict,
+                }
+            ),
             &find
         );
     }
@@ -152,9 +199,17 @@ mod tests {
         let expr = and(gt_eq(lit(5), col("x")), lt(lit(2), col("x")));
         let find = find_between(expr);
 
-        // 2 <= x < 5
+        // 2 < x <= 5
         assert_eq!(
-            &Between::between(col("x"), lit(2), Operator::Lt, lit(5), Operator::Lte),
+            &Between::between(
+                col("x"),
+                lit(2),
+                lit(5),
+                BetweenOptions {
+                    lower_strict: StrictComparison::Strict,
+                    upper_strict: StrictComparison::NonStrict,
+                }
+            ),
             &find
         );
     }

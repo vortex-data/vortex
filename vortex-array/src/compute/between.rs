@@ -10,10 +10,30 @@ pub trait BetweenFn<A> {
         &self,
         arr: &A,
         lower: &Array,
-        lower_op: Operator,
         upper: &Array,
-        upper_op: Operator,
+        options: &BetweenOptions,
     ) -> VortexResult<Option<Array>>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BetweenOptions {
+    pub lower_strict: StrictComparison,
+    pub upper_strict: StrictComparison,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StrictComparison {
+    Strict,
+    NonStrict,
+}
+
+impl StrictComparison {
+    pub fn to_operator(&self) -> Operator {
+        match self {
+            StrictComparison::Strict => Operator::Lt,
+            StrictComparison::NonStrict => Operator::Lte,
+        }
+    }
 }
 
 impl<E: Encoding> BetweenFn<Array> for E
@@ -25,40 +45,45 @@ where
         &self,
         arr: &Array,
         lower: &Array,
-        lower_op: Operator,
         upper: &Array,
-        upper_op: Operator,
+        options: &BetweenOptions,
     ) -> VortexResult<Option<Array>> {
         let (arr_ref, encoding) = arr.try_downcast_ref::<E>()?;
-        BetweenFn::between(encoding, arr_ref, lower, lower_op, upper, upper_op)
+        BetweenFn::between(encoding, arr_ref, lower, upper, options)
     }
 }
 
-/// Compute the following expression, but will likely have a lower runtime
+/// Compute between (a <= x <= b), this can be implemented using compare and boolean andn but this
+/// will likely have a lower runtime.
+///
+/// This semantics is equivalent to:
 /// ```
-///  use vortex_array::Array;
-/// use vortex_array::compute::{binary_boolean, compare, BinaryOperator, Operator};///
+/// use vortex_array::Array;
+/// use vortex_array::compute::{binary_boolean, compare, BetweenOptions, BinaryOperator, Operator};///
 /// use vortex_error::VortexResult;
 ///
 /// fn between(
 ///    arr: impl AsRef<Array>,
 ///    lower: impl AsRef<Array>,
-///    lower_op: Operator,
 ///    upper: impl AsRef<Array>,
-///    upper_op: Operator) -> VortexResult<Array> {
+///    options: &BetweenOptions
+/// ) -> VortexResult<Array> {
 ///     binary_boolean(
-///         &compare(lower, &arr, lower_op)?,
-///         &compare(&arr, upper, upper_op)?,
+///         &compare(lower, &arr, options.lower_strict.to_operator())?,
+///         &compare(&arr, upper,  options.upper_strict.to_operator())?,
 ///         BinaryOperator::And
 ///     )
 /// }
 ///  ```
+///
+/// The BetweenOptions { lower: StrictComparison, upper: StrictComparison } defines if the
+/// value is < (strict) or <= (non-strict).
+///
 pub fn between(
     arr: impl AsRef<Array>,
     lower: impl AsRef<Array>,
-    lower_op: Operator,
     upper: impl AsRef<Array>,
-    upper_op: Operator,
+    options: &BetweenOptions,
 ) -> VortexResult<Array> {
     let arr = arr.as_ref();
     let lower = lower.as_ref();
@@ -69,7 +94,7 @@ pub fn between(
     debug_assert_eq!(arr.len(), lower.len());
     debug_assert_eq!(arr.len(), upper.len());
 
-    let result = between_impl(arr, lower, lower_op, upper, upper_op)?;
+    let result = between_impl(arr, lower, upper, options)?;
 
     debug_assert_eq!(result.len(), arr.len());
     debug_assert_eq!(
@@ -85,9 +110,8 @@ pub fn between(
 fn between_impl(
     arr: impl AsRef<Array>,
     lower: impl AsRef<Array>,
-    lower_op: Operator,
     upper: impl AsRef<Array>,
-    upper_op: Operator,
+    options: &BetweenOptions,
 ) -> VortexResult<Array> {
     let arr = arr.as_ref();
     let lower = lower.as_ref();
@@ -104,7 +128,7 @@ fn between_impl(
     if let Some(result) = arr
         .vtable()
         .between_fn()
-        .and_then(|f| f.between(arr, lower, lower_op, upper, upper_op).transpose())
+        .and_then(|f| f.between(arr, lower, upper, options).transpose())
         .transpose()?
     {
         return Ok(result);
@@ -112,8 +136,8 @@ fn between_impl(
 
     // TODO(joe): should we try to canonicalize the array and try between
     binary_boolean(
-        &compare(lower, arr, lower_op)?,
-        &compare(arr, upper, upper_op)?,
+        &compare(lower, arr, options.lower_strict.to_operator())?,
+        &compare(arr, upper, options.upper_strict.to_operator())?,
         BinaryOperator::And,
     )
 }
