@@ -15,7 +15,7 @@ use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
-use vortex_fastlanes::{bitpack_to_best_bit_width, for_compress, FoRArray};
+use vortex_fastlanes::{bitpack_encode, find_best_bit_width, for_compress, FoRArray};
 use vortex_mask::Mask;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::RunEndArray;
@@ -400,7 +400,12 @@ impl Scheme for BitPackingScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<Array> {
-        let packed = bitpack_to_best_bit_width(stats.source().clone())?;
+        let bw = find_best_bit_width(stats.source())?;
+        // If best bw is determined to be the current bit-width, return the original array.
+        if bw as usize == stats.source().ptype().bit_width() {
+            return Ok(stats.source().clone().into_array());
+        }
+        let packed = bitpack_encode(stats.source().clone(), bw)?;
         Ok(packed.into_array())
     }
 }
