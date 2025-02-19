@@ -8,7 +8,7 @@ use crate::Array;
 #[macro_export]
 macro_rules! impl_encoding {
     ($id:literal, $code:expr, $Name:ident, $Metadata:ty) => {
-        $crate::paste::paste! {
+        $crate::aliases::paste::paste! {
             #[derive(std::fmt::Debug, Clone)]
             #[repr(transparent)]
             pub struct [<$Name Array>]($crate::Array);
