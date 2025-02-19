@@ -93,13 +93,9 @@ fn between_impl(
     let lower = lower.as_ref();
     let upper = upper.as_ref();
 
-    if ConstantArray::maybe_from(lower).is_some_and(|v| v.scalar().is_null()) {
-        return Ok(
-            Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),
-        );
-    }
-
-    if let Some(upper) = ConstantArray::maybe_from(upper).is_some_and(|v| v.scalar().is_null()) {
+    if ConstantArray::maybe_from(lower).is_some_and(|v| v.scalar().is_null())
+        || ConstantArray::maybe_from(upper).is_some_and(|v| v.scalar().is_null())
+    {
         return Ok(
             Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),
         );

@@ -31,6 +31,10 @@ impl GetItem {
     pub fn child(&self) -> &ExprRef {
         &self.child
     }
+
+    pub fn is(expr: &ExprRef) -> bool {
+        expr.as_any().is::<Self>()
+    }
 }
 
 pub fn col(field: impl Into<FieldName>) -> ExprRef {

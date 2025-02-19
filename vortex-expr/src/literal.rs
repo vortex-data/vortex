@@ -25,6 +25,10 @@ impl Literal {
     pub fn value(&self) -> &Scalar {
         &self.value
     }
+
+    pub fn maybe_from(expr: &ExprRef) -> Option<&Literal> {
+        expr.as_any().downcast_ref::<Literal>()
+    }
 }
 
 impl Display for Literal {
