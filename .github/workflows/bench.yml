@@ -29,38 +29,6 @@ jobs:
           bash scripts/commit-json.sh > new-commit.json
           bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
 
-
-  codspeed_bench:
-    name: Benchmark with Codspeed
-    runs-on: ubuntu-latest-large
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
-
-      - name: Install Codspeed
-        shell: bash
-        run: cargo install --force cargo-codspeed --locked
-
-      - name: Build benchmarks
-        env:
-          RUSTFLAGS: "-C target-cpu=native"
-        run: |
-          cargo codspeed build --features test-harness \
-            --exclude bench-vortex \
-            --exclude vortex-datafusion \
-            --exclude vortex-tui \
-            --exclude vortex-fuzz \
-            --exclude pyvortex \
-            --exclude xtask \
-            --workspace \
-            --profile bench
-
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
-        with:
-          run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-
   bench-criterion:
     strategy:
       matrix:
