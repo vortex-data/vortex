@@ -1,7 +1,7 @@
 use crate::compute::{
-    BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn, FilterFn,
-    InvertFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn,
-    TakeFn, ToArrowFn,
+    BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
+    FilterFn, InvertFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn,
+    SliceFn, TakeFn, ToArrowFn,
 };
 use crate::Array;
 

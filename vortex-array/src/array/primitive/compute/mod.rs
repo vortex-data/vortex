@@ -1,7 +1,7 @@
 use crate::array::PrimitiveEncoding;
 use crate::compute::{
-    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn,
-    SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,
+    BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn,
+    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::Array;
