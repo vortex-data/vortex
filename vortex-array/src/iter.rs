@@ -8,8 +8,9 @@ use crate::arrays::ChunkedArray;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::{Array, IntoArray};
 
-/// A stream of array chunks along with a DType.
-/// Analogous to Arrow's RecordBatchReader.
+/// Iterator of array with a known [`DType`].
+///
+/// Its up to implementations to guarantee all arrays have the same [`DType`].
 pub trait ArrayIterator: Iterator<Item = VortexResult<Array>> {
     fn dtype(&self) -> &DType;
 }
