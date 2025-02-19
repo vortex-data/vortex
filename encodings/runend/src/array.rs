@@ -83,8 +83,8 @@ impl RunEndArray {
             dtype,
             length,
             SerdeMetadata(metadata),
-            None,
-            Some(vec![ends, values].into()),
+            vec![].into(),
+            vec![ends, values].into(),
             StatsSet::default(),
         )
     }
@@ -182,6 +182,10 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
 
     fn all_valid(&self, array: &RunEndArray) -> VortexResult<bool> {
         array.values().all_valid()
+    }
+
+    fn all_invalid(&self, array: &RunEndArray) -> VortexResult<bool> {
+        array.values().all_invalid()
     }
 
     fn validity_mask(&self, array: &RunEndArray) -> VortexResult<Mask> {

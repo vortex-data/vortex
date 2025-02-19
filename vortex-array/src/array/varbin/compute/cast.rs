@@ -3,7 +3,6 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::compute::CastFn;
-use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
 impl CastFn<VarBinArray> for VarBinEncoding {
@@ -12,23 +11,11 @@ impl CastFn<VarBinArray> for VarBinEncoding {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
         }
 
-        // If the types are the same, return the array,
-        // otherwise set the array nullability as the dtype nullability.
-        if dtype.is_nullable() || array.all_valid()? {
-            VarBinArray::try_new(
-                array.offsets(),
-                array.bytes(),
-                dtype.clone(),
-                if dtype.is_nullable() {
-                    Validity::AllValid
-                } else {
-                    Validity::NonNullable
-                },
-            )
-            .map(|a| a.into_array())
-        } else {
-            vortex_bail!("Cannot cast null array to non-nullable type");
-        }
+        let new_nullability = dtype.nullability();
+        let new_validity = array.validity().cast_nullability(new_nullability)?;
+        let new_dtype = array.dtype().with_nullability(new_nullability);
+        VarBinArray::try_new(array.offsets(), array.bytes(), new_dtype, new_validity)
+            .map(IntoArray::into_array)
     }
 }
 

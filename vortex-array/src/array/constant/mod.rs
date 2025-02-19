@@ -35,8 +35,8 @@ impl ConstantArray {
             dtype,
             length,
             EmptyMetadata,
-            Some([value_buffer.into_inner()].into()),
-            None,
+            [value_buffer.into_inner()].into(),
+            vec![].into(),
             stats,
         )
         .vortex_expect("Failed to create Constant array")
@@ -63,6 +63,10 @@ impl ValidityVTable<ConstantArray> for ConstantEncoding {
 
     fn all_valid(&self, array: &ConstantArray) -> VortexResult<bool> {
         Ok(!array.scalar().is_null())
+    }
+
+    fn all_invalid(&self, array: &ConstantArray) -> VortexResult<bool> {
+        Ok(array.scalar().is_null())
     }
 
     fn validity_mask(&self, array: &ConstantArray) -> VortexResult<Mask> {

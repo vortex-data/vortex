@@ -57,8 +57,11 @@ impl PrimitiveArray {
             RkyvMetadata(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            Some([buffer.into_byte_buffer()].into()),
-            validity.into_array().map(|v| [v].into()),
+            [buffer.into_byte_buffer()].into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
         .vortex_expect("Should not fail to create PrimitiveArray")
@@ -368,6 +371,10 @@ impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
         array.validity().all_valid()
     }
 
+    fn all_invalid(&self, array: &PrimitiveArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
+    }
+
     fn validity_mask(&self, array: &PrimitiveArray) -> VortexResult<Mask> {
         array.validity().to_logical(array.len())
     }
@@ -377,5 +384,31 @@ impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
     fn accept(&self, array: &PrimitiveArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(array.byte_buffer())?;
         visitor.visit_validity(&array.validity())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+
+    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::compute::test_harness::test_mask;
+    use crate::validity::Validity;
+    use crate::IntoArray as _;
+
+    #[test]
+    fn test_mask_primitive_array() {
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array());
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array());
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).into_array());
+        test_mask(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                ),
+            )
+            .into_array(),
+        );
     }
 }

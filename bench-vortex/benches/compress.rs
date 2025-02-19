@@ -175,7 +175,7 @@ fn benchmark_compress<F, U>(
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         measurement_time.map(|t| group.measurement_time(t));
         group.bench_function(bench_name, |b| {
-            b.iter_with_large_drop(|| {
+            b.iter(|| {
                 compressed_size =
                     vortex_compressed_written_size(runtime, uncompressed.as_ref()).unwrap();
             });

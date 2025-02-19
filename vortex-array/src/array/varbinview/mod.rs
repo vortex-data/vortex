@@ -169,6 +169,24 @@ impl BinaryView {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
     }
+
+    /// Shifts the buffer reference by the view by a given offset, useful when merging many
+    /// varbinview arrays into one.
+    #[inline(always)]
+    pub fn offset_view(self, offset: u32) -> Self {
+        if self.is_inlined() {
+            self
+        } else {
+            // Referencing views must have their buffer_index adjusted with new offsets
+            let view_ref = self.as_view();
+            BinaryView::new_view(
+                self.len(),
+                *view_ref.prefix(),
+                offset + view_ref.buffer_index(),
+                view_ref.offset(),
+            )
+        }
+    }
 }
 
 impl From<u128> for BinaryView {
@@ -243,8 +261,11 @@ impl VarBinViewArray {
             dtype,
             array_len,
             RkyvMetadata(metadata),
-            Some(array_buffers.into()),
-            validity.into_array().map(|v| [v].into()),
+            array_buffers.into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
     }
@@ -489,6 +510,10 @@ impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
 
     fn all_valid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &VarBinViewArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &VarBinViewArray) -> VortexResult<Mask> {

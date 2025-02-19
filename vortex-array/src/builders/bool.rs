@@ -2,8 +2,7 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_mask::AllOr;
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -82,23 +81,24 @@ impl ArrayBuilder for BoolBuilder {
 
         self.inner.append_buffer(&array.boolean_buffer());
 
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.nulls.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.nulls.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
-        }
+        self.nulls.append_validity_mask(array.validity_mask()?);
 
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        Ok(BoolArray::try_new(
+    fn finish(&mut self) -> Array {
+        assert_eq!(
+            self.nulls.len(),
+            self.inner.len(),
+            "Null count and value count should match when calling BoolBuilder::finish."
+        );
+
+        BoolArray::try_new(
             self.inner.finish(),
-            self.nulls.finish_with_nullability(self.nullability)?,
-        )?
-        .into_array())
+            self.nulls.finish_with_nullability(self.nullability),
+        )
+        .vortex_expect("Buffer and validity must have same length.")
+        .into_array()
     }
 }
 
@@ -138,7 +138,6 @@ mod tests {
         chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
         let canon_into = builder
             .finish()
-            .unwrap()
             .into_canonical()
             .unwrap()
             .into_bool()

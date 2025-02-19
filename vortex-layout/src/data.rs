@@ -12,8 +12,7 @@ use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::context::LayoutContextRef;
 use crate::reader::LayoutReader;
-use crate::scan::ScanExecutor;
-use crate::segments::SegmentId;
+use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::vtable::LayoutVTableRef;
 use crate::LayoutId;
 
@@ -201,7 +200,11 @@ impl Layout {
             Inner::Owned(o) => {
                 let child = o.children[i].clone();
                 if child.dtype() != &dtype {
-                    vortex_bail!("child dtype mismatch");
+                    vortex_bail!(
+                        "Child has dtype {}, but was requested with {}",
+                        child.dtype(),
+                        dtype
+                    );
                 }
                 Ok(child)
             }
@@ -292,10 +295,10 @@ impl Layout {
     /// Create a reader for this layout.
     pub fn reader(
         &self,
-        executor: Arc<ScanExecutor>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
         ctx: ContextRef,
     ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx, executor)
+        self.encoding().reader(self.clone(), ctx, segment_reader)
     }
 
     /// Register splits for this layout.

@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::data::Layout;
-use crate::layouts::stats::stats_table::{StatsAccumulator, StatsTable};
+use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::layouts::stats::StatsLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
@@ -33,7 +33,7 @@ impl Default for StatsLayoutOptions {
 pub struct StatsLayoutWriter {
     options: StatsLayoutOptions,
     child_writer: Box<dyn LayoutWriter>,
-    stats_writer: Box<dyn LayoutWriter>,
+    stats_strategy: Arc<dyn LayoutStrategy>,
     stats_accumulator: StatsAccumulator,
     dtype: DType,
 
@@ -49,18 +49,16 @@ impl StatsLayoutWriter {
         //  impl LayoutStrategy for StatsLayoutStrategy, which holds options, and options contain
         //  other layout strategies?
         child_writer: Box<dyn LayoutWriter>,
-        stats_strategy: &dyn LayoutStrategy,
+        stats_strategy: Arc<dyn LayoutStrategy>,
         options: StatsLayoutOptions,
     ) -> VortexResult<Self> {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
-        let stats_writer =
-            stats_strategy.new_writer(&StatsTable::dtype_for_stats_table(dtype, &present_stats))?;
         let stats_accumulator = StatsAccumulator::new(dtype.clone(), present_stats);
 
         Ok(Self {
             options,
             child_writer,
-            stats_writer,
+            stats_strategy,
             stats_accumulator,
             dtype: dtype.clone(),
             nblocks: 0,
@@ -98,10 +96,11 @@ impl LayoutWriter for StatsLayoutWriter {
             return Ok(child);
         };
 
-        let stats_layout = self
-            .stats_writer
-            .as_mut()
-            .push_one(segments, stats_table.array().clone())?;
+        // We must defer creating the stats table LayoutWriter until now, because the DType of
+        // the table depends on which stats were successfully computed.
+        let stats_array = stats_table.array();
+        let mut stats_writer = self.stats_strategy.new_writer(stats_array.dtype())?;
+        let stats_layout = stats_writer.push_one(segments, stats_table.array().clone())?;
 
         let mut metadata = ByteBufferMut::empty();
 

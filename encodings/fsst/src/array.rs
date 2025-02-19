@@ -98,8 +98,8 @@ impl FSSTArray {
                 codes_nullability,
                 uncompressed_lengths_ptype,
             }),
-            None,
-            Some(children),
+            vec![].into(),
+            children,
             StatsSet::default(),
         )
     }
@@ -203,6 +203,10 @@ impl ValidityVTable<FSSTArray> for FSSTEncoding {
 
     fn all_valid(&self, array: &FSSTArray) -> VortexResult<bool> {
         array.codes().all_valid()
+    }
+
+    fn all_invalid(&self, array: &FSSTArray) -> VortexResult<bool> {
+        array.codes().all_invalid()
     }
 
     fn validity_mask(&self, array: &FSSTArray) -> VortexResult<Mask> {

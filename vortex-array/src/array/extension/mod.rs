@@ -35,8 +35,8 @@ impl ExtensionArray {
             DType::Extension(ext_dtype),
             storage.len(),
             EmptyMetadata,
-            None,
-            Some([storage].into()),
+            vec![].into(),
+            [storage].into(),
             StatsSet::default(),
         )
         .vortex_expect("Invalid ExtensionArray")
@@ -85,6 +85,10 @@ impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
 
     fn all_valid(&self, array: &ExtensionArray) -> VortexResult<bool> {
         array.storage().all_valid()
+    }
+
+    fn all_invalid(&self, array: &ExtensionArray) -> VortexResult<bool> {
+        array.storage().all_invalid()
     }
 
     fn validity_mask(&self, array: &ExtensionArray) -> VortexResult<Mask> {

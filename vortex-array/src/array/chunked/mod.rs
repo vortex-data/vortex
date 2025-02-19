@@ -81,8 +81,8 @@ impl ChunkedArray {
             dtype,
             curr_offset.try_into().vortex_unwrap(),
             RkyvMetadata(ChunkedMetadata { nchunks }),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )
         .vortex_expect("Constructing chunked array")
@@ -235,6 +235,15 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
     fn all_valid(&self, array: &ChunkedArray) -> VortexResult<bool> {
         for chunk in array.chunks() {
             if !chunk.all_valid()? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn all_invalid(&self, array: &ChunkedArray) -> VortexResult<bool> {
+        for chunk in array.chunks() {
+            if !chunk.all_invalid()? {
                 return Ok(false);
             }
         }

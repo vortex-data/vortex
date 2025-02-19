@@ -7,14 +7,15 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::scan::ScanExecutor;
+use crate::segments::AsyncSegmentReader;
 use crate::{Layout, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<ScanExecutor>,
+    segment_reader: Arc<dyn AsyncSegmentReader>,
+
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     /// Row offset for each chunk
@@ -25,7 +26,7 @@ impl ChunkedReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<ScanExecutor>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -57,7 +58,7 @@ impl ChunkedReader {
         Ok(Self {
             layout,
             ctx,
-            executor,
+            segment_reader,
             chunk_readers,
             chunk_offsets,
         })
@@ -69,7 +70,7 @@ impl ChunkedReader {
             let child_layout =
                 self.layout
                     .child(idx, self.layout.dtype().clone(), format!("[{}]", idx))?;
-            child_layout.reader(self.executor.clone(), self.ctx.clone())
+            child_layout.reader(self.segment_reader.clone(), self.ctx.clone())
         })
     }
 

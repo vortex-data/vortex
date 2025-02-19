@@ -106,8 +106,8 @@ impl ALPRDArray {
                 left_parts_ptype,
                 patches,
             }),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )
     }
@@ -238,6 +238,11 @@ impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
     fn all_valid(&self, array: &ALPRDArray) -> VortexResult<bool> {
         // Use validity from left_parts
         array.left_parts().all_valid()
+    }
+
+    fn all_invalid(&self, array: &ALPRDArray) -> VortexResult<bool> {
+        // Use validity from left_parts
+        array.left_parts().all_invalid()
     }
 
     fn validity_mask(&self, array: &ALPRDArray) -> VortexResult<Mask> {

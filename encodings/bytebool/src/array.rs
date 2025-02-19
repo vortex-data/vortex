@@ -46,8 +46,11 @@ impl ByteBoolArray {
             SerdeMetadata(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some([buffer.into_byte_buffer()].into()),
-            validity.into_array().map(|v| [v].into()),
+            [buffer.into_byte_buffer()].into(),
+            validity
+                .into_array()
+                .map(|v| [v].into())
+                .unwrap_or_default(),
             StatsSet::default(),
         )
     }
@@ -120,6 +123,10 @@ impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
 
     fn all_valid(&self, array: &ByteBoolArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &ByteBoolArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &ByteBoolArray) -> VortexResult<Mask> {

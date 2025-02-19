@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::layouts::stats::StatsLayout;
 use crate::reader::LayoutReader;
-use crate::scan::ScanExecutor;
+use crate::segments::AsyncSegmentReader;
 use crate::{ExprEvaluator, Layout, LayoutVTable, RowMask};
 
 type PruningCache = Arc<OnceCell<Option<Mask>>>;
@@ -23,7 +23,7 @@ type PruningCache = Arc<OnceCell<Option<Mask>>>;
 pub struct StatsReader {
     layout: Layout,
     ctx: ContextRef,
-    executor: Arc<ScanExecutor>,
+    segment_reader: Arc<dyn AsyncSegmentReader>,
 
     /// The number of blocks
     nblocks: usize,
@@ -43,7 +43,7 @@ impl StatsReader {
     pub(super) fn try_new(
         layout: Layout,
         ctx: ContextRef,
-        executor: Arc<ScanExecutor>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Self> {
         if layout.encoding().id() != StatsLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -51,7 +51,7 @@ impl StatsReader {
 
         let child = layout
             .child(0, layout.dtype().clone(), "data")?
-            .reader(executor.clone(), ctx.clone())?;
+            .reader(segment_reader.clone(), ctx.clone())?;
 
         let metadata = layout
             .metadata()
@@ -64,7 +64,7 @@ impl StatsReader {
         Ok(Self {
             layout,
             ctx,
-            executor,
+            segment_reader,
             nblocks,
             block_len,
             present_stats,
@@ -87,7 +87,7 @@ impl StatsReader {
                 let stats_layout = self.layout.child(1, stats_dtype.clone(), "stats_table")?;
 
                 let stats_array = stats_layout
-                    .reader(self.executor.clone(), self.ctx.clone())?
+                    .reader(self.segment_reader.clone(), self.ctx.clone())?
                     .evaluate_expr(
                         RowMask::new_valid_between(0, self.nblocks as u64),
                         Identity::new_expr(),

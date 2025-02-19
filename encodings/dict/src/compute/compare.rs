@@ -15,10 +15,10 @@ impl CompareFn<DictArray> for DictEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(rhs_c) = rhs.as_constant() {
+        if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(
-                try_cast(lhs.values(), lhs.dtype())?,
-                ConstantArray::new(rhs_c, lhs.values().len()),
+                lhs.values(),
+                ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
 

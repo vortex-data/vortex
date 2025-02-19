@@ -1,10 +1,10 @@
 use async_trait::async_trait;
+use vortex_array::compute::{filter, slice};
 use vortex_array::Array;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::scan::ScanTask;
 use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
@@ -12,30 +12,28 @@ impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
         assert!(row_mask.true_count() > 0);
 
-        let array = self.array().await?.clone();
+        let mut array = self.array().await?.clone();
 
         // TODO(ngates): what's the best order to apply the filter mask / expression?
         let begin = usize::try_from(row_mask.begin())
             .vortex_expect("RowMask begin must fit within FlatLayout size");
 
-        let mut tasks = Vec::with_capacity(3);
-
         // Slice the array based on the row mask.
         if begin > 0 || (begin + row_mask.len()) < array.len() {
-            tasks.push(ScanTask::Slice(begin..begin + row_mask.len()));
+            array = slice(array, begin, begin + row_mask.len())?;
         }
 
         // Filter the array based on the row mask.
         if !row_mask.filter_mask().all_true() {
-            tasks.push(ScanTask::Filter(row_mask.filter_mask().clone()));
+            array = filter(&array, row_mask.filter_mask())?;
         }
 
         // Evaluate the projection expression.
         if !expr.as_any().is::<Identity>() {
-            tasks.push(ScanTask::Expr(expr));
+            array = expr.evaluate(&array)?;
         }
 
-        self.executor().evaluate(&array, &tasks).await
+        Ok(array)
     }
 
     async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {
@@ -57,7 +55,6 @@ mod test {
     use vortex_expr::{gt, ident, lit, Identity};
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
     use crate::writer::LayoutWriterExt;
     use crate::RowMask;
@@ -72,7 +69,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(
                     RowMask::new_valid_between(0, layout.row_count()),
@@ -98,7 +95,7 @@ mod test {
 
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
-                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
@@ -123,7 +120,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .reader(ScanExecutor::inline(Arc::new(segments)), Default::default())
+                .reader(Arc::new(segments), Default::default())
                 .unwrap()
                 .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
                 .await

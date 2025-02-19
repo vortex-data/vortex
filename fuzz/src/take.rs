@@ -66,7 +66,7 @@ pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Ar
             for idx in indices {
                 builder.append_scalar(&scalar_at(array, *idx)?)?;
             }
-            builder.finish()
+            Ok(builder.finish())
         }
         _ => unreachable!("Not a canonical array"),
     }

@@ -1,4 +1,4 @@
-use std::ops::BitAnd;
+use std::ops::{BitAnd, Not};
 
 use vortex_error::vortex_panic;
 
@@ -18,6 +18,18 @@ impl BitAnd for &Mask {
             (AllOr::None, _) => Mask::new_false(self.len()),
             (_, AllOr::None) => Mask::new_false(self.len()),
             (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs & rhs),
+        }
+    }
+}
+
+impl Not for &Mask {
+    type Output = Mask;
+
+    fn not(self) -> Self::Output {
+        match self.boolean_buffer() {
+            AllOr::All => Mask::new_false(self.len()),
+            AllOr::None => Mask::new_true(self.len()),
+            AllOr::Some(buffer) => Mask::from_buffer(!buffer),
         }
     }
 }

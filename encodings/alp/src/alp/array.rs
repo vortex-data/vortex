@@ -67,8 +67,8 @@ impl ALPArray {
             dtype,
             length,
             SerdeMetadata(ALPMetadata { exponents, patches }),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             Default::default(),
         )
     }
@@ -138,6 +138,10 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
 
     fn all_valid(&self, array: &ALPArray) -> VortexResult<bool> {
         array.encoded().all_valid()
+    }
+
+    fn all_invalid(&self, array: &ALPArray) -> VortexResult<bool> {
+        array.encoded().all_invalid()
     }
 
     fn validity_mask(&self, array: &ALPArray) -> VortexResult<Mask> {

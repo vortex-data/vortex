@@ -55,8 +55,8 @@ impl FoRArray {
             dtype,
             encoded.len(),
             SerdeMetadata(FoRMetadata { reference }),
-            None,
-            Some([encoded].into()),
+            vec![].into(),
+            [encoded].into(),
             StatsSet::default(),
         )
     }
@@ -90,6 +90,10 @@ impl ValidityVTable<FoRArray> for FoREncoding {
 
     fn all_valid(&self, array: &FoRArray) -> VortexResult<bool> {
         array.encoded().all_valid()
+    }
+
+    fn all_invalid(&self, array: &FoRArray) -> VortexResult<bool> {
+        array.encoded().all_invalid()
     }
 
     fn validity_mask(&self, array: &FoRArray) -> VortexResult<Mask> {

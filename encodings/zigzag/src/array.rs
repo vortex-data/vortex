@@ -36,8 +36,8 @@ impl ZigZagArray {
             dtype,
             len,
             EmptyMetadata,
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )
     }
@@ -79,6 +79,10 @@ impl ValidityVTable<ZigZagArray> for ZigZagEncoding {
 
     fn all_valid(&self, array: &ZigZagArray) -> VortexResult<bool> {
         array.encoded().all_valid()
+    }
+
+    fn all_invalid(&self, array: &ZigZagArray) -> VortexResult<bool> {
+        array.encoded().all_invalid()
     }
 
     fn validity_mask(&self, array: &ZigZagArray) -> VortexResult<Mask> {

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_mask::AllOr;
 use vortex_scalar::{BinaryNumericOperator, ListScalar};
 
 use crate::array::{ConstantArray, ListArray, OffsetPType};
@@ -116,13 +115,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        match array.validity_mask()?.boolean_buffer() {
-            AllOr::All => {
-                self.nulls.append_n_non_nulls(array.len());
-            }
-            AllOr::None => self.nulls.append_n_nulls(array.len()),
-            AllOr::Some(validity) => self.nulls.append_buffer(validity.clone()),
-        }
+        self.nulls.append_validity_mask(array.validity_mask()?);
 
         let list = array.into_canonical()?.into_list()?;
 
@@ -147,13 +140,20 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> Array {
+        assert_eq!(
+            self.index_builder.len(),
+            self.nulls.len() + 1,
+            "Indices length must be one more than nulls length."
+        );
+
         ListArray::try_new(
-            self.value_builder.finish()?,
-            self.index_builder.finish()?,
-            self.nulls.finish_with_nullability(self.nullability)?,
+            self.value_builder.finish(),
+            self.index_builder.finish(),
+            self.nulls.finish_with_nullability(self.nullability),
         )
-        .map(ListArray::into_array)
+        .vortex_expect("Buffer, offsets, and validity must have same length.")
+        .into_array()
     }
 }
 
@@ -175,7 +175,7 @@ mod tests {
     fn test_empty() {
         let mut builder = ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), NonNullable, 0);
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 0);
     }
 
@@ -206,7 +206,7 @@ mod tests {
             )
             .unwrap();
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 2);
 
         let list_array = list.into_list().unwrap();
@@ -256,7 +256,7 @@ mod tests {
             )
             .unwrap();
 
-        let list = builder.finish().unwrap();
+        let list = builder.finish();
         assert_eq!(list.len(), 3);
 
         let list_array = list.into_list().unwrap();
@@ -295,7 +295,6 @@ mod tests {
 
         let res = builder
             .finish()
-            .unwrap()
             .into_canonical()
             .unwrap()
             .into_list()

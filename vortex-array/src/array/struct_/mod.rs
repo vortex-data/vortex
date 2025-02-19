@@ -91,8 +91,8 @@ impl StructArray {
             RkyvMetadata(StructMetadata {
                 validity: validity_metadata,
             }),
-            None,
-            Some(fields.into()),
+            vec![].into(),
+            fields.into(),
             StatsSet::default(),
         )
     }
@@ -185,6 +185,10 @@ impl ValidityVTable<StructArray> for StructEncoding {
 
     fn all_valid(&self, array: &StructArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &StructArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &StructArray) -> VortexResult<Mask> {

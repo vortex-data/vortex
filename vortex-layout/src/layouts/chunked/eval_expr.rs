@@ -68,6 +68,7 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use rstest::{fixture, rstest};
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
@@ -75,13 +76,14 @@ mod test {
     use vortex_expr::Identity;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::scan::ScanExecutor;
     use crate::segments::test::TestSegments;
+    use crate::segments::AsyncSegmentReader;
     use crate::writer::LayoutWriterExt;
     use crate::{Layout, RowMask};
 
+    #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Arc<ScanExecutor>, Layout) {
+    fn chunked_layout() -> (Arc<dyn AsyncSegmentReader>, Layout) {
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
             &DType::Primitive(PType::I32, NonNullable),
@@ -96,14 +98,14 @@ mod test {
             ],
         )
         .unwrap();
-        (ScanExecutor::inline(Arc::new(segments)), layout)
+        (Arc::new(segments), layout)
     }
 
-    #[test]
-    fn test_chunked_evaluator() {
+    #[rstest]
+    fn test_chunked_evaluator(
+        #[from(chunked_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
         block_on(async {
-            let (segments, layout) = chunked_layout();
-
             let result = layout
                 .reader(segments, Default::default())
                 .unwrap()

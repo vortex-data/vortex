@@ -23,8 +23,8 @@ impl NullArray {
             DType::Null,
             len,
             EmptyMetadata,
-            None,
-            None,
+            vec![].into(),
+            vec![].into(),
             StatsSet::nulls(len, &DType::Null),
         )
         .vortex_expect("NullArray::new should never fail!")
@@ -44,6 +44,10 @@ impl ValidityVTable<NullArray> for NullEncoding {
 
     fn all_valid(&self, array: &NullArray) -> VortexResult<bool> {
         Ok(array.len() == 0)
+    }
+
+    fn all_invalid(&self, array: &NullArray) -> VortexResult<bool> {
+        Ok(array.len() > 0)
     }
 
     fn validity_mask(&self, array: &NullArray) -> VortexResult<Mask> {

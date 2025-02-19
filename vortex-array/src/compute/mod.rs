@@ -20,11 +20,12 @@ pub use fill_null::{fill_null, FillNullFn};
 pub use filter::{filter, FilterFn};
 pub use invert::{invert, InvertFn};
 pub use like::{like, LikeFn, LikeOptions};
+pub use mask::{mask, MaskFn};
 pub use min_max::{min_max, MinMaxFn, MinMaxResult};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::{take, TakeFn};
+pub use take::{take, take_into, TakeFn};
 pub use to_arrow::*;
 
 mod binary_numeric;
@@ -36,6 +37,7 @@ mod fill_null;
 mod filter;
 mod invert;
 mod like;
+mod mask;
 mod min_max;
 mod scalar_at;
 mod search_sorted;
@@ -46,4 +48,5 @@ mod to_arrow;
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
     pub use crate::compute::binary_numeric::test_harness::test_binary_numeric;
+    pub use crate::compute::mask::test_harness::test_mask;
 }

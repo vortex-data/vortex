@@ -5,7 +5,7 @@ on:
     branches: [ develop ]
 
 permissions:
-  id-token: write # enables AWS-GitHub OIDC
+  id-token: write  # enables AWS-GitHub OIDC
   actions: read
   contents: write
   deployments: write
@@ -31,51 +31,45 @@ jobs:
 
 
   codspeed_bench:
-    name: Run Criterion benchmarks with Codspeed
-    env:
-      BENCH_TARGETS: >
-        dict_compare
-        dict_compress
-        bitpacking_take
-        run_end_filter
-        run_end_null_count
-        search_sorted
-        scalar_subtract
-        compare
-        take_strings
-        take_patches
-    runs-on: ubuntu-latest
+    name: Benchmark with Codspeed
+    runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmark targets
+      - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-cpu=native"
-        # The profile needs to be set explicitly to bench
-        # as codspeed by default compiles with the release profile.
-        run: cargo codspeed build --profile bench $BENCH_TARGETS
+        # We want to run micro-benchmarks with release profile.
+        # We run with all features since we feature gate bench utils.
+        run: |
+          cargo codspeed build --features test-harness \
+            --exclude bench-vortex \
+            --exclude vortex-datafusion \
+            --exclude vortex-tui \
+            --exclude vortex-fuzz \
+            --exclude pyvortex \
+            --exclude xtask \
+            --workspace \
+            --profile bench
 
-      - name: Run the benchmarks
+      - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
-          run: cargo codspeed run $BENCH_TARGETS
+          run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
 
-  bench:
+  bench-criterion:
     strategy:
       matrix:
         benchmark:
-          - id: random_access
-            name: Random Access
           - id: compress
             name: Vortex Compression
-    runs-on: self-hosted
+    runs-on: [ self-hosted, gcp ]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -121,13 +115,17 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
-  tpch:
-    runs-on: self-hosted
+  bench:
+    runs-on: [ self-hosted, gcp ]
+    strategy:
+      matrix:
+        benchmark:
+          - id: random_access
+            name: Random Access
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.10
@@ -140,13 +138,14 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run TPC-H benchmark
+      - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -155,40 +154,8 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
-  clickbench:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.10
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
-
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
-
-      - name: Run Clickbench benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-          HOME: /home/ci-runner
-        run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Upload Benchmark Results
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json clickbench.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
+  sql:
+    uses: ./.github/workflows/sql-benchmarks.yml
+    with:
+      mode: 'develop'

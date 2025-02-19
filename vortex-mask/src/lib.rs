@@ -1,7 +1,7 @@
 #![feature(trusted_len)]
 //! A mask is a set of sorted unique positive integers.
 #![deny(missing_docs)]
-mod bitand;
+mod bitops;
 mod eq;
 mod intersect_by_rank;
 mod iter_bools;

@@ -80,7 +80,8 @@ impl FileLayoutCache {
     ) -> VortexResult<FileLayout> {
         self.inner
             .try_get_with(Key::from(object), async {
-                let os_read_at = ObjectStoreReadAt::new(object_store, object.location.clone());
+                let os_read_at =
+                    ObjectStoreReadAt::new(object_store, object.location.clone(), None);
                 let vxf = VortexOpenOptions::file(os_read_at)
                     .with_ctx(self.context.clone())
                     .with_file_size(object.size as u64)

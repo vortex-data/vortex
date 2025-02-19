@@ -61,3 +61,103 @@ impl ExprEvaluator for StatsReader {
         Ok(RowMask::new(mask, row_mask.begin()))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use futures::executor::block_on;
+    use rstest::{fixture, rstest};
+    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, PType};
+    use vortex_expr::{gt, lit, Identity};
+
+    use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::layouts::flat::FlatLayout;
+    use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
+    use crate::segments::test::TestSegments;
+    use crate::segments::AsyncSegmentReader;
+    use crate::writer::LayoutWriterExt;
+    use crate::{ExprEvaluator, Layout, RowMask};
+
+    #[fixture]
+    /// Create a stats layout with three chunks of primitive arrays.
+    fn stats_layout() -> (Arc<dyn AsyncSegmentReader>, Layout) {
+        let mut segments = TestSegments::default();
+        let layout = StatsLayoutWriter::try_new(
+            &DType::Primitive(PType::I32, NonNullable),
+            ChunkedLayoutWriter::new(
+                &DType::Primitive(PType::I32, NonNullable),
+                Default::default(),
+            )
+            .boxed(),
+            Arc::new(FlatLayout),
+            StatsLayoutOptions {
+                block_size: 3,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .push_all(
+            &mut segments,
+            [
+                Ok(buffer![1, 2, 3].into_array()),
+                Ok(buffer![4, 5, 6].into_array()),
+                Ok(buffer![7, 8, 9].into_array()),
+            ],
+        )
+        .unwrap();
+        (Arc::new(segments), layout)
+    }
+
+    #[rstest]
+    fn test_stats_evaluator(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
+        block_on(async {
+            let result = layout
+                .reader(segments, Default::default())
+                .unwrap()
+                .evaluate_expr(
+                    RowMask::new_valid_between(0, layout.row_count()),
+                    Identity::new_expr(),
+                )
+                .await
+                .unwrap()
+                .into_primitive()
+                .unwrap();
+
+            assert_eq!(result.len(), 9);
+            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        })
+    }
+
+    #[rstest]
+    fn test_stats_pruning_mask(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
+        block_on(async {
+            let row_count = layout.row_count();
+            let reader = layout.reader(segments, Default::default()).unwrap();
+
+            // Choose a prune-able expression
+            let expr = gt(Identity::new_expr(), lit(7));
+
+            let result = reader
+                .prune_mask(RowMask::new_valid_between(0, row_count), expr.clone())
+                .await
+                .unwrap()
+                .filter_mask()
+                .to_boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                result.as_slice(),
+                &[false, false, false, false, false, false, true, true, true]
+            );
+        })
+    }
+}

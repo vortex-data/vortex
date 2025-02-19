@@ -15,8 +15,8 @@ pub(super) struct OwnedArray {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Option<ByteBuffer>,
-    pub(super) buffers: Option<Box<[ByteBuffer]>>,
-    pub(super) children: Option<Box<[Array]>>,
+    pub(super) buffers: Box<[ByteBuffer]>,
+    pub(super) children: Box<[Array]>,
     pub(super) stats_set: RwLock<StatsSet>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: std::sync::atomic::AtomicUsize,
@@ -24,13 +24,13 @@ pub(super) struct OwnedArray {
 
 impl OwnedArray {
     pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
-        self.buffers.as_ref().and_then(|b| b.get(index))
+        self.buffers.get(index)
     }
 
     // We want to allow these panics because they are indicative of implementation error.
     #[allow(clippy::panic_in_result_fn)]
     pub fn child(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<&Array> {
-        match self.children.as_ref().and_then(|c| c.get(index)) {
+        match self.children.get(index) {
             None => vortex_bail!(
                 "Array::child({}): child {index} not found",
                 self.encoding.id().as_ref()
@@ -54,6 +54,6 @@ impl OwnedArray {
     }
 
     pub fn nchildren(&self) -> usize {
-        self.children.as_ref().map_or(0, |c| c.len())
+        self.children.len()
     }
 }

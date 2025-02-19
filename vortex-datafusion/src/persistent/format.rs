@@ -192,7 +192,7 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
         let file_layout = self
             .file_layout_cache
             .try_get(object, store.clone())

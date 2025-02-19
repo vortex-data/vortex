@@ -1,0 +1,102 @@
+use vortex_array::array::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
+use vortex_array::compute::try_cast;
+use vortex_array::stats::{Stat, Statistics};
+use vortex_array::vtable::EncodingVTable;
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_dtype::{DType, PType};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
+
+/// Downscale a primitive array to the narrowest PType that fits all the values.
+pub fn downscale_integer_array(array: Array) -> VortexResult<Array> {
+    if !array.is_encoding(PrimitiveEncoding.id()) {
+        // This can happen if e.g. the array is ConstantArray.
+        return Ok(array);
+    }
+    if array.is_empty() {
+        return Ok(array);
+    }
+    let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
+
+    let min = array.compute_stat(Stat::Min);
+    let max = array.compute_stat(Stat::Max);
+
+    let (Some(min), Some(max)) = (min, max) else {
+        // This array but be all nulls.
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+        );
+    };
+
+    // If we can't cast to i64, then leave the array as its original type.
+    // It's too big to downcast anyway.
+    let Ok(min) = i64::try_from(&min) else {
+        return Ok(array.into_array());
+    };
+    let Ok(max) = i64::try_from(&max) else {
+        return Ok(array.into_array());
+    };
+
+    downscale_primitive_integer_array(array, min, max).map(|a| a.into_array())
+}
+
+/// Downscale a primitive array to the narrowest PType that fits all the values.
+fn downscale_primitive_integer_array(
+    array: PrimitiveArray,
+    min: i64,
+    max: i64,
+) -> VortexResult<PrimitiveArray> {
+    if min < 0 || max < 0 {
+        // Signed
+        if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
+            return try_cast(
+                &array,
+                &DType::Primitive(PType::I8, array.dtype().nullability()),
+            )?
+            .into_primitive();
+        }
+
+        if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
+            return try_cast(
+                &array,
+                &DType::Primitive(PType::I16, array.dtype().nullability()),
+            )?
+            .into_primitive();
+        }
+
+        if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
+            return try_cast(
+                &array,
+                &DType::Primitive(PType::I32, array.dtype().nullability()),
+            )?
+            .into_primitive();
+        }
+    } else {
+        // Unsigned
+        if max <= u8::MAX as i64 {
+            return try_cast(
+                &array,
+                &DType::Primitive(PType::U8, array.dtype().nullability()),
+            )?
+            .into_primitive();
+        }
+
+        if max <= u16::MAX as i64 {
+            return try_cast(
+                &array,
+                &DType::Primitive(PType::U16, array.dtype().nullability()),
+            )?
+            .into_primitive();
+        }
+
+        if max <= u32::MAX as i64 {
+            return try_cast(
+                &array,
+                &DType::Primitive(PType::U32, array.dtype().nullability()),
+            )?
+            .into_primitive();
+        }
+    }
+
+    Ok(array)
+}

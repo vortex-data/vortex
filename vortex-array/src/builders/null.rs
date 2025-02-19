@@ -54,7 +54,7 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
-        Ok(NullArray::new(self.length).into_array())
+    fn finish(&mut self) -> Array {
+        NullArray::new(self.length).into_array()
     }
 }
