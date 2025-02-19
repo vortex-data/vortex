@@ -1,13 +1,18 @@
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+mod builder;
+
+use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+use vortex_array::builders::{ArrayBuilder, BoolBuilder, NullBuilder, PrimitiveBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Canonical, IntoCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::canonical::builder::{canonicalize_bool_into, canonicalize_primitive_into};
 use crate::{SparseArray, SparseEncoding};
 
 impl CanonicalVTable<SparseArray> for SparseEncoding {
@@ -28,6 +33,35 @@ impl CanonicalVTable<SparseArray> for SparseEncoding {
                 )
             })
         }
+    }
+
+    fn canonicalize_into(
+        &self,
+        array: SparseArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        match array.dtype() {
+            DType::Null => {
+                if let Some(builder) = builder.as_any_mut().downcast_mut::<NullBuilder>() {
+                    builder.append_nulls(array.len());
+                }
+            }
+            DType::Bool(_) => {
+                let builder = builder
+                    .as_any_mut()
+                    .downcast_mut::<BoolBuilder>()
+                    .vortex_expect("BoolBuilder");
+                canonicalize_bool_into(&array, builder)?;
+            }
+            DType::Primitive(..) => {
+                match_each_native_ptype!(array.ptype(), |$P| {
+                    let builder = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<$P>>().vortex_expect("PrimitiveBuilder");
+                    canonicalize_primitive_into(&array, builder)?;
+                });
+            }
+            _ => unreachable!("unsupported SparseArray dtype {}", array.dtype()),
+        }
+        Ok(())
     }
 }
 

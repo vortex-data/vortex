@@ -10,8 +10,8 @@ use crate::builders::ArrayBuilder;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct BoolBuilder {
-    inner: BooleanBufferBuilder,
-    nulls: LazyNullBufferBuilder,
+    pub inner: BooleanBufferBuilder,
+    pub nulls: LazyNullBufferBuilder,
     nullability: Nullability,
     dtype: DType,
 }
