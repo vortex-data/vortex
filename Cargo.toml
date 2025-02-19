@@ -151,6 +151,7 @@ tempfile = "3"
 tikv-jemallocator = "0.6"
 thiserror = "2.0.3"
 tokio = "1.43"
+tokio-stream = "0.1.17"
 tracing = { version = "0.1.41" }
 tracing-chrome = "0.7.2"
 tracing-futures = "0.2.5"

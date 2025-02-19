@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use datafusion::common::runtime::SpawnedTask;
 use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
 use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
+use datafusion_common::DataFusionError;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::insert::DataSink;
 use datafusion_physical_plan::metrics::MetricsSet;
@@ -14,6 +15,7 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::{StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use rand::distributions::{Alphanumeric, DistString};
+use tokio_stream::wrappers::ReceiverStream;
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::Array;
@@ -69,51 +71,7 @@ impl DataSink for VortexSink {
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
     ) -> datafusion_common::Result<u64> {
-        // TODO: Once `FileSink` is fully implemented, this function should just be:
-        // FileSink::write_all(self, data, context).await
-
-        let object_store = context
-            .runtime_env()
-            .object_store(&self.config.object_store_url)?;
-
-        let base_output_path = &self.config.table_paths[0];
-
-        let single_file_output =
-            !base_output_path.is_collection() && base_output_path.file_extension().is_some();
-
-        let path = if single_file_output {
-            base_output_path.prefix().to_owned()
-        } else {
-            let filename = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-            base_output_path
-                .prefix()
-                .child(format!("{filename}.{}", VORTEX_FILE_EXTENSION))
-        };
-
-        let vortex_writer = ObjectStoreWriter::new(object_store, path).await?;
-
-        // TODO(adam): This is a temporary hack
-        let row_counter = Arc::new(AtomicU64::new(0));
-
-        let dtype = DType::from_arrow(data.schema());
-        let stream = data
-            .map_err(VortexError::from)
-            .map(|rb| rb.and_then(Array::try_from))
-            .map_ok(|rb| {
-                row_counter.fetch_add(rb.len() as u64, Ordering::SeqCst);
-                rb
-            });
-
-        let stream = ArrayStreamAdapter::new(dtype, stream);
-
-        let mut writer = VortexWriteOptions::default()
-            .write(vortex_writer, stream)
-            .await?;
-
-        writer.flush().await?;
-        writer.shutdown().await?;
-
-        Ok(row_counter.load(Ordering::SeqCst))
+        FileSink::write_all(self, data, context).await
     }
 }
 
@@ -126,11 +84,40 @@ impl FileSink for VortexSink {
     async fn spawn_writer_tasks_and_join(
         &self,
         _context: &Arc<TaskContext>,
-        _demux_task: SpawnedTask<datafusion_common::Result<()>>,
-        _file_stream_rx: DemuxedStreamReceiver,
-        _object_store: Arc<dyn ObjectStore>,
+        demux_task: SpawnedTask<datafusion_common::Result<()>>,
+        mut file_stream_rx: DemuxedStreamReceiver,
+        object_store: Arc<dyn ObjectStore>,
     ) -> datafusion_common::Result<u64> {
-        unimplemented!()
+        // This is a hack
+        let row_counter = Arc::new(AtomicU64::new(0));
+
+        // TODO(adamg):
+        // 1. We only write only file at a time
+        // 2. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
+        while let Some((path, rx)) = file_stream_rx.recv().await {
+            let writer = ObjectStoreWriter::new(object_store.clone(), path).await?;
+
+            let stream = ReceiverStream::new(rx).map(|rb| {
+                row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
+                Array::try_from(rb)
+            });
+            let dtype = DType::from_arrow(self.config.output_schema.as_ref());
+            let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
+
+            let mut writer = VortexWriteOptions::default()
+                .write(writer, stream_adapter)
+                .await?;
+
+            writer.flush().await?;
+            writer.shutdown().await?;
+        }
+
+        demux_task
+            .join_unwind()
+            .await
+            .map_err(DataFusionError::ExecutionJoin)??;
+
+        Ok(row_counter.load(Ordering::SeqCst))
     }
 }
 
