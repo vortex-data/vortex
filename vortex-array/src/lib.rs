@@ -56,29 +56,6 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-/// A depth-first pre-order iterator over a Array.
-pub struct ArrayChildrenIterator {
-    stack: Vec<Array>,
-}
-
-impl ArrayChildrenIterator {
-    pub fn new(array: Array) -> Self {
-        Self { stack: vec![array] }
-    }
-}
-
-impl Iterator for ArrayChildrenIterator {
-    type Item = Array;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next = self.stack.pop()?;
-        for child in next.children().into_iter().rev() {
-            self.stack.push(child);
-        }
-        Some(next)
-    }
-}
-
 /// Consume `self` and turn it into an [`Array`] infallibly.
 ///
 /// Implementation of this array should never fail.

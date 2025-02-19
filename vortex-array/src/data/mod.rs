@@ -20,7 +20,7 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::visitor::{ChildrenVisitor, NamedChildrenVisitor};
 use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{ArrayChildrenIterator, ContextRef};
+use crate::ContextRef;
 
 mod owned;
 mod statistics;
@@ -301,7 +301,7 @@ impl Array {
         }
     }
 
-    pub fn depth_first_traversal(&self) -> ArrayChildrenIterator {
+    pub fn depth_first_traversal(&self) -> impl Iterator<Item = Array> {
         ArrayChildrenIterator::new(self.clone())
     }
 
@@ -460,5 +460,28 @@ impl Iterator for ArrayChunkIterator {
                 chunk
             }),
         }
+    }
+}
+
+/// A depth-first pre-order iterator over a Array.
+struct ArrayChildrenIterator {
+    stack: Vec<Array>,
+}
+
+impl ArrayChildrenIterator {
+    pub fn new(array: Array) -> Self {
+        Self { stack: vec![array] }
+    }
+}
+
+impl Iterator for ArrayChildrenIterator {
+    type Item = Array;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.stack.pop()?;
+        for child in next.children().into_iter().rev() {
+            self.stack.push(child);
+        }
+        Some(next)
     }
 }
