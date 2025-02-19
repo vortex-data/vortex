@@ -24,7 +24,6 @@ jobs:
 
   codspeed_bench:
     name: Benchmark with Codspeed
-    needs: label_trigger
     runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
