@@ -1,3 +1,4 @@
+#![feature(portable_simd)]
 pub use array::*;
 
 mod array;

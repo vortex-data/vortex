@@ -5,12 +5,15 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_buffer::{buffer, Buffer, BufferMut};
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
+use vortex_dtype::{
+    match_each_integer_ptype, match_each_native_ptype, match_each_native_simd_ptype, NativePType,
+    Nullability,
+};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::iter::trimmed_ends_iter;
+use crate::iter::{trimmed_ends, trimmed_ends_iter};
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
 pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Array)> {
@@ -143,10 +146,10 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
-    match_each_native_ptype!(values.ptype(), |$P| {
+    match_each_native_simd_ptype!(values.ptype(), |$P| {
         match_each_integer_ptype!(ends.ptype(), |$E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
+                &trimmed_ends::<$E>(ends, offset, length),
                 values.as_slice::<$P>(),
                 values.validity_mask()?,
                 values.dtype().nullability(),
@@ -173,51 +176,80 @@ pub fn runend_decode_bools(
     })
 }
 
-pub fn runend_decode_typed_primitive<T: NativePType>(
-    run_ends: impl Iterator<Item = usize>,
-    values: &[T],
+use std::ops::Add;
+use std::simd::{self, SimdElement};
+
+use num_traits::AsPrimitive;
+const LANE_COUNT: usize = 64;
+
+pub fn runend_decode_typed_primitive<V, E>(
+    run_ends: &[E],
+    values: &[V],
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<PrimitiveArray>
+where
+    V: NativePType + SimdElement,
+    E: NativePType + Ord + Copy + AsPrimitive<usize> + Add<Output = E>,
+{
     Ok(match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
-            for (end, value) in run_ends.zip_eq(values) {
-                assert!(end <= length, "Runend end must be less than overall length");
-                // SAFETY:
-                // We preallocate enough capacity because we know the total length
-                unsafe { decoded.push_n_unchecked(*value, end - decoded.len()) };
+            let mut decoded = BufferMut::<V>::with_capacity_aligned(
+                length + LANE_COUNT,
+                vortex_buffer::Alignment::of::<simd::Simd<V, LANE_COUNT>>(),
+            );
+
+            let mask = simd::Mask::from_bitmask(u64::MAX);
+            let mut current_pos: E = E::from_usize(0).unwrap();
+
+            for idx in 0..values.len() {
+                let end = run_ends[idx];
+                let value = simd::Simd::<V, LANE_COUNT>::splat(values[idx]);
+
+                while current_pos <= end {
+                    unsafe {
+                        value.store_select_ptr(decoded.as_mut_ptr().add(current_pos.as_()), mask);
+                    }
+                    current_pos = E::from_usize(LANE_COUNT).unwrap() + current_pos;
+                }
+
+                current_pos = end;
+            }
+
+            unsafe {
+                decoded.set_len(length);
             }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
-        Mask::AllFalse(_) => PrimitiveArray::new(Buffer::<T>::zeroed(length), Validity::AllInvalid),
-        Mask::Values(mask) => {
-            let mut decoded = BufferMut::with_capacity(length);
-            let mut decoded_validity = BooleanBufferBuilder::new(length);
-            for (end, value) in run_ends.zip_eq(
-                values
-                    .iter()
-                    .zip(mask.boolean_buffer().iter())
-                    .map(|(&v, is_valid)| is_valid.then_some(v)),
-            ) {
-                assert!(end <= length, "Runend end must be less than overall length");
-                match value {
-                    None => {
-                        decoded_validity.append_n(end - decoded.len(), false);
-                        // SAFETY:
-                        // We preallocate enough capacity because we know the total length
-                        unsafe { decoded.push_n_unchecked(T::default(), end - decoded.len()) };
-                    }
-                    Some(value) => {
-                        decoded_validity.append_n(end - decoded.len(), true);
-                        // SAFETY:
-                        // We preallocate enough capacity because we know the total length
-                        unsafe { decoded.push_n_unchecked(value, end - decoded.len()) };
-                    }
-                }
-            }
-            PrimitiveArray::new(decoded, Validity::from(decoded_validity.finish()))
+        Mask::AllFalse(_) => PrimitiveArray::new(Buffer::<V>::zeroed(length), Validity::AllInvalid),
+        Mask::Values(_) => {
+            unreachable!();
+            // let mut decoded = BufferMut::with_capacity(length);
+            // let mut decoded_validity = BooleanBufferBuilder::new(length);
+            // for (end, value) in run_ends.zip_eq(
+            //     values
+            //         .iter()
+            //         .zip(mask.boolean_buffer().iter())
+            //         .map(|(&v, is_valid)| is_valid.then_some(v)),
+            // ) {
+            //     assert!(end <= length, "Runend end must be less than overall length");
+            //     match value {
+            //         None => {
+            //             decoded_validity.append_n(end - decoded.len(), false);
+            //             // SAFETY:
+            //             // We preallocate enough capacity because we know the total length
+            //             unsafe { decoded.push_n_unchecked(T::default(), end - decoded.len()) };
+            //         }
+            //         Some(value) => {
+            //             decoded_validity.append_n(end - decoded.len(), true);
+            //             // SAFETY:
+            //             // We preallocate enough capacity because we know the total length
+            //             unsafe { decoded.push_n_unchecked(value, end - decoded.len()) };
+            //         }
+            //     }
+            // }
+            // PrimitiveArray::new(decoded, Validity::from(decoded_validity.finish()))
         }
     })
 }
