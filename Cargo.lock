@@ -5409,6 +5409,7 @@ dependencies = [
  "tracing",
  "uuid",
  "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
