@@ -17,11 +17,6 @@ impl Array {
 }
 
 pub struct TreeDisplayWrapper<'a>(&'a Array);
-impl<'a> TreeDisplayWrapper<'a> {
-    pub fn new(array: &'a Array) -> Self {
-        Self(array)
-    }
-}
 
 impl fmt::Display for TreeDisplayWrapper<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
