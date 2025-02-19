@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use arrow_array::builder::ArrayBuilder;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_mask::Mask;
 
+use crate::array::data::ArrayData;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
@@ -20,7 +21,14 @@ use crate::Canonical;
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
 pub trait Array:
-    'static + Send + Sync + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVariantsImpl
+    'static
+    + Send
+    + Sync
+    + ArrayCanonicalImpl
+    + ArrayValidityImpl
+    + ArrayVariantsImpl
+    + TryFrom<ArrayData, Error = VortexError>
+    + TryInto<ArrayData, Error = VortexError>
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
