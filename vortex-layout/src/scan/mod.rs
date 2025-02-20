@@ -56,8 +56,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     split_by: SplitBy,
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
-    #[allow(dead_code)]
-    concurrency: usize,
+    concurrency: Option<usize>,
 }
 
 impl<D: ScanDriver> ScanBuilder<D> {
@@ -73,7 +72,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             row_range: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
-            concurrency: 32,
+            concurrency: None,
         }
     }
 
@@ -116,7 +115,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
     /// The number of row splits to make progress on concurrently, must be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
-        self.concurrency = concurrency;
+        self.concurrency = Some(concurrency);
         self
     }
 
@@ -246,7 +245,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             filter,
             row_masks,
             canonicalize: self.canonicalize,
-            concurrency: self.concurrency,
+            concurrency: self.concurrency.unwrap_or(32),
         })
     }
 
@@ -272,6 +271,7 @@ pub struct Scan<D> {
     row_masks: Vec<RowMask>,
     canonicalize: bool,
     //TODO(adam): bake this into the executors?
+    #[allow(dead_code)]
     concurrency: usize,
 }
 
