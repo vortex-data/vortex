@@ -252,15 +252,15 @@ mod tests {
 
     #[test]
     fn basic_repartition_test() {
-        let file_groups = vec![vec![
+        let file_groups = vec![
             PartitionedFile::new("a", 100),
             PartitionedFile::new("b", 25),
             PartitionedFile::new("c", 25),
             PartitionedFile::new("d", 25),
             PartitionedFile::new("e", 50),
-        ]];
+        ];
 
-        let groups = repartition_by_size(file_groups.iter().flatten().collect(), 2);
+        let groups = repartition_by_size(file_groups.iter().collect(), 2);
 
         assert_eq!(groups.len(), 2);
 
