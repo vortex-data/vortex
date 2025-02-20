@@ -10,7 +10,7 @@ use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
-use vortex_metrics::{Counter, MetricId, VortexMetrics};
+use vortex_metrics::{Counter, VortexMetrics};
 
 use crate::footer::{FileLayout, Segment};
 use crate::segments::channel::SegmentChannel;
@@ -364,14 +364,13 @@ struct CoalescingMetrics {
 
 impl From<VortexMetrics> for CoalescingMetrics {
     fn from(metrics: VortexMetrics) -> Self {
-        let byte_ranges = MetricId::new("vortex.scan.requests.bytes");
-        let requests = MetricId::new("vortex.scan.requests.count");
+        let bytes = "vortex.scan.requests.bytes";
+        let count = "vortex.scan.requests.count";
         Self {
-            bytes_uncoalesced: metrics.counter(byte_ranges.clone().with_tag("kind", "uncoalesced")),
-            bytes_coalesced: metrics.counter(byte_ranges.with_tag("kind", "coalesced")),
-            request_count_uncoalesced: metrics
-                .counter(requests.clone().with_tag("kind", "uncoalesced")),
-            request_count_coalesced: metrics.counter(requests.with_tag("kind", "coalesced")),
+            bytes_uncoalesced: metrics.counter(format!("{bytes}.uncoalesced")),
+            bytes_coalesced: metrics.counter(format!("{bytes}.coalesced")),
+            request_count_uncoalesced: metrics.counter(format!("{count}.uncoalesced")),
+            request_count_coalesced: metrics.counter(format!("{count}.coalesced")),
         }
     }
 }
