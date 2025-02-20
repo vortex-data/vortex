@@ -1,5 +1,6 @@
 mod convert;
 pub mod data;
+mod implementation;
 mod variants;
 mod visitor;
 
@@ -8,6 +9,7 @@ use std::sync::Arc;
 
 use arrow_array::builder::ArrayBuilder;
 pub use convert::*;
+pub use implementation::*;
 pub use variants::*;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
@@ -23,7 +25,7 @@ use crate::Canonical;
 /// Users should invoke functions on this trait. Implementations should implement the corresponding
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
-pub trait Array: Send + Sync + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVariantsImpl {
+pub trait Array: Send + Sync {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -50,82 +52,37 @@ pub trait Array: Send + Sync + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVar
     fn dtype(&self) -> &DType;
 
     /// Returns whether the item at `index` is valid.
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        if index >= self.len() {
-            vortex_bail!("Index out of bounds: {} >= {}", index, self.len());
-        }
-        ArrayValidityImpl::_is_valid(self, index)
-    }
+    fn is_valid(&self, index: usize) -> VortexResult<bool>;
 
     /// Returns whether the item at `index` is invalid.
-    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.is_valid(index).map(|valid| !valid)
-    }
+    fn is_invalid(&self, index: usize) -> VortexResult<bool>;
 
     /// Returns whether all items in the array are valid.
     ///
     /// This is usually cheaper than computing a precise `valid_count`.
-    fn all_valid(&self) -> VortexResult<bool> {
-        ArrayValidityImpl::_all_valid(self)
-    }
+    fn all_valid(&self) -> VortexResult<bool>;
 
     /// Returns whether the array is all invalid.
     ///
     /// This is usually cheaper than computing a precise `invalid_count`.
-    fn all_invalid(&self) -> VortexResult<bool> {
-        ArrayValidityImpl::_all_invalid(self)
-    }
+    fn all_invalid(&self) -> VortexResult<bool>;
 
     /// Returns the number of valid elements in the array.
-    fn valid_count(&self) -> VortexResult<usize> {
-        let count = ArrayValidityImpl::_valid_count(self)?;
-        assert!(count <= self.len(), "Valid count exceeds array length");
-        Ok(count)
-    }
+    fn valid_count(&self) -> VortexResult<usize>;
 
     /// Returns the number of invalid elements in the array.
-    fn invalid_count(&self) -> VortexResult<usize> {
-        let count = ArrayValidityImpl::_invalid_count(self)?;
-        assert!(count <= self.len(), "Invalid count exceeds array length");
-        Ok(count)
-    }
+    fn invalid_count(&self) -> VortexResult<usize>;
 
     /// Returns the canonical validity mask for the array.
-    fn validity_mask(&self) -> VortexResult<Mask> {
-        let mask = ArrayValidityImpl::_validity_mask(self)?;
-        assert_eq!(mask.len(), self.len(), "Validity mask length mismatch");
-        Ok(mask)
-    }
+    fn validity_mask(&self) -> VortexResult<Mask>;
 
     /// Returns the canonical representation of the array.
-    fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
-        assert_eq!(canonical.len(), self.len(), "Canonical length mismatch");
-        // assert_eq!(canonical.dtype(), self.dtype(), "Canonical dtype mismatch");
-        Ok(canonical)
-    }
+    fn to_canonical(&self) -> VortexResult<Canonical>;
 
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        // TODO(ngates): add dtype function to ArrayBuilder
-        // if builder.dtype() != self.dtype() {
-        //     vortex_bail!(
-        //         "Builder dtype mismatch: expected {:?}, got {:?}",
-        //         self.dtype(),
-        //         builder.dtype()
-        //     );
-        // }
-        let len = builder.len();
-        ArrayCanonicalImpl::_to_builder(self, builder)?;
-        assert_eq!(
-            len + self.len(),
-            builder.len(),
-            "Builder length mismatch after writing array"
-        );
-        Ok(())
-    }
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -151,6 +108,42 @@ impl Array for Arc<dyn Array> {
 
     fn dtype(&self) -> &DType {
         self.as_ref().dtype()
+    }
+
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.as_ref().is_valid(index)
+    }
+
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        self.as_ref().is_invalid(index)
+    }
+
+    fn all_valid(&self) -> VortexResult<bool> {
+        self.as_ref().all_valid()
+    }
+
+    fn all_invalid(&self) -> VortexResult<bool> {
+        self.as_ref().all_invalid()
+    }
+
+    fn valid_count(&self) -> VortexResult<usize> {
+        self.as_ref().valid_count()
+    }
+
+    fn invalid_count(&self) -> VortexResult<usize> {
+        self.as_ref().invalid_count()
+    }
+
+    fn validity_mask(&self) -> VortexResult<Mask> {
+        self.as_ref().validity_mask()
+    }
+
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        self.as_ref().to_canonical()
+    }
+
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        self.as_ref().append_to_builder(builder)
     }
 }
 

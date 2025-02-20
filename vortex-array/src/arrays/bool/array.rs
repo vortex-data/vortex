@@ -14,7 +14,7 @@ use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::Canonical;
+use crate::{ArrayImpl, Canonical};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -69,37 +69,14 @@ impl BoolArray {
     }
 }
 
-impl Array for BoolArray {
+impl ArrayImpl for BoolArray {
     #[inline]
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    #[inline]
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
-    }
-
-    #[inline]
-    fn to_array(&self) -> ArrayRef {
-        Arc::new(self.clone())
-    }
-
-    #[inline]
-    fn into_array(self) -> ArrayRef
-    where
-        Self: Sized,
-    {
-        Arc::new(self)
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
+    fn _len(&self) -> usize {
         self.buffer.len()
     }
 
     #[inline]
-    fn dtype(&self) -> &DType {
+    fn _dtype(&self) -> &DType {
         &self.dtype
     }
 }

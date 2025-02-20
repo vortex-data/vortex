@@ -9,13 +9,13 @@ use std::sync::Arc;
 use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 pub trait NullArrayTrait {}
 
 pub trait BoolArrayTrait {}
 
-pub trait PrimitiveArrayTrait: Deref<Target = ArrayRef> {
+pub trait PrimitiveArrayTrait: Array {
     /// The logical primitive type of the array.
     ///
     /// This is a type that can safely be converted into a `NativePType` for use in
@@ -33,7 +33,7 @@ pub trait Utf8ArrayTrait {}
 
 pub trait BinaryArrayTrait {}
 
-pub trait StructArrayTrait: Deref<Target = ArrayRef> {
+pub trait StructArrayTrait: Array {
     fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
@@ -79,7 +79,7 @@ impl dyn StructArrayTrait + '_ {
 
 pub trait ListArrayTrait {}
 
-pub trait ExtensionArrayTrait: Deref<Target = ArrayRef> {
+pub trait ExtensionArrayTrait: Array {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &Arc<ExtDType> {
         let DType::Extension(ext_dtype) = self.dtype() else {

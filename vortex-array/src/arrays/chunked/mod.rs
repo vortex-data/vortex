@@ -6,6 +6,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use arrow_array::builder::ArrayBuilder;
 use futures_util::stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,8 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{
-    impl_encoding, Array, ArrayRef, EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical,
+    impl_encoding, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical,
     RkyvMetadata,
 };
 
@@ -35,6 +37,7 @@ mod canonical;
 mod stats;
 mod variants;
 
+#[derive(Clone)]
 pub struct ChunkedArray {
     dtype: DType,
     len: usize,
@@ -209,31 +212,42 @@ impl FromIterator<ArrayRef> for ChunkedArray {
     }
 }
 
-impl Array for ChunkedArray {
-    fn as_any(&self) -> &dyn Any {
-        self
+impl ArrayCanonicalImpl for ChunkedArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
     }
 
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
+    fn _to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        todo!()
+    }
+}
+
+impl ArrayValidityImpl for ChunkedArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
     }
 
-    fn to_array(&self) -> ArrayRef {
-        Arc::new(self.clone())
+    fn _all_valid(&self) -> VortexResult<bool> {
+        todo!()
     }
 
-    fn into_array(self) -> ArrayRef
-    where
-        Self: Sized,
-    {
-        Arc::new(self)
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        todo!()
     }
 
-    fn len(&self) -> usize {
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+impl ArrayVariantsImpl for ChunkedArray {}
+
+impl ArrayImpl for ChunkedArray {
+    fn _len(&self) -> usize {
         self.len
     }
 
-    fn dtype(&self) -> &DType {
+    fn _dtype(&self) -> &DType {
         &self.dtype
     }
 }
