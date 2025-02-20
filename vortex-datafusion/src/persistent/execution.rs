@@ -162,8 +162,6 @@ impl ExecutionPlan for VortexExec {
             .flatten()
             .collect::<Vec<_>>();
 
-        dbg!(&all_files[0].statistics);
-
         let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
 
         // If there's one file or less total files in the scan, we can't repartition it
