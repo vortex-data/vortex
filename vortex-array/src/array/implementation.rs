@@ -34,7 +34,7 @@ pub trait ArrayImpl:
     fn _dtype(&self) -> &DType;
 }
 
-impl<A: ArrayImpl> Array for A {
+impl<A: ArrayImpl + 'static> Array for A {
     fn as_any(&self) -> &dyn Any {
         self
     }

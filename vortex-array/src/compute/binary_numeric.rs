@@ -34,12 +34,11 @@ where
 
 /// Point-wise add two numeric arrays.
 pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Add)
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Add)
 }
 
 /// Point-wise add a scalar value to this array on the right-hand-side.
 pub fn add_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -49,12 +48,11 @@ pub fn add_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
 
 /// Point-wise subtract two numeric arrays.
 pub fn sub(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Sub)
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Sub)
 }
 
 /// Point-wise subtract a scalar value from this array on the right-hand-side.
 pub fn sub_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -64,12 +62,11 @@ pub fn sub_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
 
 /// Point-wise multiply two numeric arrays.
 pub fn mul(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Mul)
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Mul)
 }
 
 /// Point-wise multiply a scalar value into this array on the right-hand-side.
 pub fn mul_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -79,12 +76,11 @@ pub fn mul_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
 
 /// Point-wise divide two numeric arrays.
 pub fn div(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Div)
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Div)
 }
 
 /// Point-wise divide a scalar value into this array on the right-hand-side.
 pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
