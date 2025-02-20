@@ -27,7 +27,7 @@ struct Args {
     verbose: bool,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
-    #[arg(short, long)]
+    #[arg(long)]
     datasets: Option<String>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
