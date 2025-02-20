@@ -14,7 +14,7 @@ impl CastFn<BoolArray> for BoolEncoding {
 
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
-        Ok(BoolArray::try_new(array.boolean_buffer().clone(), new_validity)?.into_array())
+        Ok(BoolArray::new_with_validity(array.boolean_buffer().clone(), new_validity).into_array())
     }
 }
 

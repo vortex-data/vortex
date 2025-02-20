@@ -6,7 +6,7 @@ use vortex_error::VortexExpect as _;
 use crate::validity::Validity;
 
 mod array;
-// pub mod compute;
+pub mod compute;
 mod data;
 mod encoding;
 mod patch;

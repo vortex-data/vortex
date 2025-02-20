@@ -2,16 +2,17 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::VTableRef;
 use crate::{
     ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
     ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
-
 // mod compute;
 
 #[derive(Clone, Debug)]
@@ -47,6 +48,10 @@ impl ArrayImpl for NullArray {
 
     fn _dtype(&self) -> &DType {
         &DType::Null
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&NullEncoding)
     }
 }
 

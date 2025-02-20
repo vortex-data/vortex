@@ -11,7 +11,7 @@ mod compute;
 pub use compute::*;
 
 use crate::encoding::EncodingId;
-use crate::ArrayRef;
+use crate::{ArrayRef, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ impl Deref for VTableRef {
 ///
 /// It is recommended that you use [`crate::impl_encoding`] to assist in writing a new
 /// array encoding.
-pub trait EncodingVTable: 'static + Sync + Send + Debug + ComputeVTable {
+pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
 
@@ -72,5 +72,15 @@ impl Eq for dyn EncodingVTable + '_ {}
 impl Hash for dyn EncodingVTable + '_ {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state)
+    }
+}
+
+impl<E: Encoding + ComputeVTable> EncodingVTable for E {
+    fn id(&self) -> EncodingId {
+        E::ID
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

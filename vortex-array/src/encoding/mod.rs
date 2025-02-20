@@ -3,6 +3,7 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+use crate::vtable::ComputeVTable;
 use crate::{DeserializeMetadata, SerializeMetadata};
 
 pub mod opaque;
@@ -54,7 +55,7 @@ impl AsRef<str> for EncodingId {
 }
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static {
+pub trait Encoding: 'static + Send + Sync {
     const ID: EncodingId;
 
     type Array;

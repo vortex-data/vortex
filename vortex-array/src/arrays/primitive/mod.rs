@@ -10,6 +10,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
+use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
@@ -17,6 +18,7 @@ use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::VTableRef;
 use crate::{
     validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
     Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
@@ -285,6 +287,9 @@ impl ArrayImpl for PrimitiveArray {
 
     fn _dtype(&self) -> &DType {
         &self.dtype
+    }
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&PrimitiveEncoding)
     }
 }
 

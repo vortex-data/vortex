@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
 use crate::stats::Statistics;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
 };
@@ -32,6 +34,7 @@ pub trait ArrayImpl:
 
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
+    fn _vtable(&self) -> VTableRef;
 }
 
 impl<A: ArrayImpl + 'static> Array for A {
@@ -63,7 +66,11 @@ impl<A: ArrayImpl + 'static> Array for A {
     }
 
     fn encoding(&self) -> EncodingId {
-        <<Self as ArrayImpl>::Encoding as Encoding>::ID
+        <Self as ArrayImpl>::Encoding::ID
+    }
+
+    fn vtable(&self) -> VTableRef {
+        ArrayImpl::_vtable(self)
     }
 
     /// Returns whether the item at `index` is valid.
@@ -117,7 +124,11 @@ impl<A: ArrayImpl + 'static> Array for A {
     /// Returns the canonical representation of the array.
     fn to_canonical(&self) -> VortexResult<Canonical> {
         let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
-        assert_eq!(canonical.len(), self.len(), "Canonical length mismatch");
+        assert_eq!(
+            canonical.as_ref().len(),
+            self.len(),
+            "Canonical length mismatch"
+        );
         // assert_eq!(canonical.dtype(), self.dtype(), "Canonical dtype mismatch");
         // TODO(ngates): inherit stats
         Ok(canonical)

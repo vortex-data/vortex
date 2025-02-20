@@ -14,12 +14,14 @@ use vortex_scalar::Scalar;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::arrays::ConstantEncoding;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
 use crate::visitor::ArrayVisitor;
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
     Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
@@ -237,6 +239,10 @@ impl ArrayImpl for VarBinArray {
 
     fn _dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&VarBinEncoding)
     }
 }
 

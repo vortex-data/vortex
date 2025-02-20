@@ -13,6 +13,7 @@ use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::VTableRef;
 use crate::{ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical};
 
 #[derive(Clone, Debug)]
@@ -105,6 +106,11 @@ impl ArrayImpl for BoolArray {
     #[inline]
     fn _dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    #[inline]
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&BoolEncoding)
     }
 }
 

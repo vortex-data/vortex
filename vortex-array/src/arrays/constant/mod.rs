@@ -9,6 +9,7 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
 use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayImpl, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata,
     Encoding, EncodingId,
@@ -67,6 +68,10 @@ impl ArrayImpl for ConstantArray {
 
     fn _dtype(&self) -> &DType {
         self.scalar.dtype()
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&ConstantEncoding)
     }
 }
 

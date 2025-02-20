@@ -15,6 +15,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::BoolEncoding;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSorted, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -24,6 +25,7 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
     Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
@@ -32,6 +34,7 @@ use crate::{
 mod canonical;
 // mod compute;
 // // mod stats;
+mod encoding;
 mod variants;
 
 #[derive(Clone, Debug)]
@@ -44,6 +47,7 @@ pub struct ChunkedArray {
 }
 
 pub struct ChunkedEncoding;
+
 impl Encoding for ChunkedEncoding {
     const ID: EncodingId = EncodingId::new("vortex.chunked", encoding_ids::CHUNKED);
     type Array = ChunkedArray;
@@ -207,6 +211,10 @@ impl ArrayImpl for ChunkedArray {
 
     fn _dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&ChunkedEncoding)
     }
 }
 

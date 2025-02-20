@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
 use crate::compute::{fill_null, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, IntoArray};
 
 impl TakeFn<BoolArray> for BoolEncoding {
     fn take(&self, array: &BoolArray, indices: &Array) -> VortexResult<Array> {

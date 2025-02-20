@@ -8,6 +8,7 @@ mod variants;
 mod visitor;
 
 use std::any::{type_name, Any};
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ use vortex_mask::Mask;
 
 use crate::builders::ArrayBuilder;
 use crate::visitor::ArrayVisitor;
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
 
 /// The base trait for all Vortex arrays.
@@ -59,6 +61,9 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants {
 
     /// Returns the encoding of the array.
     fn encoding(&self) -> EncodingId;
+
+    /// Returns the encoding VTable.
+    fn vtable(&self) -> VTableRef;
 
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool>;
@@ -124,6 +129,10 @@ impl Array for Arc<dyn Array> {
 
     fn encoding(&self) -> EncodingId {
         self.as_ref().encoding()
+    }
+
+    fn vtable(&self) -> VTableRef {
+        self.as_ref().vtable()
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
