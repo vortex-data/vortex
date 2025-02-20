@@ -261,7 +261,7 @@ fn benchmark_compress<F, U>(
         .map(|x| Regex::new(&x).unwrap().is_match(bench_name))
         .unwrap_or(false)
     {
-        info!(
+        println!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex:parquet-zstd size/{}", bench_name),
@@ -272,7 +272,7 @@ fn benchmark_compress<F, U>(
             .unwrap()
         );
 
-        info!(
+        println!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex:raw size/{}", bench_name),
@@ -283,7 +283,7 @@ fn benchmark_compress<F, U>(
             .unwrap()
         );
 
-        info!(
+        println!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex size/{}", bench_name),
