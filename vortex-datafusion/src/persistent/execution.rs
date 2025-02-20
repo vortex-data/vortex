@@ -126,7 +126,7 @@ impl ExecutionPlan for VortexExec {
         log::debug!("Executing partition {partition}");
         let partition_metrics = self
             .metrics
-            .child_with_tags([(PARTITION_LABEL, partition.to_string())].as_slice());
+            .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
         let object_store = context
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;

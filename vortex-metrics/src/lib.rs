@@ -14,7 +14,7 @@ use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 pub struct VortexMetrics {
     registry: MetricRegistry,
     default_tags: DefaultTags,
-    children: Arc<Mutex<Vec<Arc<VortexMetrics>>>>,
+    children: Mutex<Vec<Arc<VortexMetrics>>>,
 }
 
 impl Debug for VortexMetrics {
@@ -33,18 +33,14 @@ pub use witchcraft_metrics::{Counter, Histogram, Metric, MetricId, Tags, Timer};
 #[derive(Default, Clone, Debug)]
 pub struct DefaultTags(BTreeMap<Cow<'static, str>, Cow<'static, str>>);
 
-impl<K, V> From<&[(K, V)]> for DefaultTags
+impl<K, V, I> From<I> for DefaultTags
 where
-    K: Clone + Into<Cow<'static, str>>,
-    V: Clone + Into<Cow<'static, str>>,
+    I: Iterator<Item = (K, V)>,
+    K: Into<Cow<'static, str>>,
+    V: Into<Cow<'static, str>>,
 {
-    fn from(pairs: &[(K, V)]) -> Self {
-        DefaultTags(
-            pairs
-                .iter()
-                .map(|(k, v)| (k.clone().into(), v.clone().into()))
-                .collect(),
-        )
+    fn from(pairs: I) -> Self {
+        DefaultTags(pairs.map(|(k, v)| (k.into(), v.into())).collect())
     }
 }
 
@@ -185,8 +181,8 @@ mod tests {
 
     #[test]
     fn test_default_tags() -> Result<(), &'static str> {
-        let tags = &[("file", "a"), ("partition", "1")];
-        let metrics = VortexMetrics::new_with_tags(tags.as_slice());
+        let tags = [("file", "a"), ("partition", "1")];
+        let metrics = VortexMetrics::new_with_tags(tags.into_iter());
 
         // Create a metric to verify tags
         let counter = metrics.counter("test.counter");
@@ -208,14 +204,14 @@ mod tests {
 
     #[test]
     fn test_multiple_children_with_different_tags() -> Result<(), &'static str> {
-        let parent_tags = &[("service", "vortex")];
-        let parent = VortexMetrics::new_with_tags(parent_tags.as_slice());
+        let parent_tags = [("service", "vortex")];
+        let parent = VortexMetrics::new_with_tags(parent_tags.into_iter());
 
-        let child1_tags = &[("instance", "child1")];
-        let child2_tags = &[("instance", "child2")];
+        let child1_tags = [("instance", "child1")];
+        let child2_tags = [("instance", "child2")];
 
-        let child1 = parent.child_with_tags(child1_tags.as_slice());
-        let child2 = parent.child_with_tags(child2_tags.as_slice());
+        let child1 = parent.child_with_tags(child1_tags.into_iter());
+        let child2 = parent.child_with_tags(child2_tags.into_iter());
 
         // Create same metric in both children
         let counter1 = child1.counter("test.counter");
@@ -256,12 +252,12 @@ mod tests {
 
     #[test]
     fn test_tag_overriding() -> Result<(), &'static str> {
-        let parent_tags = &[("service", "vortex"), ("environment", "test")];
-        let parent = VortexMetrics::new_with_tags(parent_tags.as_slice());
+        let parent_tags = [("service", "vortex"), ("environment", "test")];
+        let parent = VortexMetrics::new_with_tags(parent_tags.into_iter());
 
         // Child tries to override parent's service tag
-        let child_tags = &[("service", "override"), ("instance", "child1")];
-        let child = parent.child_with_tags(child_tags.as_slice());
+        let child_tags = [("service", "override"), ("instance", "child1")];
+        let child = parent.child_with_tags(child_tags.into_iter());
 
         let child_counter = child.counter("test.counter");
         child_counter.inc();
