@@ -144,6 +144,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
                         let end = min(row_range.end, selected.end);
                         start..end
                     }
+                    #[allow(clippy::redundant_clone)] // Seems like a false positive
                     None => row_range.clone(),
                 };
 
@@ -151,23 +152,32 @@ impl<D: ScanDriver> ScanBuilder<D> {
                     return None;
                 }
 
-                let mut bool_builder =
-                    BooleanBufferBuilder::new((row_range.end - row_range.start) as usize);
+                let mut bool_builder = BooleanBufferBuilder::new(
+                    (row_range.end - row_range.start)
+                        .try_into()
+                        .vortex_expect(""),
+                );
 
-                let prefix_len = (relevant_range.start - row_range.start) as usize;
-                let intersection_len = (relevant_range.end - relevant_range.start) as usize;
+                let prefix_len = (relevant_range.start - row_range.start)
+                    .try_into()
+                    .vortex_expect("");
+                let intersection_len = (relevant_range.end - relevant_range.start)
+                    .try_into()
+                    .vortex_expect("");
                 let suffix_len = row_range
                     .end
                     .checked_sub(relevant_range.end)
-                    .unwrap_or_default() as usize;
+                    .unwrap_or_default()
+                    .try_into()
+                    .vortex_expect("");
 
                 bool_builder.append_n(prefix_len, false);
-                bool_builder.append_n(intersection_len as usize, true);
+                bool_builder.append_n(intersection_len, true);
                 bool_builder.append_n(suffix_len, false);
 
                 debug_assert_eq!(
                     prefix_len + intersection_len + suffix_len,
-                    (row_range.end - row_range.start) as usize,
+                    usize::try_from(row_range.end - row_range.start).vortex_expect(""),
                     "Total range of the mask ({}) should be the same as the original split ({}).",
                     prefix_len + intersection_len + suffix_len,
                     row_range.end - row_range.start
