@@ -68,7 +68,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct()?;
+            let struct_array = array.to_struct()?;
             let filtered_children = struct_array
                 .fields()
                 .map(|c| filter_canonical_array(&c, filter))

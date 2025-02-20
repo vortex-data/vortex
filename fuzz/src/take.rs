@@ -47,7 +47,7 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct()?;
+            let struct_array = array.to_struct()?;
             let taken_children = struct_array
                 .fields()
                 .map(|c| take_canonical_array(&c, indices))

@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::arrays::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
@@ -74,7 +74,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
-        let array = array.into_canonical()?;
+        let array = array.to_canonical()?;
         let Canonical::Bool(array) = array else {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
         };

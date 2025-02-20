@@ -14,8 +14,8 @@ pub struct Datum {
 }
 
 impl Datum {
-    /// Create a new [`Datum`] from an [`ArrowArrayRef`], which can then be passed to Arrow compute.
-    pub fn try_new(array: ArrowArrayRef) -> VortexResult<Self> {
+    /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
+    pub fn try_new(array: ArrayRef) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
                 array: slice(array, 0, 1)?.into_arrow_preferred()?,

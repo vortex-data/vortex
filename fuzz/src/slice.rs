@@ -43,7 +43,7 @@ pub fn slice_canonical_array(
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct()?;
+            let struct_array = array.to_struct()?;
             let sliced_children = struct_array
                 .fields()
                 .map(|c| slice_canonical_array(&c, start, stop))
