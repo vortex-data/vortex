@@ -38,7 +38,7 @@ pub struct ListArray {
 
 pub struct ListEncoding;
 impl Encoding for ListEncoding {
-    const ID: EncodingId = EncodingId("vortex.list", encoding_ids::LIST);
+    const ID: EncodingId = EncodingId::new("vortex.list", encoding_ids::LIST);
     type Array = ListArray;
     type Metadata = EmptyMetadata;
 }
@@ -138,11 +138,8 @@ impl ListArray {
     }
 
     // TODO: fetches the offsets of the array ignoring validity
-    pub fn offsets(&self) -> ArrayRef {
-        // TODO: find cheap transform
-        self.as_ref()
-            .child(1, &self.metadata().offset_ptype.into(), self.len() + 1)
-            .vortex_expect("array contains offsets")
+    pub fn offsets(&self) -> &ArrayRef {
+        &self.offsets
     }
 
     // TODO: fetches the elements of the array ignoring validity

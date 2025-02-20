@@ -24,7 +24,7 @@ pub struct ExtensionArray {
 
 pub struct ExtensionEncoding;
 impl Encoding for ExtensionEncoding {
-    const ID: EncodingId = EncodingId("vortex.ext", encoding_ids::EXTENSION);
+    const ID: EncodingId = EncodingId::new("vortex.ext", encoding_ids::EXTENSION);
     type Array = ExtensionArray;
     type Metadata = EmptyMetadata;
 }

@@ -47,11 +47,10 @@ impl FromIterator<bool> for BoolArray {
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
-        Self::try_new(
+        Self::new_with_validity(
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
         )
-        .vortex_expect("Validity length cannot be mismatched")
     }
 }
 

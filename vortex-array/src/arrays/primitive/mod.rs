@@ -18,8 +18,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, IntoCanonical, RkyvMetadata,
+    validity, Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical, RkyvMetadata,
 };
 
 // mod compute;
@@ -35,7 +35,7 @@ pub struct PrimitiveArray {
 
 pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
-    const ID: EncodingId = EncodingId("vortex.primitive", encoding_ids::PRIMITIVE);
+    const ID: EncodingId = EncodingId::new("vortex.primitive", encoding_ids::PRIMITIVE);
     type Array = PrimitiveArray;
     type Metadata = EmptyMetadata;
 }
@@ -55,34 +55,35 @@ impl Display for PrimitiveMetadata {
 }
 
 impl PrimitiveArray {
-    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
-        let buffer = buffer.into();
-        let len = buffer.len();
+    /// Create a new [`PrimitiveArray`] from an all-valid buffer with the given nullability.
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, nullability: Nullability) -> Self {
+        let buffer = buffer.into().into_byte_buffer();
+        Self {
+            dtype: DType::Primitive(T::PTYPE, nullability),
+            buffer,
+            validity: nullability.into(),
+        }
+    }
 
-        Self::try_from_parts(
-            DType::from(T::PTYPE).with_nullability(validity.nullability()),
-            len,
-            RkyvMetadata(PrimitiveMetadata {
-                validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
-            }),
-            [buffer.into_byte_buffer()].into(),
-            validity
-                .into_array()
-                .map(|v| [v].into())
-                .unwrap_or_default(),
-            StatsSet::default(),
-        )
-        .vortex_expect("Should not fail to create PrimitiveArray")
+    pub fn new_with_validity<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+        if let Some(len) = validity.maybe_len() {
+            if buffer.len() != len {
+                vortex_panic!(
+                    "Buffer and validity length mismatch: buffer={}, validity={}",
+                    buffer.len(),
+                    len
+                );
+            }
+        }
+        Self {
+            dtype: DType::Primitive(T::PTYPE, validity.nullability()),
+            buffer,
+            validity,
+        }
     }
 
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
-        Self::new(
-            Buffer::<T>::empty(),
-            match nullability {
-                Nullability::NonNullable => Validity::NonNullable,
-                Nullability::Nullable => Validity::AllValid,
-            },
-        )
+        Self::new(Buffer::<T>::empty(), nullability)
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {

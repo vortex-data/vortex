@@ -335,9 +335,9 @@ impl Validity {
         len: usize,
         indices_offset: usize,
         indices: &dyn Array,
-        patches: Validity,
+        patches: &Validity,
     ) -> VortexResult<Self> {
-        match (&self, &patches) {
+        match (&self, patches) {
             (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
                 vortex_bail!("Can't patch a non-nullable validity with nullable validity")
@@ -367,13 +367,13 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(indices.len())),
-            Validity::Array(a) => a.into_bool()?,
+            Validity::Array(a) => a.clone().into_bool()?,
         };
 
         let patches = Patches::new(
             len,
             indices_offset,
-            indices.clone(),
+            indices.to_array(),
             patch_values.into_array(),
         );
 

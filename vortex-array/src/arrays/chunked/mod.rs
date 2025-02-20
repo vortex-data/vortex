@@ -15,7 +15,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
+use crate::compute::{scalar_at, search_sorted_usize, SearchSorted, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
@@ -37,21 +37,19 @@ mod variants;
 pub struct ChunkedArray {
     dtype: DType,
     len: usize,
-    chunk_offsets: Buffer<u64>,
+    chunk_offsets: Buffer<usize>,
     chunks: Vec<ArrayRef>,
     stats: StatsSet,
 }
 
 pub struct ChunkedEncoding;
 impl Encoding for ChunkedEncoding {
-    const ID: EncodingId = EncodingId("vortex.chunked", encoding_ids::CHUNKED);
+    const ID: EncodingId = EncodingId::new("vortex.chunked", encoding_ids::CHUNKED);
     type Array = ChunkedArray;
     type Metadata = EmptyMetadata;
 }
 
 impl ChunkedArray {
-    const ENDS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
-
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
@@ -65,11 +63,11 @@ impl ChunkedArray {
     pub fn try_new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 
-        let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
+        let mut chunk_offsets = BufferMut::<usize>::with_capacity(nchunks + 1);
         unsafe { chunk_offsets.push_unchecked(0) }
-        let mut curr_offset = 0u64;
+        let mut curr_offset = 0;
         for c in &chunks {
-            curr_offset += c.len() as u64;
+            curr_offset += c.len();
             unsafe { chunk_offsets.push_unchecked(curr_offset) }
         }
 
@@ -82,19 +80,13 @@ impl ChunkedArray {
         }
     }
 
+    // TODO(ngates): remove result
     #[inline]
-    pub fn chunk(&self, idx: usize) -> VortexResult<ArrayRef> {
+    pub fn chunk(&self, idx: usize) -> VortexResult<&ArrayRef> {
         if idx >= self.nchunks() {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
-
-        let chunk_offsets = self.chunk_offsets();
-        let chunk_start = usize::try_from(&scalar_at(&chunk_offsets, idx)?)?;
-        let chunk_end = usize::try_from(&scalar_at(&chunk_offsets, idx + 1)?)?;
-
-        // Offset the index since chunk_ends is child 0.
-        self.as_ref()
-            .child(idx + 1, self.as_ref().dtype(), chunk_end - chunk_start)
+        Ok(&self.chunks[idx])
     }
 
     pub fn nchunks(&self) -> usize {
@@ -102,10 +94,8 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> ArrayRef {
-        self.as_ref()
-            .child(0, &Self::ENDS_DTYPE, self.nchunks() + 1)
-            .vortex_expect("Missing chunk ends in ChunkedArray")
+    pub fn chunk_offsets(&self) -> &[usize] {
+        &self.chunk_offsets
     }
 
     fn find_chunk_idx(&self, index: usize) -> (usize, usize) {
@@ -113,14 +103,12 @@ impl ChunkedArray {
 
         // Since there might be duplicate values in offsets because of empty chunks we want to search from right
         // and take the last chunk (we subtract 1 since there's a leading 0)
-        let index_chunk =
-            search_sorted_usize(&self.chunk_offsets(), index, SearchSortedSide::Right)
-                .vortex_expect("Search sorted failed in find_chunk_idx")
-                .to_ends_index(self.nchunks() + 1)
-                .saturating_sub(1);
-        let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
-            .and_then(|s| usize::try_from(&s))
-            .vortex_expect("Failed to find chunk start in find_chunk_idx");
+        let index_chunk = self
+            .chunk_offsets()
+            .search_sorted(&index, SearchSortedSide::Right)
+            .to_ends_index(self.nchunks() + 1)
+            .saturating_sub(1);
+        let chunk_start = self.chunk_offsets()[index_chunk];
 
         let index_in_chunk = index - chunk_start;
         (index_chunk, index_in_chunk)

@@ -42,7 +42,7 @@ pub struct VarBinArray {
 
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
-    const ID: EncodingId = EncodingId("vortex.varbin", encoding_ids::VAR_BIN);
+    const ID: EncodingId = EncodingId::new("vortex.varbin", encoding_ids::VAR_BIN);
     type Array = VarBinArray;
     type Metadata = EmptyMetadata;
 }

@@ -28,7 +28,7 @@ pub struct StructArray {
 
 pub struct StructEncoding;
 impl Encoding for StructEncoding {
-    const ID: EncodingId = EncodingId("vortex.struct", encoding_ids::STRUCT);
+    const ID: EncodingId = EncodingId::new("vortex.struct", encoding_ids::STRUCT);
     type Array = StructArray;
     type Metadata = EmptyMetadata;
 }

@@ -16,8 +16,12 @@ use crate::arrays::{
 use crate::arrow::IntoArrowArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
+use crate::variants::{
+    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+};
 use crate::visitor::ArrayVisitor;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, ArrayVariants, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -201,6 +205,40 @@ impl Array for Canonical {
 
     fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         self.as_ref().accept(visitor)
+    }
+}
+
+impl ArrayVariants for Canonical {
+    fn as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
+        self.as_ref().as_null_typed()
+    }
+
+    fn as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
+        self.as_ref().as_bool_typed()
+    }
+
+    fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        self.as_ref().as_primitive_typed()
+    }
+
+    fn as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
+        self.as_ref().as_utf8_typed()
+    }
+
+    fn as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
+        self.as_ref().as_binary_typed()
+    }
+
+    fn as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
+        self.as_ref().as_struct_typed()
+    }
+
+    fn as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
+        self.as_ref().as_list_typed()
+    }
+
+    fn as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
+        self.as_ref().as_extension_typed()
     }
 }
 

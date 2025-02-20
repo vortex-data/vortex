@@ -9,7 +9,7 @@ use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{ArrayRef, ArrayVariantsImpl, IntoArray};
+use crate::{Array, ArrayRef, ArrayVariantsImpl, IntoArray};
 
 /// Chunked arrays support all DTypes
 impl ArrayVariantsImpl for ChunkedArray {
@@ -62,7 +62,7 @@ impl StructArrayTrait for ChunkedArray {
         for chunk in self.chunks() {
             chunks.push(
                 chunk
-                    ._as_struct_typed()
+                    .as_struct_typed()
                     .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
                     .maybe_null_field_by_idx(idx)?,
             );
@@ -90,7 +90,7 @@ impl StructArrayTrait for ChunkedArray {
         for chunk in self.chunks() {
             chunks.push(
                 chunk
-                    ._as_struct_typed()
+                    .as_struct_typed()
                     .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
                     .project(projection)?,
             );
@@ -113,12 +113,18 @@ impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
     fn storage_data(&self) -> ArrayRef {
-        ChunkedArray::from_iter(self.chunks().map(|chunk| {
-            chunk
-                ._as_extension_typed()
-                .vortex_expect("Expected extension array")
-                .storage_data()
-        }))
+        ChunkedArray::try_new_unchecked(
+            self.chunks()
+                .iter()
+                .map(|chunk| {
+                    chunk
+                        .as_extension_typed()
+                        .vortex_expect("Expected extension array")
+                        .storage_data()
+                })
+                .collect(),
+            self.ext_dtype().storage_dtype().clone(),
+        )
         .into_array()
     }
 }

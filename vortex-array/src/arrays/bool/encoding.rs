@@ -4,7 +4,7 @@ use crate::{encoding_ids, EmptyMetadata, Encoding, EncodingId};
 pub struct BoolEncoding;
 
 impl Encoding for BoolEncoding {
-    const ID: EncodingId = EncodingId("vortex.bool", encoding_ids::BOOL);
+    const ID: EncodingId = EncodingId::new("vortex.bool", encoding_ids::BOOL);
     type Array = BoolArray;
     type Metadata = EmptyMetadata;
 }

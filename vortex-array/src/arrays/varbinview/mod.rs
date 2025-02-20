@@ -236,7 +236,7 @@ pub struct VarBinViewArray {
 
 pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
-    const ID: EncodingId = EncodingId("vortex.varbinview", encoding_ids::VAR_BIN_VIEW);
+    const ID: EncodingId = EncodingId::new("vortex.varbinview", encoding_ids::VAR_BIN_VIEW);
     type Array = VarBinViewArray;
     type Metadata = EmptyMetadata;
 }

@@ -1,9 +1,9 @@
 use std::sync::{Arc, RwLock};
 
-use arrow_buffer::BooleanBuffer;
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
@@ -19,7 +19,7 @@ use crate::{ArrayImpl, ArrayVisitorImpl, Canonical};
 pub struct BoolArray {
     dtype: DType,
     buffer: BooleanBuffer,
-    validity: Validity,
+    pub(crate) validity: Validity,
     // TODO(ngates): do we want a stats set to be shared across all arrays?
     pub(crate) stats_set: Arc<RwLock<StatsSet>>,
 }
@@ -27,28 +27,26 @@ pub struct BoolArray {
 impl BoolArray {
     /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Nullability`].
     pub fn new(buffer: BooleanBuffer, nullability: Nullability) -> Self {
-        Self::new_unchecked(buffer, nullability.into())
+        Self {
+            dtype: DType::Bool(nullability),
+            buffer,
+            validity: nullability.into(),
+            stats_set: Arc::new(RwLock::new(StatsSet::default())),
+        }
     }
 
-    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`].
-    ///
-    /// Returns an error if the buffer and validity length mismatch.
-    pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
+    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
+    /// any invariants.
+    pub fn new_with_validity(buffer: BooleanBuffer, validity: Validity) -> Self {
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
-                vortex_bail!(
+                vortex_panic!(
                     "Buffer and validity length mismatch: buffer={}, validity={}",
                     buffer.len(),
                     len
                 );
             }
         }
-        Ok(Self::new_unchecked(buffer, validity))
-    }
-
-    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
-    /// any invariants.
-    pub fn new_unchecked(buffer: BooleanBuffer, validity: Validity) -> Self {
         Self {
             dtype: DType::Bool(validity.nullability()),
             buffer,
@@ -65,6 +63,34 @@ impl BoolArray {
     /// Returns the underlying [`Validity`] of the array.
     pub fn validity(&self) -> &Validity {
         &self.validity
+    }
+
+    /// Get a mutable version of this array.
+    ///
+    /// If the caller holds the only reference to the underlying buffer the underlying buffer is returned
+    /// otherwise a copy is created.
+    ///
+    /// The second value of the tuple is a bit_offset of first value in first byte of the returned builder
+    pub fn into_boolean_builder(self) -> (BooleanBufferBuilder, usize) {
+        let offset = self.buffer.offset();
+        let len = self.buffer.len();
+        let arrow_buffer = self.buffer.into_inner();
+        let mutable_buf = if arrow_buffer.ptr_offset() == 0 {
+            arrow_buffer.into_mutable().unwrap_or_else(|b| {
+                let mut buf = MutableBuffer::with_capacity(b.len());
+                buf.extend_from_slice(b.as_slice());
+                buf
+            })
+        } else {
+            let mut buf = MutableBuffer::with_capacity(arrow_buffer.len());
+            buf.extend_from_slice(arrow_buffer.as_slice());
+            buf
+        };
+
+        (
+            BooleanBufferBuilder::new_from_buffer(mutable_buf, offset + len),
+            offset,
+        )
     }
 }
 
