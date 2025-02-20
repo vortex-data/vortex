@@ -3,18 +3,17 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
+use crate::array::canonical::ArrayCanonicalImpl;
 use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::null::NullArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::struct_::StructArray;
-use crate::arrays::{BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
+use crate::arrays::{BoolArray, ListArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::{
-    Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
-};
+use crate::{Array, ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -281,7 +280,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::IntoArrayVariant;
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])

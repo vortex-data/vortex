@@ -6,16 +6,17 @@ use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    IntoArray, RkyvMetadata,
 };
-
 // mod compute;
 
 #[derive(Clone, Debug)]
@@ -282,8 +283,6 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::IntoArray;
-
     #[test]
     fn test_project() {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);

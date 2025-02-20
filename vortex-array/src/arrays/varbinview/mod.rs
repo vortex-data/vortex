@@ -14,6 +14,8 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
@@ -21,8 +23,8 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::{
-    impl_encoding, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    IntoArray, RkyvMetadata,
 };
 
 mod accessor;
@@ -616,7 +618,7 @@ mod test {
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
     use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, slice};
-    use crate::{Canonical, IntoArray};
+    use crate::Canonical;
 
     #[test]
     pub fn varbin_view() {

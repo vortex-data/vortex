@@ -11,6 +11,8 @@ use vortex_error::{
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
@@ -19,8 +21,8 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{
-    impl_encoding, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    RkyvMetadata,
 };
 
 mod accessor;
@@ -349,7 +351,7 @@ mod test {
     use crate::arrays::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
-    use crate::{ArrayRef, IntoArray};
+    use crate::ArrayRef;
 
     #[fixture]
     fn binary_array() -> ArrayRef {

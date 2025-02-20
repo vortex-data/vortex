@@ -9,6 +9,8 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PTy
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
@@ -17,8 +19,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical, RkyvMetadata,
+    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    IntoArray, IntoCanonical, RkyvMetadata,
 };
 
 // mod compute;
@@ -437,8 +439,6 @@ mod tests {
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
-    use crate::IntoArray as _;
-
     #[test]
     fn test_mask_primitive_array() {
         test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array());

@@ -4,14 +4,15 @@ use arrow_array::builder::ArrayBuilder;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::encoding::encoding_ids;
-use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
 use crate::{
-    impl_encoding, Array, ArrayCanonicalImpl, ArrayImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
 };
 
 mod canonical;
@@ -93,8 +94,9 @@ impl ArrayStatistics for ConstantArray {
     }
 }
 
-impl VisitorVTable<ConstantArray> for ConstantEncoding {
-    fn accept(&self, array: &ConstantArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(array.byte_buffer(0).vortex_expect("missing scalar buffer"))
+impl ArrayVisitorImpl for ConstantArray {
+    fn _accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        // visitor.visit_buffer(array.byte_buffer(0).vortex_expect("missing scalar buffer"))
+        Ok(())
     }
 }

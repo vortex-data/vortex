@@ -5,29 +5,20 @@ use vortex_dtype::{match_each_native_ptype, DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
+use crate::array::canonical::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BinaryView, BoolArray, ConstantEncoding, ExtensionArray, NullArray, VarBinViewArray,
 };
 use crate::validity::Validity;
-use crate::{ArrayCanonicalImpl, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
-    }
+        let scalar = self.scalar();
 
-    fn _append_to_builder(&self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        todo!()
-    }
-}
-
-impl CanonicalVTable<ConstantArray> for ConstantEncoding {
-    fn into_canonical(&self, array: ConstantArray) -> VortexResult<Canonical> {
-        let scalar = &array.scalar();
-
-        let validity = match array.dtype().nullability() {
+        let validity = match self.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => match scalar.is_null() {
                 true => Validity::AllInvalid,
@@ -35,13 +26,13 @@ impl CanonicalVTable<ConstantArray> for ConstantEncoding {
             },
         };
 
-        Ok(match array.dtype() {
-            DType::Null => Canonical::Null(NullArray::new(array.len())),
+        Ok(match self.dtype() {
+            DType::Null => Canonical::Null(NullArray::new(self.len())),
             DType::Bool(..) => Canonical::Bool(BoolArray::try_new(
                 if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
-                    BooleanBuffer::new_set(array.len())
+                    BooleanBuffer::new_set(self.len())
                 } else {
-                    BooleanBuffer::new_unset(array.len())
+                    BooleanBuffer::new_unset(self.len())
                 },
                 validity,
             )?),
@@ -52,10 +43,10 @@ impl CanonicalVTable<ConstantArray> for ConstantEncoding {
                             Buffer::full(
                                 $P::try_from(scalar)
                                     .vortex_expect("Couldn't unwrap scalar to primitive"),
-                                array.len(),
+                                self.len(),
                             )
                         } else {
-                            Buffer::zeroed(array.len())
+                            Buffer::zeroed(self.len())
                         },
                         validity,
                     ))
@@ -64,29 +55,21 @@ impl CanonicalVTable<ConstantArray> for ConstantEncoding {
             DType::Utf8(_) => {
                 let value = Utf8Scalar::try_from(scalar)?.value();
                 let const_value = value.as_ref().map(|v| v.as_bytes());
-                Canonical::VarBinView(canonical_byte_view(
-                    const_value,
-                    array.dtype(),
-                    array.len(),
-                )?)
+                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
             }
             DType::Binary(_) => {
                 let value = BinaryScalar::try_from(scalar)?.value();
                 let const_value = value.as_ref().map(|v| v.as_slice());
-                Canonical::VarBinView(canonical_byte_view(
-                    const_value,
-                    array.dtype(),
-                    array.len(),
-                )?)
+                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
             }
-            DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", array.dtype()),
-            DType::List(..) => vortex_bail!("Unsupported scalar type {}", array.dtype()),
+            DType::Struct(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
+            DType::List(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
                 let storage_scalar = s.storage();
-                let storage_array = ConstantArray::new(storage_scalar, array.len()).into_array();
-                ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
+                let storage_self = ConstantArray::new(storage_scalar, self.len()).into_self();
+                ExtensionArray::new(ext_dtype.clone(), storage_self).into_canonical()?
             }
         })
     }
@@ -142,8 +125,6 @@ mod tests {
     use crate::canonical::{IntoArrayVariant, IntoCanonical};
     use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsSet};
-    use crate::IntoArray as _;
-
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);

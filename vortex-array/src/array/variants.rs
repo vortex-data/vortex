@@ -110,37 +110,3 @@ pub trait ArrayVariantsImpl {
         None
     }
 }
-
-impl ArrayVariantsImpl for Arc<dyn Array> {
-    fn _as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
-        self.as_ref()._as_null_typed()
-    }
-
-    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        self.as_ref()._as_bool_typed()
-    }
-
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        self.as_ref()._as_primitive_typed()
-    }
-
-    fn _as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
-        self.as_ref()._as_utf8_typed()
-    }
-
-    fn _as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
-        self.as_ref()._as_binary_typed()
-    }
-
-    fn _as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
-        self.as_ref()._as_struct_typed()
-    }
-
-    fn _as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
-        self.as_ref()._as_list_typed()
-    }
-
-    fn _as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
-        self.as_ref()._as_extension_typed()
-    }
-}

@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::sync::{Arc, RwLock};
 
 use arrow_array::builder::ArrayBuilder;
@@ -6,14 +5,14 @@ use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::ScalarValue;
 
-use crate::array::{Array, ArrayCanonicalImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl};
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
+use crate::array::{Array, ArrayVariantsImpl};
 use crate::arrays::bool;
-use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::visitor::ArrayVisitor;
 use crate::{ArrayImpl, Canonical};
 
 #[derive(Clone, Debug)]

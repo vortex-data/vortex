@@ -6,11 +6,15 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-use crate::{Array, ArrayCanonicalImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, Canonical};
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
+use crate::array::visitor::ArrayVisitorImpl;
+use crate::visitor::ArrayVisitor;
+use crate::{Array, ArrayRef, ArrayVariantsImpl, Canonical};
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl:
-    Send + Sync + Clone + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVariantsImpl
+    Send + Sync + Clone + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVariantsImpl + ArrayVisitorImpl
 {
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
@@ -120,5 +124,9 @@ impl<A: ArrayImpl> Array for A {
             "Builder length mismatch after writing array"
         );
         Ok(())
+    }
+
+    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        ArrayVisitorImpl::_accept(self, visitor)
     }
 }

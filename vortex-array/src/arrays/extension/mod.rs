@@ -5,15 +5,16 @@ use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId,
 };
-
 // mod compute;
 
 #[derive(Clone, Debug)]
@@ -69,82 +70,41 @@ impl ArrayCanonicalImpl for ExtensionArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Extension(self.clone()))
     }
-
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        todo!()
-    }
 }
 
 impl ArrayValidityImpl for ExtensionArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        todo!()
+        self.storage.is_valid(index)
     }
 
     fn _all_valid(&self) -> VortexResult<bool> {
-        todo!()
+        self.storage.all_valid()
     }
 
     fn _all_invalid(&self) -> VortexResult<bool> {
-        todo!()
+        self.storage.all_invalid()
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
-        todo!()
+        self.storage.validity_mask()
     }
 }
 
-impl ArrayVariantsImpl for ExtensionArray {}
-
-impl ValidateVTable<ExtensionArray> for ExtensionEncoding {}
-
-impl VariantsVTable<ExtensionArray> for ExtensionEncoding {
-    fn as_extension_array<'a>(
-        &self,
-        array: &'a ExtensionArray,
-    ) -> Option<&'a dyn ExtensionArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for ExtensionArray {
+    fn _as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
+        Some(self)
     }
 }
 
 impl ExtensionArrayTrait for ExtensionArray {
     fn storage_data(&self) -> ArrayRef {
-        self.storage()
+        self.storage().clone()
     }
 }
 
-impl CanonicalVTable<ExtensionArray> for ExtensionEncoding {
-    fn into_canonical(&self, array: ExtensionArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(array))
-    }
-}
-
-impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
-    fn is_valid(&self, array: &ExtensionArray, index: usize) -> VortexResult<bool> {
-        array.storage().is_valid(index)
-    }
-
-    fn all_valid(&self, array: &ExtensionArray) -> VortexResult<bool> {
-        array.storage().all_valid()
-    }
-
-    fn all_invalid(&self, array: &ExtensionArray) -> VortexResult<bool> {
-        array.storage().all_invalid()
-    }
-
-    fn validity_mask(&self, array: &ExtensionArray) -> VortexResult<Mask> {
-        array.storage().validity_mask()
-    }
-}
-
-impl VisitorVTable<ExtensionArray> for ExtensionEncoding {
-    fn accept(&self, array: &ExtensionArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("storage", &array.storage())
-    }
-}
-
-impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
-    fn compute_statistics(&self, array: &ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
-        array.storage().statistics().compute_all(&[stat])
+impl ArrayVisitorImpl for ExtensionArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("storage", self.storage())
     }
 }
 

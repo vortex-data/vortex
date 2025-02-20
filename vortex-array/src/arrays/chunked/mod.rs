@@ -4,7 +4,6 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
 use arrow_array::builder::ArrayBuilder;
 use futures_util::stream;
@@ -12,9 +11,11 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
+use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::validity::ArrayValidityImpl;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use crate::encoding::encoding_ids;
@@ -22,13 +23,11 @@ use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
-use crate::validity::Validity::NonNullable;
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    impl_encoding, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical,
-    RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, IntoArray, IntoCanonical,
 };
 
 mod canonical;
@@ -212,24 +211,6 @@ impl ArrayCanonicalImpl for ChunkedArray {
     }
 }
 
-impl ArrayValidityImpl for ChunkedArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        todo!()
-    }
-}
-
 impl ArrayVariantsImpl for ChunkedArray {}
 
 impl ArrayImpl for ChunkedArray {
@@ -242,24 +223,30 @@ impl ArrayImpl for ChunkedArray {
     }
 }
 
-impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
-    fn accept(&self, array: &ChunkedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("chunk_ends", &array.chunk_offsets())?;
-        for (idx, chunk) in array.chunks().enumerate() {
+impl ArrayVisitorImpl for ChunkedArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("chunk_ends", &self.chunk_offsets())?;
+        for (idx, chunk) in self.chunks().enumerate() {
             visitor.visit_child(format!("chunks[{}]", idx).as_str(), &chunk)?;
         }
         Ok(())
     }
 }
 
-impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
-    fn is_valid(&self, array: &ChunkedArray, index: usize) -> VortexResult<bool> {
-        let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
-        array.chunk(chunk)?.is_valid(offset_in_chunk)
+impl ArrayValidityImpl for ChunkedArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        if !self.dtype.is_nullable() {
+            return Ok(true);
+        }
+        let (chunk, offset_in_chunk) = self.find_chunk_idx(index);
+        self.chunk(chunk)?.is_valid(offset_in_chunk)
     }
 
-    fn all_valid(&self, array: &ChunkedArray) -> VortexResult<bool> {
-        for chunk in array.chunks() {
+    fn _all_valid(&self) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(true);
+        }
+        for chunk in self.chunks() {
             if !chunk.all_valid()? {
                 return Ok(false);
             }
@@ -267,8 +254,11 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
         Ok(true)
     }
 
-    fn all_invalid(&self, array: &ChunkedArray) -> VortexResult<bool> {
-        for chunk in array.chunks() {
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(false);
+        }
+        for chunk in self.chunks() {
             if !chunk.all_invalid()? {
                 return Ok(false);
             }
@@ -276,10 +266,11 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
         Ok(true)
     }
 
-    fn validity_mask(&self, array: &ChunkedArray) -> VortexResult<Mask> {
+    fn _validity_mask(&self) -> VortexResult<Mask> {
         // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
-        let validity: Validity = array.chunks().map(|a| a.validity_mask()).try_collect()?;
-        validity.to_logical(array.len())
+        // TODO(ngates): or use a boolean array builder?
+        let validity: Validity = self.chunks().map(|a| a.validity_mask()).try_collect()?;
+        validity.to_logical(self.len())
     }
 }
 
