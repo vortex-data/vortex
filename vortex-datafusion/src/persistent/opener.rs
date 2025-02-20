@@ -103,7 +103,7 @@ impl FileOpener for VortexFileOpener {
                 .with_concurrency(1);
 
             if let Some(row_range) = file_meta.range {
-                scan = scan.with_row_range(row_range.start as u64, row_range.end as u64);
+                scan = scan.with_range_selection(row_range.start as u64..row_range.end as u64);
             }
 
             Ok(scan

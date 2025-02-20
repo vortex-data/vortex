@@ -276,15 +276,6 @@ impl FileFormat for VortexFormat {
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        // if file_scan_config
-        //     .file_groups
-        //     .iter()
-        //     .flatten()
-        //     .any(|f| f.range.is_some())
-        // {
-        //     return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
-        // }
-
         if file_scan_config.limit.is_some() {
             return not_impl_err!("Limit isn't implemented yet for Vortex");
         }

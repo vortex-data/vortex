@@ -52,7 +52,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
-    row_range: Option<Range<u64>>,
+    range_selection: Option<Range<u64>>,
     split_by: SplitBy,
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
@@ -69,7 +69,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
-            row_range: None,
+            range_selection: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
             concurrency: None,
@@ -96,8 +96,8 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    pub fn with_row_range(mut self, start: u64, end: u64) -> Self {
-        self.row_range = Some(start..end);
+    pub fn with_range_selection(mut self, selection: Range<u64>) -> Self {
+        self.range_selection = Some(selection);
         self
     }
 
@@ -133,21 +133,21 @@ impl<D: ScanDriver> ScanBuilder<D> {
         let field_mask = field_mask(&projection, filter.as_ref(), self.layout.dtype())?;
 
         let row_indices = self.row_indices.clone();
-        // let select_row_range = self.row_range.clone();
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let row_masks = splits
             .into_iter()
             .filter_map(move |row_range| {
-                let relevant_range = match &self.row_range {
-                    Some(selected) => {
-                        let start = max(row_range.start, selected.start);
-                        let end = min(row_range.end, selected.end);
+                let relevant_range = match &self.range_selection {
+                    Some(selection) => {
+                        let start = max(row_range.start, selection.start);
+                        let end = min(row_range.end, selection.end);
                         start..end
                     }
                     #[allow(clippy::redundant_clone)] // Seems like a false positive
                     None => row_range.clone(),
                 };
 
+                // If the ranges are disjoint, we skip the split
                 if relevant_range.is_empty() {
                     return None;
                 }
@@ -155,21 +155,21 @@ impl<D: ScanDriver> ScanBuilder<D> {
                 let mut bool_builder = BooleanBufferBuilder::new(
                     (row_range.end - row_range.start)
                         .try_into()
-                        .vortex_expect(""),
+                        .vortex_expect("must fit into usize"),
                 );
 
                 let prefix_len = (relevant_range.start - row_range.start)
                     .try_into()
-                    .vortex_expect("");
+                    .vortex_expect("must fit into usize");
                 let intersection_len = (relevant_range.end - relevant_range.start)
                     .try_into()
-                    .vortex_expect("");
+                    .vortex_expect("must fit into usize");
                 let suffix_len = row_range
                     .end
                     .checked_sub(relevant_range.end)
                     .unwrap_or_default()
                     .try_into()
-                    .vortex_expect("");
+                    .vortex_expect("must fit into usize");
 
                 bool_builder.append_n(prefix_len, false);
                 bool_builder.append_n(intersection_len, true);
