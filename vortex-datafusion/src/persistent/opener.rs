@@ -99,7 +99,8 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .with_task_executor(executor);
+                .with_task_executor(executor)
+                .with_concurrency(1);
 
             if let Some(row_range) = file_meta.range {
                 scan = scan.with_row_range(row_range.start as u64, row_range.end as u64);

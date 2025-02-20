@@ -271,7 +271,6 @@ pub struct Scan<D> {
     row_masks: Vec<RowMask>,
     canonicalize: bool,
     //TODO(adam): bake this into the executors?
-    #[allow(dead_code)]
     concurrency: usize,
 }
 
@@ -345,7 +344,7 @@ impl<D: ScanDriver> Scan<D> {
                 }
             })
             .map(move |processing_task| task_executor.spawn(processing_task))
-            .buffered(1)
+            .buffered(self.concurrency)
             .filter_map(|v| async move { v.unnest().transpose() });
 
         let io_stream = self.driver.io_stream();
