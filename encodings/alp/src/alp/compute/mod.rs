@@ -160,12 +160,12 @@ where
     // note that if the value doesn't encode than value != x, so must use strict comparison.
     let (lower_enc, lower_strict) = T::encode_single(lower, exponents)
         .map(|x| (x, options.lower_strict))
-        .unwrap_or((T::encode_below(lower, exponents), StrictComparison::Strict));
+        .unwrap_or_else(|| (T::encode_below(lower, exponents), StrictComparison::Strict));
 
     // the upper value `x { < | <= } value` similarly encodes or `x < value < enc_above(value())`
     let (upper_enc, upper_strict) = T::encode_single(upper, exponents)
         .map(|x| (x, options.upper_strict))
-        .unwrap_or((T::encode_above(upper, exponents), StrictComparison::Strict));
+        .unwrap_or_else(|| (T::encode_above(upper, exponents), StrictComparison::Strict));
 
     let options = BetweenOptions {
         lower_strict,
