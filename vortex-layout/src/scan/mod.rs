@@ -1,5 +1,8 @@
+use std::cmp::{max, min};
+use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use arrow_buffer::BooleanBufferBuilder;
 use executor::{Executor as _, TaskExecutor, ThreadsExecutor};
 use futures::{stream, Stream, StreamExt};
 use itertools::Itertools;
@@ -49,6 +52,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     projection: ExprRef,
     filter: Option<ExprRef>,
     row_indices: Option<Buffer<u64>>,
+    row_range: Option<Range<u64>>,
     split_by: SplitBy,
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
@@ -65,6 +69,7 @@ impl<D: ScanDriver> ScanBuilder<D> {
             projection: Identity::new_expr(),
             filter: None,
             row_indices: None,
+            row_range: None,
             split_by: SplitBy::Layout,
             canonicalize: false,
             concurrency: 32,
@@ -91,8 +96,8 @@ impl<D: ScanDriver> ScanBuilder<D> {
         self
     }
 
-    pub fn with_some_row_indices(mut self, row_indices: Option<Buffer<u64>>) -> Self {
-        self.row_indices = row_indices;
+    pub fn with_row_range(mut self, start: u64, end: u64) -> Self {
+        self.row_range = Some(start..end);
         self
     }
 
@@ -128,13 +133,54 @@ impl<D: ScanDriver> ScanBuilder<D> {
         let field_mask = field_mask(&projection, filter.as_ref(), self.layout.dtype())?;
 
         let row_indices = self.row_indices.clone();
+        // let select_row_range = self.row_range.clone();
         let splits = self.split_by.splits(&self.layout, &field_mask)?;
         let row_masks = splits
             .into_iter()
             .filter_map(move |row_range| {
-                let Some(row_indices) = &row_indices else {
-                    // If there is no row indices filter, then take the whole range
-                    return Some(RowMask::new_valid_between(row_range.start, row_range.end));
+                let relevant_range = match &self.row_range {
+                    Some(selected) => {
+                        let start = max(row_range.start, selected.start);
+                        let end = min(row_range.end, selected.end);
+                        start..end
+                    }
+                    None => row_range.clone(),
+                };
+
+                if relevant_range.is_empty() {
+                    return None;
+                }
+
+                let mut bool_builder =
+                    BooleanBufferBuilder::new((row_range.end - row_range.start) as usize);
+
+                let prefix_len = (relevant_range.start - row_range.start) as usize;
+                let intersection_len = (relevant_range.end - relevant_range.start) as usize;
+                let suffix_len = row_range
+                    .end
+                    .checked_sub(relevant_range.end)
+                    .unwrap_or_default() as usize;
+
+                bool_builder.append_n(prefix_len, false);
+                bool_builder.append_n(intersection_len as usize, true);
+                bool_builder.append_n(suffix_len, false);
+
+                debug_assert_eq!(
+                    prefix_len + intersection_len + suffix_len,
+                    (row_range.end - row_range.start) as usize,
+                    "Total range of the mask ({}) should be the same as the original split ({}).",
+                    prefix_len + intersection_len + suffix_len,
+                    row_range.end - row_range.start
+                );
+
+                let row_range_mask = Mask::from_buffer(bool_builder.finish());
+
+                let row_indices = match row_indices.as_ref() {
+                    Some(indices) => indices,
+                    None => {
+                        let row_mask = RowMask::new(row_range_mask, row_range.start);
+                        return Some(row_mask);
+                    }
                 };
 
                 // Otherwise, find the indices that are within the row range.
@@ -173,7 +219,8 @@ impl<D: ScanDriver> ScanBuilder<D> {
                         })
                         .collect(),
                 );
-                Some(RowMask::new(filter_mask, row_range.start))
+                let all_mask = filter_mask.bitand(&row_range_mask);
+                Some(RowMask::new(all_mask, row_range.start))
             })
             .collect_vec();
 

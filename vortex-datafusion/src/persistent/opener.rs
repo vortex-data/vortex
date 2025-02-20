@@ -7,7 +7,6 @@ use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::{ContextRef, IntoArrayVariant};
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
@@ -81,14 +80,13 @@ impl FileOpener for VortexFileOpener {
         let executor = TaskExecutor::Tokio(TokioExecutor::new(Handle::current()));
 
         Ok(async move {
+            let file_layout = file_layout_cache
+                .try_get(&file_meta.object_meta, object_store)
+                .await?;
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
                 .with_metrics(file_metrics)
-                .with_file_layout(
-                    file_layout_cache
-                        .try_get(&file_meta.object_meta, object_store)
-                        .await?,
-                )
+                .with_file_layout(file_layout)
                 .open()
                 .await?;
 
@@ -104,9 +102,7 @@ impl FileOpener for VortexFileOpener {
                 .with_task_executor(executor);
 
             if let Some(row_range) = file_meta.range {
-                let range = row_range.start as u64..row_range.end as u64;
-                let row_indices = Buffer::from_iter(range);
-                scan = scan.with_row_indices(row_indices);
+                scan = scan.with_row_range(row_range.start as u64, row_range.end as u64);
             }
 
             Ok(scan

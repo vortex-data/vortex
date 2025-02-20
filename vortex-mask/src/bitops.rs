@@ -15,8 +15,7 @@ impl BitAnd for &Mask {
         match (self.boolean_buffer(), rhs.boolean_buffer()) {
             (AllOr::All, _) => rhs.clone(),
             (_, AllOr::All) => self.clone(),
-            (AllOr::None, _) => Mask::new_false(self.len()),
-            (_, AllOr::None) => Mask::new_false(self.len()),
+            (AllOr::None, _) | (_, AllOr::None) => Mask::new_false(self.len()),
             (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs & rhs),
         }
     }

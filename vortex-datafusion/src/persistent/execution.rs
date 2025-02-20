@@ -14,6 +14,7 @@ use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools as _;
+use log::debug;
 use object_store::ObjectStoreScheme;
 use vortex_array::ContextRef;
 use vortex_error::VortexExpect;
@@ -182,11 +183,6 @@ impl ExecutionPlan for VortexExec {
 
         let total_size = files.iter().map(|f| f.object_meta.size).sum::<usize>();
 
-        // If there's one file or less total files in the scan, we can't repartition it
-        if files.len() <= 1 {
-            return Ok(None);
-        }
-
         if total_size < config.optimizer.repartition_file_min_size {
             return Ok(None);
         }
@@ -199,7 +195,14 @@ impl ExecutionPlan for VortexExec {
         let mut new_plan = self.clone();
         let num_partitions = repartitioned_file_groups.len();
 
-        log::debug!("VortexExec repartitioned to {num_partitions} partitions");
+        log::debug!(
+            "VortexExec repartitioned to {} groups with a total of {} file partitions",
+            repartitioned_file_groups.len(),
+            repartitioned_file_groups
+                .iter()
+                .map(|g| g.len())
+                .sum::<usize>()
+        );
         new_plan.file_scan_config.file_groups = repartitioned_file_groups;
         new_plan.plan_properties.partitioning = Partitioning::UnknownPartitioning(num_partitions);
 
@@ -293,6 +296,7 @@ fn repartition_by_rows(
         });
 
     if !total_rows.is_exact().unwrap_or_default() {
+        debug!("Total row number is inexact: {total_rows}");
         return None;
     }
 
