@@ -156,14 +156,14 @@ impl ExecutionPlan for VortexExec {
         target_partitions: usize,
         _config: &ConfigOptions,
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
-        // If there's only one total file in the scan, we can't repartition it
+        // If there's one file or less total files in the scan, we can't repartition it
         if self
             .file_scan_config
             .file_groups
             .iter()
             .map(|group| group.len())
             .sum::<usize>()
-            == 1
+            <= 1
         {
             return Ok(None);
         }
