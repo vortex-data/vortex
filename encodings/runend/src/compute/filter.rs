@@ -7,7 +7,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Canonical, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
@@ -110,7 +110,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::slice;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_mask::Mask;
 
     use super::filter_run_end;

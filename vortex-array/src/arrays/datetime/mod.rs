@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_panic, VortexError};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect};
 
 use crate::arrays::ExtensionArray;
 use crate::variants::ExtensionArrayTrait;
-use crate::{ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///
@@ -164,7 +164,7 @@ impl TemporalArray {
     ///
     /// These values are to be interpreted based on the time unit and optional time-zone stored
     /// in the TemporalMetadata.
-    pub fn temporal_values(&self) -> ArrayRef {
+    pub fn temporal_values(&self) -> &ArrayRef {
         self.ext.storage()
     }
 
@@ -205,7 +205,11 @@ impl TryFrom<ArrayRef> for TemporalArray {
     /// If the provided Array does not have recognized ExtMetadata corresponding to one of the known
     /// `TemporalMetadata` variants, an error is returned.
     fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
-        let ext = ExtensionArray::try_from(value)?;
+        let ext = value
+            .as_any_arc()
+            .downcast::<ExtensionArray>()
+            .map_err(|_| vortex_err!("array must be an ExtensionArray"))?;
+        let ext = Arc::unwrap_or_clone(ext);
         let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
 
         Ok(Self {

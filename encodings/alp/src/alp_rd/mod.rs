@@ -15,7 +15,7 @@ use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::{IntoArray, IntoArrayVariant};
+use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -276,8 +276,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().into_primitive()?;
-        let patch_values = patches.values().clone().into_primitive()?;
+        let indices = patches.indices().to_primitive()?;
+        let patch_values = patches.values().to_primitive()?;
         match_each_integer_ptype!(indices.ptype(), |$T| {
             indices
                 .as_slice::<$T>()

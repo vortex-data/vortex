@@ -3,7 +3,7 @@ use vortex_array::compute::{FillForwardFn, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -62,7 +62,7 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
         let bools = array.as_slice();
 
         // FIXME(ngates): we should be operating over canonical validity, which doesn't

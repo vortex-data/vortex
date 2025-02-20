@@ -58,7 +58,7 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 
 impl TakeFn<NullArray> for NullEncoding {
     fn take(&self, array: &NullArray, indices: &Array) -> VortexResult<Array> {
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
 
         // Enforce all indices are valid
         match_each_integer_ptype!(indices.ptype(), |$T| {

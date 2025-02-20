@@ -4,16 +4,17 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::visitor::ArrayVisitor;
 use crate::{Array, ArrayRef};
 
-pub trait NBytes {
+pub trait NBytes: Array {
     /// Total size of the array in bytes, including all children and buffers.
     fn nbytes(&self) -> usize {
         let mut visitor = NBytesVisitor::default();
-        self.vtable()
-            .accept(self.as_ref(), &mut visitor)
+        self.accept(&mut visitor)
             .vortex_expect("Failed to get nbytes from Array");
         visitor.0 + self.metadata_bytes().map_or(0, |b| b.len())
     }
 }
+
+impl<T: Array> NBytes for T {}
 
 #[derive(Default)]
 struct NBytesVisitor(usize);

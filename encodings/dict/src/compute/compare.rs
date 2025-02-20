@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -59,7 +59,7 @@ impl CompareFn<DictArray> for DictEncoding {
 mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

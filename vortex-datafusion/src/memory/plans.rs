@@ -21,7 +21,7 @@ use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
-use vortex_array::{ArrayRef, IntoArrayVariant};
+use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};

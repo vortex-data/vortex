@@ -5,7 +5,7 @@ use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
 use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
-use crate::{Array, ArrayRef, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub trait TakeFn<A: ?Sized> {
     /// Create a new array by taking the values from the `array` at the

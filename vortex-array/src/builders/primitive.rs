@@ -12,7 +12,7 @@ use crate::builders::ArrayBuilder;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayRef, IntoArray, IntoArrayVariant as _, IntoCanonical};
+use crate::{ArrayRef, IntoArray, ToCanonical as _};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     pub values: BufferMut<T>,

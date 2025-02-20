@@ -12,7 +12,7 @@ use crate::arrays::{
     BinaryView, BoolArray, ConstantEncoding, ExtensionArray, NullArray, VarBinViewArray,
 };
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, Canonical, IntoArray};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -28,17 +28,17 @@ impl ArrayCanonicalImpl for ConstantArray {
 
         Ok(match self.dtype() {
             DType::Null => Canonical::Null(NullArray::new(self.len())),
-            DType::Bool(..) => Canonical::Bool(BoolArray::try_new(
+            DType::Bool(..) => Canonical::Bool(BoolArray::new_with_validity(
                 if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
                     BooleanBuffer::new_set(self.len())
                 } else {
                     BooleanBuffer::new_unset(self.len())
                 },
                 validity,
-            )?),
+            )),
             DType::Primitive(ptype, ..) => {
                 match_each_native_ptype!(ptype, |$P| {
-                    Canonical::Primitive(PrimitiveArray::new(
+                    Canonical::Primitive(PrimitiveArray::new_with_validity(
                         if scalar.is_valid() {
                             Buffer::full(
                                 $P::try_from(scalar)
@@ -68,8 +68,8 @@ impl ArrayCanonicalImpl for ConstantArray {
                 let s = ExtScalar::try_from(scalar)?;
 
                 let storage_scalar = s.storage();
-                let storage_self = ConstantArray::new(storage_scalar, self.len()).into_self();
-                ExtensionArray::new(ext_dtype.clone(), storage_self).into_canonical()?
+                let storage_self = ConstantArray::new(storage_scalar, self.len()).into_array();
+                Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
             }
         })
     }
@@ -122,7 +122,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
-    use crate::canonical::{IntoArrayVariant, IntoCanonical};
+    use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsSet};
     #[test]

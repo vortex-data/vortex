@@ -2,7 +2,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
@@ -88,7 +88,7 @@ impl EncodingCompressor for BitPackedCompressor {
         _like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = array.clone().into_primitive()?;
+        let parray = array.to_primitive()?;
         // Only arrays with non-negative values can be bit-packed
         if !parray.ptype().is_unsigned_int() {
             let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {

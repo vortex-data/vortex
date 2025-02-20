@@ -65,7 +65,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn bool_array() {
@@ -119,7 +119,7 @@ mod tests {
         };
         let sliced = slice(arr.clone(), 4, 12).unwrap();
         let sliced_len = sliced.len();
-        let (values, offset) = sliced.clone().into_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[254, 15]);
 

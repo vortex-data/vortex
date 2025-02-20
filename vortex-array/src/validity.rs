@@ -13,7 +13,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
-use crate::{Array, ArrayRef, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 #[derive(
     Copy,
@@ -144,7 +144,7 @@ impl Validity {
             Validity::AllInvalid => false,
             Validity::Array(array) => {
                 // TODO(ngates): replace with SUM compute function
-                array.clone().into_bool()?.boolean_buffer().count_set_bits() == array.len()
+                array.to_bool()?.boolean_buffer().count_set_bits() == array.len()
             }
         })
     }
@@ -155,7 +155,7 @@ impl Validity {
             Validity::AllInvalid => true,
             Validity::Array(array) => {
                 // TODO(ngates): replace with SUM compute function
-                array.clone().into_bool()?.boolean_buffer().count_set_bits() == 0
+                array.to_bool()?.boolean_buffer().count_set_bits() == 0
             }
         })
     }
@@ -367,7 +367,7 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(indices.len())),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(indices.len())),
-            Validity::Array(a) => a.clone().into_bool()?,
+            Validity::Array(a) => a.to_bool()?,
         };
 
         let patches = Patches::new(

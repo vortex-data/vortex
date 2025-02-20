@@ -12,7 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoCanonical};
+use vortex_array::{ArrayRef, Encoding, EncodingId};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;

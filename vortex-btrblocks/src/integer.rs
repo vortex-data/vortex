@@ -10,7 +10,7 @@ pub use stats::IntegerStats;
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
@@ -713,7 +713,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use vortex_array::aliases::hash_set::HashSet;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{buffer_mut, BufferMut};
     use vortex_sampling_compressor::SamplingCompressor;
 

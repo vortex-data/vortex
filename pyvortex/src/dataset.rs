@@ -15,7 +15,7 @@ use vortex::expr::{ident, ExprRef, Select};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
-use vortex::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex::{ArrayRef, IntoArray, ToCanonical};
 
 use crate::arrays::PyArray;
 use crate::expr::PyExpr;

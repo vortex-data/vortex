@@ -5,14 +5,14 @@ use vortex_error::VortexResult;
 use crate::arrays::BoolArray;
 use crate::patches::Patches;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArrayVariant};
+use crate::{Array, ToCanonical};
 
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
         let len = self.len();
         let (_, offset, indices, values) = patches.into_parts();
-        let indices = indices.into_primitive()?;
-        let values = values.into_bool()?;
+        let indices = indices.to_primitive()?;
+        let values = values.to_bool()?;
 
         let patched_validity =
             self.validity()
@@ -43,7 +43,7 @@ mod tests {
 
     use crate::arrays::BoolArray;
     use crate::compute::slice;
-    use crate::IntoArrayVariant;
+    use crate::ToCanonical;
 
     #[test]
     fn patch_sliced_bools() {

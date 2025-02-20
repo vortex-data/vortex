@@ -331,7 +331,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArray, IntoArrayVariant, RkyvMetadata};
+    use vortex_array::{IntoArray, ToCanonical, RkyvMetadata};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 

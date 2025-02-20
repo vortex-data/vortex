@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
 use crate::compute::{binary_numeric, slice, try_cast};
-use crate::{ArrayRef, IntoArray, IntoCanonical};
+use crate::{ArrayRef, IntoArray};
 
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -169,7 +169,7 @@ mod tests {
     use crate::arrays::{ListArray, OffsetPType};
     use crate::builders::list::ListBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::{IntoArrayVariant, IntoCanonical};
+    use crate::ToCanonical;
 
     #[test]
     fn test_empty() {

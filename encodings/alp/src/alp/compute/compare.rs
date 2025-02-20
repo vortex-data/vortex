@@ -97,7 +97,7 @@ where
 mod tests {
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 

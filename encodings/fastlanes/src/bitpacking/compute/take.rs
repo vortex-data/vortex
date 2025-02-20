@@ -3,7 +3,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -22,7 +22,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.clone().into_primitive()?, indices);
+            return take(array.to_primitive()?, indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -31,7 +31,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 take_primitive::<$T, $I>(array, &indices, taken_validity)?
@@ -129,7 +129,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{buffer, Buffer};
 
     use crate::bitpacking::compute::take::take_primitive;

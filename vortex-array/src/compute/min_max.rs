@@ -2,7 +2,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat, Statistics};
-use crate::{Array, ArrayRef, Encoding, IntoCanonical};
+use crate::{Array, ArrayRef, Encoding};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinMaxResult {

@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{ArrayRef, IntoArray, IntoCanonical};
+use crate::{ArrayRef, IntoArray};
 
 pub struct NullBuilder {
     length: usize,

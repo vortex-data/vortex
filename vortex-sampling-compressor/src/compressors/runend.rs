@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveEncoding;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::{RunEndArray, RunEndEncoding};
@@ -54,7 +54,7 @@ impl EncodingCompressor for RunEndCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let primitive_array = array.clone().into_primitive()?;
+        let primitive_array = array.to_primitive()?;
         let (ends, values) = runend_encode(&primitive_array)?;
         let ends = downscale_integer_array(ends.into_array())?.into_primitive()?;
 

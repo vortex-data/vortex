@@ -78,10 +78,3 @@ impl Iterator for ArrayChildrenIterator {
         Some(next)
     }
 }
-
-/// Consume `self` and turn it into an [`ArrayRef`] infallibly.
-///
-/// Implementation of this array should never fail.
-pub trait IntoArray {
-    fn into_array(self) -> ArrayRef;
-}

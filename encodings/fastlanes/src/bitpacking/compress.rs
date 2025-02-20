@@ -477,7 +477,7 @@ pub mod test_harness {
     use rand::Rng as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant as _};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical as _};
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
@@ -517,7 +517,7 @@ mod test {
     use rand::SeedableRng as _;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::compute::slice;
-    use vortex_array::{IntoArrayVariant, IntoCanonical as _};
+    use vortex_array::ToCanonical as _;
     use vortex_buffer::buffer;
     use vortex_error::VortexError;
 
@@ -689,7 +689,7 @@ mod test {
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.clone().into_primitive().unwrap();
+        let decompressed = compressed.to_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
         values

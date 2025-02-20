@@ -5,7 +5,7 @@ use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use crate::arrow::infer_data_type;
 use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, IntoCanonical};
+use crate::{Array, ArrayRef};
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<A: ?Sized> {

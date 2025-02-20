@@ -81,7 +81,7 @@ mod tests {
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructDType};

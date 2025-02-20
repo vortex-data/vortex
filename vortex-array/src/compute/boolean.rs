@@ -175,7 +175,7 @@ mod tests {
 
     use super::*;
     use crate::arrays::BoolArray;
-    use crate::canonical::IntoArrayVariant;
+    use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
     use crate::IntoArray;
 

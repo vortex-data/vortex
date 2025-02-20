@@ -32,7 +32,7 @@ use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex::{ArrayRef, IntoArray, ToCanonical};
 
 feature_flagged_allocator!();
 

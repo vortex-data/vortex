@@ -3,7 +3,7 @@ use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
@@ -49,7 +49,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         // with a "Cascade Lake" CPU.
     };
     if mask.density() >= full_decompression_threshold {
-        let decompressed_array = array.clone().into_primitive()?;
+        let decompressed_array = array.to_primitive()?;
         filter(decompressed_array.as_ref(), mask)?.into_primitive()
     } else {
         filter_primitive_no_decompression::<T>(array, mask)
@@ -142,7 +142,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{filter, slice};
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_buffer::Buffer;
     use vortex_mask::Mask;
 

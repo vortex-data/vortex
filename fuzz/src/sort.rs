@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::scalar_at;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -12,7 +12,7 @@ use crate::take::take_canonical_array;
 pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
+            let bool_array = array.to_bool()?;
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -29,7 +29,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             Ok(BoolArray::from_iter(opt_values).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 let mut opt_values = primitive_array
                     .as_slice::<$P>()
@@ -48,7 +48,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let mut opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             opt_values.sort();

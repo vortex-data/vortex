@@ -7,7 +7,7 @@ use vortex_array::vtable::{
     VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayRef, Canonical, EmptyMetadata, IntoArrayVariant,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, EmptyMetadata, ToCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};

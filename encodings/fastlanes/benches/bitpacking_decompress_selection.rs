@@ -10,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::{Rng as _, SeedableRng as _};
 use vortex_array::arrays::BooleanBuffer;
 use vortex_array::compute::filter;
-use vortex_array::{IntoArray as _, IntoArrayVariant as _, IntoCanonical};
+use vortex_array::{IntoArray as _, ToCanonical as _};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_fastlanes::bitpack_to_best_bit_width;

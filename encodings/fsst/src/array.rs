@@ -8,7 +8,7 @@ use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{
     StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
-use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Encoding, IntoArrayVariant, SerdeMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Encoding, ToCanonical, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;

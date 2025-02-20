@@ -7,7 +7,7 @@ use vortex_alp::ALPEncoding;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Encoding, IntoArray, IntoCanonical};
+use vortex_array::{Encoding, IntoArray};
 use vortex_dtype::PType;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;

@@ -17,7 +17,7 @@ mod canonical;
 // mod compute;
 mod variants;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConstantArray {
     scalar: Scalar,
     len: usize,

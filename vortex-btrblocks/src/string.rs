@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult};

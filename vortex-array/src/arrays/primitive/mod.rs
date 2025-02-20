@@ -19,7 +19,7 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
     validity, Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical, RkyvMetadata,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 
 // mod compute;

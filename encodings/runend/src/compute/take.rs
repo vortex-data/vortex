@@ -1,7 +1,7 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -9,7 +9,7 @@ use crate::{RunEndArray, RunEndEncoding};
 
 impl TakeFn<RunEndArray> for RunEndEncoding {
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let primitive_indices = indices.clone().into_primitive()?;
+        let primitive_indices = indices.to_primitive()?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -46,7 +46,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
 
     use crate::RunEndArray;
 

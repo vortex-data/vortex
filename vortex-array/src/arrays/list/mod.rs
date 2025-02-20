@@ -101,12 +101,8 @@ impl ListArray {
         })
     }
 
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(2, &Validity::DTYPE, self.len())
-                .vortex_expect("ListArray: validity child")
-        })
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 
     // TODO: merge logic with varbin

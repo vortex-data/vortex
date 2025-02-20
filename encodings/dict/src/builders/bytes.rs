@@ -154,7 +154,7 @@ mod test {
 
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
 
     use crate::builders::dict_encode;
 

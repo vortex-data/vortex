@@ -7,7 +7,7 @@ use vortex_array::stats::{Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use vortex_array::{encoding_ids, impl_encoding, ArrayRef, IntoArray, IntoArrayVariant, RkyvMetadata};
+use vortex_array::{encoding_ids, impl_encoding, ArrayRef, IntoArray, RkyvMetadata, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -210,7 +210,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
     }
 
     fn validity_mask(&self, array: &SparseArray) -> VortexResult<Mask> {
-        let indices = array.patches().indices().clone().into_primitive()?;
+        let indices = array.patches().indices().to_primitive()?;
 
         if array.fill_scalar().is_null() {
             // If we have a null fill value, then we set each patch value to true.

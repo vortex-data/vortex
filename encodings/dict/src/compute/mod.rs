@@ -82,7 +82,7 @@ mod test {
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::test_harness::test_mask;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

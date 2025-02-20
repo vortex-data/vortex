@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::trailing_zeros;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_fastlanes::{for_compress, FoRArray, FoREncoding};
@@ -54,7 +54,7 @@ impl EncodingCompressor for FoRCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let compressed = for_compress(array.clone().into_primitive()?)?;
+        let compressed = for_compress(array.to_primitive()?)?;
 
         let compressed_child = ctx.named("for_encoded").excluding(self).compress(
             &compressed.encoded(),

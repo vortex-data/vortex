@@ -143,7 +143,7 @@ impl VortexExpr for Merge {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 

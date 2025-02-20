@@ -7,7 +7,7 @@ use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::IntoArrayVariant;
+use crate::ToCanonical;
 
 impl ArrayAccessor<[u8]> for VarBinArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>

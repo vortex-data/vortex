@@ -29,7 +29,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::slice;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
 
     use crate::{ALPRDFloat, RDEncoder};
 

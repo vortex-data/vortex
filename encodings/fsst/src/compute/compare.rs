@@ -2,7 +2,7 @@ use fsst::Symbol;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{compare, compare_lengths_to_empty, CompareFn, Operator};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -111,7 +111,7 @@ fn compare_fsst_constant(
 mod tests {
     use vortex_array::arrays::{ConstantArray, VarBinArray};
     use vortex_array::compute::{compare, scalar_at, Operator};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

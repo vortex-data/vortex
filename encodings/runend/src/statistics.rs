@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::StatisticsVTable;
-use vortex_array::IntoArrayVariant as _;
+use vortex_array::ToCanonical as _;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;

@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 
 use crate::compress::runend_decode_bools;
@@ -40,7 +40,7 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
 mod test {
     use vortex_array::arrays::{BooleanBuffer, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
 
     use crate::RunEndArray;
 

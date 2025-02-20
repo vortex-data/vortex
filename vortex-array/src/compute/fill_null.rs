@@ -2,7 +2,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Implementation of fill_null for an encoding.
 ///

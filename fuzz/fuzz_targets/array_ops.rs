@@ -9,7 +9,7 @@ use vortex_array::arrays::{
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
-use vortex_array::{ArrayRef, Encoding, IntoCanonical};
+use vortex_array::{ArrayRef, Encoding};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;

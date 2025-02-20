@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayRef, Canonical, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, Canonical, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -38,7 +38,7 @@ impl Default for GenerateStatsOptions {
 
 /// Stats for the compressor.
 pub trait CompressorStats: Clone {
-    type ArrayType: Deref<Target =ArrayRef>;
+    type ArrayType: Deref<Target = ArrayRef>;
 
     // Generate with options.
     fn generate(input: &Self::ArrayType) -> Self {
@@ -145,7 +145,7 @@ const MAX_CASCADE: usize = 3;
 ///
 /// Compressors expose a `compress` function.
 pub trait Compressor {
-    type ArrayType: Deref<Target =ArrayRef>;
+    type ArrayType: Deref<Target = ArrayRef>;
     type SchemeType: Scheme<StatsType = Self::StatsType> + ?Sized;
 
     // Stats type instead?

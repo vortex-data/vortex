@@ -109,7 +109,7 @@ mod test {
         filter, search_sorted, slice, try_cast, SearchResult, SearchSortedSide,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;

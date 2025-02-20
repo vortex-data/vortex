@@ -9,8 +9,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
-    SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, ToCanonical, SerdeMetadata,
 };
 use vortex_dtype::{
     match_each_integer_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
@@ -229,7 +228,7 @@ mod test {
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant, IntoCanonical, SerdeMetadata};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical, SerdeMetadata};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};

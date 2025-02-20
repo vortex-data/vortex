@@ -4,7 +4,7 @@ use vortex_array::arrays::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Canonical, IntoArray, IntoArrayVariant};
+use vortex_array::{Canonical, IntoArray, ToCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -114,7 +114,7 @@ mod tests {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ChunkedArray, VarBinArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability};
 
     use crate::{fsst_compress, fsst_train_compressor};

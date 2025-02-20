@@ -29,7 +29,7 @@ use vortex::error::{VortexError, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
-use vortex::{ArrayRef, IntoCanonical};
+use vortex::ArrayRef;
 
 pub const BATCH_SIZE: usize = 65_536;
 

@@ -2,7 +2,7 @@ use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPackedEncoding;
@@ -41,8 +41,7 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let (exponents, encoded, patches) =
-            alp_encode_components(&array.clone().into_primitive()?)?;
+        let (exponents, encoded, patches) = alp_encode_components(&array.to_primitive()?)?;
 
         let compressed_encoded = ctx
             .named("packed")

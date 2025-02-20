@@ -5,7 +5,7 @@ use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEn
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_fastlanes::BitPackedEncoding;
@@ -49,7 +49,7 @@ impl EncodingCompressor for ALPRDCompressor {
         like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let primitive = array.clone().into_primitive()?;
+        let primitive = array.to_primitive()?;
 
         // Train a new compressor or reuse an existing compressor.
         let encoder = like

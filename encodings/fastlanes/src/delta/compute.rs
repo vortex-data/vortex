@@ -2,7 +2,7 @@ use std::cmp::min;
 
 use vortex_array::compute::{scalar_at, slice, ScalarAtFn, SliceFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -69,7 +69,7 @@ impl SliceFn<DeltaArray> for DeltaEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::compute::{scalar_at, slice};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_error::VortexError;
 
     use super::*;

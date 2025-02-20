@@ -18,6 +18,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSorted, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
+use crate::nbytes::NBytes;
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
@@ -25,7 +26,7 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, IntoCanonical,
+    Encoding, EncodingId, IntoArray,
 };
 
 mod canonical;
@@ -33,11 +34,11 @@ mod canonical;
 // // mod stats;
 mod variants;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChunkedArray {
     dtype: DType,
     len: usize,
-    chunk_offsets: Buffer<usize>,
+    chunk_offsets: Buffer<u64>,
     chunks: Vec<ArrayRef>,
     stats: StatsSet,
 }
@@ -63,11 +64,11 @@ impl ChunkedArray {
     pub fn try_new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 
-        let mut chunk_offsets = BufferMut::<usize>::with_capacity(nchunks + 1);
+        let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
         unsafe { chunk_offsets.push_unchecked(0) }
         let mut curr_offset = 0;
         for c in &chunks {
-            curr_offset += c.len();
+            curr_offset += c.len() as u64;
             unsafe { chunk_offsets.push_unchecked(curr_offset) }
         }
 
@@ -94,12 +95,13 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> &[usize] {
+    pub fn chunk_offsets(&self) -> &[u64] {
         &self.chunk_offsets
     }
 
     fn find_chunk_idx(&self, index: usize) -> (usize, usize) {
         assert!(index <= self.len(), "Index out of bounds of the array");
+        let index = index as u64;
 
         // Since there might be duplicate values in offsets because of empty chunks we want to search from right
         // and take the last chunk (we subtract 1 since there's a leading 0)
@@ -110,7 +112,8 @@ impl ChunkedArray {
             .saturating_sub(1);
         let chunk_start = self.chunk_offsets()[index_chunk];
 
-        let index_in_chunk = index - chunk_start;
+        let index_in_chunk =
+            usize::try_from(index - chunk_start).vortex_expect("Index is too large for usize");
         (index_chunk, index_in_chunk)
     }
 
@@ -148,8 +151,8 @@ impl ChunkedArray {
             {
                 new_chunks.push(
                     ChunkedArray::try_new_unchecked(chunks_to_combine, self.dtype().clone())
-                        .into_canonical()?
-                        .into(),
+                        .to_canonical()?
+                        .into_array(),
                 );
 
                 new_chunk_n_bytes = 0;
@@ -158,20 +161,19 @@ impl ChunkedArray {
             }
 
             if n_bytes > target_bytesize || n_elements > target_rowsize {
-                new_chunks.push(chunk);
+                new_chunks.push(chunk.clone());
             } else {
                 new_chunk_n_bytes += n_bytes;
                 new_chunk_n_elements += n_elements;
-                chunks_to_combine.push(chunk);
+                chunks_to_combine.push(chunk.clone());
             }
         }
 
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
                 ChunkedArray::try_new_unchecked(chunks_to_combine, self.dtype().clone())
-                    .into_array()
-                    .into_canonical()?
-                    .into(),
+                    .to_canonical()?
+                    .into_array(),
             );
         }
 
@@ -202,9 +204,12 @@ impl ArrayImpl for ChunkedArray {
 
 impl ArrayVisitorImpl for ChunkedArray {
     fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("chunk_ends", &self.chunk_offsets())?;
-        for (idx, chunk) in self.chunks().enumerate() {
-            visitor.visit_child(format!("chunks[{}]", idx).as_str(), &chunk)?;
+        let chunk_offsets =
+            PrimitiveArray::new(self.chunk_offsets.clone(), Nullability::NonNullable);
+        visitor.visit_child("chunk_offsets", &chunk_offsets)?;
+
+        for (idx, chunk) in self.chunks().iter().enumerate() {
+            visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk)?;
         }
         Ok(())
     }
@@ -246,7 +251,11 @@ impl ArrayValidityImpl for ChunkedArray {
     fn _validity_mask(&self) -> VortexResult<Mask> {
         // TODO(ngates): implement FromIterator<LogicalValidity> for LogicalValidity.
         // TODO(ngates): or use a boolean array builder?
-        let validity: Validity = self.chunks().map(|a| a.validity_mask()).try_collect()?;
+        let validity: Validity = self
+            .chunks()
+            .iter()
+            .map(|a| a.validity_mask())
+            .try_collect()?;
         validity.to_logical(self.len())
     }
 }
@@ -260,7 +269,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, IntoArray, IntoArrayVariant};
+    use crate::{assert_arrays_eq, IntoArray, ToCanonical};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

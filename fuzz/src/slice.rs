@@ -3,7 +3,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
@@ -22,18 +22,18 @@ pub fn slice_canonical_array(
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
+            let bool_array = array.to_bool()?;
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
             BoolArray::try_new(sliced_bools, validity).map(|a| a.into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 Ok(PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(

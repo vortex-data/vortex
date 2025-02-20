@@ -10,7 +10,7 @@ use crate::arrays::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::{ArrayRef, Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayRef, Canonical, IntoArray};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,

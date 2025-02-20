@@ -26,7 +26,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

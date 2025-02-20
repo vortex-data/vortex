@@ -3,7 +3,7 @@
 use divan::Bencher;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::compute::take;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 

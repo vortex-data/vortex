@@ -8,7 +8,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, Canonical, IntoArray};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,

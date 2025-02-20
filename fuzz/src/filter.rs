@@ -4,7 +4,7 @@ use vortex_array::arrays::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexResult;
@@ -31,7 +31,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
+            let bool_array = array.to_bool()?;
             BoolArray::try_new(
                 BooleanBuffer::from_iter(
                     filter
@@ -45,7 +45,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             .map(|a| a.into_array())
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             Ok(PrimitiveArray::new(
                 filter
                     .iter()
@@ -58,7 +58,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             .into_array())
         }),
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let values = utf8.with_iterator(|iter| {
                 iter.zip(filter.iter())
                     .filter(|(_, f)| **f)

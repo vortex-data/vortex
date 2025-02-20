@@ -12,7 +12,7 @@ use vortex_array::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, IntoArrayVariant, SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, ToCanonical, SerdeMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};

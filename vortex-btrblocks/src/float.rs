@@ -4,7 +4,7 @@ mod dictionary;
 use vortex_alp::{alp_encode, ALPArray, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
@@ -402,7 +402,7 @@ impl Scheme for RunEndScheme {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer_mut;
 
     use crate::float::FloatCompressor;

@@ -20,7 +20,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // This is valid since all elements (of all arrays) even null values are inside must be the
         // min-max valid range.
         let validity = array.validity().take(indices)?;
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
         // This is valid since all elements even null values are inside the min-max valid range.
@@ -45,7 +45,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     ) -> VortexResult<Array> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
             take_views_unchecked(array.views(), indices.as_slice::<$I>())
@@ -79,7 +79,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // TODO(joe): impl validity_mask take
         let validity = array.validity().take(indices)?;
         let mask = validity.to_logical(indices.len())?;
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
 
         match_each_integer_ptype!(indices.ptype(), |$I| {
             // This is valid since all elements even null values are inside the min-max valid range.

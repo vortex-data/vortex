@@ -9,7 +9,7 @@ use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{ArrayRef, ArrayVariantsImpl, IntoArray};
+use crate::{Array, ArrayRef, ArrayVariantsImpl, IntoArray};
 
 /// Constant arrays support all DTypes
 impl ArrayVariantsImpl for ConstantArray {

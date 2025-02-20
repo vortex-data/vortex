@@ -5,7 +5,7 @@ use divan::Bencher;
 use rand::{Rng, SeedableRng};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::try_cast;
-use vortex_array::{ArrayRef, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::PType;
 use vortex_error::vortex_panic;

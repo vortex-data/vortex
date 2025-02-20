@@ -1,6 +1,6 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult};
@@ -66,7 +66,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray as _, IntoArrayVariant as _};
+    use vortex_array::{IntoArray as _, ToCanonical as _};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 

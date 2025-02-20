@@ -91,7 +91,7 @@ impl PartialEq for BinaryExpr {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{eq, ident, lit};
@@ -114,7 +114,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, not_eq};
@@ -137,7 +137,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{gt_eq, ident, lit};
@@ -160,7 +160,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{gt, ident, lit};
@@ -183,7 +183,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, lt_eq};
@@ -206,7 +206,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{ident, lit, lt};
@@ -229,7 +229,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_expr::{ ident, lit, or};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
@@ -250,7 +250,7 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 ///
 /// ```
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, IntoArrayVariant};
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_expr::{and, ident, lit};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();

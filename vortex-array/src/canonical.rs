@@ -242,110 +242,42 @@ impl ArrayVariants for Canonical {
     }
 }
 
-/// Canonicalize an [`ArrayRef`] into one of the [`Canonical`] array forms.
-///
-/// # Invariants
-///
-/// The DType of the array will be unchanged by canonicalization.
-pub trait IntoCanonical {
-    /// Canonicalize the array.
-    fn into_canonical(self) -> VortexResult<Canonical>;
-
-    /// Canonicalize the array into the given builder.
-    fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
-}
-
-impl<A: IntoArray> IntoCanonical for A {
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        self.into_array().into_canonical()
-    }
-
-    fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        self.into_array().canonicalize_into(builder)
-    }
-}
-
 /// Trait for types that can be converted from an owned type into an owned array variant.
 ///
 /// # Canonicalization
 ///
 /// This trait has a blanket implementation for all types implementing [IntoCanonical].
-pub trait IntoArrayVariant {
-    fn into_null(self) -> VortexResult<NullArray>;
-
-    fn into_bool(self) -> VortexResult<BoolArray>;
-
-    fn into_primitive(self) -> VortexResult<PrimitiveArray>;
-
-    fn into_struct(self) -> VortexResult<StructArray>;
-
-    fn into_list(self) -> VortexResult<ListArray>;
-
-    fn into_varbinview(self) -> VortexResult<VarBinViewArray>;
-
-    fn into_extension(self) -> VortexResult<ExtensionArray>;
-}
-
-impl<T> IntoArrayVariant for T
-where
-    T: IntoCanonical,
-{
-    fn into_null(self) -> VortexResult<NullArray> {
-        self.into_canonical()?.into_null()
+pub trait ToCanonical: Array {
+    fn to_null(&self) -> VortexResult<NullArray> {
+        self.to_canonical()?.into_null()
     }
 
-    fn into_bool(self) -> VortexResult<BoolArray> {
-        self.into_canonical()?.into_bool()
+    fn to_bool(&self) -> VortexResult<BoolArray> {
+        self.to_canonical()?.into_bool()
     }
 
-    fn into_primitive(self) -> VortexResult<PrimitiveArray> {
-        self.into_canonical()?.into_primitive()
+    fn to_primitive(&self) -> VortexResult<PrimitiveArray> {
+        self.to_canonical()?.into_primitive()
     }
 
-    fn into_struct(self) -> VortexResult<StructArray> {
-        self.into_canonical()?.into_struct()
+    fn to_struct(&self) -> VortexResult<StructArray> {
+        self.to_canonical()?.into_struct()
     }
 
-    fn into_list(self) -> VortexResult<ListArray> {
-        self.into_canonical()?.into_list()
+    fn to_list(&self) -> VortexResult<ListArray> {
+        self.to_canonical()?.into_list()
     }
 
-    fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
-        self.into_canonical()?.into_varbinview()
+    fn to_varbinview(&self) -> VortexResult<VarBinViewArray> {
+        self.to_canonical()?.into_varbinview()
     }
 
-    fn into_extension(self) -> VortexResult<ExtensionArray> {
-        self.into_canonical()?.into_extension()
+    fn to_extension(&self) -> VortexResult<ExtensionArray> {
+        self.to_canonical()?.into_extension()
     }
 }
 
-impl IntoCanonical for ArrayRef {
-    /// Canonicalize an [`ArrayRef`] into one of the [`Canonical`] array forms.
-    ///
-    /// # Invariants
-    ///
-    /// The DType of the array will be unchanged by canonicalization.
-    fn into_canonical(self) -> VortexResult<Canonical> {
-        // We only care to know when we canonicalize something non-trivial.
-        if !self.is_canonical() && self.len() > 1 {
-            log::trace!("Canonicalizing array with encoding {:?}", self.vtable());
-        }
-
-        #[cfg(feature = "canonical_counter")]
-        self.inc_canonical_counter();
-
-        // If the encoding isn't already canonical, and it's a primitive DType, then we
-        // should canonicalize_into?
-        let canonical = self.vtable().into_canonical(self.clone())?;
-        canonical.as_ref().inherit_statistics(self.statistics());
-        Ok(canonical)
-    }
-
-    /// Canonicalize an [`ArrayRef`] into an existing [`ArrayBuilder`].
-    fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        self.vtable().canonicalize_into(self.clone(), builder)
-    }
-}
+impl<A: Array> ToCanonical for A {}
 
 impl IntoArrowArray for ArrayRef {
     /// Convert this [`ArrayRef`] into an Arrow [`ArrayRef`] by using the array's preferred
@@ -389,20 +321,6 @@ impl AsRef<ArrayRef> for Canonical {
             Canonical::List(a) => a.as_ref(),
             Canonical::VarBinView(a) => a.as_ref(),
             Canonical::Extension(a) => a.as_ref(),
-        }
-    }
-}
-
-impl IntoArray for Canonical {
-    fn into_array(self) -> ArrayRef {
-        match self {
-            Canonical::Null(a) => a.into_array(),
-            Canonical::Bool(a) => a.into_array(),
-            Canonical::Primitive(a) => a.into_array(),
-            Canonical::Struct(a) => a.into_array(),
-            Canonical::List(a) => a.into_array(),
-            Canonical::VarBinView(a) => a.into_array(),
-            Canonical::Extension(a) => a.into_array(),
         }
     }
 }

@@ -14,7 +14,7 @@ use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, Str
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{builders, ArrayRef, IntoArray as _, IntoArrayVariant};
+use crate::{builders, ArrayRef, IntoArray as _, ToCanonical};
 
 impl<'a> Arbitrary<'a> for ArrayRef {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {

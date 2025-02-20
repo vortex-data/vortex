@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
@@ -9,12 +10,20 @@ use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
+use crate::stats::Statistics;
 use crate::visitor::ArrayVisitor;
 use crate::{Array, ArrayRef, ArrayVariantsImpl, Canonical};
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl:
-    Send + Sync + Clone + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVariantsImpl + ArrayVisitorImpl
+    Send
+    + Sync
+    + Debug
+    + Clone
+    + ArrayCanonicalImpl
+    + ArrayValidityImpl
+    + ArrayVariantsImpl
+    + ArrayVisitorImpl
 {
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
@@ -101,6 +110,7 @@ impl<A: ArrayImpl> Array for A {
         let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
         assert_eq!(canonical.len(), self.len(), "Canonical length mismatch");
         // assert_eq!(canonical.dtype(), self.dtype(), "Canonical dtype mismatch");
+        // TODO(ngates): inherit stats
         Ok(canonical)
     }
 

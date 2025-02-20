@@ -3,7 +3,7 @@ use itertools::Itertools;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -271,7 +271,7 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use crate::compress::{runend_decode_primitive, runend_encode};

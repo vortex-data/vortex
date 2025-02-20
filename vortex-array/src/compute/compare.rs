@@ -266,7 +266,7 @@ mod tests {
     use super::*;
     use crate::arrays::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArray, ToCanonical};
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

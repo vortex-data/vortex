@@ -6,7 +6,7 @@ use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{ArrayRef, ContextRef, IntoCanonical};
+use vortex_array::{ArrayRef, ContextRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};

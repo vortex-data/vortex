@@ -20,7 +20,7 @@ impl SliceFn<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::slice;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use super::*;

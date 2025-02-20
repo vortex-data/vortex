@@ -5,7 +5,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{fill_forward, slice};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayVariant;
+use vortex_array::ToCanonical;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType, Nullability};
 use vortex_error::VortexResult;

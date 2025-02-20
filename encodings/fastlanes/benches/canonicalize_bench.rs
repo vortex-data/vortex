@@ -3,7 +3,7 @@ use rand::prelude::StdRng;
 use rand::SeedableRng;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-use vortex_array::{IntoArray, IntoCanonical};
+use vortex_array::IntoArray;
 use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_fastlanes::test_harness::make_array;
 

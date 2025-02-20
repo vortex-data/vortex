@@ -10,7 +10,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArrayVariant, SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, ToCanonical, SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -273,7 +273,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::{IntoArrayVariant, SerdeMetadata};
+    use vortex_array::{ToCanonical, SerdeMetadata};
     use vortex_dtype::PType;
 
     use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};

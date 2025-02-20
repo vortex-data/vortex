@@ -14,7 +14,7 @@ use crate::{Array, IntoArray, IntoArrayVariant};
 impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &Array) -> VortexResult<Array> {
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
         let validity = array.validity().take(&indices)?;
 
         match_each_native_ptype!(array.ptype(), |$T| {
@@ -30,7 +30,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         array: &PrimitiveArray,
         indices: &Array,
     ) -> VortexResult<Array> {
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
 
         match_each_native_ptype!(array.ptype(), |$T| {
@@ -47,7 +47,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         indices: &Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        let indices = indices.clone().into_primitive()?;
+        let indices = indices.to_primitive()?;
         // TODO(joe): impl take over mask and use `Array::validity_mask`, instead of `validity()`.
         let validity = array.validity().take(indices.as_ref())?;
         let mask = validity.to_logical(indices.len())?;

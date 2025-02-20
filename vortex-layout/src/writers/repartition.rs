@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
-use vortex_array::{ArrayRef, IntoArray, IntoCanonical};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -93,7 +93,11 @@ impl RepartitionWriter {
 }
 
 impl LayoutWriter for RepartitionWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         // We make sure the chunks are canonical so our nbytes measurement is accurate.
         let chunk = chunk.into_canonical()?.into_array();
 

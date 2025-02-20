@@ -1,7 +1,7 @@
 //! Specialized compressor for DateTimeParts metadata.
 
 use vortex_array::arrays::TemporalArray;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_datetime_parts::{split_temporal, DateTimePartsArray, TemporalParts};
 use vortex_error::VortexResult;
 

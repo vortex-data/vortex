@@ -110,7 +110,7 @@ impl PartialEq for Like {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::BoolArray;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability};
 
     use crate::{ident, lit, not, Like};

@@ -14,9 +14,7 @@ use crate::arrays::{BoolArray, ListArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::{
-    Array, ArrayRef, ArrayVariants, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
-};
+use crate::{Array, ArrayRef, ArrayVariants, Canonical, IntoArray, ToCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -137,13 +135,13 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, dtype: &DType) -> VortexR
         .vortex_expect("ListArray must have List dtype");
 
     for chunk in chunks {
-        let chunk = chunk.clone().into_list()?;
+        let chunk = chunk.to_list()?;
         // TODO: handle i32 offsets if they fit.
         let offsets_arr = try_cast(
             chunk.offsets(),
             &DType::Primitive(PType::I64, Nullability::NonNullable),
         )?
-        .into_primitive()?;
+        .to_primitive()?;
 
         let first_offset_value: usize = usize::try_from(&scalar_at(&offsets_arr, 0)?)?;
         let last_offset_value: usize =
@@ -209,7 +207,7 @@ fn pack_bools(chunks: &[ArrayRef], validity: Validity) -> VortexResult<BoolArray
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut buffer = BooleanBufferBuilder::new(len);
     for chunk in chunks {
-        let chunk = chunk.clone().into_bool()?;
+        let chunk = chunk.to_bool()?;
         buffer.append_buffer(&chunk.boolean_buffer());
     }
     Ok(BoolArray::new_with_validity(buffer.finish(), validity))
@@ -227,7 +225,7 @@ fn pack_primitives<T: NativePType>(
     let total_len = chunks.iter().map(|a| a.len()).sum();
     let mut buffer = BufferMut::with_capacity(total_len);
     for chunk in chunks {
-        let chunk = chunk.clone().into_primitive()?;
+        let chunk = chunk.to_primitive()?;
         buffer.extend_from_slice(chunk.as_slice::<T>());
     }
     Ok(PrimitiveArray::new_with_validity(buffer.freeze(), validity))
@@ -248,7 +246,7 @@ fn pack_views(
     let mut buffers = Vec::new();
     for chunk in chunks {
         let buffers_offset = u32::try_from(buffers.len())?;
-        let canonical_chunk = chunk.clone().into_varbinview()?;
+        let canonical_chunk = chunk.to_varbinview()?;
         buffers.extend(canonical_chunk.buffers().iter().cloned());
 
         views.extend(
@@ -277,7 +275,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::IntoArrayVariant;
+    use crate::ToCanonical;
 
     fn stringview_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"])

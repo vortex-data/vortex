@@ -7,7 +7,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -58,7 +58,7 @@ where
         }
 
         let mut codes = BufferMut::<u64>::with_capacity(array.len());
-        let primitive = array.clone().into_primitive()?;
+        let primitive = array.to_primitive()?;
 
         let codes = if array.dtype().is_nullable() {
             let mut null_buf = NullBufferBuilder::new(array.len());
@@ -156,7 +156,7 @@ mod private {
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::scalar_at;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 

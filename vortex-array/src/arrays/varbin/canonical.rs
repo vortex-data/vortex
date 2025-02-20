@@ -29,7 +29,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::varbin::builder::VarBinBuilder;
-    use crate::canonical::IntoArrayVariant;
+    use crate::canonical::ToCanonical;
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]

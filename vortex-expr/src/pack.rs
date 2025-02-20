@@ -141,7 +141,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
-    use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant as _};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical as _};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};

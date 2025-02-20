@@ -5,7 +5,7 @@ use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::patches::Patches;
-use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 
 fn main() {

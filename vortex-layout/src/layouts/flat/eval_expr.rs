@@ -50,7 +50,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
 

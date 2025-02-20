@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::RangeBounds;
 
 use vortex_array::compute::{filter, slice, try_cast};
-use vortex_array::{ArrayRef, IntoArrayVariant};
+use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -229,7 +229,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{buffer, Buffer};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;

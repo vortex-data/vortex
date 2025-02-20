@@ -106,7 +106,7 @@ impl_encode!(i64);
 mod tests {
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoCanonical};
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
 
     use crate::integer::dictionary::dictionary_encode;
