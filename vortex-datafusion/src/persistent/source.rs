@@ -16,6 +16,7 @@ use vortex_file::VORTEX_FILE_EXTENSION;
 
 use super::cache::FileLayoutCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
+use super::metrics::{VortexExecMetrics, PARTITION_LABEL};
 use super::opener::VortexFileOpener;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
@@ -30,20 +31,24 @@ pub struct VortexSource {
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
     pub(crate) arrow_schema: Option<SchemaRef>,
-    pub(crate) metrics: ExecutionPlanMetricsSet,
+    pub(crate) metrics: VortexExecMetrics,
 }
 
 impl VortexSource {
-    pub(crate) fn new(ctx: ContextRef, initial_read_cache: FileLayoutCache) -> Self {
+    pub(crate) fn new(
+        ctx: ContextRef,
+        initial_read_cache: FileLayoutCache,
+        metrics: VortexExecMetrics,
+    ) -> Self {
         Self {
             ctx,
             initial_read_cache,
+            metrics,
             projection: None,
             batch_size: None,
             projected_statistics: None,
             arrow_schema: None,
             predicate: None,
-            metrics: ExecutionPlanMetricsSet::default(),
         }
     }
 
@@ -60,11 +65,15 @@ impl FileSource for VortexSource {
         &self,
         object_store: DFResult<Arc<dyn ObjectStore>>,
         base_config: &FileScanConfig,
-        _partition: usize,
+        partition: usize,
     ) -> DFResult<Arc<dyn FileOpener>> {
         let object_store = object_store?;
         let (scheme, _) = ObjectStoreScheme::parse(base_config.object_store_url.as_ref())
             .map_err(object_store::Error::from)?;
+
+        let partition_metrics = self
+            .metrics
+            .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
 
         let Some(batch_size) = self.batch_size else {
             return Err(internal_datafusion_err!(
@@ -83,6 +92,7 @@ impl FileSource for VortexSource {
                 .clone()
                 .vortex_expect("We should have a schema here"),
             batch_size,
+            partition_metrics,
         )?;
 
         Ok(Arc::new(opener))
@@ -135,7 +145,7 @@ impl FileSource for VortexSource {
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
-        &self.metrics
+        self.metrics.report_to_datafusion()
     }
 
     fn statistics(&self) -> DFResult<Statistics> {

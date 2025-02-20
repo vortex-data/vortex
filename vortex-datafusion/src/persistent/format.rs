@@ -33,6 +33,7 @@ use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
 
 use super::cache::FileLayoutCache;
+use super::metrics::VortexExecMetrics;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::can_be_pushed_down;
@@ -158,6 +159,7 @@ impl FileFormat for VortexFormat {
         Arc::new(VortexSource::new(
             self.context.clone(),
             self.file_layout_cache.clone(),
+            VortexExecMetrics::default(),
         ))
     }
 
@@ -307,7 +309,11 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
 
-        let mut source = VortexSource::new(self.context.clone(), self.file_layout_cache.clone());
+        let mut source = VortexSource::new(
+            self.context.clone(),
+            self.file_layout_cache.clone(),
+            VortexExecMetrics::default(),
+        );
 
         if let Some(predicate) = make_vortex_predicate(filters) {
             source = source.with_predicate(predicate);

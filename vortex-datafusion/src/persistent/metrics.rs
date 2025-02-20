@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use datafusion_physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, Gauge, Label as DatafusionLabel,
-    MetricValue as DatafusionMetricValue, MetricsSet, Time,
+    MetricValue as DatafusionMetricValue, Time,
 };
 use datafusion_physical_plan::Metric as DatafusionMetric;
 use vortex_metrics::{DefaultTags, Metric, MetricId, Tags, VortexMetrics};
@@ -21,15 +21,15 @@ impl VortexExecMetrics {
         self.vortex.child_with_tags(additional_tags)
     }
 
-    pub fn metrics_set(&self) -> MetricsSet {
-        let mut base = self.execution_plan.clone_inner();
+    pub fn report_to_datafusion(&self) -> &ExecutionPlanMetricsSet {
+        let base = &self.execution_plan;
         for metric in self
             .vortex
             .snapshot()
             .iter()
             .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
         {
-            base.push(Arc::new(metric));
+            base.register(Arc::new(metric));
         }
         base
     }
