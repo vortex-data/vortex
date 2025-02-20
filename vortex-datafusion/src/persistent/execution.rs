@@ -1,9 +1,10 @@
+use std::cmp::min;
 use std::fmt;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use datafusion::config::ConfigOptions;
-use datafusion::datasource::listing::PartitionedFile;
+use datafusion::datasource::listing::{FileRange, PartitionedFile};
 use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
 use datafusion_common::stats::Precision;
 use datafusion_common::{Result as DFResult, Statistics};
@@ -160,10 +161,12 @@ impl ExecutionPlan for VortexExec {
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
         let file_groups = self.file_scan_config.file_groups.clone();
 
-        let repartitioned_file_groups = repartition_by_size(file_groups, target_partitions);
+        let repartitioned_file_groups = match repartition_by_rows(all_files, target_partitions) {
+            Some(files) => files,
+            None => repartition_by_size(file_groups, target_partitions),
+        };
 
         let mut new_plan = self.clone();
-
         let num_partitions = repartitioned_file_groups.len();
 
         log::debug!("VortexExec repartitioned to {num_partitions} partitions");
@@ -238,7 +241,16 @@ fn repartition_by_rows(
     all_files: Vec<&PartitionedFile>,
     target_partitions: usize,
 ) -> Option<Vec<Vec<PartitionedFile>>> {
-    let file_groups = Vec::with_capacity(target_partitions);
+    // We only call this function after we verified all files have exact rows statistic
+    fn get_file_row_count(file: &PartitionedFile) -> usize {
+        *file
+            .statistics
+            .as_ref()
+            .vortex_expect("must be here")
+            .num_rows
+            .get_value()
+            .vortex_expect("we verified that")
+    }
 
     // We first check that all files have the statistics we care about (exact row number)
     let total_rows = all_files
@@ -258,7 +270,52 @@ fn repartition_by_rows(
     let total_rows = *total_rows.get_value().vortex_expect("contains value");
     let target_partition_size = total_rows.div_ceil(target_partitions);
 
-    Some(file_groups)
+    let current_partition_index: usize = 0;
+    let current_partition_size: usize = 0;
+
+    let final_files_partitions = all_files
+        .into_iter()
+        .scan(
+            (current_partition_index, current_partition_size),
+            |(curr_partition_idx, current_partition_size), source_file| {
+                let mut file_partitions = vec![];
+                let mut range_start = 0;
+                let file_row_count = get_file_row_count(source_file);
+
+                while range_start < file_row_count {
+                    let range_end = min(
+                        range_start + (target_partition_size - *current_partition_size),
+                        file_row_count,
+                    );
+
+                    let mut produced_file = source_file.clone();
+                    produced_file.range = Some(FileRange {
+                        start: range_start as i64,
+                        end: range_end as i64,
+                    });
+                    file_partitions.push((*curr_partition_idx, produced_file));
+
+                    // Move to the next partition
+                    if *current_partition_size + (range_end - range_start) >= target_partition_size
+                    {
+                        *curr_partition_idx += 1;
+                        *current_partition_size = 0;
+                    } else {
+                        *current_partition_size += range_end - range_start;
+                    }
+                    range_start = range_end;
+                }
+
+                Some(file_partitions)
+            },
+        )
+        .flatten()
+        .chunk_by(|(partition_idx, _)| *partition_idx)
+        .into_iter()
+        .map(|(_, group)| group.map(|(_, vals)| vals).collect_vec())
+        .collect_vec();
+
+    Some(final_files_partitions)
 }
 
 #[cfg(test)]
