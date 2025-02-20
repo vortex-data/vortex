@@ -150,15 +150,15 @@ pub fn binary_numeric(
 /// Note that other encodings should handle a constant RHS value, so we can assume here that
 /// the RHS is not constant and expand to a full array.
 fn arrow_numeric(
-    lhs: ArrayRef,
-    rhs: ArrayRef,
+    lhs: &dyn Array,
+    rhs: &dyn Array,
     operator: BinaryNumericOperator,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs.clone())?;
-    let right = Datum::try_new(rhs.clone())?;
+    let left = Datum::try_new(lhs.to_array())?;
+    let right = Datum::try_new(rhs.to_array())?;
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
