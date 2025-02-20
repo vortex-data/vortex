@@ -31,7 +31,7 @@ impl FileType for InMemoryVortexFile {
         _options: Self::Options,
         file_layout: FileLayout,
         _segment_cache: Arc<dyn SegmentCache>,
-        _metrics: Arc<VortexMetrics>,
+        _metrics: VortexMetrics,
     ) -> Self::ScanDriver {
         Self {
             buffer: read,

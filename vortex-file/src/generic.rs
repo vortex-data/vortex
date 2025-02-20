@@ -32,7 +32,7 @@ impl<R: VortexReadAt> FileType for GenericVortexFile<R> {
         options: Self::Options,
         file_layout: FileLayout,
         segment_cache: Arc<dyn SegmentCache>,
-        metrics: Arc<VortexMetrics>,
+        metrics: VortexMetrics,
     ) -> Self::ScanDriver {
         GenericScanDriver {
             read,
@@ -362,8 +362,8 @@ struct CoalescingMetrics {
     request_count_coalesced: Arc<Counter>,
 }
 
-impl From<Arc<VortexMetrics>> for CoalescingMetrics {
-    fn from(metrics: Arc<VortexMetrics>) -> Self {
+impl From<VortexMetrics> for CoalescingMetrics {
+    fn from(metrics: VortexMetrics) -> Self {
         let byte_ranges = MetricId::new("vortex.scan.requests.bytes");
         let requests = MetricId::new("vortex.scan.requests.count");
         Self {

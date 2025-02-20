@@ -10,18 +10,23 @@ use vortex_error::VortexExpect;
 use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 
 /// A metric registry for various performance metrics.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct VortexMetrics {
+    inner: Arc<Inner>,
+}
+
+#[derive(Default)]
+struct Inner {
     registry: MetricRegistry,
     default_tags: DefaultTags,
-    children: RwLock<Vec<Arc<VortexMetrics>>>,
+    children: RwLock<Vec<VortexMetrics>>,
 }
 
 impl Debug for VortexMetrics {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VortexMetrics")
-            .field("default_tags", &self.default_tags)
-            .field("children", &self.children)
+            .field("default_tags", &self.inner.default_tags)
+            .field("children", &self.inner.children)
             .finish_non_exhaustive()
     }
 }
@@ -52,11 +57,12 @@ where
 impl VortexMetrics {
     /// Create a new [`VortexMetrics`] instance.
     pub fn new(registry: MetricRegistry, default_tags: impl Into<DefaultTags>) -> Self {
-        Self {
+        let inner = Arc::new(Inner {
             registry,
             default_tags: default_tags.into(),
             children: Default::default(),
-        }
+        });
+        Self { inner }
     }
 
     /// Create an empty metric registry with default tags.
@@ -66,11 +72,10 @@ impl VortexMetrics {
 
     /// Create a new metrics registry with additional tags. Metrics created in the
     /// child registry will be included in this registry's snapshots.
-    pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> Arc<Self> {
-        let child = Arc::new(Self::new_with_tags(
-            self.default_tags.merge(&additional_tags.into()),
-        ));
-        self.children
+    pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> Self {
+        let child = Self::new_with_tags(self.inner.default_tags.merge(&additional_tags.into()));
+        self.inner
+            .children
             .write()
             .vortex_expect("failed to acquire write lock on children")
             .push(child.clone());
@@ -86,7 +91,7 @@ impl VortexMetrics {
     where
         T: Into<MetricId>,
     {
-        self.registry.counter(id)
+        self.inner.registry.counter(id)
     }
 
     /// Returns the histogram with the specified ID, creating a default instance if absent.
@@ -98,7 +103,7 @@ impl VortexMetrics {
     where
         T: Into<MetricId>,
     {
-        self.registry.histogram(id)
+        self.inner.registry.histogram(id)
     }
 
     /// Returns the timer with the specified ID, creating a default instance if absent.
@@ -110,7 +115,7 @@ impl VortexMetrics {
     where
         T: Into<MetricId>,
     {
-        self.registry.timer(id)
+        self.inner.registry.timer(id)
     }
 
     /// Returns a snapshot of the metrics in the registry.
@@ -120,14 +125,18 @@ impl VortexMetrics {
     /// Note: Tag values may contain sensitive information and should be properly sanitized before external exposure.
     pub fn snapshot(&self) -> MetricsSnapshot {
         let children = self
+            .inner
             .children
             .read()
             .vortex_expect("failed to acquire read lock on children");
         let snapshots = children.iter().map(|c| c.snapshot());
         MetricsSnapshot(
-            std::iter::once((self.default_tags.clone(), self.registry.metrics()))
-                .chain(snapshots.flat_map(|snapshots| snapshots.0.into_iter()))
-                .collect(),
+            std::iter::once((
+                self.inner.default_tags.clone(),
+                self.inner.registry.metrics(),
+            ))
+            .chain(snapshots.flat_map(|snapshots| snapshots.0.into_iter()))
+            .collect(),
         )
     }
 }

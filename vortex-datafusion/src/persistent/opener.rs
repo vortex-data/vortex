@@ -26,7 +26,7 @@ pub(crate) struct VortexFileOpener {
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
-    metrics: Arc<VortexMetrics>,
+    metrics: VortexMetrics,
 }
 
 impl VortexFileOpener {
@@ -40,7 +40,7 @@ impl VortexFileOpener {
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
-        metrics: Arc<VortexMetrics>,
+        metrics: VortexMetrics,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,

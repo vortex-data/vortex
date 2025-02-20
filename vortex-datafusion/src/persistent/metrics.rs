@@ -12,12 +12,12 @@ pub static PARTITION_LABEL: &str = "partition";
 
 #[derive(Clone, Debug, Default)]
 pub struct VortexExecMetrics {
-    pub vortex: Arc<VortexMetrics>,
+    pub vortex: VortexMetrics,
     pub execution_plan: ExecutionPlanMetricsSet,
 }
 
 impl VortexExecMetrics {
-    pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> Arc<VortexMetrics> {
+    pub fn child_with_tags(&self, additional_tags: impl Into<DefaultTags>) -> VortexMetrics {
         self.vortex.child_with_tags(additional_tags)
     }
 
