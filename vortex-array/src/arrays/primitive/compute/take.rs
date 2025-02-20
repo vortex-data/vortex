@@ -9,7 +9,7 @@ use crate::arrays::PrimitiveEncoding;
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
@@ -20,7 +20,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive(array.as_slice::<$T>(), indices.as_slice::<$I>());
-                Ok(PrimitiveArray::new(values, validity).into_array())
+                Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
             })
         })
     }
@@ -31,12 +31,12 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         indices: &dyn Array,
     ) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
-        let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
+        let validity = unsafe { array.validity().take_unchecked(&indices)? };
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive_unchecked(array.as_slice::<$T>(), indices.as_slice::<$I>());
-                Ok(PrimitiveArray::new(values, validity).into_array())
+                Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
             })
         })
     }
@@ -49,7 +49,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     ) -> VortexResult<()> {
         let indices = indices.to_primitive()?;
         // TODO(joe): impl take over mask and use `Array::validity_mask`, instead of `validity()`.
-        let validity = array.validity().take(indices.as_ref())?;
+        let validity = array.validity().take(&indices)?;
         let mask = validity.to_logical(indices.len())?;
 
         match_each_native_ptype!(array.ptype(), |$T| {

@@ -24,13 +24,13 @@ impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
             MaskIter::Indices(indices) => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let values = filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied());
-                    Ok(PrimitiveArray::new(values, validity).into_array())
+                    Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
                 })
             }
             MaskIter::Slices(slices) => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let values = filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied());
-                    Ok(PrimitiveArray::new(values, validity).into_array())
+                    Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
                 })
             }
         }

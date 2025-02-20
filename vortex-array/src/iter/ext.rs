@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use crate::arrays::ChunkedArray;
 use crate::iter::ArrayIterator;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub trait ArrayIteratorExt: ArrayIterator {
     fn into_stream(self) -> impl ArrayStream

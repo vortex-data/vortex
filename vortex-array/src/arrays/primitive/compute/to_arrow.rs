@@ -13,6 +13,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::ToArrowFn;
 use crate::variants::PrimitiveArrayTrait;
+use crate::Array;
 
 impl ToArrowFn<PrimitiveArray> for PrimitiveEncoding {
     fn to_arrow(

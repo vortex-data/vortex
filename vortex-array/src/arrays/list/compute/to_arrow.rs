@@ -9,6 +9,7 @@ use crate::arrays::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
 use crate::compute::{try_cast, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
+use crate::{Array, ToCanonical};
 
 impl ToArrowFn<ListArray> for ListEncoding {
     fn to_arrow(&self, array: &ListArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
@@ -22,14 +23,14 @@ impl ToArrowFn<ListArray> for ListEncoding {
 
         let offsets = array
             .offsets()
-            .into_primitive()
+            .to_primitive()
             .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
-        let arrow_offsets = try_cast(offsets, cast_ptype.into())
+        let arrow_offsets = try_cast(&offsets, cast_ptype.into())
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray"))?
-            .into_primitive()?;
+            .to_primitive()?;
 
-        let values = array.elements().into_arrow(element_dtype)?;
+        let values = array.elements().clone().into_arrow(element_dtype)?;
 
         let field_ref = FieldRef::new(Field::new_list_field(
             values.data_type().clone(),

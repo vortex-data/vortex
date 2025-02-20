@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
@@ -15,8 +15,8 @@ use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 mod compute;
 
@@ -26,6 +26,7 @@ pub struct StructArray {
     dtype: DType,
     fields: Vec<ArrayRef>,
     validity: Validity,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 pub struct StructEncoding;
@@ -157,6 +158,12 @@ impl ArrayImpl for StructArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::from_static(&StructEncoding)
+    }
+}
+
+impl ArrayStatisticsImpl for StructArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 

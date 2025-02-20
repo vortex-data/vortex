@@ -18,10 +18,10 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
         // First, check that the cast is compatible with the source array's validity
         let new_validity = if array.dtype().nullability() == new_nullability {
-            array.validity()
+            array.validity().clone()
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
-            array.validity().into_nullable()
+            array.validity().clone().into_nullable()
         } else if new_nullability == Nullability::NonNullable
             && array.validity().to_logical(array.len())?.all_true()
         {
@@ -43,7 +43,7 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |$T| {
-            Ok(PrimitiveArray::new(
+            Ok(PrimitiveArray::new_with_validity(
                 cast::<$T>(array)?,
                 new_validity,
             ).into_array())

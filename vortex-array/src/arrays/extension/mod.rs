@@ -7,13 +7,13 @@ use vortex_mask::Mask;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
-use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::VTableRef;
+use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 mod compute;
 
@@ -72,6 +72,12 @@ impl ArrayImpl for ExtensionArray {
     }
 }
 
+impl ArrayStatisticsImpl for ExtensionArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
 impl ArrayCanonicalImpl for ExtensionArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         Ok(Canonical::Extension(self.clone()))
@@ -113,6 +119,9 @@ impl ArrayVisitorImpl for ExtensionArray {
         visitor.visit_child("storage", self.storage())
     }
 }
+
+// TODO(ngates): forward?
+impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {}
 
 #[cfg(test)]
 mod tests {

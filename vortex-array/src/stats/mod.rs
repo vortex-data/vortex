@@ -18,14 +18,12 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{Array, ArrayRef};
 
-mod array;
 mod bound;
 pub mod flatbuffers;
 mod precision;
 mod stat_bound;
 mod stats_set;
 
-pub use array::*;
 pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
 pub use stat_bound::*;

@@ -13,9 +13,11 @@ use vortex_scalar::ScalarValue;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::min_max;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
+use crate::Array;
 
 trait PStatsType:
     NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>

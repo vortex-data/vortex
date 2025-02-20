@@ -1,23 +1,28 @@
+use std::sync::{Arc, RwLock};
+
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::VTableRef;
+use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
+
 mod compute;
 
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 pub struct NullEncoding;
@@ -29,7 +34,10 @@ impl Encoding for NullEncoding {
 
 impl NullArray {
     pub fn new(len: usize) -> Self {
-        Self { len }
+        Self {
+            len,
+            stats_set: Default::default(),
+        }
     }
 }
 
@@ -46,6 +54,12 @@ impl ArrayImpl for NullArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::from_static(&NullEncoding)
+    }
+}
+
+impl ArrayStatisticsImpl for NullArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 
@@ -73,15 +87,15 @@ impl ArrayValidityImpl for NullArray {
     }
 }
 
-// impl StatisticsVTable<NullArray> for NullEncoding {
-//     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
-//         if stat == Stat::UncompressedSizeInBytes {
-//             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
-//         }
-//
-//         Ok(StatsSet::nulls(array.len(), &DType::Null))
-//     }
-// }
+impl StatisticsVTable<NullArray> for NullEncoding {
+    fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
+        if stat == Stat::UncompressedSizeInBytes {
+            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
+        }
+
+        Ok(StatsSet::nulls(array.len(), &DType::Null))
+    }
+}
 
 impl ArrayVisitorImpl for NullArray {
     fn _accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

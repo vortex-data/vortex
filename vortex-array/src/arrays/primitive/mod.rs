@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display};
+use std::sync::{Arc, RwLock};
 use std::{iter, ptr};
+
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -20,8 +22,8 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    validity, Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 
 mod compute;
@@ -33,6 +35,7 @@ pub struct PrimitiveArray {
     dtype: DType,
     buffer: ByteBuffer,
     validity: Validity,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 pub struct PrimitiveEncoding;
@@ -64,6 +67,7 @@ impl PrimitiveArray {
             dtype: DType::Primitive(T::PTYPE, nullability),
             buffer,
             validity: nullability.into(),
+            stats_set: Default::default(),
         }
     }
 
@@ -81,6 +85,7 @@ impl PrimitiveArray {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: buffer.into_byte_buffer(),
             validity,
+            stats_set: Default::default(),
         }
     }
 
@@ -284,6 +289,12 @@ impl ArrayImpl for PrimitiveArray {
     }
     fn _vtable(&self) -> VTableRef {
         VTableRef::from_static(&PrimitiveEncoding)
+    }
+}
+
+impl ArrayStatisticsImpl for PrimitiveArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 

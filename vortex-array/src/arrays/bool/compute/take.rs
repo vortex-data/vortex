@@ -39,7 +39,7 @@ impl TakeFn<BoolArray> for BoolEncoding {
         indices: &dyn Array,
     ) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
-            Mask::AllTrue(_) => indices.clone(),
+            Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
                 return Ok(ConstantArray::new(
                     Scalar::null(array.dtype().as_nullable()),
@@ -49,13 +49,13 @@ impl TakeFn<BoolArray> for BoolEncoding {
             }
             Mask::Values(_) => fill_null(indices, Scalar::from(0).cast(indices.dtype())?)?,
         };
-        let indices_nulls_zeroed = indices_nulls_zeroed.into_primitive()?;
+        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |$I| {
             take_valid_indices_unchecked::<$I>(array, &indices_nulls_zeroed)
         });
 
         // SAFETY: caller enforces indices are valid for array, and array has same len as validity.
-        let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
+        let validity = unsafe { array.validity().take_unchecked(indices)? };
         Ok(BoolArray::new_with_validity(buffer, validity).into_array())
     }
 

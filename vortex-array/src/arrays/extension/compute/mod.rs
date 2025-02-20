@@ -55,7 +55,7 @@ impl ComputeVTable for ExtensionEncoding {
 impl FilterFn<ExtensionArray> for ExtensionEncoding {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
-            ExtensionArray::new(array.ext_dtype().clone(), filter(&array.storage(), mask)?)
+            ExtensionArray::new(array.ext_dtype().clone(), filter(array.storage(), mask)?)
                 .into_array(),
         )
     }

@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
@@ -30,7 +30,10 @@ where
                 .as_any()
                 .downcast_ref::<E>()
                 .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
-            <E::Array as TryFrom<ArrayRef>>::try_from(array)?,
+            array
+                .as_any()
+                .downcast_ref()
+                .ok_or_else(|| vortex_err!("Mismatched array"))?,
             pattern,
             options,
         )

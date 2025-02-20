@@ -1,7 +1,7 @@
 mod compute;
 
 use std::fmt::Display;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
@@ -23,11 +23,11 @@ use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::VTableRef;
+use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
-    TryFromArrayRef,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    RkyvMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -36,6 +36,7 @@ pub struct ListArray {
     elements: ArrayRef,
     offsets: ArrayRef,
     validity: Validity,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 pub struct ListEncoding;
@@ -100,6 +101,7 @@ impl ListArray {
             elements,
             offsets,
             validity,
+            stats_set: Default::default(),
         })
     }
 
@@ -162,6 +164,12 @@ impl ArrayImpl for ListArray {
     }
 }
 
+impl ArrayStatisticsImpl for ListArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
 impl ArrayVariantsImpl for ListArray {
     fn _as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
         Some(self)
@@ -201,6 +209,8 @@ impl ArrayValidityImpl for ListArray {
         self.validity.to_logical(self.len())
     }
 }
+
+impl StatisticsVTable<ListArray> for ListEncoding {}
 
 #[cfg(feature = "test-harness")]
 impl ListArray {

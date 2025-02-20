@@ -14,7 +14,9 @@ use crate::builders::ArrayBuilder;
 use crate::stats::Statistics;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{Array, ArrayRef, ArrayVariantsImpl, Canonical, Encoding, EncodingId};
+use crate::{
+    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+};
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl:
@@ -23,6 +25,7 @@ pub trait ArrayImpl:
     + Debug
     + Clone
     + ArrayCanonicalImpl
+    + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
     + ArrayVisitorImpl
@@ -155,5 +158,9 @@ impl<A: ArrayImpl + 'static> Array for A {
 
     fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         ArrayVisitorImpl::_accept(self, visitor)
+    }
+
+    fn statistics(&self) -> &dyn Statistics {
+        self
     }
 }

@@ -24,6 +24,7 @@ use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_mask::Mask;
 
 use crate::builders::ArrayBuilder;
+use crate::stats::Statistics;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Canonical, EncodingId};
@@ -100,6 +101,10 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants {
 
     /// Accepts a visitor to traverse the array.
     fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()>;
+
+    /// Returns the statistics of the array.
+    // TODO(ngates): change how this works. It's weird.
+    fn statistics(&self) -> &dyn Statistics;
 }
 
 impl Array for Arc<dyn Array> {
@@ -173,6 +178,10 @@ impl Array for Arc<dyn Array> {
 
     fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         self.as_ref().accept(visitor)
+    }
+
+    fn statistics(&self) -> &dyn Statistics {
+        self.as_ref().statistics()
     }
 }
 

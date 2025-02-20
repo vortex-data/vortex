@@ -9,12 +9,12 @@ use vortex_mask::Mask;
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::{bool, BoolEncoding};
 use crate::builders::ArrayBuilder;
-use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayVisitorImpl, Canonical};
+use crate::{ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -126,6 +126,12 @@ impl ArrayCanonicalImpl for BoolArray {
     }
 }
 
+impl ArrayStatisticsImpl for BoolArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
 impl ArrayValidityImpl for BoolArray {
     #[inline]
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
@@ -166,13 +172,3 @@ impl ArrayVisitorImpl for BoolArray {
 }
 
 impl BoolArrayTrait for BoolArray {}
-
-impl ArrayStatistics for BoolArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
-        &self.stats_set
-    }
-
-    fn compute_statistic(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
-    }
-}

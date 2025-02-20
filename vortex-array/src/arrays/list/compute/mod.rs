@@ -52,7 +52,7 @@ impl ScalarAtFn<ListArray> for ListEncoding {
 impl SliceFn<ListArray> for ListEncoding {
     fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ListArray::try_new(
-            array.elements(),
+            array.elements().clone(),
             slice(array.offsets(), start, stop + 1)?,
             array.validity().slice(start, stop)?,
         )?
@@ -63,11 +63,11 @@ impl SliceFn<ListArray> for ListEncoding {
 impl MaskFn<ListArray> for ListEncoding {
     fn mask(&self, array: &ListArray, mask: Mask) -> VortexResult<ArrayRef> {
         ListArray::try_new(
-            array.elements(),
-            array.offsets(),
+            array.elements().clone(),
+            array.offsets().clone(),
             array.validity().mask(&mask)?,
         )
-        .map(IntoArray::into_array)
+        .map(|a| a.into_array())
     }
 }
 

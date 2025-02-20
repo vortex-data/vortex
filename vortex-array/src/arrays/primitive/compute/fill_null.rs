@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray as _};
+use crate::{Array, ArrayRef, IntoArray as _, ToCanonical};
 
 impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
@@ -22,13 +22,13 @@ impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
         Ok(match array.validity() {
             Validity::NonNullable | Validity::AllValid => {
                 match_each_native_ptype!(array.ptype(), |$T| {
-                    PrimitiveArray::new::<$T>(array.buffer().clone(), result_validity).into_array()
+                    PrimitiveArray::new_with_validity::<$T>(array.buffer().clone(), result_validity).into_array()
                 })
             }
             Validity::AllInvalid => ConstantArray::new(fill_value, array.len()).into_array(),
             Validity::Array(is_valid) => {
                 // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
-                let is_invalid = is_valid.into_bool()?.boolean_buffer().not();
+                let is_invalid = is_valid.to_bool()?.boolean_buffer().not();
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let mut buffer = BufferMut::copy_from(array.as_slice::<$T>());
                     let fill_value = fill_value
@@ -38,7 +38,7 @@ impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
                     for invalid_index in is_invalid.set_indices() {
                         buffer[invalid_index] = fill_value;
                     }
-                    PrimitiveArray::new(buffer, result_validity).into_array()
+                    PrimitiveArray::new_with_validity(buffer.freeze(), result_validity).into_array()
                 })
             }
         })

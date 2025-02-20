@@ -10,7 +10,7 @@ use vortex_scalar::ScalarValue;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::nbytes::NBytes;
-use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::Array;
 

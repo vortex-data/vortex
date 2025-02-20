@@ -7,11 +7,12 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
-use crate::stats::{ArrayStatistics, Stat, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::VTableRef;
+use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayImpl, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    EmptyMetadata, Encoding, EncodingId,
 };
 
 mod canonical;
@@ -89,13 +90,9 @@ impl ArrayValidityImpl for ConstantArray {
     }
 }
 
-impl ArrayStatistics for ConstantArray {
+impl ArrayStatisticsImpl for ConstantArray {
     fn stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
-    }
-
-    fn compute_statistic(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::constant(self.scalar.clone(), self.len()))
     }
 }
 
@@ -105,3 +102,5 @@ impl ArrayVisitorImpl for ConstantArray {
         Ok(())
     }
 }
+
+impl StatisticsVTable<ConstantArray> for ConstantEncoding {}

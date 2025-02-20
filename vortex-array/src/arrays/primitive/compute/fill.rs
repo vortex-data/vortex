@@ -46,7 +46,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
                                 last_value
                             })
                     );
-                    Ok(PrimitiveArray::new(filled, Validity::AllValid).into_array())
+                    Ok(PrimitiveArray::new(filled, Nullability::Nullable).into_array())
                 })
             }
         }

@@ -5,6 +5,7 @@ use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::Array;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
@@ -101,7 +102,7 @@ impl<'a, T: NativePType> SearchSortedNullsFirst<'a, T> {
     pub fn new(array: &'a PrimitiveArray) -> Self {
         Self {
             values: SearchSortedPrimitive::new(array),
-            validity: array.validity(),
+            validity: array.validity().clone(),
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
@@ -24,8 +24,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
 };
 
 mod accessor;
@@ -234,6 +234,7 @@ pub struct VarBinViewArray {
     buffers: Vec<ByteBuffer>,
     views: Buffer<BinaryView>,
     validity: Validity,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 pub struct VarBinViewEncoding;
@@ -454,6 +455,12 @@ impl ArrayImpl for VarBinViewArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::from_static(&VarBinViewEncoding)
+    }
+}
+
+impl ArrayStatisticsImpl for VarBinViewArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 

@@ -4,6 +4,7 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Display};
+use std::sync::{Arc, RwLock};
 
 use futures_util::stream;
 use itertools::Itertools;
@@ -15,7 +16,7 @@ use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::BoolEncoding;
+use crate::arrays::{BoolEncoding, ConstantArray};
 use crate::compute::{scalar_at, search_sorted_usize, SearchSorted, SearchSortedSide};
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -27,8 +28,8 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
 };
 
 mod canonical;
@@ -43,7 +44,7 @@ pub struct ChunkedArray {
     len: usize,
     chunk_offsets: Buffer<u64>,
     chunks: Vec<ArrayRef>,
-    stats: StatsSet,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 pub struct ChunkedEncoding;
@@ -81,7 +82,7 @@ impl ChunkedArray {
             len: curr_offset.try_into().vortex_unwrap(),
             chunk_offsets: chunk_offsets.freeze(),
             chunks,
-            stats: Default::default(),
+            stats_set: Default::default(),
         }
     }
 
@@ -209,6 +210,12 @@ impl ArrayImpl for ChunkedArray {
 
     fn _vtable(&self) -> VTableRef {
         VTableRef::from_static(&ChunkedEncoding)
+    }
+}
+
+impl ArrayStatisticsImpl for ChunkedArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 

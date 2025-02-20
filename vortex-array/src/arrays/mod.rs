@@ -15,8 +15,8 @@ mod struct_;
 mod varbin;
 mod varbinview;
 
-#[cfg(feature = "arbitrary")]
-pub mod arbitrary;
+// #[cfg(feature = "arbitrary")]
+// pub mod arbitrary;
 //#[cfg(test)]
 //mod test_compatibility;
 
