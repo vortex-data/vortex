@@ -27,6 +27,7 @@ use crate::{ArrayRef, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetada
 
 #[derive(Clone, Debug)]
 pub struct ListArray {
+    dtype: DType,
     elements: ArrayRef,
     offsets: ArrayRef,
     validity: Validity,
@@ -89,27 +90,12 @@ impl ListArray {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
         }
 
-        let offset_ptype = PType::try_from(offsets.dtype())?;
-
-        let list_dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
-
-        let mut children = vec![elements, offsets];
-        if let Some(val) = validity.into_array() {
-            children.push(val);
-        }
-
-        Self::try_from_parts(
-            list_dtype,
-            list_len,
-            RkyvMetadata(ListMetadata {
-                validity: validity_metadata,
-                elements_len: element_len,
-                offset_ptype,
-            }),
-            vec![].into(),
-            children.into(),
-            StatsSet::default(),
-        )
+        Ok(Self {
+            dtype: DType::List(Arc::new(elements.dtype().clone()), nullability),
+            elements,
+            offsets,
+            validity,
+        })
     }
 
     pub fn validity(&self) -> Validity {
