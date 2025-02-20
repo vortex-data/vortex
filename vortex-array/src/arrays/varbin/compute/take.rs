@@ -12,7 +12,7 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
-    fn take(&self, array: &VarBinArray, indices: &Array) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().into_primitive()?;
         let data = array.bytes();
         let indices = indices.to_primitive()?;

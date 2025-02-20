@@ -33,7 +33,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         Ok(BoolArray::new_with_validity(buffer, array.validity().take(indices)?).into_array())
     }
 
-    unsafe fn take_unchecked(&self, array: &BoolArray, indices: &Array) -> VortexResult<ArrayRef> {
+    unsafe fn take_unchecked(
+        &self,
+        array: &BoolArray,
+        indices: &dyn Array,
+    ) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {

@@ -7,6 +7,7 @@ use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
 use crate::compute::scalar_at;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::ArrayRef;
@@ -17,7 +18,7 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     }
 }
 
-pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target =ArrayRef>>(
+pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Deref<Target = ArrayRef>>(
     array: &T,
     stat: Stat,
 ) -> VortexResult<StatsSet> {

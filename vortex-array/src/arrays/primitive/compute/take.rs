@@ -13,7 +13,7 @@ use crate::{Array, ArrayRef, IntoArray};
 
 impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
-    fn take(&self, array: &PrimitiveArray, indices: &Array) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
         let validity = array.validity().take(&indices)?;
 

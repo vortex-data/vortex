@@ -14,7 +14,7 @@ use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical};
+use crate::{ArrayImpl, ArrayVisitorImpl, Canonical};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -151,12 +151,6 @@ impl ArrayValidityImpl for BoolArray {
 impl ArrayVariantsImpl for BoolArray {
     fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
         Some(self)
-    }
-}
-
-impl ArrayStatisticsImpl for BoolArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

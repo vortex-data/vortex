@@ -1,5 +1,5 @@
 pub mod dictionary;
-// mod stats;
+mod stats;
 
 use std::fmt::Debug;
 use std::hash::Hash;

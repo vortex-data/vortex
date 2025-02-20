@@ -11,8 +11,7 @@ use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata,
-    Encoding, EncodingId,
+    Array, ArrayImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
 };
 
 mod canonical;
@@ -50,12 +49,6 @@ impl ConstantArray {
     /// Returns the [`Scalar`] value of this constant array.
     pub fn scalar(&self) -> &Scalar {
         &self.scalar
-    }
-}
-
-impl ArrayStatisticsImpl for ConstantArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

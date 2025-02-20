@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 pub use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
+pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
@@ -23,15 +24,15 @@ use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, RkyvMetadata,
 };
 
 mod accessor;
 pub mod builder;
 mod canonical;
 mod compute;
-// mod stats;
+mod stats;
 mod variants;
 
 #[derive(Clone, Debug)]
@@ -221,12 +222,6 @@ impl ArrayVisitorImpl for VarBinArray {
         visitor.visit_child("offsets", self.offsets())?;
         visitor.visit_buffer(self.bytes())?; // TODO(ngates): sliced bytes?
         visitor.visit_validity(self.validity())
-    }
-}
-
-impl ArrayStatisticsImpl for VarBinArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

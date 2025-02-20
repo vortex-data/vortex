@@ -81,7 +81,7 @@ impl SliceFn<ExtensionArray> for ExtensionEncoding {
 }
 
 impl TakeFn<ExtensionArray> for ExtensionEncoding {
-    fn take(&self, array: &ExtensionArray, indices: &Array) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
                 .into_array(),

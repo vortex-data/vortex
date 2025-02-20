@@ -19,23 +19,23 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk)?;
             return Ok(ChunkedArray::try_new_unchecked(
-                vec![slice(&chunk, offset_in_first_chunk, length_in_last_chunk)?],
+                vec![slice(chunk, offset_in_first_chunk, length_in_last_chunk)?],
                 array.dtype().clone(),
             )
             .into_array());
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
-            .map(|i| array.chunk(i))
+            .map(|i| array.chunk(i).cloned())
             .collect::<VortexResult<Vec<_>>>()?;
         if let Some(c) = chunks.first_mut() {
-            *c = slice(&*c, offset_in_first_chunk, c.len())?;
+            *c = slice(c, offset_in_first_chunk, c.len())?;
         }
 
         if length_in_last_chunk == 0 {
             chunks.pop();
         } else if let Some(c) = chunks.last_mut() {
-            *c = slice(&*c, 0, length_in_last_chunk)?;
+            *c = slice(c, 0, length_in_last_chunk)?;
         }
 
         Ok(ChunkedArray::try_new_unchecked(chunks, array.dtype().clone()).into_array())

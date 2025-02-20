@@ -12,8 +12,8 @@ use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId,
 };
 mod compute;
 
@@ -53,12 +53,6 @@ impl ExtensionArray {
     #[inline]
     pub fn id(&self) -> &ExtID {
         self.ext_dtype().id()
-    }
-}
-
-impl ArrayStatisticsImpl for ExtensionArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

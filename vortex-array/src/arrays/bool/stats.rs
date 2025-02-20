@@ -9,15 +9,10 @@ use vortex_mask::Mask;
 use vortex_scalar::ScalarValue;
 
 use crate::arrays::{BoolArray, BoolEncoding};
+use crate::nbytes::NBytes;
 use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
-
-impl ArrayStatistics for BoolArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {}
-
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
-    }
-}
+use crate::vtable::StatisticsVTable;
+use crate::Array;
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
@@ -34,7 +29,7 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
         }
 
         match array.validity_mask()? {
-            Mask::AllTrue(_) => self.compute_statistics(&array.boolean_buffer(), stat),
+            Mask::AllTrue(_) => self.compute_statistics(array.boolean_buffer(), stat),
             Mask::AllFalse(v) => Ok(StatsSet::nulls(v, array.dtype())),
             Mask::Values(values) => self.compute_statistics(
                 &NullableBools(&array.boolean_buffer(), values.boolean_buffer()),

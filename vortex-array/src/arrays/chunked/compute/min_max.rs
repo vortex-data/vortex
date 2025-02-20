@@ -12,7 +12,7 @@ impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
             .array_iterator()
             .map(|chunk| {
                 let chunk = chunk?;
-                if let Some(min_max) = min_max(chunk)? {
+                if let Some(min_max) = min_max(&chunk)? {
                     min_max_all_null = false;
                     Ok((Some(min_max.min), Some(min_max.max)))
                 } else {

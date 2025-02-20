@@ -20,13 +20,13 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    validity, Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 
 mod compute;
 mod patch;
-// mod stats;
+mod stats;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -269,12 +269,6 @@ impl PrimitiveArray {
         );
 
         PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity().clone())
-    }
-}
-
-impl ArrayStatisticsImpl for PrimitiveArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

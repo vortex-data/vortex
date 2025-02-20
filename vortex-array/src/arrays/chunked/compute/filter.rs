@@ -1,10 +1,12 @@
 use vortex_buffer::BufferMut;
+use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
+use crate::Canonical::Null;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
@@ -68,18 +70,15 @@ pub(crate) fn chunk_filters(
     array: &ChunkedArray,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ChunkFilter>> {
-    // Pre-materialize the chunk ends for performance.
-    // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
-    let chunk_ends = array.chunk_offsets().to_primitive()?;
-    let chunk_ends = chunk_ends.as_slice::<u64>();
+    let chunk_offsets = array.chunk_offsets();
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
     for (slice_start, slice_end) in slices {
-        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
+        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_offsets);
         // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
         // want to index into the unused chunk.
-        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_ends);
+        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_offsets);
         // Adjust back to an exclusive range
         let end_idx = end_idx + 1;
 
@@ -99,7 +98,7 @@ pub(crate) fn chunk_filters(
             // end chunk: append a slice from (0, end_idx).
             // chunks between start and end: append ChunkFilter::All.
             let start_chunk_len: usize =
-                (chunk_ends[start_chunk + 1] - chunk_ends[start_chunk]).try_into()?;
+                (chunk_offsets[start_chunk + 1] - chunk_offsets[start_chunk]).try_into()?;
             let start_slice = (start_idx, start_chunk_len);
             match &mut chunk_filters[start_chunk] {
                 f @ (ChunkFilter::All | ChunkFilter::None) => {
@@ -135,13 +134,10 @@ fn filter_indices(
     let mut current_chunk_id = 0;
     let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
 
-    // Avoid find_chunk_idx and use our own to avoid the overhead.
-    // The array should only be some thousands of values in the general case.
-    let chunk_ends = array.chunk_offsets().into_primitive()?;
-    let chunk_ends = chunk_ends.as_slice::<u64>();
+    let chunk_offsets = array.chunk_offsets();
 
     for set_index in indices {
-        let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);
+        let (chunk_id, index) = find_chunk_idx(set_index, chunk_offsets);
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
@@ -150,8 +146,7 @@ fn filter_indices(
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
                 let filtered_chunk = take(
                     chunk,
-                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
-                        .into_array(),
+                    &PrimitiveArray::new(chunk_indices.clone().freeze(), Nullability::NonNullable),
                 )?;
                 result.push(filtered_chunk);
             }
@@ -169,8 +164,8 @@ fn filter_indices(
             .chunk(current_chunk_id)
             .vortex_expect("find_chunk_idx must return valid chunk ID");
         let filtered_chunk = take(
-            &chunk,
-            PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).into_array(),
+            chunk,
+            &PrimitiveArray::new(chunk_indices.clone().freeze(), Nullability::NonNullable),
         )?;
         result.push(filtered_chunk);
     }

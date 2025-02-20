@@ -14,7 +14,7 @@ use crate::{Array, ArrayRef, IntoArray};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
-    fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Compute the new validity
 
         // This is valid since all elements (of all arrays) even null values are inside must be the

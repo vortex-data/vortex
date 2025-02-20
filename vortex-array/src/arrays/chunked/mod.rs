@@ -27,14 +27,14 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, IntoArray,
 };
 
 mod canonical;
 mod compute;
-// // mod stats;
 mod encoding;
+mod stats;
 mod variants;
 
 #[derive(Clone, Debug)]
@@ -193,12 +193,6 @@ impl FromIterator<ArrayRef> for ChunkedArray {
             .map(|c| c.dtype().clone())
             .vortex_expect("Cannot infer DType from an empty iterator");
         Self::try_new(chunks, dtype).vortex_expect("Failed to create chunked array from iterator")
-    }
-}
-
-impl ArrayStatisticsImpl for ChunkedArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

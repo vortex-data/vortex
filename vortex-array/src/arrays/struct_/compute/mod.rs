@@ -95,7 +95,7 @@ impl ScalarAtFn<StructArray> for StructEncoding {
 }
 
 impl TakeFn<StructArray> for StructEncoding {
-    fn take(&self, array: &StructArray, indices: &Array) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         StructArray::try_new(
             array.names().clone(),
             array

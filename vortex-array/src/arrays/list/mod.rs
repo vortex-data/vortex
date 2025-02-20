@@ -25,9 +25,9 @@ use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    RkyvMetadata, TryFromArrayRef,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -143,12 +143,6 @@ impl ListArray {
     // TODO: fetches the elements of the array ignoring validity
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
-    }
-}
-
-impl ArrayStatisticsImpl for ListArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

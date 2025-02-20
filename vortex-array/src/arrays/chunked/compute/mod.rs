@@ -76,7 +76,7 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
     fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {
-            cast_chunks.push(try_cast(&chunk, dtype)?);
+            cast_chunks.push(try_cast(chunk, dtype)?);
         }
 
         Ok(ChunkedArray::try_new_unchecked(cast_chunks, dtype.clone()).into_array())

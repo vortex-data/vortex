@@ -39,7 +39,15 @@ where
         rhs: &dyn Array,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayRef>> {
-        let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
+        let array_ref = lhs
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = lhs
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }

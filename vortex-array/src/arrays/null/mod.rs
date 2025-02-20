@@ -10,8 +10,8 @@ use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    ArrayCanonicalImpl, ArrayImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 mod compute;
 
@@ -30,12 +30,6 @@ impl Encoding for NullEncoding {
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self { len }
-    }
-}
-
-impl ArrayStatisticsImpl for NullArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
     }
 }
 

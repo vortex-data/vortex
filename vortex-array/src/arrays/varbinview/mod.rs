@@ -24,13 +24,13 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
 };
 
 mod accessor;
 mod compute;
-// mod stats;
+mod stats;
 mod variants;
 
 #[derive(Clone, Copy, Debug)]
@@ -439,12 +439,6 @@ where
     }
 
     builder.finish()
-}
-
-impl ArrayStatisticsImpl for VarBinViewArray {
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
-    }
 }
 
 impl ArrayImpl for VarBinViewArray {

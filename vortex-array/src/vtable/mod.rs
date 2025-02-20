@@ -7,11 +7,13 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 mod compute;
+mod statistics;
 
 pub use compute::*;
+pub use statistics::*;
 
 use crate::encoding::EncodingId;
-use crate::{ArrayRef, Encoding};
+use crate::{Array, ArrayRef, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
 #[derive(Debug, Clone)]
@@ -53,7 +55,9 @@ impl Deref for VTableRef {
 ///
 /// It is recommended that you use [`crate::impl_encoding`] to assist in writing a new
 /// array encoding.
-pub trait EncodingVTable: 'static + Sync + Send + ComputeVTable {
+pub trait EncodingVTable:
+    'static + Sync + Send + ComputeVTable + StatisticsVTable<dyn Array>
+{
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
 
@@ -75,7 +79,7 @@ impl Hash for dyn EncodingVTable + '_ {
     }
 }
 
-impl<E: Encoding + ComputeVTable> EncodingVTable for E {
+impl<E: Encoding + ComputeVTable + StatisticsVTable<dyn Array>> EncodingVTable for E {
     fn id(&self) -> EncodingId {
         E::ID
     }

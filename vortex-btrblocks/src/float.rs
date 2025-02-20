@@ -1,5 +1,5 @@
 mod dictionary;
-// mod stats;
+mod stats;
 
 use vortex_alp::{alp_encode, ALPArray, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};

@@ -57,7 +57,7 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 }
 
 impl TakeFn<NullArray> for NullEncoding {
-    fn take(&self, array: &NullArray, indices: &Array) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
         // Enforce all indices are valid
@@ -72,7 +72,11 @@ impl TakeFn<NullArray> for NullEncoding {
         Ok(NullArray::new(indices.len()).into_array())
     }
 
-    unsafe fn take_unchecked(&self, _array: &NullArray, indices: &Array) -> VortexResult<ArrayRef> {
+    unsafe fn take_unchecked(
+        &self,
+        _array: &NullArray,
+        indices: &dyn Array,
+    ) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(indices.len()).into_array())
     }
 }

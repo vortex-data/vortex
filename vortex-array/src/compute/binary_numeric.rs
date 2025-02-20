@@ -19,7 +19,6 @@ pub trait BinaryNumericFn<A: ?Sized> {
 impl<E: Encoding> BinaryNumericFn<dyn Array> for E
 where
     E: BinaryNumericFn<E::Array>,
-    for<'a> E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn binary_numeric(
         &self,
@@ -27,7 +26,15 @@ where
         rhs: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
-        let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
+        let array_ref = lhs
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = lhs
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         BinaryNumericFn::binary_numeric(encoding, array_ref, rhs, op)
     }
 }
