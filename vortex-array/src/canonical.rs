@@ -1,11 +1,14 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
+use std::any::Any;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 
 use crate::arrays::{
     BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
@@ -13,6 +16,7 @@ use crate::arrays::{
 use crate::arrow::IntoArrowArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
+use crate::visitor::ArrayVisitor;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
@@ -48,14 +52,6 @@ pub enum Canonical {
     List(ListArray),
     VarBinView(VarBinViewArray),
     Extension(ExtensionArray),
-}
-
-impl Deref for Canonical {
-    type Target = dyn Array;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
-    }
 }
 
 impl Canonical {
@@ -117,6 +113,94 @@ impl Canonical {
             Canonical::Extension(a) => Ok(a),
             _ => vortex_bail!("Cannot unwrap ExtensionArray from {:?}", &self),
         }
+    }
+}
+
+impl AsRef<dyn Array> for Canonical {
+    fn as_ref(&self) -> &(dyn Array + 'static) {
+        match &self {
+            Canonical::Null(a) => a,
+            Canonical::Bool(a) => a,
+            Canonical::Primitive(a) => a,
+            Canonical::Struct(a) => a,
+            Canonical::List(a) => a,
+            Canonical::VarBinView(a) => a,
+            Canonical::Extension(a) => a,
+        }
+    }
+}
+
+impl Array for Canonical {
+    fn as_any(&self) -> &dyn Any {
+        self.as_ref().as_any()
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn to_array(&self) -> ArrayRef {
+        self.as_ref().to_array()
+    }
+
+    fn into_array(self) -> ArrayRef {
+        match self {
+            Canonical::Null(a) => a.into_array(),
+            Canonical::Bool(a) => a.into_array(),
+            Canonical::Primitive(a) => a.into_array(),
+            Canonical::Struct(a) => a.into_array(),
+            Canonical::List(a) => a.into_array(),
+            Canonical::VarBinView(a) => a.into_array(),
+            Canonical::Extension(a) => a.into_array(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+
+    fn dtype(&self) -> &DType {
+        self.as_ref().dtype()
+    }
+
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.as_ref().is_valid(index)
+    }
+
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        self.as_ref().is_invalid(index)
+    }
+
+    fn all_valid(&self) -> VortexResult<bool> {
+        self.as_ref().all_valid()
+    }
+
+    fn all_invalid(&self) -> VortexResult<bool> {
+        self.as_ref().all_invalid()
+    }
+
+    fn valid_count(&self) -> VortexResult<usize> {
+        self.as_ref().valid_count()
+    }
+
+    fn invalid_count(&self) -> VortexResult<usize> {
+        self.as_ref().invalid_count()
+    }
+
+    fn validity_mask(&self) -> VortexResult<Mask> {
+        self.as_ref().validity_mask()
+    }
+
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        self.as_ref().to_canonical()
+    }
+
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        self.as_ref().append_to_builder(builder)
+    }
+
+    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        self.as_ref().accept(visitor)
     }
 }
 

@@ -131,12 +131,13 @@ pub trait ArraySerde {
         ctx: ContextRef,
         dtype: DType,
         length: usize,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<Self>
+    where
+        Self: Sized,
+    {
         ArrayParts::try_from(bytes)?.decode(ctx, dtype, length)
     }
 }
-
-impl<A: Array> ArraySerde for A {}
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {

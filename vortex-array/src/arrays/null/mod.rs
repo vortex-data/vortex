@@ -14,7 +14,7 @@ use crate::{
 
 // mod compute;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
 }
