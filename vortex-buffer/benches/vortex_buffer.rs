@@ -101,7 +101,7 @@ impl<T> Push<T> for BufferMut<T> {
 
 #[divan::bench(
     types = [Arrow<MutableBuffer>, BufferMut<i32>],
-    args = [1, 100, 1_000, 10_000, 1_000_000],
+    args = [1, 100, 1_000, 100_000, 1_000_000],
 )]
 fn push_from_iter<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
     bencher
@@ -115,7 +115,7 @@ fn push_from_iter<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
 
 #[divan::bench(
     types = [Arrow<MutableBuffer>, BufferMut<i32>],
-    args = [1, 100, 1_000, 10_000, 1_000_000],
+    args = [1, 100, 1_000, 10_000, 100_000, 1_000_000],
 )]
 fn push_with_capacity<B: Push<i32> + WithCapacity<i32>>(bencher: Bencher, length: i32) {
     bencher
