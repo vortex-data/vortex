@@ -4,9 +4,9 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use parking_lot::Mutex;
+use vortex_error::VortexExpect;
 use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 
 /// A metric registry for various performance metrics.
@@ -14,7 +14,7 @@ use witchcraft_metrics::{MetricRegistry, Metrics, MetricsIter};
 pub struct VortexMetrics {
     registry: MetricRegistry,
     default_tags: DefaultTags,
-    children: Mutex<Vec<Arc<VortexMetrics>>>,
+    children: RwLock<Vec<Arc<VortexMetrics>>>,
 }
 
 impl Debug for VortexMetrics {
@@ -65,7 +65,10 @@ impl VortexMetrics {
         let child = Arc::new(Self::new_with_tags(
             self.default_tags.merge(&additional_tags.into()),
         ));
-        self.children.lock().push(child.clone());
+        self.children
+            .write()
+            .vortex_expect("failed to acquire write lock on children")
+            .push(child.clone());
         child
     }
 
@@ -111,7 +114,10 @@ impl VortexMetrics {
     ///
     /// Note: Tag values may contain sensitive information and should be properly sanitized before external exposure.
     pub fn metrics(&self) -> MetricsSnapshot {
-        let children = self.children.lock();
+        let children = self
+            .children
+            .read()
+            .vortex_expect("failed to acquire read lock on children");
         let snapshots = children.iter().map(|c| c.metrics());
         MetricsSnapshot(
             std::iter::once((self.default_tags.clone(), self.registry.metrics()))

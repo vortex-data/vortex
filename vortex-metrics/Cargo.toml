@@ -14,7 +14,6 @@ readme = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
-parking_lot = { workspace = true }
 vortex-error = { workspace = true }
 witchcraft-metrics = { workspace = true }
 
