@@ -1,5 +1,4 @@
 use core::cell::LazyCell;
-use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::io::Cursor;
 use std::path::Path;
@@ -27,6 +26,7 @@ use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
 use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 use vortex::arrays::{ChunkedArray, StructArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
@@ -152,13 +152,12 @@ fn benchmark_compress<F, U>(
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {
-        let level = env::var("RUST_LOG")
-            .ok()
-            .and_then(|s| LevelFilter::from_str(&s).ok())
-            .unwrap_or(LevelFilter::OFF);
+        let filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::OFF.into())
+            .from_env_lossy();
 
         tracing_subscriber::fmt()
-            .with_max_level(level)
+            .with_env_filter(filter)
             .with_writer(std::io::stderr)
             .init();
     }
@@ -259,7 +258,7 @@ fn benchmark_compress<F, U>(
         .map(|x| Regex::new(&x).unwrap().is_match(bench_name))
         .unwrap_or(false)
     {
-        eprintln!(
+        println!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex:parquet-zstd size/{}", bench_name),
@@ -270,7 +269,7 @@ fn benchmark_compress<F, U>(
             .unwrap()
         );
 
-        eprintln!(
+        println!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex:raw size/{}", bench_name),
@@ -281,7 +280,7 @@ fn benchmark_compress<F, U>(
             .unwrap()
         );
 
-        eprintln!(
+        println!(
             "{}",
             serde_json::to_string(&GenericBenchmarkResults {
                 name: &format!("vortex size/{}", bench_name),

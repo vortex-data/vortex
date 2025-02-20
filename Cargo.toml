@@ -213,6 +213,7 @@ cargo = { level = "deny", priority = -1 }
 cast_possible_truncation = "deny"
 collection_is_never_read = "deny"
 cognitive_complexity = "deny"
+dbg_macro = "deny"
 debug_assert_with_mut_call = "deny"
 derive_partial_eq_without_eq = "deny"
 exit = "deny"

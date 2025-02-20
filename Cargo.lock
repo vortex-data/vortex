@@ -5663,6 +5663,7 @@ name = "vortex-metrics"
 version = "0.24.0"
 dependencies = [
  "getrandom 0.2.15",
+ "vortex-error",
  "witchcraft-metrics",
 ]
 

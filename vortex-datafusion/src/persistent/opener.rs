@@ -7,6 +7,7 @@ use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
@@ -26,6 +27,7 @@ pub(crate) struct VortexFileOpener {
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
+    metrics: VortexMetrics,
 }
 
 impl VortexFileOpener {
@@ -39,6 +41,7 @@ impl VortexFileOpener {
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
+        metrics: VortexMetrics,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -49,22 +52,23 @@ impl VortexFileOpener {
             file_layout_cache,
             projected_arrow_schema,
             batch_size,
+            metrics,
         })
     }
 }
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let metrics = VortexMetrics::default_with_tags(
-            [("filename", file_meta.location().to_string())].as_slice(),
-        );
+        let file_metrics = self
+            .metrics
+            .child_with_tags([("filename", file_meta.location().to_string())]);
         let read_at = InstrumentedReadAt::new(
             ObjectStoreReadAt::new(
                 self.object_store.clone(),
                 file_meta.location().clone(),
                 Some(self.scheme.clone()),
             ),
-            &metrics,
+            &file_metrics,
         );
 
         let filter = self.filter.clone();
@@ -79,6 +83,7 @@ impl FileOpener for VortexFileOpener {
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
+                .with_metrics(file_metrics)
                 .with_file_layout(
                     file_layout_cache
                         .try_get(&file_meta.object_meta, object_store)
@@ -87,7 +92,7 @@ impl FileOpener for VortexFileOpener {
                 .open()
                 .await?;
 
-            Ok(vxf
+            let mut scan = vxf
                 .scan()
                 .with_projection(projection.clone())
                 .with_some_filter(filter.clone())
@@ -96,7 +101,15 @@ impl FileOpener for VortexFileOpener {
                 // but at the moment our scanner has too much overhead to process small
                 // batches efficiently.
                 .with_split_by(SplitBy::RowCount(8 * batch_size))
-                .with_task_executor(executor)
+                .with_task_executor(executor);
+
+            if let Some(row_range) = file_meta.range {
+                let range = row_range.start as u64..row_range.end as u64;
+                let row_indices = Buffer::from_iter(range);
+                scan = scan.with_row_indices(row_indices);
+            }
+
+            Ok(scan
                 .into_array_stream()?
                 .map(move |array| {
                     let st = array?.into_struct()?;

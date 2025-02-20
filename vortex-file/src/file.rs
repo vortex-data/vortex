@@ -17,7 +17,7 @@ pub struct VortexFile<F: FileType> {
     pub(crate) ctx: ContextRef,
     pub(crate) file_layout: FileLayout,
     pub(crate) segment_cache: Arc<dyn SegmentCache>,
-    pub(crate) metrics: Arc<VortexMetrics>,
+    pub(crate) metrics: VortexMetrics,
     pub(crate) _marker: PhantomData<F>,
 }
 

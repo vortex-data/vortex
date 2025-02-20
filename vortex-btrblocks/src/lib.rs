@@ -235,7 +235,6 @@ pub struct BtrBlocksCompressor;
 impl BtrBlocksCompressor {
     #[allow(clippy::only_used_in_recursion)]
     pub fn compress(&self, array: Array) -> VortexResult<Array> {
-        // println!("compressing array of len {}", array.len());
         match array.into_canonical()? {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.

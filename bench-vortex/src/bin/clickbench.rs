@@ -13,6 +13,7 @@ use clap::Parser;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use log::{info, warn};
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use tracing::info_span;
@@ -98,7 +99,7 @@ fn main() {
     (0_u32..100).into_par_iter().for_each(|idx| {
         let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
         idempotent(&output_path, |output_path| {
-            eprintln!("Downloading file {idx}");
+            info!("Downloading file {idx}");
             let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
 
 
@@ -112,7 +113,7 @@ fn main() {
                           break;
                     },
                     Err(e) => {
-                        eprintln!("Request for file {idx} timed out, retying for the {attempt} time");
+                        warn!("Request for file {idx} timed out, retying for the {attempt} time");
                         output = Some(Err(e));
                     }
                 }
