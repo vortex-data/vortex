@@ -5,6 +5,7 @@ use arrow_schema::SchemaRef;
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
+use datafusion_common::stats::Precision;
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
@@ -14,6 +15,7 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Plan
 use itertools::Itertools;
 use object_store::ObjectStoreScheme;
 use vortex_array::ContextRef;
+use vortex_error::VortexExpect;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{and, VortexExpr};
 
@@ -230,6 +232,33 @@ fn repartition_by_size(
     assert_eq!(total_file_count, partitions.iter().flatten().count());
 
     partitions
+}
+
+fn repartition_by_rows(
+    all_files: Vec<&PartitionedFile>,
+    target_partitions: usize,
+) -> Option<Vec<Vec<PartitionedFile>>> {
+    let file_groups = Vec::with_capacity(target_partitions);
+
+    // We first check that all files have the statistics we care about (exact row number)
+    let total_rows = all_files
+        .iter()
+        .fold(Precision::Exact(0_usize), |acc, file| {
+            let file_num_rows = file
+                .statistics
+                .as_ref()
+                .map_or(Precision::Absent, |stats| stats.num_rows);
+            acc.add(&file_num_rows)
+        });
+
+    if !total_rows.is_exact().unwrap_or_default() {
+        return None;
+    }
+
+    let total_rows = *total_rows.get_value().vortex_expect("contains value");
+    let target_partition_size = total_rows.div_ceil(target_partitions);
+
+    Some(file_groups)
 }
 
 #[cfg(test)]
