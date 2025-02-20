@@ -287,7 +287,7 @@ impl<D: ScanDriver> Scan<D> {
                 }
             })
             .map(move |processing_task| task_executor.spawn(processing_task))
-            .buffered(self.concurrency)
+            .buffer_unordered(self.concurrency)
             .filter_map(|v| async move { v.unnest().transpose() });
 
         let io_stream = self.driver.io_stream();
