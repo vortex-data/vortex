@@ -117,7 +117,7 @@ pub struct JsonValue {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
-    pub unit: Cow<'static, str>,
+    pub unit: Option<Cow<'static, str>>,
     pub value: MeasurementValue,
     pub time: Option<u128>,
     pub bytes: Option<u64>,
@@ -174,7 +174,7 @@ impl ToJson for TimingMeasurement {
         JsonValue {
             name: self.name.clone(),
             storage: Some(self.storage.clone()),
-            unit: Cow::from("ns"),
+            unit: Some(Cow::from("ns")),
             value: MeasurementValue::Int(self.time.as_nanos()),
             bytes: None,
             time: None,
@@ -205,7 +205,7 @@ impl ToJson for QueryMeasurement {
         JsonValue {
             name,
             storage: Some(self.storage.clone()),
-            unit: Cow::from("ns"),
+            unit: Some(Cow::from("ns")),
             value: MeasurementValue::Int(self.time.as_nanos()),
             bytes: None,
             time: None,
@@ -245,7 +245,7 @@ impl ToJson for ThroughputMeasurement {
         JsonValue {
             name,
             storage: None,
-            unit: Cow::from("bytes/ns"),
+            unit: Some(Cow::from("bytes/ns")),
             value: MeasurementValue::Float((self.bytes as f64) / self.time.as_nanos() as f64),
             time: Some(self.time.as_nanos()),
             bytes: Some(self.bytes),
@@ -279,7 +279,7 @@ impl ToJson for CustomUnitMeasurement {
         JsonValue {
             name: self.name.clone(),
             storage: None,
-            unit: self.unit.clone(),
+            unit: None,
             value: MeasurementValue::Float(self.value),
             time: None,
             bytes: None,
