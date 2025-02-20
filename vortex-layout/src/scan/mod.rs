@@ -56,6 +56,7 @@ pub struct ScanBuilder<D: ScanDriver> {
     split_by: SplitBy,
     canonicalize: bool,
     // The number of splits to make progress on concurrently.
+    #[allow(dead_code)]
     concurrency: usize,
 }
 
@@ -344,7 +345,7 @@ impl<D: ScanDriver> Scan<D> {
                 }
             })
             .map(move |processing_task| task_executor.spawn(processing_task))
-            .buffered(self.concurrency)
+            .buffered(1)
             .filter_map(|v| async move { v.unnest().transpose() });
 
         let io_stream = self.driver.io_stream();
