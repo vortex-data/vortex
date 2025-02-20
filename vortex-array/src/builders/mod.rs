@@ -23,7 +23,7 @@ use vortex_scalar::{
 };
 
 use crate::builders::struct_::StructBuilder;
-use crate::ArrayRef;
+use crate::{Array, ArrayImpl, ArrayRef};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -55,7 +55,7 @@ pub trait ArrayBuilder: Send {
     fn append_nulls(&mut self, n: usize);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
-    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()>;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
     /// Constructs an Array from the builder components.
     ///

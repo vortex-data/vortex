@@ -4,7 +4,7 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
-use crate::{ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
@@ -18,7 +18,7 @@ impl Datum {
     pub fn try_new(array: ArrayRef) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: slice(array, 0, 1)?.into_arrow_preferred()?,
+                array: slice(&array, 0, 1)?.into_arrow_preferred()?,
                 is_scalar: true,
             })
         } else {

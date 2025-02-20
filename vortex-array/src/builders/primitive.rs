@@ -12,7 +12,7 @@ use crate::builders::ArrayBuilder;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayRef, IntoArray, ToCanonical as _};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical as _};
 
 pub struct PrimitiveBuilder<T: NativePType> {
     pub values: BufferMut<T>,
@@ -51,8 +51,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn patch(&mut self, patches: Patches, starting_at: usize) -> VortexResult<()> {
         let (array_len, indices_offset, indices, values) = patches.into_parts();
         assert!(starting_at + array_len == self.len());
-        let indices = indices.into_primitive()?;
-        let values = values.into_primitive()?;
+        let indices = indices.to_primitive()?;
+        let values = values.to_primitive()?;
         let validity = values.validity();
         let values = values.as_slice::<T>();
         match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
@@ -64,7 +64,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         &mut self,
         indices: PrimitiveArray,
         values: &[T],
-        validity: Validity,
+        validity: &Validity,
         starting_at: usize,
         indices_offset: usize,
     ) -> VortexResult<()> {
@@ -116,7 +116,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             }
         };
 
-        PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
+        PrimitiveArray::new_with_validity(std::mem::take(&mut self.values).freeze(), validity)
     }
 
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
@@ -156,8 +156,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
-        let array = array.into_canonical()?.into_primitive()?;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        let array = array.to_canonical()?.into_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");
         }

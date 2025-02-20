@@ -19,14 +19,14 @@ use crate::compute::{scalar_at, search_sorted_usize, SearchSorted, SearchSortedS
 use crate::encoding::encoding_ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
-use crate::stats::StatsSet;
+use crate::stats::{Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
 };
 
 mod canonical;
@@ -192,7 +192,15 @@ impl FromIterator<ArrayRef> for ChunkedArray {
     }
 }
 
+impl ArrayStatisticsImpl for ChunkedArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for ChunkedArray {
+    type Encoding = ChunkedEncoding;
+
     fn _len(&self) -> usize {
         self.len
     }

@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
 use crate::compute::{binary_numeric, slice, try_cast};
-use crate::{ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -114,17 +114,17 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
         self.nulls.append_validity_mask(array.validity_mask()?);
 
-        let list = array.into_canonical()?.into_list()?;
+        let list = array.to_canonical()?.into_list()?;
 
         let offset = self.value_builder.len();
         self.value_builder.extend_from_array(list.elements())?;
 
         let offsets = binary_numeric(
             &try_cast(
-                slice(list.offsets(), 1, list.offsets().len())?,
+                &slice(list.offsets(), 1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
             &ConstantArray::new(
@@ -135,7 +135,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             ),
             BinaryNumericOperator::Add,
         )?;
-        self.index_builder.extend_from_array(offsets)?;
+        self.index_builder.extend_from_array(&offsets)?;
 
         Ok(())
     }

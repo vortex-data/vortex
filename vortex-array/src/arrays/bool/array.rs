@@ -7,13 +7,13 @@ use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
-use crate::arrays::bool;
+use crate::arrays::{bool, BoolEncoding};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::{ArrayImpl, ArrayVisitorImpl, Canonical};
+use crate::{ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -95,6 +95,8 @@ impl BoolArray {
 }
 
 impl ArrayImpl for BoolArray {
+    type Encoding = BoolEncoding;
+
     #[inline]
     fn _len(&self) -> usize {
         self.buffer.len()
@@ -146,6 +148,12 @@ impl ArrayVariantsImpl for BoolArray {
     }
 }
 
+impl ArrayStatisticsImpl for BoolArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayVisitorImpl for BoolArray {
     fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
@@ -164,7 +172,7 @@ impl ArrayStatistics for BoolArray {
         &self.stats_set
     }
 
-    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistic(&self, _stat: Stat) -> VortexResult<StatsSet> {
         todo!()
     }
 }

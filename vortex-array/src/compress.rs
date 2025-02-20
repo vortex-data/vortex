@@ -3,6 +3,7 @@ use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
+use crate::tree::ArrayTreeDisplay;
 use crate::{Array, ArrayRef, EncodingId};
 
 pub trait CompressionStrategy {

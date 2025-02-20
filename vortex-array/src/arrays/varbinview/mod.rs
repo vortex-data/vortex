@@ -18,12 +18,12 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
-use crate::stats::StatsSet;
+use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
 };
 
 mod accessor;
@@ -439,7 +439,15 @@ where
     builder.finish()
 }
 
+impl ArrayStatisticsImpl for VarBinViewArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for VarBinViewArray {
+    type Encoding = VarBinViewEncoding;
+
     fn _len(&self) -> usize {
         self.views.len()
     }
@@ -461,7 +469,7 @@ impl ArrayCanonicalImpl for VarBinViewArray {
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(self.to_array())
+        builder.extend_from_array(&self.to_array())
     }
 }
 

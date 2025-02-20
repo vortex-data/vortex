@@ -16,13 +16,13 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
-use crate::stats::StatsSet;
+use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
 };
 
 mod accessor;
@@ -222,7 +222,15 @@ impl ArrayVisitorImpl for VarBinArray {
     }
 }
 
+impl ArrayStatisticsImpl for VarBinArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for VarBinArray {
+    type Encoding = VarBinEncoding;
+
     fn _len(&self) -> usize {
         self.offsets().len().saturating_sub(1)
     }

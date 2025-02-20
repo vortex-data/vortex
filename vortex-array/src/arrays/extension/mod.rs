@@ -10,8 +10,8 @@ use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 // mod compute;
 
@@ -54,7 +54,15 @@ impl ExtensionArray {
     }
 }
 
+impl ArrayStatisticsImpl for ExtensionArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for ExtensionArray {
+    type Encoding = ExtensionEncoding;
+
     fn _len(&self) -> usize {
         self.storage.len()
     }

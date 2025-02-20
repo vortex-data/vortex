@@ -10,7 +10,8 @@ use crate::encoding::encoding_ids;
 use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayImpl, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata,
+    Encoding, EncodingId,
 };
 
 mod canonical;
@@ -51,7 +52,15 @@ impl ConstantArray {
     }
 }
 
+impl ArrayStatisticsImpl for ConstantArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for ConstantArray {
+    type Encoding = ConstantEncoding;
+
     fn _len(&self) -> usize {
         self.len
     }

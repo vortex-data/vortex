@@ -8,8 +8,8 @@ use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId,
+    ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 
 // mod compute;
@@ -32,7 +32,15 @@ impl NullArray {
     }
 }
 
+impl ArrayStatisticsImpl for NullArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for NullArray {
+    type Encoding = NullEncoding;
+
     fn _len(&self) -> usize {
         self.len
     }

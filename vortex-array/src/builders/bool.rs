@@ -73,7 +73,7 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_n_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: ArrayRef) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
         let array = array.to_canonical()?;
         let Canonical::Bool(array) = array else {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
@@ -92,11 +92,10 @@ impl ArrayBuilder for BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::try_new(
+        BoolArray::new_with_validity(
             self.inner.finish(),
             self.nulls.finish_with_nullability(self.nullability),
         )
-        .vortex_expect("Buffer and validity must have same length.")
         .into_array()
     }
 }

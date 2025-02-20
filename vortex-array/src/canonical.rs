@@ -21,7 +21,7 @@ use crate::variants::{
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
 use crate::visitor::ArrayVisitor;
-use crate::{Array, ArrayRef, ArrayVariants, IntoArray};
+use crate::{Array, ArrayRef, ArrayStatistics, ArrayVariants, EncodingId, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -134,9 +134,15 @@ impl AsRef<dyn Array> for Canonical {
     }
 }
 
+impl ArrayStatistics for Canonical {
+    fn is_constant(&self) -> bool {
+        <Canonical as AsRef<dyn Array>>::as_ref(self).is_constant()
+    }
+}
+
 impl Array for Canonical {
     fn as_any(&self) -> &dyn Any {
-        self.as_ref().as_any()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_any()
     }
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
@@ -144,7 +150,7 @@ impl Array for Canonical {
     }
 
     fn to_array(&self) -> ArrayRef {
-        self.as_ref().to_array()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).to_array()
     }
 
     fn into_array(self) -> ArrayRef {
@@ -160,85 +166,89 @@ impl Array for Canonical {
     }
 
     fn len(&self) -> usize {
-        self.as_ref().len()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).len()
     }
 
     fn dtype(&self) -> &DType {
-        self.as_ref().dtype()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).dtype()
+    }
+
+    fn encoding(&self) -> EncodingId {
+        <Canonical as AsRef<dyn Array>>::as_ref(self).encoding()
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.as_ref().is_valid(index)
+        <Canonical as AsRef<dyn Array>>::as_ref(self).is_valid(index)
     }
 
     fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.as_ref().is_invalid(index)
+        <Canonical as AsRef<dyn Array>>::as_ref(self).is_invalid(index)
     }
 
     fn all_valid(&self) -> VortexResult<bool> {
-        self.as_ref().all_valid()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).all_valid()
     }
 
     fn all_invalid(&self) -> VortexResult<bool> {
-        self.as_ref().all_invalid()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).all_invalid()
     }
 
     fn valid_count(&self) -> VortexResult<usize> {
-        self.as_ref().valid_count()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).valid_count()
     }
 
     fn invalid_count(&self) -> VortexResult<usize> {
-        self.as_ref().invalid_count()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).invalid_count()
     }
 
     fn validity_mask(&self) -> VortexResult<Mask> {
-        self.as_ref().validity_mask()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).validity_mask()
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        self.as_ref().to_canonical()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).to_canonical()
     }
 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        self.as_ref().append_to_builder(builder)
+        <Canonical as AsRef<dyn Array>>::as_ref(self).append_to_builder(builder)
     }
 
     fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        self.as_ref().accept(visitor)
+        <Canonical as AsRef<dyn Array>>::as_ref(self).accept(visitor)
     }
 }
 
 impl ArrayVariants for Canonical {
     fn as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
-        self.as_ref().as_null_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_null_typed()
     }
 
     fn as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        self.as_ref().as_bool_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_bool_typed()
     }
 
     fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        self.as_ref().as_primitive_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_primitive_typed()
     }
 
     fn as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
-        self.as_ref().as_utf8_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_utf8_typed()
     }
 
     fn as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
-        self.as_ref().as_binary_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_binary_typed()
     }
 
     fn as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
-        self.as_ref().as_struct_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_struct_typed()
     }
 
     fn as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
-        self.as_ref().as_list_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_list_typed()
     }
 
     fn as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
-        self.as_ref().as_extension_typed()
+        <Canonical as AsRef<dyn Array>>::as_ref(self).as_extension_typed()
     }
 }
 
@@ -277,7 +287,7 @@ pub trait ToCanonical: Array {
     }
 }
 
-impl<A: Array> ToCanonical for A {}
+impl<A: Array + ?Sized> ToCanonical for A {}
 
 impl IntoArrowArray for ArrayRef {
     /// Convert this [`ArrayRef`] into an Arrow [`ArrayRef`] by using the array's preferred
@@ -288,7 +298,7 @@ impl IntoArrowArray for ArrayRef {
     }
 
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        to_arrow(self, data_type)
+        to_arrow(&self, data_type)
     }
 }
 
@@ -307,20 +317,6 @@ impl From<Canonical> for ArrayRef {
             Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
-        }
-    }
-}
-
-impl AsRef<ArrayRef> for Canonical {
-    fn as_ref(&self) -> &ArrayRef {
-        match self {
-            Canonical::Null(a) => a.as_ref(),
-            Canonical::Bool(a) => a.as_ref(),
-            Canonical::Primitive(a) => a.as_ref(),
-            Canonical::Struct(a) => a.as_ref(),
-            Canonical::List(a) => a.as_ref(),
-            Canonical::VarBinView(a) => a.as_ref(),
-            Canonical::Extension(a) => a.as_ref(),
         }
     }
 }

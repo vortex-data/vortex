@@ -2,6 +2,7 @@ mod canonical;
 mod convert;
 pub mod data;
 mod implementation;
+mod statistics;
 mod validity;
 mod variants;
 mod visitor;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 pub use canonical::*;
 pub use convert::*;
 pub use implementation::*;
+pub use statistics::*;
 pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
@@ -22,14 +24,14 @@ use vortex_mask::Mask;
 
 use crate::builders::ArrayBuilder;
 use crate::visitor::ArrayVisitor;
-use crate::Canonical;
+use crate::{Canonical, EncodingId};
 
 /// The base trait for all Vortex arrays.
 ///
 /// Users should invoke functions on this trait. Implementations should implement the corresponding
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
-pub trait Array: Send + Sync + Debug + ArrayVariants {
+pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -54,6 +56,9 @@ pub trait Array: Send + Sync + Debug + ArrayVariants {
 
     /// Returns the logical Vortex [`DType`] of the array.
     fn dtype(&self) -> &DType;
+
+    /// Returns the encoding of the array.
+    fn encoding(&self) -> EncodingId;
 
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool>;
@@ -115,6 +120,10 @@ impl Array for Arc<dyn Array> {
 
     fn dtype(&self) -> &DType {
         self.as_ref().dtype()
+    }
+
+    fn encoding(&self) -> EncodingId {
+        self.as_ref().encoding()
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {

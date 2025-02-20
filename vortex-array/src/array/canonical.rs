@@ -25,6 +25,6 @@ pub trait ArrayCanonicalImpl {
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let canonical = self._to_canonical()?;
         // debug!("default impl canonicalize_into {}", canonical.encoding());
-        builder.extend_from_array(canonical.into_array())
+        builder.extend_from_array(&canonical.into_array())
     }
 }

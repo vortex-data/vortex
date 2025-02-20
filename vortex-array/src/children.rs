@@ -27,14 +27,14 @@ impl NamedChildrenCollector {
 
 impl ArrayVisitor for ChildrenCollector {
     fn visit_child(&mut self, _name: &str, array: &dyn Array) -> VortexResult<()> {
-        self.children.push(array.clone());
+        self.children.push(array.to_array());
         Ok(())
     }
 }
 
 impl ArrayVisitor for NamedChildrenCollector {
     fn visit_child(&mut self, name: &str, array: &dyn Array) -> VortexResult<()> {
-        self.children.push((name.to_string(), array.clone()));
+        self.children.push((name.to_string(), array.to_array()));
         Ok(())
     }
 }

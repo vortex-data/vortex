@@ -13,13 +13,13 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
-use crate::stats::StatsSet;
+use crate::stats::{Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    validity, Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 
 // mod compute;
@@ -270,7 +270,15 @@ impl PrimitiveArray {
     }
 }
 
+impl ArrayStatisticsImpl for PrimitiveArray {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
+
 impl ArrayImpl for PrimitiveArray {
+    type Encoding = PrimitiveEncoding;
+
     fn _len(&self) -> usize {
         self.byte_buffer().len() / self.ptype().byte_width()
     }
@@ -338,7 +346,7 @@ impl ArrayCanonicalImpl for PrimitiveArray {
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(self.to_array())
+        builder.extend_from_array(&self.to_array())
     }
 }
 

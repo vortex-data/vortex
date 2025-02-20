@@ -16,7 +16,7 @@ pub trait ArrayTreeDisplay: Array {
     }
 }
 
-impl<A: Array> ArrayTreeDisplay for A {}
+impl<A: Array + ?Sized> ArrayTreeDisplay for A {}
 
 pub struct TreeDisplayWrapper<'a>(&'a dyn Array);
 impl<'a> TreeDisplayWrapper<'a> {

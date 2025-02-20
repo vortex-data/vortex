@@ -43,9 +43,7 @@ where
 }
 
 /// Return the preferred Arrow [`DataType`] of the array.
-pub fn preferred_arrow_data_type<A: AsRef<ArrayRef>>(array: A) -> VortexResult<DataType> {
-    let array = array.as_ref();
-
+pub fn preferred_arrow_data_type(array: &dyn Array) -> VortexResult<DataType> {
     if let Some(result) = array
         .vtable()
         .to_arrow_fn()
@@ -60,9 +58,7 @@ pub fn preferred_arrow_data_type<A: AsRef<ArrayRef>>(array: A) -> VortexResult<D
 }
 
 /// Convert the array to an Arrow array of the given type.
-pub fn to_arrow<A: AsRef<ArrayRef>>(array: A, data_type: &DataType) -> VortexResult<ArrayRef> {
-    let array = array.as_ref();
-
+pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
     if let Some(result) = array
         .vtable()
         .to_arrow_fn()

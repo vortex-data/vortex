@@ -12,7 +12,9 @@ use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
 use crate::stats::Statistics;
 use crate::visitor::ArrayVisitor;
-use crate::{Array, ArrayRef, ArrayVariantsImpl, Canonical};
+use crate::{
+    Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+};
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl:
@@ -21,10 +23,13 @@ pub trait ArrayImpl:
     + Debug
     + Clone
     + ArrayCanonicalImpl
+    + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
     + ArrayVisitorImpl
 {
+    type Encoding: Encoding;
+
     fn _len(&self) -> usize;
     fn _dtype(&self) -> &DType;
 }
@@ -55,6 +60,10 @@ impl<A: ArrayImpl> Array for A {
 
     fn dtype(&self) -> &DType {
         ArrayImpl::_dtype(self)
+    }
+
+    fn encoding(&self) -> EncodingId {
+        <<Self as ArrayImpl>::Encoding as Encoding>::ID
     }
 
     /// Returns whether the item at `index` is valid.
