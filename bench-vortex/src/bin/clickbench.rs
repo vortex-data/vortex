@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::{
     default_env_filter, execute_physical_plan, feature_flagged_allocator, get_session_with_cache,
@@ -235,7 +235,9 @@ fn main() {
     }
 
     match args.display_format {
-        DisplayFormat::Table => render_table(all_measurements, &args.formats).unwrap(),
+        DisplayFormat::Table => {
+            render_table(all_measurements, &args.formats, RatioMode::Time).unwrap()
+        }
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
 }

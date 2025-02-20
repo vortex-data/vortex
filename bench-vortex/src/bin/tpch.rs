@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
+use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
@@ -271,7 +271,7 @@ async fn bench_main(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &formats).unwrap();
+            render_table(measurements, &formats, RatioMode::Time).unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();
