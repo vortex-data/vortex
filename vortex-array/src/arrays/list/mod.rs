@@ -23,7 +23,10 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
-use crate::{ArrayRef, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata};
+use crate::{
+    Array, ArrayCanonicalImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+};
 
 #[derive(Clone, Debug)]
 pub struct ListArray {
@@ -106,10 +109,6 @@ impl ListArray {
         })
     }
 
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity().is_valid(index)
-    }
-
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
@@ -147,58 +146,48 @@ impl ListArray {
     }
 
     // TODO: fetches the elements of the array ignoring validity
-    pub fn elements(&self) -> ArrayRef {
-        let dtype = self
-            .dtype()
-            .as_list_element()
-            .vortex_expect("must be list dtype");
-        self.as_ref()
-            .child(0, dtype, self.metadata().elements_len)
-            .vortex_expect("array contains elements")
+    pub fn elements(&self) -> &ArrayRef {
+        &self.elements
     }
 }
 
-impl VariantsVTable<ListArray> for ListEncoding {
-    fn as_list_array<'a>(&self, array: &'a ListArray) -> Option<&'a dyn ListArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for ListArray {
+    fn _as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
+        Some(self)
     }
 }
-
-impl ValidateVTable<ListArray> for ListEncoding {}
-
-impl VisitorVTable<ListArray> for ListEncoding {
-    fn accept(&self, array: &ListArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("offsets", &array.offsets())?;
-        visitor.visit_child("elements", &array.elements())?;
-        visitor.visit_validity(&array.validity())
-    }
-}
-
-impl CanonicalVTable<ListArray> for ListEncoding {
-    fn into_canonical(&self, array: ListArray) -> VortexResult<Canonical> {
-        Ok(Canonical::List(array))
-    }
-}
-
-impl StatisticsVTable<ListArray> for ListEncoding {}
 
 impl ListArrayTrait for ListArray {}
 
-impl ValidityVTable<ListArray> for ListEncoding {
-    fn is_valid(&self, array: &ListArray, index: usize) -> VortexResult<bool> {
-        array.is_valid(index)
+impl ArrayVisitorImpl for ListArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("offsets", &self.offsets())?;
+        visitor.visit_child("elements", &self.elements())?;
+        visitor.visit_validity(&self.validity())
+    }
+}
+
+impl ArrayCanonicalImpl for ListArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::List(self.clone()))
+    }
+}
+
+impl ArrayValidityImpl for ListArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.validity.is_valid(index)
     }
 
-    fn all_valid(&self, array: &ListArray) -> VortexResult<bool> {
-        array.validity().all_valid()
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.validity.all_valid()
     }
 
-    fn all_invalid(&self, array: &ListArray) -> VortexResult<bool> {
-        array.validity().all_invalid()
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.validity.all_invalid()
     }
 
-    fn validity_mask(&self, array: &ListArray) -> VortexResult<Mask> {
-        array.validity().to_logical(array.len())
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.validity.to_logical(self.len())
     }
 }
 

@@ -7,10 +7,14 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::{Canonical, EmptyMetadata, Encoding, EncodingId};
+use crate::{
+    ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId,
+};
 
 // mod compute;
 
+#[derive(Clone)]
 pub struct NullArray {
     len: usize,
 }
@@ -28,51 +32,50 @@ impl NullArray {
     }
 }
 
-impl CanonicalVTable<NullArray> for NullEncoding {
-    fn into_canonical(&self, array: NullArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(array))
+impl ArrayCanonicalImpl for NullArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Null(self.clone()))
     }
 }
 
-impl ValidityVTable<NullArray> for NullEncoding {
-    fn is_valid(&self, _array: &NullArray, _idx: usize) -> VortexResult<bool> {
+impl ArrayValidityImpl for NullArray {
+    fn _is_valid(&self, _index: usize) -> VortexResult<bool> {
         Ok(false)
     }
 
-    fn all_valid(&self, array: &NullArray) -> VortexResult<bool> {
-        Ok(array.len() == 0)
+    fn _all_valid(&self) -> VortexResult<bool> {
+        Ok(self.len == 0)
     }
 
-    fn all_invalid(&self, array: &NullArray) -> VortexResult<bool> {
-        Ok(array.len() > 0)
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        Ok(self.len > 0)
     }
 
-    fn validity_mask(&self, array: &NullArray) -> VortexResult<Mask> {
-        Ok(Mask::AllFalse(array.len()))
-    }
-}
-
-impl StatisticsVTable<NullArray> for NullEncoding {
-    fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
-        if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
-        }
-
-        Ok(StatsSet::nulls(array.len(), &DType::Null))
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        Ok(Mask::AllFalse(self.len))
     }
 }
 
-impl VisitorVTable<NullArray> for NullEncoding {
-    fn accept(&self, _array: &NullArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_validity(&Validity::AllInvalid)
+// impl StatisticsVTable<NullArray> for NullEncoding {
+//     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
+//         if stat == Stat::UncompressedSizeInBytes {
+//             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
+//         }
+//
+//         Ok(StatsSet::nulls(array.len(), &DType::Null))
+//     }
+// }
+
+impl ArrayVisitorImpl for NullArray {
+    fn _accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        // No children.
+        Ok(())
     }
 }
 
-impl ValidateVTable<NullArray> for NullEncoding {}
-
-impl VariantsVTable<NullArray> for NullEncoding {
-    fn as_null_array<'a>(&self, array: &'a NullArray) -> Option<&'a dyn NullArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for NullArray {
+    fn _as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
+        Some(self)
     }
 }
 
