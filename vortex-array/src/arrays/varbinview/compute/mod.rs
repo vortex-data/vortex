@@ -56,9 +56,7 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(
             views,
-            (0..array.nbuffers())
-                .map(|i| array.buffer(i))
-                .collect::<Vec<_>>(),
+            array.buffers().to_vec(),
             array.dtype().clone(),
             array.validity().slice(start, stop)?,
         )?
@@ -68,13 +66,13 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 
 impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
     fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<ArrayRef> {
-        VarBinViewArray::try_new(
-            array.views(),
-            array.buffers().collect(),
+        Ok(VarBinViewArray::try_new(
+            array.views().clone(),
+            array.buffers().to_vec(),
             array.dtype().as_nullable(),
             array.validity().mask(&mask)?,
-        )
-        .map(IntoArray::into_array)
+        )?
+        .into_array())
     }
 }
 

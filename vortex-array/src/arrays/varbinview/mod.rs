@@ -268,6 +268,7 @@ impl VarBinViewArray {
             buffers,
             views,
             validity,
+            stats_set: Default::default(),
         })
     }
 

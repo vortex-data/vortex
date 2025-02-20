@@ -8,13 +8,13 @@ use crate::{Array, ArrayRef, IntoArray};
 
 impl MaskFn<VarBinArray> for VarBinEncoding {
     fn mask(&self, array: &VarBinArray, mask: Mask) -> VortexResult<ArrayRef> {
-        VarBinArray::try_new(
-            array.offsets(),
-            array.bytes(),
+        Ok(VarBinArray::try_new(
+            array.offsets().clone(),
+            array.bytes().clone(),
             array.dtype().as_nullable(),
             array.validity().mask(&mask)?,
-        )
-        .map(IntoArray::into_array)
+        )?
+        .into_array())
     }
 }
 

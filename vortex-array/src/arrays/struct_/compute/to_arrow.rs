@@ -37,7 +37,7 @@ impl ToArrowFn<StructArray> for StructEncoding {
                     );
                 }
 
-                to_arrow(&arr, field.data_type()).map_err(|err| {
+                to_arrow(arr, field.data_type()).map_err(|err| {
                     err.with_context(format!("Failed to canonicalize field {}", field))
                 })
             })

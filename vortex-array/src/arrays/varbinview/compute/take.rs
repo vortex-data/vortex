@@ -10,7 +10,7 @@ use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
@@ -29,7 +29,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(
             views_buffer,
-            array.buffers().collect(),
+            array.buffers().to_vec(),
             array.dtype().with_nullability(
                 (array.dtype().is_nullable() || indices.dtype().is_nullable()).into(),
             ),
@@ -53,7 +53,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         Ok(VarBinViewArray::try_new(
             views_buffer,
-            array.buffers().collect(),
+            array.buffers().to_vec(),
             array.dtype().clone(),
             validity,
         )?
@@ -91,8 +91,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 }
 
 fn take_views_into<I: AsPrimitive<usize>>(
-    views: Buffer<BinaryView>,
-    buffers: impl Iterator<Item = ByteBuffer>,
+    views: &Buffer<BinaryView>,
+    buffers: &[ByteBuffer],
     indices: &[I],
     mask: Mask,
     builder: &mut VarBinViewBuilder,
@@ -101,7 +101,7 @@ fn take_views_into<I: AsPrimitive<usize>>(
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
     builder.push_buffer_and_adjusted_views(
-        buffers,
+        buffers.iter().cloned(),
         indices
             .iter()
             .map(|i| views_ref[i.as_()].offset_view(buffers_offset)),
@@ -111,7 +111,7 @@ fn take_views_into<I: AsPrimitive<usize>>(
 }
 
 fn take_views<I: AsPrimitive<usize>>(
-    views: Buffer<BinaryView>,
+    views: &Buffer<BinaryView>,
     indices: &[I],
 ) -> Buffer<BinaryView> {
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
@@ -120,7 +120,7 @@ fn take_views<I: AsPrimitive<usize>>(
 }
 
 fn take_views_unchecked<I: AsPrimitive<usize>>(
-    views: Buffer<BinaryView>,
+    views: &Buffer<BinaryView>,
     indices: &[I],
 ) -> Buffer<BinaryView> {
     // NOTE(ngates): this deref is not actually trivial, so we run it once.

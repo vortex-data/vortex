@@ -12,10 +12,15 @@ impl CastFn<VarBinArray> for VarBinEncoding {
         }
 
         let new_nullability = dtype.nullability();
-        let new_validity = array.validity().cast_nullability(new_nullability)?;
+        let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
-        VarBinArray::try_new(array.offsets(), array.bytes(), new_dtype, new_validity)
-            .map(IntoArray::into_array)
+        Ok(VarBinArray::try_new(
+            array.offsets().clone(),
+            array.bytes().clone(),
+            new_dtype,
+            new_validity,
+        )?
+        .into_array())
     }
 }
 

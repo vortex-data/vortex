@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::{try_cast, ToArrowFn};
-use crate::Array;
+use crate::{Array, ToCanonical};
 
 impl ToArrowFn<VarBinArray> for VarBinEncoding {
     fn preferred_arrow_data_type(&self, array: &VarBinArray) -> VortexResult<Option<DataType>> {
@@ -65,7 +65,7 @@ pub(crate) fn varbin_to_arrow<O: NativePType + OffsetSizeTrait>(
         varbin_array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .into_primitive()
+    .to_primitive()
     .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
     let nulls = varbin_array.validity_mask()?.to_null_buffer();

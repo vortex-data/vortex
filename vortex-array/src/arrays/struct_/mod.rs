@@ -13,7 +13,7 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::VTableRef;
+use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
     Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
@@ -55,11 +55,8 @@ impl StructArray {
         &self.validity
     }
 
-    pub fn fields(&self) -> impl Iterator<Item = ArrayRef> + '_ {
-        (0..self.nfields()).map(move |idx| {
-            self.maybe_null_field_by_idx(idx)
-                .vortex_expect("never out of bounds")
-        })
+    pub fn fields(&self) -> &[ArrayRef] {
+        &self.fields
     }
 
     pub fn try_new(
@@ -91,6 +88,7 @@ impl StructArray {
             dtype,
             fields,
             validity,
+            stats_set: Default::default(),
         })
     }
 
@@ -219,25 +217,26 @@ impl ArrayVisitorImpl for StructArray {
         Ok(())
     }
 }
-//
-// impl StatisticsVTable<StructArray> for StructEncoding {
-//     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
-//         Ok(match stat {
-//             Stat::UncompressedSizeInBytes => array
-//                 .fields()
-//                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
-//                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
-//                 .flatten()
-//                 .map(|size| StatsSet::of(stat, Precision::exact(size)))
-//                 .unwrap_or_default(),
-//             Stat::NullCount => StatsSet::of(
-//                 stat,
-//                 Precision::exact(array.validity().null_count(array.len())?),
-//             ),
-//             _ => StatsSet::default(),
-//         })
-//     }
-// }
+
+impl StatisticsVTable<StructArray> for StructEncoding {
+    fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
+        Ok(match stat {
+            Stat::UncompressedSizeInBytes => array
+                .fields()
+                .iter()
+                .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
+                .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
+                .flatten()
+                .map(|size| StatsSet::of(stat, Precision::exact(size)))
+                .unwrap_or_default(),
+            Stat::NullCount => StatsSet::of(
+                stat,
+                Precision::exact(array.validity().null_count(array.len())?),
+            ),
+            _ => StatsSet::default(),
+        })
+    }
+}
 
 #[cfg(test)]
 mod test {

@@ -89,6 +89,7 @@ impl VarBinArray {
             bytes,
             offsets,
             validity,
+            stats_set: Default::default(),
         })
     }
 

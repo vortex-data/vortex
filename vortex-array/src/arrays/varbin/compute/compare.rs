@@ -42,7 +42,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                     // No value is lt ""
                     Operator::Lt => BooleanBuffer::new_unset(len),
                     _ => {
-                        let lhs_offsets = lhs.offsets().into_canonical()?.into_primitive()?;
+                        let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
                             compare_offsets_to_empty::<$P>(lhs_offsets, operator)
                         })
@@ -50,7 +50,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                 };
 
                 return Ok(Some(
-                    BoolArray::try_new(buffer, lhs.validity())?.into_array(),
+                    BoolArray::new_with_validity(buffer, lhs.validity().clone()).into_array(),
                 ));
             }
 

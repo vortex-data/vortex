@@ -9,11 +9,11 @@ use crate::arrays::VarBinEncoding;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let offsets = array.offsets().into_primitive()?;
+        let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();
         let indices = indices.to_primitive()?;
         match_each_integer_ptype!(offsets.ptype(), |$O| {
@@ -23,7 +23,7 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
                     offsets.as_slice::<$O>(),
                     data.as_slice(),
                     indices.as_slice::<$I>(),
-                    array.validity(),
+                    array.validity().clone(),
                 )?.into_array())
             })
         })

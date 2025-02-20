@@ -39,7 +39,7 @@ pub trait ArrayStatisticsImpl {
     fn stats_set(&self) -> &RwLock<StatsSet>;
 }
 
-impl<A: Array + ArrayImpl> Statistics for A {
+impl<A: Array + ArrayImpl + ?Sized> Statistics for A {
     fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
         self.stats_set()
             .read()

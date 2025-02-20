@@ -10,7 +10,7 @@ use crate::arrays::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -36,14 +36,14 @@ fn filter_select_var_bin_by_slice(
     mask_slices: &[(usize, usize)],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().into_primitive()?;
+    let offsets = values.offsets().to_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity(),
+            values.validity().clone(),
             selection_count
         )
     })
@@ -135,14 +135,14 @@ fn filter_select_var_bin_by_index(
     mask_indices: &[usize],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().into_primitive()?;
+    let offsets = values.offsets().to_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity(),
+            values.validity().clone(),
             selection_count
         )
     })

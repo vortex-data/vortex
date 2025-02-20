@@ -70,10 +70,10 @@ impl CastFn<StructArray> for StructEncoding {
         StructArray::try_new(
             target_sdtype.names().clone(),
             array
-                .children()
+                .fields()
                 .into_iter()
                 .zip_eq(target_sdtype.fields())
-                .map(|(field, dtype)| try_cast(&field, &dtype))
+                .map(|(field, dtype)| try_cast(field, &dtype))
                 .try_collect()?,
             array.len(),
             validity,
@@ -88,7 +88,8 @@ impl ScalarAtFn<StructArray> for StructEncoding {
             array.dtype().clone(),
             array
                 .fields()
-                .map(|field| scalar_at(&field, index))
+                .iter()
+                .map(|field| scalar_at(field, index))
                 .try_collect()?,
         ))
     }
@@ -100,7 +101,8 @@ impl TakeFn<StructArray> for StructEncoding {
             array.names().clone(),
             array
                 .fields()
-                .map(|field| take(&field, indices))
+                .iter()
+                .map(|field| take(field, indices))
                 .try_collect()?,
             indices.len(),
             array.validity().take(indices)?,
@@ -113,7 +115,8 @@ impl SliceFn<StructArray> for StructEncoding {
     fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let fields = array
             .fields()
-            .map(|field| slice(&field, start, stop))
+            .iter()
+            .map(|field| slice(field, start, stop))
             .try_collect()?;
         StructArray::try_new(
             array.names().clone(),
@@ -131,7 +134,8 @@ impl FilterFn<StructArray> for StructEncoding {
 
         let fields: Vec<ArrayRef> = array
             .fields()
-            .map(|field| filter(&field, mask))
+            .iter()
+            .map(|field| filter(field, mask))
             .try_collect()?;
         let length = fields
             .first()
@@ -149,7 +153,7 @@ impl MaskFn<StructArray> for StructEncoding {
 
         StructArray::try_new(
             array.names().clone(),
-            array.fields().collect(),
+            array.fields().to_vec(),
             array.len(),
             validity,
         )
