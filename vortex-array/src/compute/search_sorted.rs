@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 #[derive(Debug, Copy, Clone)]
 pub enum SearchSortedSide {
@@ -156,7 +156,7 @@ pub trait SearchSortedUsizeFn<A> {
 impl<E: Encoding> SearchSortedFn<ArrayRef> for E
 where
     E: SearchSortedFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn search_sorted(
         &self,
@@ -182,7 +182,7 @@ where
 impl<E: Encoding> SearchSortedUsizeFn<ArrayRef> for E
 where
     E: SearchSortedUsizeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn search_sorted_usize(
         &self,

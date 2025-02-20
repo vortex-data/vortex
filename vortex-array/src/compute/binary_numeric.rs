@@ -16,15 +16,15 @@ pub trait BinaryNumericFn<A> {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryNumericFn<ArrayRef> for E
+impl<E: Encoding> BinaryNumericFn<dyn Array> for E
 where
     E: BinaryNumericFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn binary_numeric(
         &self,
-        lhs: &ArrayRef,
-        rhs: &ArrayRef,
+        lhs: &dyn Array,
+        rhs: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;

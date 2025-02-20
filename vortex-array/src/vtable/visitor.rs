@@ -2,7 +2,7 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::visitor::ArrayVisitor;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 pub trait VisitorVTable<Array> {
     fn accept(&self, array: &Array, visitor: &mut dyn ArrayVisitor) -> VortexResult<()>;
@@ -11,7 +11,7 @@ pub trait VisitorVTable<Array> {
 impl<E: Encoding> VisitorVTable<ArrayRef> for E
 where
     E: VisitorVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn accept(&self, array: &ArrayRef, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

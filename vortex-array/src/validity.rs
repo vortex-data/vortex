@@ -15,45 +15,6 @@ use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
 use crate::{ArrayRef, IntoArray, IntoArrayVariant};
 
-impl ArrayRef {
-    /// Return whether the element at the given index is valid (true) or null (false).
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        if !self.dtype().is_nullable() {
-            return Ok(true);
-        }
-        self.vtable().is_valid(self, index)
-    }
-
-    /// Return whether all elements in the array are valid.
-    pub fn all_valid(&self) -> VortexResult<bool> {
-        if !self.dtype().is_nullable() {
-            return Ok(true);
-        }
-        self.vtable().all_valid(self)
-    }
-
-    /// Return whether all elements in the array are invalid.
-    pub fn all_invalid(&self) -> VortexResult<bool> {
-        if !self.dtype().is_nullable() {
-            return Ok(false);
-        }
-        self.vtable().all_invalid(self)
-    }
-
-    /// Return the number of null elements in the array.
-    pub fn invalid_count(&self) -> VortexResult<usize> {
-        if !self.dtype().is_nullable() {
-            return Ok(0);
-        }
-        self.vtable().invalid_count(self)
-    }
-
-    /// Return the canonical validity of the array as a [`Mask`].
-    pub fn validity_mask(&self) -> VortexResult<Mask> {
-        self.vtable().validity_mask(self)
-    }
-}
-
 #[derive(
     Copy,
     Clone,

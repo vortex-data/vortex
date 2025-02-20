@@ -9,7 +9,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{ArrayRef, Canonical, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, Canonical, IntoArray, IntoArrayVariant};
 
 pub trait FilterFn<A> {
     /// Filter an array by the provided predicate.
@@ -22,7 +22,7 @@ pub trait FilterFn<A> {
 impl<E: Encoding> FilterFn<ArrayRef> for E
 where
     E: FilterFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn filter(&self, array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
@@ -35,7 +35,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use vortex_array::IntoArray;
+/// use vortex_array::{Array, IntoArray};
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// use vortex_array::compute::{scalar_at, filter, mask};
 /// use vortex_mask::Mask;
@@ -133,7 +133,7 @@ fn filter_impl(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
-impl TryFrom<ArrayRef> for Mask {
+impl TryFrom<&dyn Array> for Mask {
     type Error = VortexError;
 
     /// Converts from a possible nullable boolean array. Null values are treated as false.

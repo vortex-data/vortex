@@ -1,6 +1,5 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use crate::ArrayRef;
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
 /// 1. New Array type that implements `AsRef<Array>`, `GetArrayMetadata`, `ToArray`, `IntoArray`, and multiple useful `From`/`TryFrom` implementations.
 /// 2. New Encoding type that implements `ArrayEncoding`.
@@ -133,10 +132,4 @@ macro_rules! impl_encoding {
             }
         }
     };
-}
-
-impl AsRef<ArrayRef> for ArrayRef {
-    fn as_ref(&self) -> &ArrayRef {
-        self
-    }
 }

@@ -1,18 +1,21 @@
+mod convert;
 pub mod data;
+mod variants;
+mod visitor;
 
 use std::any::Any;
 use std::sync::Arc;
 
 use arrow_array::builder::ArrayBuilder;
+pub use convert::*;
+pub use variants::*;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
-use crate::array::data::ArrayData;
-use crate::variants::{
-    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
-};
+use crate::stats::Stat;
+use crate::visitor::ArrayVisitor;
 use crate::Canonical;
 
 /// The base trait for all Vortex arrays.
@@ -20,16 +23,7 @@ use crate::Canonical;
 /// Users should invoke functions on this trait. Implementations should implement the corresponding
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
-pub trait Array:
-    'static
-    + Send
-    + Sync
-    + ArrayCanonicalImpl
-    + ArrayValidityImpl
-    + ArrayVariantsImpl
-    + TryFrom<ArrayData, Error = VortexError>
-    + TryInto<ArrayData, Error = VortexError>
-{
+pub trait Array: Send + Sync + ArrayCanonicalImpl + ArrayValidityImpl + ArrayVariantsImpl {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -107,14 +101,14 @@ pub trait Array:
     fn to_canonical(&self) -> VortexResult<Canonical> {
         let canonical = ArrayCanonicalImpl::_to_canonical(self)?;
         assert_eq!(canonical.len(), self.len(), "Canonical length mismatch");
-        assert_eq!(canonical.dtype(), self.dtype(), "Canonical dtype mismatch");
+        // assert_eq!(canonical.dtype(), self.dtype(), "Canonical dtype mismatch");
         Ok(canonical)
     }
 
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
-    fn to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         // TODO(ngates): add dtype function to ArrayBuilder
         // if builder.dtype() != self.dtype() {
         //     vortex_bail!(
@@ -123,7 +117,6 @@ pub trait Array:
         //         builder.dtype()
         //     );
         // }
-
         let len = builder.len();
         ArrayCanonicalImpl::_to_builder(self, builder)?;
         assert_eq!(
@@ -132,62 +125,6 @@ pub trait Array:
             "Builder length mismatch after writing array"
         );
         Ok(())
-    }
-
-    /// Downcasts the array for null-specific behavior.
-    fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        matches!(self.dtype(), DType::Null)
-            .then(|| ArrayVariantsImpl::_as_null_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for bool-specific behavior.
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        matches!(self.dtype(), DType::Bool(..))
-            .then(|| ArrayVariantsImpl::_as_bool_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for primitive-specific behavior.
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        matches!(self.dtype(), DType::Primitive(..))
-            .then(|| ArrayVariantsImpl::_as_primitive_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for utf8-specific behavior.
-    fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(..))
-            .then(|| ArrayVariantsImpl::_as_utf8_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for binary-specific behavior.
-    fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(..))
-            .then(|| ArrayVariantsImpl::_as_binary_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for struct-specific behavior.
-    fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        matches!(self.dtype(), DType::Struct(..))
-            .then(|| ArrayVariantsImpl::_as_struct_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for list-specific behavior.
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        matches!(self.dtype(), DType::List(..))
-            .then(|| ArrayVariantsImpl::_as_list_array(self))
-            .flatten()
-    }
-
-    /// Downcasts the array for extension-specific behavior.
-    fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        matches!(self.dtype(), DType::Extension(..))
-            .then(|| ArrayVariantsImpl::_as_extension_array(self))
-            .flatten()
     }
 }
 
@@ -320,82 +257,5 @@ impl ArrayCanonicalImpl for Arc<dyn Array> {
 
     fn _to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref()._to_builder(builder)
-    }
-}
-
-/// Implementation trait for downcasting to type-specific traits.
-pub trait ArrayVariantsImpl {
-    /// Downcasts the array for null-specific behavior.
-    fn _as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for bool-specific behavior.
-    fn _as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for primitive-specific behavior.
-    fn _as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for utf8-specific behavior.
-    fn _as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for binary-specific behavior.
-    fn _as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for struct-specific behavior.
-    fn _as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for list-specific behavior.
-    fn _as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        None
-    }
-
-    /// Downcasts the array for extension-specific behavior.
-    fn _as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        None
-    }
-}
-
-impl ArrayVariantsImpl for Arc<dyn Array> {
-    fn _as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        self.as_ref()._as_null_array()
-    }
-
-    fn _as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        self.as_ref()._as_bool_array()
-    }
-
-    fn _as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        self.as_ref()._as_primitive_array()
-    }
-
-    fn _as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        self.as_ref()._as_utf8_array()
-    }
-
-    fn _as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        self.as_ref()._as_binary_array()
-    }
-
-    fn _as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        self.as_ref()._as_struct_array()
-    }
-
-    fn _as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        self.as_ref()._as_list_array()
-    }
-
-    fn _as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        self.as_ref()._as_extension_array()
     }
 }

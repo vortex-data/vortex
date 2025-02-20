@@ -26,14 +26,14 @@ use crate::arrays::{
     VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
-use crate::stats::{Precision, Stat, Statistics as _};
+use crate::stats::{Precision, Stat};
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
-impl From<ArrowBuffer> for ArrayRef {
-    fn from(value: ArrowBuffer) -> Self {
+impl IntoArray for ArrowBuffer {
+    fn into_array(self) -> ArrayRef {
         PrimitiveArray::from_byte_buffer(
-            ByteBuffer::from_arrow_buffer(value, Alignment::of::<u8>()),
+            ByteBuffer::from_arrow_buffer(self, Alignment::of::<u8>()),
             PType::U8,
             Validity::NonNullable,
         )
@@ -41,36 +41,36 @@ impl From<ArrowBuffer> for ArrayRef {
     }
 }
 
-impl From<BooleanBuffer> for ArrayRef {
-    fn from(value: BooleanBuffer) -> Self {
-        BoolArray::new(value, Nullability::NonNullable).into_array()
+impl IntoArray for BooleanBuffer {
+    fn into_array(self) -> ArrayRef {
+        BoolArray::new(self, Nullability::NonNullable).into_array()
     }
 }
 
-impl<T> From<ScalarBuffer<T>> for ArrayRef
+impl<T> IntoArray for ScalarBuffer<T>
 where
     T: ArrowNativeType + NativePType,
 {
-    fn from(value: ScalarBuffer<T>) -> Self {
+    fn into_array(self) -> ArrayRef {
         PrimitiveArray::new(
-            Buffer::<T>::from_arrow_scalar_buffer(value),
+            Buffer::<T>::from_arrow_scalar_buffer(self),
             Validity::NonNullable,
         )
         .into_array()
     }
 }
 
-impl<O> From<OffsetBuffer<O>> for ArrayRef
+impl<O> IntoArray for OffsetBuffer<O>
 where
     O: NativePType + OffsetSizeTrait,
 {
-    fn from(value: OffsetBuffer<O>) -> Self {
+    fn into_array(self) -> ArrayRef {
         let primitive = PrimitiveArray::new(
-            Buffer::from_arrow_scalar_buffer(value.into_inner()),
+            Buffer::from_arrow_scalar_buffer(self.into_inner()),
             Validity::NonNullable,
         );
-        primitive.set_stat(Stat::IsSorted, Precision::exact(true));
-        primitive.set_stat(Stat::IsStrictSorted, Precision::exact(true));
+        primitive.update_statistic(Stat::IsSorted, Precision::exact(true));
+        primitive.update_statistic(Stat::IsStrictSorted, Precision::exact(true));
         primitive.into_array()
     }
 }

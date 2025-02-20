@@ -4,9 +4,9 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::visitor::ArrayVisitor;
 use crate::ArrayRef;
 
-impl ArrayRef {
+pub trait NBytes {
     /// Total size of the array in bytes, including all children and buffers.
-    pub fn nbytes(&self) -> usize {
+    fn nbytes(&self) -> usize {
         let mut visitor = NBytesVisitor::default();
         self.vtable()
             .accept(self.as_ref(), &mut visitor)

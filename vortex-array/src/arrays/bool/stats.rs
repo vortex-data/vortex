@@ -1,13 +1,15 @@
 use std::ops::BitAnd;
+use std::sync::RwLock;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::ScalarValue;
 
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {

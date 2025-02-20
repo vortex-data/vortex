@@ -1,16 +1,19 @@
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use arrow_array::builder::ArrayBuilder;
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
+use vortex_scalar::ScalarValue;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl};
-use crate::stats::StatsSet;
+use crate::arrays::bool;
+use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
+use crate::visitor::ArrayVisitor;
 use crate::Canonical;
 
 #[derive(Clone, Debug)]
@@ -18,7 +21,8 @@ pub struct BoolArray {
     dtype: DType,
     buffer: BooleanBuffer,
     validity: Validity,
-    stats: StatsSet,
+    // TODO(ngates): do we want a stats set to be shared across all arrays?
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 impl BoolArray {
@@ -50,7 +54,7 @@ impl BoolArray {
             dtype: DType::Bool(validity.nullability()),
             buffer,
             validity,
-            stats: StatsSet::default(),
+            stats_set: Arc::new(RwLock::new(StatsSet::default())),
         }
     }
 
@@ -135,9 +139,19 @@ impl ArrayValidityImpl for BoolArray {
 }
 
 impl ArrayVariantsImpl for BoolArray {
-    fn _as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
+    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
         Some(self)
     }
 }
 
 impl BoolArrayTrait for BoolArray {}
+
+impl ArrayStatistics for BoolArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+
+    fn compute_statistic(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+        todo!()
+    }
+}

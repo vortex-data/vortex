@@ -2,7 +2,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::encoding::Encoding;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 pub trait ValidityVTable<Array> {
     /// Returns whether the `index` item is valid.
@@ -29,7 +29,7 @@ pub trait ValidityVTable<Array> {
 impl<E: Encoding> ValidityVTable<ArrayRef> for E
 where
     E: ValidityVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn is_valid(&self, array: &ArrayRef, index: usize) -> VortexResult<bool> {
         let (array_ref, encoding) = array

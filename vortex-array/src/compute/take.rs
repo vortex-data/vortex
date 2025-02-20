@@ -43,7 +43,7 @@ pub trait TakeFn<A> {
 impl<E: Encoding> TakeFn<ArrayRef> for E
 where
     E: TakeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn take(&self, array: &ArrayRef, indices: &ArrayRef) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

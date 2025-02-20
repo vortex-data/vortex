@@ -1,7 +1,7 @@
 use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 /// A trait implemented by encodings to verify an opaque [`ArrayRef`].
 ///
@@ -24,7 +24,7 @@ pub trait ValidateVTable<Array> {
 impl<E: Encoding> ValidateVTable<ArrayRef> for E
 where
     E: ValidateVTable<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn validate(&self, array: &ArrayRef) -> VortexResult<()> {
         let (array_ref, encoding) = array

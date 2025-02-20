@@ -6,33 +6,29 @@ use vortex_error::{vortex_err, VortexError, VortexResult};
 use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, IntoArrayVariant, TryIntoArray};
 
-impl TryFrom<RecordBatch> for ArrayRef {
-    type Error = VortexError;
-
-    fn try_from(value: RecordBatch) -> VortexResult<Self> {
+impl TryIntoArray for RecordBatch {
+    fn try_into_array(self) -> VortexResult<ArrayRef> {
         Ok(StructArray::try_new(
-            value
-                .schema()
+            self.schema()
                 .fields()
                 .iter()
                 .map(|f| f.name().as_str().into())
                 .collect(),
-            value
-                .columns()
+            self.columns()
                 .iter()
-                .zip(value.schema().fields())
+                .zip(self.schema().fields())
                 .map(|(array, field)| ArrayRef::from_arrow(array.clone(), field.is_nullable()))
                 .collect(),
-            value.num_rows(),
+            self.num_rows(),
             Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType
         )?
         .into_array())
     }
 }
 
-impl TryFrom<ArrayRef> for RecordBatch {
+impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: ArrayRef) -> VortexResult<Self> {

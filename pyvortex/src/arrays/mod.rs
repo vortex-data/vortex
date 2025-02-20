@@ -664,7 +664,7 @@ pub trait AsArrayRef<T> {
 
 impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
 where
-    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&dyn Array, Error = VortexError>,
 {
     fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
         <&<A::Encoding as Encoding>::Array>::try_from(self.as_super().inner())

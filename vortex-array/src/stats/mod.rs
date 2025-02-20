@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{cardinality, Sequence};
+use enum_iterator::{all, cardinality, Sequence};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -18,12 +18,14 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::ArrayRef;
 
+mod array;
 mod bound;
 pub mod flatbuffers;
 mod precision;
 mod stat_bound;
 mod stats_set;
 
+pub use array::*;
 pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
 pub use stat_bound::*;
@@ -297,19 +299,12 @@ pub trait Statistics {
     }
 
     fn retain_only(&self, stats: &[Stat]);
-}
 
-impl ArrayRef {
-    pub fn statistics(&self) -> &(dyn Statistics + '_) {
-        self
-    }
-
-    // FIXME(ngates): this is really slow...
-    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        // The stats_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.stats_set() {
-            stats.set_stat(stat, scalar);
+    fn inherit(&self, parent: &dyn Statistics) {
+        for stat in all::<Stat>() {
+            if let Some(s) = parent.get_stat(stat) {
+                self.set_stat(stat, s);
+            }
         }
     }
 }

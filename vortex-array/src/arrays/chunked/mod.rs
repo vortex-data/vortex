@@ -2,12 +2,14 @@
 //!
 //! Vortex is a chunked array library that's able to
 
+use std::any::Any;
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use futures_util::stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
@@ -20,33 +22,32 @@ use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
+use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, ArrayRef, IntoArray, IntoCanonical, RkyvMetadata};
+use crate::{
+    impl_encoding, Array, ArrayRef, EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical,
+    RkyvMetadata,
+};
 
 mod canonical;
 // mod compute;
 mod stats;
 mod variants;
 
-impl_encoding!(
-    "vortex.chunked",
-    encoding_ids::CHUNKED,
-    Chunked,
-    RkyvMetadata<ChunkedMetadata>
-);
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-pub struct ChunkedMetadata {
-    pub(crate) nchunks: usize,
+pub struct ChunkedArray {
+    dtype: DType,
+    len: usize,
+    chunk_offsets: Buffer<u64>,
+    chunks: Vec<ArrayRef>,
+    stats: StatsSet,
 }
 
-impl Display for ChunkedMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
+pub struct ChunkedEncoding;
+impl Encoding for ChunkedEncoding {
+    const ID: EncodingId = EncodingId("vortex.chunked", encoding_ids::CHUNKED);
+    type Array = ChunkedArray;
+    type Metadata = EmptyMetadata;
 }
 
 impl ChunkedArray {
@@ -73,19 +74,13 @@ impl ChunkedArray {
             unsafe { chunk_offsets.push_unchecked(curr_offset) }
         }
 
-        let mut children = Vec::with_capacity(nchunks + 1);
-        children.push(PrimitiveArray::new(chunk_offsets, NonNullable).into_array());
-        children.extend(chunks);
-
-        Self::try_from_parts(
+        Self {
             dtype,
-            curr_offset.try_into().vortex_unwrap(),
-            RkyvMetadata(ChunkedMetadata { nchunks }),
-            vec![].into(),
-            children.into(),
-            StatsSet::default(),
-        )
-        .vortex_expect("Constructing chunked array")
+            len: curr_offset.try_into().vortex_unwrap(),
+            chunk_offsets: chunk_offsets.freeze(),
+            chunks,
+            stats: Default::default(),
+        }
     }
 
     #[inline]
@@ -132,7 +127,7 @@ impl ChunkedArray {
         (index_chunk, index_in_chunk)
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item =ArrayRef> + '_ {
+    pub fn chunks(&self) -> impl Iterator<Item = ArrayRef> + '_ {
         (0..self.nchunks()).map(|c| {
             self.chunk(c).unwrap_or_else(|e| {
                 vortex_panic!(
@@ -145,7 +140,7 @@ impl ChunkedArray {
         })
     }
 
-    pub fn non_empty_chunks(&self) -> impl Iterator<Item =ArrayRef> + '_ {
+    pub fn non_empty_chunks(&self) -> impl Iterator<Item = ArrayRef> + '_ {
         self.chunks().filter(|c| !c.is_empty())
     }
 
@@ -203,16 +198,43 @@ impl ChunkedArray {
     }
 }
 
-impl ValidateVTable<ChunkedArray> for ChunkedEncoding {}
-
 impl FromIterator<ArrayRef> for ChunkedArray {
-    fn from_iter<T: IntoIterator<Item =ArrayRef>>(iter: T) -> Self {
+    fn from_iter<T: IntoIterator<Item = ArrayRef>>(iter: T) -> Self {
         let chunks: Vec<ArrayRef> = iter.into_iter().collect();
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())
             .vortex_expect("Cannot infer DType from an empty iterator");
         Self::try_new(chunks, dtype).vortex_expect("Failed to create chunked array from iterator")
+    }
+}
+
+impl Array for ChunkedArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+
+    fn to_array(&self) -> ArrayRef {
+        Arc::new(self.clone())
+    }
+
+    fn into_array(self) -> ArrayRef
+    where
+        Self: Sized,
+    {
+        Arc::new(self)
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
     }
 }
 

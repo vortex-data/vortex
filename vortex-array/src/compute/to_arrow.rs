@@ -5,7 +5,7 @@ use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use crate::arrow::infer_data_type;
 use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
-use crate::{ArrayRef, IntoCanonical};
+use crate::{Array, ArrayRef, IntoCanonical};
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<A> {
@@ -25,7 +25,7 @@ pub trait ToArrowFn<A> {
 impl<E: Encoding> ToArrowFn<ArrayRef> for E
 where
     E: ToArrowFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn preferred_arrow_data_type(&self, array: &ArrayRef) -> VortexResult<Option<DataType>> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

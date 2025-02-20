@@ -15,7 +15,7 @@ pub trait SliceFn<A> {
 impl<E: Encoding> SliceFn<ArrayRef> for E
 where
     E: SliceFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn slice(&self, array: &ArrayRef, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

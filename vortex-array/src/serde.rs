@@ -10,7 +10,7 @@ use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::stats::Statistics;
-use crate::{ArrayRef, ContextRef};
+use crate::{Array, ArrayRef, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -22,7 +22,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl ArrayRef {
+pub trait ArraySerde {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -33,7 +33,7 @@ impl ArrayRef {
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    pub fn serialize(&self, options: &SerializeOptions) -> Vec<ByteBuffer> {
+    fn serialize(&self, options: &SerializeOptions) -> Vec<ByteBuffer> {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
@@ -126,7 +126,7 @@ impl ArrayRef {
     }
 
     /// Deserialize an array from a [`ByteBuffer`].
-    pub fn deserialize(
+    fn deserialize(
         bytes: ByteBuffer,
         ctx: ContextRef,
         dtype: DType,
@@ -136,14 +136,16 @@ impl ArrayRef {
     }
 }
 
+impl<A: Array> ArraySerde for A {}
+
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
-    array: &'a ArrayRef,
+    array: &'a dyn Array,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(array: &'a ArrayRef) -> Self {
+    pub fn new(array: &dyn Array) -> Self {
         Self {
             array,
             buffer_idx: 0,

@@ -8,17 +8,19 @@ use vortex_error::{VortexError, VortexResult};
 use crate::arrays::ChunkedEncoding;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::EncodingVTable;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
-impl ArrayRef {
-    pub fn tree_display(&self) -> TreeDisplayWrapper {
+pub trait ArrayTreeDisplay: Array {
+    fn tree_display(&self) -> TreeDisplayWrapper {
         TreeDisplayWrapper(self)
     }
 }
 
-pub struct TreeDisplayWrapper<'a>(&'a ArrayRef);
+impl<A: Array> ArrayTreeDisplay for A {}
+
+pub struct TreeDisplayWrapper<'a>(&'a dyn Array);
 impl<'a> TreeDisplayWrapper<'a> {
-    pub fn new(array: &'a ArrayRef) -> Self {
+    pub fn new(array: &'a dyn Array) -> Self {
         Self(array)
     }
 }

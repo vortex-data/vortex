@@ -2,7 +2,6 @@
 
 use std::ops::Deref;
 
-use arrow_array::{Array, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -13,7 +12,7 @@ use crate::arrays::{
 use crate::arrow::IntoArrowArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
-use crate::{ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.

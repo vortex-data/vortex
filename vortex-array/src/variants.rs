@@ -11,62 +11,11 @@ use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::ArrayRef;
 
-/// Provide functions on type-erased Array to downcast into dtype-specific array variants.
-impl ArrayRef {
-    pub fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        matches!(self.dtype(), DType::Null)
-            .then(|| self.vtable().as_null_array(self))
-            .flatten()
-    }
-
-    pub fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        matches!(self.dtype(), DType::Bool(..))
-            .then(|| self.vtable().as_bool_array(self))
-            .flatten()
-    }
-
-    pub fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        matches!(self.dtype(), DType::Primitive(..))
-            .then(|| self.vtable().as_primitive_array(self))
-            .flatten()
-    }
-
-    pub fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(..))
-            .then(|| self.vtable().as_utf8_array(self))
-            .flatten()
-    }
-
-    pub fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(..))
-            .then(|| self.vtable().as_binary_array(self))
-            .flatten()
-    }
-
-    pub fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        matches!(self.dtype(), DType::Struct(..))
-            .then(|| self.vtable().as_struct_array(self))
-            .flatten()
-    }
-
-    pub fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        matches!(self.dtype(), DType::List(..))
-            .then(|| self.vtable().as_list_array(self))
-            .flatten()
-    }
-
-    pub fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        matches!(self.dtype(), DType::Extension(..))
-            .then(|| self.vtable().as_extension_array(self))
-            .flatten()
-    }
-}
-
 pub trait NullArrayTrait {}
 
 pub trait BoolArrayTrait {}
 
-pub trait PrimitiveArrayTrait: Deref<Target =ArrayRef> {
+pub trait PrimitiveArrayTrait: Deref<Target = ArrayRef> {
     /// The logical primitive type of the array.
     ///
     /// This is a type that can safely be converted into a `NativePType` for use in
@@ -84,7 +33,7 @@ pub trait Utf8ArrayTrait {}
 
 pub trait BinaryArrayTrait {}
 
-pub trait StructArrayTrait: Deref<Target =ArrayRef> {
+pub trait StructArrayTrait: Deref<Target = ArrayRef> {
     fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
@@ -120,7 +69,7 @@ pub trait StructArrayTrait: Deref<Target =ArrayRef> {
 }
 
 impl dyn StructArrayTrait + '_ {
-    pub fn fields(&self) -> impl Iterator<Item =ArrayRef> + '_ {
+    pub fn fields(&self) -> impl Iterator<Item = ArrayRef> + '_ {
         (0..self.nfields()).map(|i| {
             self.maybe_null_field_by_idx(i)
                 .vortex_expect("never out of bounds")
@@ -130,7 +79,7 @@ impl dyn StructArrayTrait + '_ {
 
 pub trait ListArrayTrait {}
 
-pub trait ExtensionArrayTrait: Deref<Target =ArrayRef> {
+pub trait ExtensionArrayTrait: Deref<Target = ArrayRef> {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &Arc<ExtDType> {
         let DType::Extension(ext_dtype) = self.dtype() else {

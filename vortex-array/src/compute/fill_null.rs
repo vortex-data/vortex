@@ -14,7 +14,7 @@ pub trait FillNullFn<A> {
 impl<E: Encoding> FillNullFn<ArrayRef> for E
 where
     E: FillNullFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn fill_null(&self, array: &ArrayRef, fill_value: Scalar) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

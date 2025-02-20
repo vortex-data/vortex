@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{ArrayRef, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, IntoArrayVariant};
 
 pub trait InvertFn<A> {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
@@ -12,7 +12,7 @@ pub trait InvertFn<A> {
 impl<E: Encoding> InvertFn<ArrayRef> for E
 where
     E: InvertFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn invert(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

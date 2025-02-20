@@ -8,10 +8,10 @@ pub trait CastFn<A> {
     fn cast(&self, array: &A, dtype: &DType) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> CastFn<ArrayRef> for E
+impl<E: Encoding> CastFn<dyn Array> for E
 where
     E: CastFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn cast(&self, array: &ArrayRef, dtype: &DType) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;

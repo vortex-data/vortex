@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
-use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
@@ -30,10 +29,10 @@ pub trait BinaryBooleanFn<A> {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryBooleanFn<ArrayRef> for E
+impl<E: Encoding> BinaryBooleanFn<dyn Array> for E
 where
     E: BinaryBooleanFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn binary_boolean(
         &self,

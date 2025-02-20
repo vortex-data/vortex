@@ -19,7 +19,7 @@ pub trait MinMaxFn<A> {
 impl<E: Encoding> MinMaxFn<ArrayRef> for E
 where
     E: MinMaxFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn min_max(&self, array: &ArrayRef) -> VortexResult<Option<MinMaxResult>> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
