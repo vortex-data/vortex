@@ -4,7 +4,6 @@ use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{Stat, Statistics, StatsSet};
-use vortex_array::validity::ValidityMetadata;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};

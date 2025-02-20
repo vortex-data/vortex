@@ -3,6 +3,7 @@ use std::any::Any;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
@@ -10,8 +11,8 @@ use crate::builders::ArrayBuilder;
 use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct BoolBuilder {
-    pub inner: BooleanBufferBuilder,
-    pub nulls: LazyNullBufferBuilder,
+    inner: BooleanBufferBuilder,
+    nulls: LazyNullBufferBuilder,
     nullability: Nullability,
     dtype: DType,
 }
@@ -30,6 +31,11 @@ impl BoolBuilder {
         }
     }
 
+    /// Append a `Mask` to the null buffer.
+    pub fn append_mask(&mut self, mask: Mask) {
+        self.nulls.append_validity_mask(mask);
+    }
+
     pub fn append_value(&mut self, value: bool) {
         self.append_values(value, 1)
     }
@@ -43,6 +49,78 @@ impl BoolBuilder {
         match value {
             Some(value) => self.append_value(value),
             None => self.append_null(),
+        }
+    }
+
+    pub fn uninit_range(&mut self, len: usize) -> UninitBool {
+        let begin = self.inner.len();
+
+        assert!(
+            begin + len <= self.inner.capacity(),
+            "uninit_range of len {len} exceeds capacity"
+        );
+
+        // NOTE(aduffy): we advance the builder so that the uninitialized bits are now addressable
+        //  by `set_bit()`. In the Drop impl for UninitBool we truncate the length back to `begin`
+        //  in the case an error is thrown that causes the UninitBool to be dropped before `finish()`.
+        self.inner.advance(len);
+
+        UninitBool {
+            builder: self,
+            begin,
+            len,
+            finished: false,
+        }
+    }
+}
+
+pub struct UninitBool<'a> {
+    builder: &'a mut BoolBuilder,
+    begin: usize,
+    len: usize,
+    finished: bool,
+}
+
+impl UninitBool<'_> {
+    /// Randomly set a bit in the range.
+    pub fn set_bit(&mut self, index: usize, value: bool) {
+        self.builder.inner.set_bit(index, value);
+    }
+
+    /// Set the entire range to a given value.
+    pub fn set_all(&mut self, value: bool) {
+        // Truncate down to the original length, then overwrite with many packed bytes of `value`.
+        self.builder.inner.truncate(self.begin);
+        self.builder.inner.append_n(self.len, value);
+    }
+
+    /// Set a validity bit at the given index. The index is relative to the start of this range
+    /// of the builder.
+    pub fn set_valid_bit(&mut self, index: usize, v: bool) {
+        self.builder.nulls.set_bit(self.begin + index, v);
+    }
+
+    /// Complete initialization of this bit range.
+    ///
+    /// After calling this method, the entire range of values covered by this UninitBool will be
+    /// considered initialized.
+    pub fn finish(mut self) {
+        self.finished = true;
+    }
+}
+
+impl Drop for UninitBool<'_> {
+    fn drop(&mut self) {
+        // NOTE: this is a cleanup function. The only way we can perform random access into a
+        //  BooleanBuffer is by `advance()`ing the pointer. However, this presents an issue in
+        //  the face of an Error. The Drop handler will be called before some of those values were
+        //  properly initialized. To prevent exposing the possibly uninitialized values to the user
+        //  of the BoolBuilder, we do a check on Drop that it is happening after a clean `finish()`.
+        //  If we detect that the caller didn't `finish()` the UninitBool before dropping it, we
+        //  truncate the user-visible length of the BooleanBuffer to its initial length before
+        //  the UninitBool was created.
+        if !self.finished {
+            self.builder.inner.truncate(self.begin);
         }
     }
 }
@@ -104,11 +182,14 @@ impl ArrayBuilder for BoolBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
+    use vortex_dtype::Nullability;
 
     use crate::arrays::{BoolArray, ChunkedArray};
-    use crate::builders::builder_with_capacity;
+    use crate::builders::{builder_with_capacity, ArrayBuilder, BoolBuilder};
     use crate::{Array, IntoArray, IntoCanonical};
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
@@ -147,5 +228,29 @@ mod tests {
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());
+    }
+
+    #[test]
+    fn test_uninit_drop() {
+        fn do_partial_work(builder: &mut BoolBuilder) -> Result<(), Box<dyn Error + Send + Sync>> {
+            let mut uninit = builder.uninit_range(5);
+            uninit.set_bit(0, true);
+            uninit.set_bit(1, false);
+            Err("oh no an error!".into())
+        }
+
+        let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);
+        // Push 5 values into the array.
+        let mut range = builder.uninit_range(5);
+        range.set_bit(0, true);
+        range.set_bit(4, true);
+        range.finish();
+
+        // The builder has 5 values before we call this function, which will complete
+        // with error.
+        assert!(do_partial_work(&mut builder).ok().is_none());
+
+        // After the error, the builder still has 5 initialized values.
+        assert_eq!(builder.len(), 5);
     }
 }

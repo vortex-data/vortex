@@ -4,7 +4,7 @@ use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
+use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitPrimitive};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -269,7 +269,10 @@ where
     Ok(())
 }
 
-fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: Patches) -> VortexResult<()> {
+fn apply_patches<T: NativePType>(
+    dst: &mut UninitPrimitive<T>,
+    patches: Patches,
+) -> VortexResult<()> {
     let (array_len, indices_offset, indices, values) = patches.into_parts();
     assert_eq!(array_len, dst.len());
 
@@ -292,7 +295,7 @@ fn insert_values_and_validity_at_indices<
     T: NativePType,
     IndexT: NativePType + AsPrimitive<usize>,
 >(
-    dst: &mut UninitRange<T>,
+    dst: &mut UninitPrimitive<T>,
     indices: PrimitiveArray,
     values: &[T],
     validity: Validity,
@@ -315,7 +318,7 @@ fn insert_values_and_validity_at_indices<
                 let out_index = decompressed_index.as_() - indices_offset;
                 dst[decompressed_index.as_() - indices_offset] =
                     MaybeUninit::new(values[compressed_index]);
-                dst.set_bit(out_index, validity.value(out_index));
+                dst.set_valid_bit(out_index, validity.value(out_index));
             }
         }
     }
@@ -328,7 +331,7 @@ fn unpack_values_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>
     bit_width: usize,
     offset: usize,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
-    uninit: &mut UninitRange<T>,
+    uninit: &mut UninitPrimitive<T>,
     transmute: F,
     transmute_mut: G,
 ) -> VortexResult<()>

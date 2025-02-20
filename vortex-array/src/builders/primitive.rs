@@ -81,14 +81,14 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     ///
     /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
     /// ```
-    pub fn uninit_range(&mut self, len: usize) -> UninitRange<T> {
+    pub fn uninit_range(&mut self, len: usize) -> UninitPrimitive<T> {
         let offset = self.values.len();
         assert!(
             offset + len <= self.values.capacity(),
             "uninit_range of len {len} exceeds builder capacity"
         );
 
-        UninitRange {
+        UninitPrimitive {
             offset,
             len,
             builder: self,
@@ -179,13 +179,13 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 }
 
-pub struct UninitRange<'a, T> {
+pub struct UninitPrimitive<'a, T> {
     offset: usize,
     len: usize,
     builder: &'a mut PrimitiveBuilder<T>,
 }
 
-impl<T> Deref for UninitRange<'_, T> {
+impl<T> Deref for UninitPrimitive<'_, T> {
     type Target = [MaybeUninit<T>];
 
     fn deref(&self) -> &[MaybeUninit<T>] {
@@ -202,16 +202,16 @@ impl<T> Deref for UninitRange<'_, T> {
     }
 }
 
-impl<T> DerefMut for UninitRange<'_, T> {
+impl<T> DerefMut for UninitPrimitive<'_, T> {
     fn deref_mut(&mut self) -> &mut [MaybeUninit<T>] {
         &mut self.builder.values.spare_capacity_mut()[..self.len]
     }
 }
 
-impl<T> UninitRange<'_, T> {
+impl<T> UninitPrimitive<'_, T> {
     /// Set a validity bit at the given index. The index is relative to the start of this range
     /// of the builder.
-    pub fn set_bit(&mut self, index: usize, v: bool) {
+    pub fn set_valid_bit(&mut self, index: usize, v: bool) {
         self.builder.nulls.set_bit(self.offset + index, v);
     }
 

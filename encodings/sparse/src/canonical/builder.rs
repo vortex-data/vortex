@@ -1,10 +1,13 @@
 use std::mem::MaybeUninit;
 
-use vortex_array::builders::{BoolBuilder, PrimitiveBuilder};
+use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::builders::{BoolBuilder, PrimitiveBuilder, UninitBool, UninitPrimitive};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArrayVariant;
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
 use crate::SparseArray;
@@ -14,51 +17,70 @@ pub(super) fn canonicalize_primitive_into<T: NativePType + TryFrom<PValue, Error
     sparse: &SparseArray,
     builder: &mut PrimitiveBuilder<T>,
 ) -> VortexResult<()> {
-    // Scatter the fill value into the output buffer
-    let mut values_uninit = builder.uninit_values(sparse.len());
-    if let Some(fill_value) = sparse.fill_scalar().as_primitive().typed_value() {
-        values_uninit.fill(MaybeUninit::new(fill_value));
-    } else {
-        // fill value is NULL, leave the slots with uninitialized values.
+    let fill_value: Option<T> = sparse.fill_scalar().as_primitive().typed_value();
+
+    // Prepare the null buffer so we can set ranges of it.
+    // If the fill value is NULL, we initialize the null buffer with false.
+    //
+    // If the fill value is non-NULL but the array is nullable, we initialize the null buffer with
+    //  true, and will patch in the false bits as we write nulls.
+    if fill_value.is_none() {
+        builder.append_mask(Mask::AllFalse(sparse.len()));
+    } else if sparse.dtype().is_nullable() {
+        builder.append_mask(Mask::AllTrue(sparse.len()));
+    }
+
+    let mut values_uninit = builder.uninit_range(sparse.len());
+
+    // If fill value is non-null, fill the buffer with it. If it is NULL, we leave the slots
+    // uninitialized, as their values are not semantically meaningful.
+    if let Some(value) = fill_value {
+        values_uninit.fill(MaybeUninit::new(value));
     }
 
     let patches = sparse.resolved_patches()?;
     let indices = patches.indices().clone().into_primitive()?;
     let values = patches.values().clone().into_primitive()?;
 
-    fn scatter_values<T>(index: usize, value: T, values_uninit: &mut [MaybeUninit<T>]) {
-        values_uninit[index] = MaybeUninit::new(value);
-    };
-
-    let scatter_values_with_nulls =
-        |index: usize, value: T, values_uninit: &mut [MaybeUninit<T>]| {
+    fn write_value<T, const VALUE: bool, const NULLS: bool>(
+        index: usize,
+        sparse_index: usize,
+        value: T,
+        values_uninit: &mut UninitPrimitive<T>,
+        values: &PrimitiveArray,
+    ) {
+        if VALUE {
             values_uninit[index] = MaybeUninit::new(value);
-            // Offset the index using our builtin buffer.
-            builder.nulls.set_bit()
-        };
+        }
 
-    // Get access to the validity function of the patch values instead.
-    let scatter_values = |index: usize, value: T, values_uninit: &mut [MaybeUninit<T>]| {
-        values_uninit[index] = MaybeUninit::new(value);
+        if NULLS {
+            // We use our final value bit instead.
+            values_uninit.set_valid_bit(
+                index,
+                values
+                    .is_valid(sparse_index)
+                    .vortex_expect("values.is_valid"),
+            );
+        }
+    }
+
+    let writer = match values.validity() {
+        // Just write values. We don't need to write false bits
+        Validity::NonNullable | Validity::AllValid => write_value::<T, true, false>,
+        // Write nulls, do not write values
+        Validity::AllInvalid => write_value::<T, false, true>,
+        // Write nulls and values.
+        Validity::Array(_) => write_value::<T, true, true>,
     };
 
     match_each_integer_ptype!(indices.ptype(), |$I| {
         let indices = indices.as_slice::<$I>();
-        for (&index, &value) in indices.iter().zip(values.as_slice::<T>()) {
-            builder.values[index as usize] = value;
+        for (sparse_index, (&index, &value)) in indices.iter().zip(values.as_slice::<T>()).enumerate() {
+            writer(index as usize, sparse_index, value, &mut values_uninit, &values);
         }
     });
 
-    builder.patch(sparse.resolved_patches()?, 0)?;
-
-    // If the array is nullable, and we have some sparse NULLs spread throughout the code,
-    // we can create a new null buffer and set it directly.
-    if sparse.dtype().is_nullable() {
-        sparse.patches().values()
-    }
-
-    // Set the validity from the sparse array.
-    builder.nulls.append_validity_mask(sparse.validity_mask()?);
+    values_uninit.finish();
 
     Ok(())
 }
@@ -70,25 +92,64 @@ pub(super) fn canonicalize_bool_into(
     sparse: &SparseArray,
     builder: &mut BoolBuilder,
 ) -> VortexResult<()> {
-    builder.inner.append_n(
-        sparse.len(),
-        sparse.fill_scalar().as_bool().value().unwrap_or_default(),
-    );
+    let fill_value = sparse.fill_scalar().as_bool().value();
+
+    if fill_value.is_none() {
+        builder.append_mask(Mask::AllFalse(sparse.len()));
+    } else if sparse.dtype().is_nullable() {
+        builder.append_mask(Mask::AllTrue(sparse.len()));
+    }
+
+    let mut values_uninit = builder.uninit_range(sparse.len());
+
+    // If the fill value is non-NULL.
+    if let Some(value) = fill_value {
+        values_uninit.set_all(value);
+    }
+
+    fn write_bool<const VALUE: bool, const NULLS: bool>(
+        index: usize,
+        sparse_index: usize,
+        value: bool,
+        uninit: &mut UninitBool,
+        values: &BoolArray,
+    ) {
+        if VALUE {
+            uninit.set_bit(index, value);
+        }
+
+        if NULLS {
+            uninit.set_valid_bit(
+                index,
+                values
+                    .is_valid(sparse_index)
+                    .vortex_expect("values.is_valid"),
+            );
+        }
+    }
 
     let patches = sparse.resolved_patches()?;
     let indices = patches.indices().clone().into_primitive()?;
     let values = patches.values().clone().into_bool()?;
 
-    // Scatter the values into the output buffer
+    let writer = match values.validity() {
+        // No nulls present, just write values
+        Validity::NonNullable | Validity::AllValid => write_bool::<true, false>,
+        // Write nulls, do not write values
+        Validity::AllInvalid => write_bool::<false, true>,
+        // Write nulls and values.
+        Validity::Array(_) => write_bool::<true, true>,
+    };
+
+    // Scatter the patch values into the output buffer.
     match_each_integer_ptype!(indices.ptype(), |$I| {
         let indices = indices.as_slice::<$I>();
-        for (&index, value) in indices.iter().zip(values.boolean_buffer().into_iter()) {
-            builder.inner.set_bit(index as usize, value);
+        for (sparse_index, (&index, value)) in indices.iter().zip(values.boolean_buffer().into_iter()).enumerate() {
+            writer(index as usize, sparse_index, value, &mut values_uninit, &values);
         }
     });
 
-    // Set the validity from the sparse array.
-    builder.nulls.append_validity_mask(sparse.validity_mask()?);
+    values_uninit.finish();
 
     Ok(())
 }
