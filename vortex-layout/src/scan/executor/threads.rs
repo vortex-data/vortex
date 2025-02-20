@@ -10,10 +10,6 @@ use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
 
 use super::Executor;
 
-trait Task {
-    fn run(self: Box<Self>);
-}
-
 struct ExecutorTask<F, R> {
     task: F,
     result: oneshot::Sender<R>,
@@ -59,6 +55,10 @@ impl Default for Inner {
         // 1 isn't 0
         Self::new(unsafe { NonZeroUsize::new_unchecked(1) })
     }
+}
+
+trait Task {
+    fn run(self: Box<Self>);
 }
 
 impl Inner {
