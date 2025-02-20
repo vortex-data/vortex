@@ -1,5 +1,7 @@
-#![feature(unsigned_is_multiple_of)]
 #![deny(missing_docs)]
+#![feature(min_specialization)]
+#![feature(trusted_len)]
+#![feature(unsigned_is_multiple_of)]
 
 //! A library for working with custom aligned buffers of sized values.
 //!
@@ -63,6 +65,7 @@ mod debug;
 mod macros;
 #[cfg(feature = "rkyv")]
 mod rkyv;
+mod spec_extend;
 mod string;
 
 /// An immutable buffer of u8.
