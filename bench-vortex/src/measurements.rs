@@ -115,6 +115,7 @@ impl PartialOrd<Self> for MeasurementValue {
 #[derive(Serialize)]
 pub struct JsonValue {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
     pub unit: Cow<'static, str>,
     pub value: MeasurementValue,
@@ -244,8 +245,8 @@ impl ToJson for ThroughputMeasurement {
         JsonValue {
             name,
             storage: None,
-            unit: Cow::from("bytes / μs"),
-            value: MeasurementValue::Float((self.bytes as f64) / self.time.as_micros() as f64),
+            unit: Cow::from("bytes/ns"),
+            value: MeasurementValue::Float((self.bytes as f64) / self.time.as_nanos() as f64),
             time: Some(self.time.as_nanos()),
             bytes: Some(self.bytes),
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
