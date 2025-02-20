@@ -1,6 +1,5 @@
 #![allow(clippy::unwrap_used)]
 
-use std::iter;
 use std::iter::Iterator;
 
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer, ToByteSlice};
@@ -104,12 +103,28 @@ impl<T> Push<T> for BufferMut<T> {
     types = [Arrow<MutableBuffer>, BufferMut<i32>],
     args = [1, 100, 1_000, 10_000],
 )]
-fn push<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
+fn push<B: Push<i32> + WithCapacity<i32>>(bencher: Bencher, length: i32) {
     bencher
-        .with_inputs(|| B::from_iter(iter::empty()))
+        .with_inputs(|| B::with_capacity(length as usize))
         .bench_local_refs(|buffer| {
-            for _ in 0..n {
-                Push::push(buffer, 0)
+            for idx in 0..length {
+                Push::push(buffer, divan::black_box(idx))
             }
         });
+}
+
+trait WithCapacity<T> {
+    fn with_capacity(capacity: usize) -> Self;
+}
+
+impl<T> WithCapacity<T> for Arrow<MutableBuffer> {
+    fn with_capacity(capacity: usize) -> Self {
+        Self(MutableBuffer::with_capacity(capacity * size_of::<T>()))
+    }
+}
+
+impl<T> WithCapacity<T> for BufferMut<T> {
+    fn with_capacity(capacity: usize) -> Self {
+        Self::with_capacity(capacity)
+    }
 }
