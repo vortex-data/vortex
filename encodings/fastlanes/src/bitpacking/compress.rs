@@ -381,16 +381,17 @@ where
         (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
 
     // Index into the builder's uninit values buffer.
+    const CHUNK_SIZE: usize = 1024;
     let mut out_idx = 0;
     if first_chunk_is_sliced {
         let chunk = &packed[..elems_per_chunk];
-        let mut decoded = [UnsignedT::zero(); 1024];
+        let mut decoded = [UnsignedT::zero(); CHUNK_SIZE];
         // SAFETY:
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        uninit.copy_from_init(out_idx, 1024 - offset, transmute(&decoded[offset..]));
-        out_idx += 1024 - offset;
+        uninit.copy_from_init(out_idx, CHUNK_SIZE - offset, transmute(&decoded[offset..]));
+        out_idx += CHUNK_SIZE - offset;
     }
     for i in full_chunks_range {
         let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
@@ -401,11 +402,11 @@ where
             let dst: &mut [UnsignedT] = transmute_mut(dst);
             BitPacking::unchecked_unpack(bit_width, chunk, dst);
         }
-        out_idx += 1024;
+        out_idx += CHUNK_SIZE;
     }
     if last_chunk_is_sliced {
         let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
-        let mut decoded = [UnsignedT::zero(); 1024];
+        let mut decoded = [UnsignedT::zero(); CHUNK_SIZE];
         // SAFETY:
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
