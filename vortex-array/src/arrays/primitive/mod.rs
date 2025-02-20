@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display};
-use std::{iter, ptr};
+use std::iter;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -11,7 +11,6 @@ use vortex_mask::Mask;
 
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
-use crate::iter::Accessor;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
@@ -299,31 +298,6 @@ impl VariantsVTable<PrimitiveArray> for PrimitiveEncoding {
         array: &'a PrimitiveArray,
     ) -> Option<&'a dyn PrimitiveArrayTrait> {
         Some(array)
-    }
-}
-
-impl<T: NativePType> Accessor<T> for PrimitiveArray {
-    #[inline]
-    fn value_unchecked(&self, index: usize) -> T {
-        self.as_slice::<T>()[index]
-    }
-
-    #[inline]
-    fn decode_batch(&self, start_idx: usize) -> Vec<T> {
-        let batch_size = <Self as Accessor<T>>::batch_size(self, start_idx);
-        let mut v = Vec::<T>::with_capacity(batch_size);
-        let null_slice = self.as_slice::<T>();
-
-        unsafe {
-            v.set_len(batch_size);
-            ptr::copy_nonoverlapping(
-                null_slice.as_ptr().add(start_idx),
-                v.as_mut_ptr(),
-                batch_size,
-            );
-        }
-
-        v
     }
 }
 

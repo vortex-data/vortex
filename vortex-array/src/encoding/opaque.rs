@@ -1,3 +1,9 @@
+//! An encoding of an array that we cannot interpret.
+//!
+//! Vortex allows for pluggable encodings. This can lead to issues when one process produces a file
+//! using a custom encoding, and then another process without knowledge of the encoding attempts
+//! to read it.
+
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 
@@ -12,12 +18,6 @@ use crate::vtable::{
 };
 use crate::{Array, Canonical};
 
-/// An encoding of an array that we cannot interpret.
-///
-/// Vortex allows for pluggable encodings. This can lead to issues when one process produces a file
-/// using a custom encoding, and then another process without knowledge of the encoding attempts
-/// to read it.
-///
 /// `OpaqueEncoding` allows deserializing these arrays. Many common operations will fail, but it
 /// allows deserialization and introspection in a type-erased manner on the children and metadata.
 ///

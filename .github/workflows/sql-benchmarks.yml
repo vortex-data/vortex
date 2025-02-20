@@ -44,7 +44,6 @@ jobs:
         if: matrix.remote_storage == null
         shell: bash
         env:
-          BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo run \
@@ -58,7 +57,6 @@ jobs:
         if: matrix.remote_storage != null
         shell: bash
         env:
-          BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo run \
