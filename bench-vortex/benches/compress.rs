@@ -1,5 +1,4 @@
 use core::cell::LazyCell;
-use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::io::Cursor;
 use std::path::Path;
@@ -26,7 +25,6 @@ use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
-use tracing::info;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 use vortex::arrays::{ChunkedArray, StructArray};
@@ -154,13 +152,12 @@ fn benchmark_compress<F, U>(
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {
-        let level_filter = match EnvFilter::try_from_default_env() {
-            Ok(filter) => LevelFilter::from(filter),
-            Err(_e) => LevelFilter::OFF,
-        };
+        let filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::OFF.into())
+            .from_env_lossy();
 
         tracing_subscriber::fmt()
-            .with_max_level(level_filter)
+            .with_env_filter(filter)
             .with_writer(std::io::stderr)
             .init();
     }
