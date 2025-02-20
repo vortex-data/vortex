@@ -6,16 +6,15 @@ use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::canonical::ArrayCanonicalImpl;
-use crate::array::validity::ArrayValidityImpl;
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    IntoArray, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 // mod compute;
 
@@ -49,12 +48,8 @@ impl Display for StructMetadata {
 }
 
 impl StructArray {
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(self.nfields(), &Validity::DTYPE, self.len())
-                .vortex_expect("StructArray: validity child")
-        })
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 
     pub fn fields(&self) -> impl Iterator<Item = ArrayRef> + '_ {
@@ -156,32 +151,6 @@ impl StructArray {
     }
 }
 
-impl ArrayCanonicalImpl for StructArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
-    }
-}
-
-impl ArrayValidityImpl for StructArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        todo!()
-    }
-}
-
-impl ArrayVariantsImpl for StructArray {}
-
 impl ArrayImpl for StructArray {
     fn _len(&self) -> usize {
         self.len
@@ -192,11 +161,9 @@ impl ArrayImpl for StructArray {
     }
 }
 
-impl ValidateVTable<StructArray> for StructEncoding {}
-
-impl VariantsVTable<StructArray> for StructEncoding {
-    fn as_struct_array<'a>(&self, array: &'a StructArray) -> Option<&'a dyn StructArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for StructArray {
+    fn _as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
+        Some(self)
     }
 }
 
@@ -215,62 +182,61 @@ impl StructArrayTrait for StructArray {
     }
 }
 
-impl CanonicalVTable<StructArray> for StructEncoding {
-    /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(&self, array: StructArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(array))
+impl ArrayCanonicalImpl for StructArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(self.clone()))
     }
 }
 
-impl ValidityVTable<StructArray> for StructEncoding {
-    fn is_valid(&self, array: &StructArray, index: usize) -> VortexResult<bool> {
-        array.validity().is_valid(index)
+impl ArrayValidityImpl for StructArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.validity.is_valid(index)
     }
 
-    fn all_valid(&self, array: &StructArray) -> VortexResult<bool> {
-        array.validity().all_valid()
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.validity.all_valid()
     }
 
-    fn all_invalid(&self, array: &StructArray) -> VortexResult<bool> {
-        array.validity().all_invalid()
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.validity.all_invalid()
     }
 
-    fn validity_mask(&self, array: &StructArray) -> VortexResult<Mask> {
-        array.validity().to_logical(array.len())
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.validity.to_logical(self.len())
     }
 }
 
-impl VisitorVTable<StructArray> for StructEncoding {
-    fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        for (idx, name) in array.names().iter().enumerate() {
-            let child = array.maybe_null_field_by_idx(idx)?;
+impl ArrayVisitorImpl for StructArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        for (idx, name) in self.names().iter().enumerate() {
+            let child = self.maybe_null_field_by_idx(idx)?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
 
-        visitor.visit_validity(&array.validity())?;
+        visitor.visit_validity(self.validity())?;
 
         Ok(())
     }
 }
-
-impl StatisticsVTable<StructArray> for StructEncoding {
-    fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
-        Ok(match stat {
-            Stat::UncompressedSizeInBytes => array
-                .fields()
-                .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
-                .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
-                .flatten()
-                .map(|size| StatsSet::of(stat, Precision::exact(size)))
-                .unwrap_or_default(),
-            Stat::NullCount => StatsSet::of(
-                stat,
-                Precision::exact(array.validity().null_count(array.len())?),
-            ),
-            _ => StatsSet::default(),
-        })
-    }
-}
+//
+// impl StatisticsVTable<StructArray> for StructEncoding {
+//     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
+//         Ok(match stat {
+//             Stat::UncompressedSizeInBytes => array
+//                 .fields()
+//                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
+//                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
+//                 .flatten()
+//                 .map(|size| StatsSet::of(stat, Precision::exact(size)))
+//                 .unwrap_or_default(),
+//             Stat::NullCount => StatsSet::of(
+//                 stat,
+//                 Precision::exact(array.validity().null_count(array.len())?),
+//             ),
+//             _ => StatsSet::default(),
+//         })
+//     }
+// }
 
 #[cfg(test)]
 mod test {

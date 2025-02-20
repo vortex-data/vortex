@@ -11,22 +11,21 @@ use vortex_error::{
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::canonical::ArrayCanonicalImpl;
-use crate::array::validity::ArrayValidityImpl;
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
-use crate::variants::PrimitiveArrayTrait;
+use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
+use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, RkyvMetadata,
 };
 
 mod accessor;
-mod array;
 pub mod builder;
 mod canonical;
 // mod compute;
@@ -36,7 +35,7 @@ mod variants;
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
     dtype: DType,
-    data: ByteBuffer,
+    bytes: ByteBuffer,
     offsets: ArrayRef,
     validity: Validity,
 }
@@ -73,8 +72,6 @@ impl VarBinArray {
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non nullable int", offsets.dtype());
         }
-        let offsets_ptype = PType::try_from(offsets.dtype()).vortex_unwrap();
-
         if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
             vortex_bail!(MismatchedTypes: "utf8 or binary", dtype);
         }
@@ -82,50 +79,21 @@ impl VarBinArray {
             vortex_bail!("incorrect validity {:?}", validity);
         }
 
-        let length = offsets.len() - 1;
-
-        let metadata = VarBinMetadata {
-            validity: validity.to_metadata(offsets.len() - 1)?,
-            offsets_ptype,
-            bytes_len: bytes.len(),
-        };
-
-        let children = match validity.into_array() {
-            Some(validity) => {
-                vec![offsets, validity]
-            }
-            None => {
-                vec![offsets]
-            }
-        };
-
-        Self::try_from_parts(
+        Ok(Self {
             dtype,
-            length,
-            RkyvMetadata(metadata),
-            [bytes].into(),
-            children.into(),
-            StatsSet::default(),
-        )
+            bytes,
+            offsets,
+            validity,
+        })
     }
 
     #[inline]
-    pub fn offsets(&self) -> ArrayRef {
-        self.as_ref()
-            .child(
-                0,
-                &DType::Primitive(self.metadata().offsets_ptype, Nullability::NonNullable),
-                self.len() + 1,
-            )
-            .vortex_expect("Missing offsets in VarBinArray")
+    pub fn offsets(&self) -> &ArrayRef {
+        &self.offsets
     }
 
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(1, &Validity::DTYPE, self.len())
-                .vortex_expect("VarBinArray: validity child")
-        })
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 
     /// Access the value bytes child buffer
@@ -136,11 +104,8 @@ impl VarBinArray {
     /// that are not logically present in the array. Users should prefer [sliced_bytes][Self::sliced_bytes]
     /// unless they're resolving values via the offset child array.
     #[inline]
-    pub fn bytes(&self) -> ByteBuffer {
-        self.as_ref()
-            .byte_buffer(0)
-            .vortex_expect("Missing data buffer")
-            .clone()
+    pub fn bytes(&self) -> &ByteBuffer {
+        &self.bytes
     }
 
     /// Access value bytes child array limited to values that are logically present in
@@ -245,31 +210,31 @@ impl VarBinArray {
     }
 }
 
-impl ArrayCanonicalImpl for VarBinArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
-    }
-}
-
 impl ArrayValidityImpl for VarBinArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        todo!()
+        self.validity.is_valid(index)
     }
 
     fn _all_valid(&self) -> VortexResult<bool> {
-        todo!()
+        self.validity.all_valid()
     }
 
     fn _all_invalid(&self) -> VortexResult<bool> {
-        todo!()
+        self.validity.all_invalid()
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
-        todo!()
+        self.validity.to_logical(self.len())
     }
 }
 
-impl ArrayVariantsImpl for VarBinArray {}
+impl ArrayVisitorImpl for VarBinArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("offsets", self.offsets())?;
+        visitor.visit_buffer(self.bytes())?; // TODO(ngates): sliced bytes?
+        visitor.visit_validity(self.validity())
+    }
+}
 
 impl ArrayImpl for VarBinArray {
     fn _len(&self) -> usize {
@@ -280,8 +245,6 @@ impl ArrayImpl for VarBinArray {
         &self.dtype
     }
 }
-
-impl ValidateVTable<VarBinArray> for VarBinEncoding {}
 
 impl From<Vec<&[u8]>> for VarBinArray {
     fn from(value: Vec<&[u8]>) -> Self {

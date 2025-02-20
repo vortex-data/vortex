@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use arrow_array::builder::ArrayBuilder;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::builders::ArrayBuilder;
 use crate::{Array, Canonical};
 
 /// Implementation trait for canonicalization functions.

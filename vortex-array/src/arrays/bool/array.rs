@@ -1,19 +1,19 @@
 use std::sync::{Arc, RwLock};
 
-use arrow_array::builder::ArrayBuilder;
 use arrow_buffer::BooleanBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::canonical::ArrayCanonicalImpl;
-use crate::array::validity::ArrayValidityImpl;
-use crate::array::{Array, ArrayVariantsImpl};
+use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::bool;
+use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::{ArrayImpl, Canonical};
+use crate::visitor::ArrayVisitor;
+use crate::{ArrayImpl, ArrayVisitorImpl, Canonical};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -117,6 +117,17 @@ impl ArrayValidityImpl for BoolArray {
 impl ArrayVariantsImpl for BoolArray {
     fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
         Some(self)
+    }
+}
+
+impl ArrayVisitorImpl for BoolArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
+            self.buffer.clone().into_inner(),
+            Alignment::none(),
+        ))?;
+        visitor.visit_validity(&self.validity)?;
+        Ok(())
     }
 }
 

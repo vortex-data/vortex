@@ -1,7 +1,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use arrow_array::builder::ArrayBuilder;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
@@ -9,6 +8,7 @@ use vortex_mask::Mask;
 use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
+use crate::builders::ArrayBuilder;
 use crate::visitor::ArrayVisitor;
 use crate::{Array, ArrayRef, ArrayVariantsImpl, Canonical};
 

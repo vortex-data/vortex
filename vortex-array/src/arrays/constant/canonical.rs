@@ -5,7 +5,7 @@ use vortex_dtype::{match_each_native_ptype, DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
-use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{

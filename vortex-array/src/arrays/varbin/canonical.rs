@@ -5,14 +5,14 @@ use vortex_error::VortexResult;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::{VarBinEncoding, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray};
 
-impl CanonicalVTable<VarBinArray> for VarBinEncoding {
-    fn into_canonical(&self, array: VarBinArray) -> VortexResult<Canonical> {
-        let dtype = array.dtype().clone();
+impl ArrayCanonicalImpl for VarBinArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        let dtype = self.dtype().clone();
         let nullable = dtype.is_nullable();
 
-        let array_ref = array.into_array().into_arrow_preferred()?;
+        let array_ref = self.to_array().into_arrow_preferred()?;
         let array = match dtype {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,

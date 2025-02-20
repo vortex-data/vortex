@@ -3,7 +3,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
-use crate::array::canonical::ArrayCanonicalImpl;
+use crate::array::ArrayCanonicalImpl;
 use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::null::NullArray;
@@ -21,10 +21,7 @@ impl ArrayCanonicalImpl for ChunkedArray {
         try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
     }
 
-    fn _append_to_builder(
-        &self,
-        builder: &mut dyn arrow_array::builder::ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         for chunk in self.chunks() {
             chunk.append_to_builder(builder)?;
         }

@@ -5,7 +5,6 @@
 use std::any::Any;
 use std::fmt::{Debug, Display};
 
-use arrow_array::builder::ArrayBuilder;
 use futures_util::stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -14,8 +13,7 @@ use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
-use crate::array::canonical::ArrayCanonicalImpl;
-use crate::array::validity::ArrayValidityImpl;
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use crate::encoding::encoding_ids;
@@ -132,16 +130,19 @@ impl ChunkedArray {
         &self.chunks
     }
 
-    pub fn non_empty_chunks(&self) -> impl Iterator<Item = ArrayRef> + '_ {
-        self.chunks().filter(|c| !c.is_empty())
+    pub fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
+        self.chunks().iter().filter(|c| !c.is_empty())
     }
 
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
-        ArrayIteratorAdapter::new(self.dtype().clone(), self.chunks().map(Ok))
+        ArrayIteratorAdapter::new(self.dtype().clone(), self.chunks().iter().cloned().map(Ok))
     }
 
     pub fn array_stream(&self) -> impl ArrayStream + '_ {
-        ArrayStreamAdapter::new(self.dtype().clone(), stream::iter(self.chunks().map(Ok)))
+        ArrayStreamAdapter::new(
+            self.dtype().clone(),
+            stream::iter(self.chunks().iter().cloned().map(Ok)),
+        )
     }
 
     pub fn rechunk(&self, target_bytesize: usize, target_rowsize: usize) -> VortexResult<Self> {
@@ -200,18 +201,6 @@ impl FromIterator<ArrayRef> for ChunkedArray {
         Self::try_new(chunks, dtype).vortex_expect("Failed to create chunked array from iterator")
     }
 }
-
-impl ArrayCanonicalImpl for ChunkedArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
-    }
-
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        todo!()
-    }
-}
-
-impl ArrayVariantsImpl for ChunkedArray {}
 
 impl ArrayImpl for ChunkedArray {
     fn _len(&self) -> usize {

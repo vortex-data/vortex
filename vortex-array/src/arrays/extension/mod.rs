@@ -1,12 +1,10 @@
 use std::sync::{Arc, RwLock};
 
-use arrow_array::builder::ArrayBuilder;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::canonical::ArrayCanonicalImpl;
-use crate::array::validity::ArrayValidityImpl;
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
 use crate::stats::{ArrayStatistics, Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;

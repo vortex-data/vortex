@@ -9,8 +9,7 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PTy
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::canonical::ArrayCanonicalImpl;
-use crate::array::validity::ArrayValidityImpl;
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::iter::Accessor;
@@ -19,8 +18,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayImpl, ArrayRef, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    IntoArray, IntoCanonical, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, IntoArray, IntoCanonical, RkyvMetadata,
 };
 
 // mod compute;
@@ -114,18 +113,12 @@ impl PrimitiveArray {
         Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(0, &Validity::DTYPE, self.len())
-                .vortex_expect("PrimitiveArray: validity child")
-        })
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {
-        self.as_ref()
-            .byte_buffer(0)
-            .vortex_expect("Missing buffer in PrimitiveArray")
+        &self.buffer
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
@@ -275,35 +268,9 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity())
+        PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity().clone())
     }
 }
-
-impl ArrayCanonicalImpl for PrimitiveArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
-    }
-}
-
-impl ArrayValidityImpl for PrimitiveArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        todo!()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        todo!()
-    }
-}
-
-impl ArrayVariantsImpl for PrimitiveArray {}
 
 impl ArrayImpl for PrimitiveArray {
     fn _len(&self) -> usize {
@@ -315,35 +282,9 @@ impl ArrayImpl for PrimitiveArray {
     }
 }
 
-impl ValidateVTable<PrimitiveArray> for PrimitiveEncoding {
-    fn validate(&self, array: &PrimitiveArray) -> VortexResult<()> {
-        if array.as_ref().nbuffers() != 1 {
-            vortex_bail!(
-                "PrimitiveArray: expected 1 buffer, found {}",
-                array.as_ref().nbuffers()
-            );
-        }
-
-        match_each_native_ptype!(array.ptype(), |$T| {
-            if !array
-                .byte_buffer()
-                .alignment()
-                .is_aligned_to(Alignment::of::<$T>())
-            {
-                vortex_bail!("PrimitiveArray: buffer is not aligned to {}", stringify!($T));
-            }
-        });
-
-        Ok(())
-    }
-}
-
-impl VariantsVTable<PrimitiveArray> for PrimitiveEncoding {
-    fn as_primitive_array<'a>(
-        &self,
-        array: &'a PrimitiveArray,
-    ) -> Option<&'a dyn PrimitiveArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for PrimitiveArray {
+    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
     }
 }
 
@@ -393,42 +334,38 @@ impl<T: NativePType> IntoArray for BufferMut<T> {
     }
 }
 
-impl CanonicalVTable<PrimitiveArray> for PrimitiveEncoding {
-    fn into_canonical(&self, array: PrimitiveArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(array))
+impl ArrayCanonicalImpl for PrimitiveArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(self.clone()))
     }
 
-    fn canonicalize_into(
-        &self,
-        array: PrimitiveArray,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
-        builder.extend_from_array(array.into_array())
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        builder.extend_from_array(self.to_array())
     }
 }
 
-impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
-    fn is_valid(&self, array: &PrimitiveArray, index: usize) -> VortexResult<bool> {
-        array.validity().is_valid(index)
+impl ArrayValidityImpl for PrimitiveArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.validity.is_valid(index)
     }
 
-    fn all_valid(&self, array: &PrimitiveArray) -> VortexResult<bool> {
-        array.validity().all_valid()
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.validity.all_valid()
     }
 
-    fn all_invalid(&self, array: &PrimitiveArray) -> VortexResult<bool> {
-        array.validity().all_invalid()
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.validity.all_invalid()
     }
 
-    fn validity_mask(&self, array: &PrimitiveArray) -> VortexResult<Mask> {
-        array.validity().to_logical(array.len())
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.validity.to_logical(self.len())
     }
 }
 
-impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
-    fn accept(&self, array: &PrimitiveArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(array.byte_buffer())?;
-        visitor.visit_validity(&array.validity())
+impl ArrayVisitorImpl for PrimitiveArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(self.byte_buffer())?;
+        visitor.visit_validity(self.validity())
     }
 }
 

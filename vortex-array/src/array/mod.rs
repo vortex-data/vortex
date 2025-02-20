@@ -9,7 +9,6 @@ mod visitor;
 use std::any::Any;
 use std::sync::Arc;
 
-use arrow_array::builder::ArrayBuilder;
 pub use canonical::*;
 pub use convert::*;
 pub use implementation::*;
@@ -20,6 +19,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::builders::ArrayBuilder;
 use crate::visitor::ArrayVisitor;
 use crate::Canonical;
 
