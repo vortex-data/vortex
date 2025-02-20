@@ -14,9 +14,10 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoCanonical};
 
+/// Builder for [`PrimitiveArray`].
 pub struct PrimitiveBuilder<T> {
-    pub values: BufferMut<T>,
-    pub nulls: LazyNullBufferBuilder,
+    values: BufferMut<T>,
+    nulls: LazyNullBufferBuilder,
     dtype: DType,
 }
 
@@ -31,6 +32,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
+    }
+
+    /// Append a `Mask` to the null buffer.
+    pub fn append_mask(&mut self, mask: Mask) {
+        self.nulls.append_validity_mask(mask);
     }
 
     pub fn append_value(&mut self, value: T) {

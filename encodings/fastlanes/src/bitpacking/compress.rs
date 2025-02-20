@@ -240,9 +240,8 @@ where
     F: Fn(&[UnsignedT]) -> &[T],
     G: Fn(&mut [T]) -> &mut [UnsignedT],
 {
-    builder
-        .nulls
-        .append_validity(array.validity(), array.len())?;
+    // Append a dense null Mask.
+    builder.append_mask(array.validity_mask()?);
 
     let packed = array.packed_slice::<UnsignedT>();
     let bit_width = array.bit_width() as usize;
