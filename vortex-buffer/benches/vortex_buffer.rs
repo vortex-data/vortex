@@ -2,7 +2,7 @@
 
 use std::iter::Iterator;
 
-use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer, ToByteSlice};
+use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
 use divan::Bencher;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{vortex_err, VortexExpect};
@@ -83,62 +83,28 @@ fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) 
         .bench_local_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
 }
 
-trait Push<T> {
-    fn push(&mut self, elem: T);
-}
-
-impl<T: ToByteSlice> Push<T> for Arrow<MutableBuffer> {
-    fn push(&mut self, item: T) {
-        MutableBuffer::push(&mut self.0, item)
-    }
-}
-
-impl<T> Push<T> for BufferMut<T> {
-    fn push(&mut self, item: T) {
-        BufferMut::push(self, item)
-    }
-}
-
-#[divan::bench(
-    types = [Arrow<MutableBuffer>, BufferMut<i32>],
-    args = [1, 100, 1_000, 100_000, 1_000_000],
-)]
-fn push_from_iter<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
+#[divan::bench(args = [1, 100, 1_000, 10_000, 100_000, 1_000_000])]
+fn push_vortex_buffer(bencher: Bencher, length: i32) {
     bencher
-        .with_inputs(|| B::from_iter(std::iter::empty()))
-        .bench_local_refs(|buffer| {
-            for idx in 0..n {
-                Push::push(buffer, divan::black_box(idx))
-            }
-        });
-}
-
-#[divan::bench(
-    types = [Arrow<MutableBuffer>, BufferMut<i32>],
-    args = [1, 100, 1_000, 10_000, 100_000, 1_000_000],
-)]
-fn push_with_capacity<B: Push<i32> + WithCapacity<i32>>(bencher: Bencher, length: i32) {
-    bencher
-        .with_inputs(|| B::with_capacity(length as usize))
+        .with_inputs(|| BufferMut::<i32>::with_capacity(length as usize))
         .bench_local_refs(|buffer| {
             for idx in 0..length {
-                Push::push(buffer, divan::black_box(idx))
+                buffer.push(divan::black_box(idx));
             }
         });
 }
 
-trait WithCapacity<T> {
-    fn with_capacity(capacity: usize) -> Self;
-}
-
-impl<T> WithCapacity<T> for Arrow<MutableBuffer> {
-    fn with_capacity(capacity: usize) -> Self {
-        Self(MutableBuffer::with_capacity(capacity * size_of::<T>()))
-    }
-}
-
-impl<T> WithCapacity<T> for BufferMut<T> {
-    fn with_capacity(capacity: usize) -> Self {
-        Self::with_capacity(capacity)
-    }
+#[divan::bench(args = [1, 100, 1_000, 10_000, 100_000, 1_000_000])]
+fn push_arrow_buffer(bencher: Bencher, length: i32) {
+    bencher
+        .with_inputs(|| {
+            Arrow(MutableBuffer::with_capacity(
+                length as usize * size_of::<i32>(),
+            ))
+        })
+        .bench_local_refs(|buffer| {
+            for idx in 0..length {
+                buffer.0.push(divan::black_box(idx));
+            }
+        });
 }
