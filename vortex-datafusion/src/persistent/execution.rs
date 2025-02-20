@@ -161,6 +161,9 @@ impl ExecutionPlan for VortexExec {
             .iter()
             .flatten()
             .collect::<Vec<_>>();
+
+        dbg!(&all_files[0].statistics);
+
         let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
 
         // If there's one file or less total files in the scan, we can't repartition it
@@ -257,12 +260,15 @@ mod tests {
             PartitionedFile::new("e", 50),
         ]];
 
-        repartition_by_size(file_groups.iter().flatten().collect(), 2);
+        let groups = repartition_by_size(file_groups.iter().flatten().collect(), 2);
+
+        assert_eq!(groups.len(), 2);
 
         let file_groups = (0..100)
             .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
             .collect::<Vec<_>>();
 
-        repartition_by_size(file_groups.iter().collect(), 16);
+        let groups = repartition_by_size(file_groups.iter().collect(), 16);
+        assert_eq!(groups.len(), 16);
     }
 }
