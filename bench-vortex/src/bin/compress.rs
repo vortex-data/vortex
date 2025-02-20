@@ -13,6 +13,8 @@ use clap::Parser;
 use indicatif::ProgressBar;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
+use vortex::arrays::ChunkedArray;
+use vortex::{Array, IntoArray, IntoArrayVariant};
 
 feature_flagged_allocator!();
 
@@ -112,7 +114,21 @@ fn compress(
                 &formats,
                 iterations,
                 dataset_handle.name(),
-                || runtime.block_on(async { dataset_handle.to_vortex_array().await }),
+                || {
+                    let vx_array =
+                        runtime.block_on(async { dataset_handle.to_vortex_array().await });
+                    ChunkedArray::from_iter(
+                        ChunkedArray::maybe_from(vx_array)
+                            .unwrap()
+                            .chunks()
+                            .map(|c| {
+                                let arrow_rb =
+                                    c.into_struct().unwrap().into_record_batch().unwrap();
+                                Array::try_from(arrow_rb).unwrap()
+                            }),
+                    )
+                    .into_array()
+                },
             )
         })
         .collect::<CompressMeasurements>();

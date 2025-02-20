@@ -58,7 +58,7 @@ where
 {
     let uncompressed = make_uncompressed();
     let uncompressed_array = uncompressed.as_ref();
-    let uncompressed_size = uncompressed.as_ref().nbytes();
+    let uncompressed_size = uncompressed_array.nbytes();
     let compressed_size = AtomicU64::default();
 
     let mut ratios = Vec::new();
