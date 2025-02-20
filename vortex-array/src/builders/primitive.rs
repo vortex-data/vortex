@@ -52,6 +52,29 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     ///
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate
     /// on indices relative to the start of the range.
+    ///
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use std::mem::MaybeUninit;
+    /// use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+    /// use vortex_dtype::Nullability;
+    ///
+    /// // Create a new builder.
+    /// let mut builder: PrimitiveBuilder<i32> = PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
+    ///
+    /// // Populate the values in reverse order.
+    /// let mut range = builder.uninit_range(5);
+    /// for i in [4, 3, 2, 1, 0] {
+    ///     range[i] = MaybeUninit::new(i as i32);
+    /// }
+    /// range.finish();
+    ///
+    /// let built = builder.finish_into_primitive();
+    ///
+    /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
+    /// ```
     pub fn uninit_range(&mut self, len: usize) -> UninitRange<T> {
         let offset = self.values.len();
         assert!(
@@ -67,13 +90,17 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
-        assert_eq!(
-            self.nulls.len(),
-            self.values.len(),
-            "null count must equal value count"
-        );
+        let nulls = self.nulls.finish();
 
-        let validity = match (self.nulls.finish(), self.dtype().nullability()) {
+        if let Some(null_buf) = nulls.as_ref() {
+            assert_eq!(
+                null_buf.len(),
+                self.values.len(),
+                "null buffer length must equal value buffer length"
+            );
+        }
+
+        let validity = match (nulls, self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,
             (Some(_), Nullability::NonNullable) => {
                 vortex_panic!("Non-nullable builder has null values")
@@ -149,7 +176,6 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 pub struct UninitRange<'a, T> {
     offset: usize,
     len: usize,
-    // uninit: &'a mut [MaybeUninit<T>],
     builder: &'a mut PrimitiveBuilder<T>,
 }
 

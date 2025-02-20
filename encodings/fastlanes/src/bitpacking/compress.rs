@@ -261,8 +261,6 @@ where
         transmute_mut,
     )?;
 
-    // uninit.finish();
-
     if let Some(patches) = array.patches() {
         apply_patches(&mut uninit, patches)?;
     };
