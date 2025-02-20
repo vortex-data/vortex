@@ -1,7 +1,7 @@
 use std::iter::TrustedLen;
 use std::slice;
 
-use vortex_error::vortex_panic;
+use vortex_error::VortexExpect;
 
 use crate::BufferMut;
 
@@ -38,29 +38,24 @@ impl<T> BufferMut<T> {
     }
 
     fn extend_trusted<I: TrustedLen<Item = T>>(&mut self, iter: I) {
-        // Attempt to reserve enough memory up-front, although this is only a lower bound.
+        // Reserve all memory upfront since it's an exact upper bound
         let (_, high) = iter.size_hint();
-        if let Some(additional) = high {
-            self.reserve(additional);
+        self.reserve(high.vortex_expect("TrustedLen iterator didn't have valid upper bound"));
 
-            let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-            let mut dst: *mut T = begin.cast_mut();
-            iter.for_each(|item| {
-                unsafe {
-                    // SAFETY: We know we have enough capacity to write the item.
-                    dst.write(item);
-                    // Note. we used to have dst.add(iteration).write(item), here.
-                    // however this was much slower than just incrementing dst.
-                    dst = dst.add(1);
-                }
-            });
-            // TODO(joe): replace with ptr_sub when stable
-            let length =
-                self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
-            unsafe { self.set_len(length) };
-        } else {
-            vortex_panic!("TrustedLen iterator didn't have valid upper bound")
-        }
+        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = begin.cast_mut();
+        iter.for_each(|item| {
+            unsafe {
+                // SAFETY: We know we have enough capacity to write the item.
+                dst.write(item);
+                // Note. we used to have dst.add(iteration).write(item), here.
+                // however this was much slower than just incrementing dst.
+                dst = dst.add(1);
+            }
+        });
+        // TODO(joe): replace with ptr_sub when stable
+        let length = self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
+        unsafe { self.set_len(length) };
     }
 }
 
