@@ -13,6 +13,7 @@ use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, 
 use clap::{Parser, ValueEnum};
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use log::{info, warn};
 use tokio::runtime::Builder;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
@@ -91,7 +92,7 @@ fn main() -> ExitCode {
                 }
             };
 
-            eprintln!(
+            info!(
                 "Using existing or generating new files located at {}.",
                 data_dir.display()
             );
@@ -108,9 +109,9 @@ fn main() -> ExitCode {
             //
             // The folder must already be populated with data!
             if !tpch_benchmark_remote_data_dir.ends_with("/") {
-                eprintln!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
+                warn!("Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev/parquet/");
             }
-            eprintln!(
+            info!(
                 concat!(
                 "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                 "If it does not, you should kill this command, locally generate the files (by running without\n",
@@ -156,7 +157,7 @@ async fn bench_main(
         );
     };
 
-    eprintln!(
+    info!(
         "Benchmarking against these formats: {}.",
         formats.iter().join(", ")
     );
@@ -210,7 +211,7 @@ async fn bench_main(
                 "gcs" => "gcs",
                 "file" => "nvme",
                 otherwise => {
-                    println!("unknown URL scheme: {}", otherwise);
+                    warn!("unknown URL scheme: {}", otherwise);
                     return ExitCode::FAILURE;
                 }
             }
@@ -248,14 +249,14 @@ async fn bench_main(
                 let expected_row_count = expected_row_counts[idx];
                 if actual_row_count != expected_row_count {
                     if idx == 15 && actual_row_count == 0 {
-                        eprintln!(
+                        warn!(
                             "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/spiraldb/vortex/issues/2395",
                             actual_row_count,
                             expected_row_count,
                             format,
                         );
                     } else  {
-                        eprintln!(
+                        warn!(
                             "Mismatched row count {} instead of {} in query {} for format {:?}",
                             actual_row_count,
                             expected_row_count,

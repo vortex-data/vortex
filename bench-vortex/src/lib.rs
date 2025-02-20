@@ -186,14 +186,13 @@ impl IdempotentPath for PathBuf {
     }
 }
 
-pub fn setup_logger(_filter: EnvFilter) {
-    // #[cfg(not(feature = "tracing"))]
+pub fn setup_logger(filter: EnvFilter) {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_file(true)
         .with_level(true)
         .with_line_number(true)
-        .with_env_filter(_filter)
+        .with_env_filter(filter)
         .init();
 }
 

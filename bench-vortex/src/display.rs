@@ -75,6 +75,7 @@ pub fn render_table<T: ToGeneric>(
 
 pub fn print_measurements_json<T: ToJson>(all_measurements: Vec<T>) -> anyhow::Result<()> {
     for measurement in all_measurements {
+        // This has to be `println!` and go to stdout, because we capture it from there.
         println!("{}", serde_json::to_string(&measurement.to_json())?)
     }
 

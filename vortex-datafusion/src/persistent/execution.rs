@@ -156,12 +156,21 @@ impl ExecutionPlan for VortexExec {
         target_partitions: usize,
         _config: &ConfigOptions,
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
+        // If there's only one total file in the scan, we can't repartition it
+        if self
+            .file_scan_config
+            .file_groups
+            .iter()
+            .map(|group| group.len())
+            .sum::<usize>()
+            == 1
+        {
+            return Ok(None);
+        }
+
         let file_groups = self.file_scan_config.file_groups.clone();
-
         let repartitioned_file_groups = repartition_by_size(file_groups, target_partitions);
-
         let mut new_plan = self.clone();
-
         let num_partitions = repartitioned_file_groups.len();
 
         log::debug!("VortexExec repartitioned to {num_partitions} partitions");
