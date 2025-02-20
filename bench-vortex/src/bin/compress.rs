@@ -124,7 +124,11 @@ fn compress(
             render_table(measurements.throughputs, &formats, RatioMode::Throughput).unwrap();
             render_table(
                 measurements.ratios,
-                &[Format::OnDiskVortex],
+                if formats.contains(&Format::OnDiskVortex) {
+                    &[Format::OnDiskVortex]
+                } else {
+                    &[]
+                },
                 RatioMode::Throughput,
             )
             .unwrap();
