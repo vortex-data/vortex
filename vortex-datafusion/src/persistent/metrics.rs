@@ -25,7 +25,7 @@ impl VortexExecMetrics {
         let mut base = self.execution_plan.clone_inner();
         for metric in self
             .vortex
-            .metrics()
+            .snapshot()
             .iter()
             .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
         {

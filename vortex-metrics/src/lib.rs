@@ -35,12 +35,17 @@ pub struct DefaultTags(BTreeMap<Cow<'static, str>, Cow<'static, str>>);
 
 impl<K, V, I> From<I> for DefaultTags
 where
-    I: Iterator<Item = (K, V)>,
+    I: IntoIterator<Item = (K, V)>,
     K: Into<Cow<'static, str>>,
     V: Into<Cow<'static, str>>,
 {
     fn from(pairs: I) -> Self {
-        DefaultTags(pairs.map(|(k, v)| (k.into(), v.into())).collect())
+        DefaultTags(
+            pairs
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
     }
 }
 
@@ -113,12 +118,12 @@ impl VortexMetrics {
     /// Modifications to the registry after this method is called will not affect the state of the returned `MetricsSnapshot`.
     ///
     /// Note: Tag values may contain sensitive information and should be properly sanitized before external exposure.
-    pub fn metrics(&self) -> MetricsSnapshot {
+    pub fn snapshot(&self) -> MetricsSnapshot {
         let children = self
             .children
             .read()
             .vortex_expect("failed to acquire read lock on children");
-        let snapshots = children.iter().map(|c| c.metrics());
+        let snapshots = children.iter().map(|c| c.snapshot());
         MetricsSnapshot(
             std::iter::once((self.default_tags.clone(), self.registry.metrics()))
                 .chain(snapshots.flat_map(|snapshots| snapshots.0.into_iter()))
@@ -188,12 +193,12 @@ mod tests {
     #[test]
     fn test_default_tags() -> Result<(), &'static str> {
         let tags = [("file", "a"), ("partition", "1")];
-        let metrics = VortexMetrics::new_with_tags(tags.into_iter());
+        let metrics = VortexMetrics::new_with_tags(tags);
 
         // Create a metric to verify tags
         let counter = metrics.counter("test.counter");
         counter.inc();
-        let snapshot = metrics.metrics();
+        let snapshot = metrics.snapshot();
         let (name, metric) = snapshot.iter().next().unwrap();
         assert_eq!(
             name,
@@ -211,13 +216,13 @@ mod tests {
     #[test]
     fn test_multiple_children_with_different_tags() -> Result<(), &'static str> {
         let parent_tags = [("service", "vortex")];
-        let parent = VortexMetrics::new_with_tags(parent_tags.into_iter());
+        let parent = VortexMetrics::new_with_tags(parent_tags);
 
         let child1_tags = [("instance", "child1")];
         let child2_tags = [("instance", "child2")];
 
-        let child1 = parent.child_with_tags(child1_tags.into_iter());
-        let child2 = parent.child_with_tags(child2_tags.into_iter());
+        let child1 = parent.child_with_tags(child1_tags);
+        let child2 = parent.child_with_tags(child2_tags);
 
         // Create same metric in both children
         let counter1 = child1.counter("test.counter");
@@ -227,7 +232,7 @@ mod tests {
         counter2.add(2);
 
         // Verify child1 metrics
-        let child1_snapshot = child1.metrics();
+        let child1_snapshot = child1.snapshot();
         let (name, metric) = child1_snapshot.iter().next().unwrap();
         assert_eq!(
             name,
@@ -241,7 +246,7 @@ mod tests {
         }
 
         // Verify child2 metrics
-        let child2_snapshot = child2.metrics();
+        let child2_snapshot = child2.snapshot();
         let (name, metric) = child2_snapshot.iter().next().unwrap();
         assert_eq!(
             name,
@@ -259,17 +264,17 @@ mod tests {
     #[test]
     fn test_tag_overriding() -> Result<(), &'static str> {
         let parent_tags = [("service", "vortex"), ("environment", "test")];
-        let parent = VortexMetrics::new_with_tags(parent_tags.into_iter());
+        let parent = VortexMetrics::new_with_tags(parent_tags);
 
         // Child tries to override parent's service tag
         let child_tags = [("service", "override"), ("instance", "child1")];
-        let child = parent.child_with_tags(child_tags.into_iter());
+        let child = parent.child_with_tags(child_tags);
 
         let child_counter = child.counter("test.counter");
         child_counter.inc();
 
         // Verify child metrics have the overridden tag value
-        let child_snapshot = child.metrics();
+        let child_snapshot = child.snapshot();
         let (name, metric) = child_snapshot.iter().next().unwrap();
         assert_eq!(
             name,

@@ -60,7 +60,7 @@ impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
         let file_metrics = self
             .metrics
-            .child_with_tags([("filename", file_meta.location().to_string())].into_iter());
+            .child_with_tags([("filename", file_meta.location().to_string())]);
         let read_at = InstrumentedReadAt::new(
             ObjectStoreReadAt::new(
                 self.object_store.clone(),
