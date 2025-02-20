@@ -14,7 +14,8 @@ use indicatif::ProgressBar;
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
 use vortex::arrays::ChunkedArray;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex::builders::builder_with_capacity;
+use vortex::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
 
 feature_flagged_allocator!();
 
@@ -122,9 +123,9 @@ fn compress(
                             .unwrap()
                             .chunks()
                             .map(|c| {
-                                let arrow_rb =
-                                    c.into_struct().unwrap().into_record_batch().unwrap();
-                                Array::try_from(arrow_rb).unwrap()
+                                let mut builder = builder_with_capacity(c.dtype(), c.len());
+                                c.canonicalize_into(builder.as_mut()).unwrap();
+                                builder.finish()
                             }),
                     )
                     .into_array()
