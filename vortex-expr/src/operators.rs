@@ -1,6 +1,8 @@
 use core::fmt;
 use std::fmt::{Display, Formatter};
 
+use vortex_array::compute;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Operator {
@@ -56,6 +58,18 @@ impl Operator {
             Operator::Lte => Operator::Gte,
             Operator::And => Operator::And,
             Operator::Or => Operator::Or,
+        }
+    }
+
+    pub fn maybe_cmp_operator(self) -> Option<compute::Operator> {
+        match self {
+            Operator::Eq => Some(compute::Operator::Eq),
+            Operator::NotEq => Some(compute::Operator::NotEq),
+            Operator::Lt => Some(compute::Operator::Lt),
+            Operator::Lte => Some(compute::Operator::Lte),
+            Operator::Gt => Some(compute::Operator::Gt),
+            Operator::Gte => Some(compute::Operator::Gte),
+            _ => None,
         }
     }
 }
