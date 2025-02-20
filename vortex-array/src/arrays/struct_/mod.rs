@@ -81,23 +81,14 @@ impl StructArray {
         }
 
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
+        let dtype = DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability);
 
-        let validity_metadata = validity.to_metadata(length)?;
-
-        if let Some(v) = validity.into_array() {
-            fields.push(v);
-        }
-
-        Self::try_from_parts(
-            DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability),
-            length,
-            RkyvMetadata(StructMetadata {
-                validity: validity_metadata,
-            }),
-            vec![].into(),
-            fields.into(),
-            StatsSet::default(),
-        )
+        Ok(Self {
+            len: length,
+            dtype,
+            fields,
+            validity,
+        })
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
@@ -146,7 +137,7 @@ impl StructArray {
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity(),
+            self.validity().clone(),
         )
     }
 }
@@ -169,12 +160,7 @@ impl ArrayVariantsImpl for StructArray {
 
 impl StructArrayTrait for StructArray {
     fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {
-        let dtype = self
-            .dtype()
-            .as_struct()
-            .vortex_expect("Not a struct dtype")
-            .field_by_index(idx)?;
-        self.child(idx, &dtype, self.len())
+        Ok(self.fields[idx].clone())
     }
 
     fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef> {

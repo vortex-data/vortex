@@ -59,7 +59,7 @@ fn try_cast_impl(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
         array.dtype(),
         dtype
     );
-    let canonicalized = array.clone().into_canonical()?.into_array();
+    let canonicalized = array.to_canonical()?.into_array();
     if let Some(f) = canonicalized.vtable().cast_fn() {
         return f.cast(&canonicalized, dtype);
     }

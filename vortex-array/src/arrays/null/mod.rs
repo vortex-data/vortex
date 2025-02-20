@@ -8,8 +8,8 @@ use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::{
-    ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId,
+    ArrayCanonicalImpl, ArrayImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 
 // mod compute;
@@ -29,6 +29,16 @@ impl Encoding for NullEncoding {
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self { len }
+    }
+}
+
+impl ArrayImpl for NullArray {
+    fn _len(&self) -> usize {
+        self.len
+    }
+
+    fn _dtype(&self) -> &DType {
+        &DType::Null
     }
 }
 

@@ -23,7 +23,7 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    Encoding, EncodingId, IntoArray, RkyvMetadata,
+    Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
 };
 
 mod accessor;
@@ -260,32 +260,17 @@ impl VarBinViewArray {
             vortex_bail!("incorrect validity {:?}", validity);
         }
 
-        let metadata = VarBinViewMetadata {
-            validity: validity.to_metadata(views.len())?,
-        };
-
-        let array_len = views.len();
-
-        let mut array_buffers = Vec::with_capacity(buffers.len() + 1);
-        array_buffers.push(views.into_byte_buffer());
-        array_buffers.extend(buffers);
-
-        Self::try_from_parts(
+        Ok(Self {
             dtype,
-            array_len,
-            RkyvMetadata(metadata),
-            array_buffers.into(),
-            validity
-                .into_array()
-                .map(|v| [v].into())
-                .unwrap_or_default(),
-            StatsSet::default(),
-        )
+            buffers,
+            views,
+            validity,
+        })
     }
 
     /// Number of raw string data buffers held by this array.
     pub fn nbuffers(&self) -> usize {
-        self.0.nbuffers() - 1
+        self.buffers.len()
     }
 
     /// Access to the primitive views buffer.
@@ -294,13 +279,8 @@ impl VarBinViewArray {
     /// contain either a pointer into one of the array's owned `buffer`s OR an inlined copy of
     /// the string (if the string has 12 bytes or fewer).
     #[inline]
-    pub fn views(&self) -> Buffer<BinaryView> {
-        Buffer::from_byte_buffer(
-            self.0
-                .byte_buffer(0)
-                .vortex_expect("Expected a views buffer")
-                .clone(),
-        )
+    pub fn views(&self) -> &Buffer<BinaryView> {
+        &self.views
     }
 
     /// Access value bytes at a given index
@@ -331,18 +311,14 @@ impl VarBinViewArray {
     /// This method panics if the provided index is out of bounds for the set of buffers provided
     /// at construction time.
     #[inline]
-    pub fn buffer(&self, idx: usize) -> ByteBuffer {
+    pub fn buffer(&self, idx: usize) -> &ByteBuffer {
         if idx >= self.nbuffers() {
             vortex_panic!(
                 "{idx} buffer index out of bounds, there are {} buffers",
                 self.nbuffers()
             );
         }
-
-        self.0
-            .byte_buffer(idx + 1)
-            .vortex_expect("Out of bounds view buffer")
-            .clone()
+        &self.buffers[idx]
     }
 
     /// Iterate over the underlying raw data buffers, not including the views buffer.
@@ -377,7 +353,7 @@ impl VarBinViewArray {
                         }
                     },
                 );
-                VarBinViewArray::try_from(ArrayRef::from_arrow(
+                VarBinViewArray::try_from_array(ArrayRef::from_arrow(
                     &string_view_array,
                     nullability.into(),
                 ))
@@ -388,7 +364,7 @@ impl VarBinViewArray {
                     iter.into_iter(),
                     GenericByteViewBuilder::append_option,
                 );
-                VarBinViewArray::try_from(ArrayRef::from_arrow(
+                VarBinViewArray::try_from_array(ArrayRef::from_arrow(
                     &binary_view_array,
                     nullability.into(),
                 ))
@@ -405,7 +381,8 @@ impl VarBinViewArray {
             builder.append_value(s);
         }
         let array = ArrayRef::from_arrow(&builder.finish(), false);
-        VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
+        VarBinViewArray::try_from_array(array)
+            .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
@@ -416,7 +393,8 @@ impl VarBinViewArray {
         builder.extend(iter);
 
         let array = ArrayRef::from_arrow(&builder.finish(), true);
-        VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
+        VarBinViewArray::try_from_array(array)
+            .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
@@ -426,7 +404,8 @@ impl VarBinViewArray {
             builder.append_value(b);
         }
         let array = ArrayRef::from_arrow(&builder.finish(), false);
-        VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
+        VarBinViewArray::try_from_array(array)
+            .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
@@ -436,7 +415,8 @@ impl VarBinViewArray {
         let mut builder = BinaryViewBuilder::with_capacity(iter.size_hint().0);
         builder.extend(iter);
         let array = ArrayRef::from_arrow(&builder.finish(), true);
-        VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
+        VarBinViewArray::try_from_array(array)
+            .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 }
 
@@ -475,7 +455,7 @@ impl ArrayCanonicalImpl for VarBinViewArray {
         let arrow_array = varbinview_as_arrow(&self);
         let vortex_array = ArrayRef::from_arrow(arrow_array, nullable);
 
-        Ok(Canonical::VarBinView(VarBinViewArray::try_from(
+        Ok(Canonical::VarBinView(VarBinViewArray::try_from_array(
             vortex_array,
         )?))
     }

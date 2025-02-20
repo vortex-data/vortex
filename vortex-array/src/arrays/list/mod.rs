@@ -24,8 +24,9 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -108,7 +109,7 @@ impl ListArray {
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
-        PrimitiveArray::try_from(self.offsets())
+        PrimitiveArray::try_from_array(self.offsets().clone())
             .ok()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
@@ -144,6 +145,16 @@ impl ListArray {
     }
 }
 
+impl ArrayImpl for ListArray {
+    fn _len(&self) -> usize {
+        self.offsets.len().saturating_sub(1)
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
+
 impl ArrayVariantsImpl for ListArray {
     fn _as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
         Some(self)
@@ -154,9 +165,9 @@ impl ListArrayTrait for ListArray {}
 
 impl ArrayVisitorImpl for ListArray {
     fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("offsets", &self.offsets())?;
-        visitor.visit_child("elements", &self.elements())?;
-        visitor.visit_validity(&self.validity())
+        visitor.visit_child("offsets", self.offsets())?;
+        visitor.visit_child("elements", self.elements())?;
+        visitor.visit_validity(self.validity())
     }
 }
 

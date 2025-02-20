@@ -7,14 +7,14 @@ use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::ToCanonical;
+use crate::{Array, ToCanonical};
 
 impl ArrayAccessor<[u8]> for VarBinArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
     where
         F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
     {
-        let offsets = self.offsets().into_primitive()?;
+        let offsets = self.offsets().to_primitive()?;
         let validity = self.validity();
 
         let bytes = self.bytes();
@@ -32,7 +32,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 }
                 Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
                 Validity::Array(v) => {
-                    let validity_buf = v.into_bool()?.boolean_buffer();
+                    let validity_buf = v.to_bool()?.boolean_buffer();
                     let mut iter = offsets
                         .windows(2)
                         .zip(validity_buf.iter())

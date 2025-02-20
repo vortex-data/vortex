@@ -142,7 +142,7 @@ mod tests {
             .into_bool()
             .unwrap();
 
-        let into_canon = chunk.clone().into_canonical().unwrap().into_bool().unwrap();
+        let into_canon = chunk.to_canonical().unwrap().into_bool().unwrap();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());

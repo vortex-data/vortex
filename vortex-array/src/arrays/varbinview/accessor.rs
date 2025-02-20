@@ -34,7 +34,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
             }
             Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, views.len()))),
             Validity::Array(v) => {
-                let validity_buf = v.into_bool()?.boolean_buffer();
+                let validity_buf = v.to_bool()?.boolean_buffer();
                 let mut iter = views.iter().zip(validity_buf.iter()).map(|(view, valid)| {
                     if valid {
                         if view.is_inlined() {

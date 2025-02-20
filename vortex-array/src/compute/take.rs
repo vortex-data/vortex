@@ -211,7 +211,7 @@ fn take_impl(
 
     // Otherwise, flatten and try again.
     log::debug!("No take implementation found for {}", array.encoding());
-    let canonical = array.clone().into_canonical()?.into_array();
+    let canonical = array.to_canonical()?.into_array();
     let canonical_take_fn = canonical
         .vtable()
         .take_fn()
@@ -246,7 +246,7 @@ fn take_into_impl(
 
     // Otherwise, flatten and try again.
     log::debug!("No take_into implementation found for {}", array.encoding());
-    let canonical = array.clone().into_canonical()?.into_array();
+    let canonical = array.to_canonical()?.into_array();
     let canonical_take_fn = canonical
         .vtable()
         .take_fn()

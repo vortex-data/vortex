@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::{VarBinEncoding, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray, TryFromArrayRef};
 
 impl ArrayCanonicalImpl for VarBinArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
@@ -19,7 +19,8 @@ impl ArrayCanonicalImpl for VarBinArray {
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
-        VarBinViewArray::try_from(ArrayRef::from_arrow(array, nullable)).map(Canonical::VarBinView)
+        VarBinViewArray::try_from_array(ArrayRef::from_arrow(array, nullable))
+            .map(Canonical::VarBinView)
     }
 }
 

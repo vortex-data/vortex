@@ -171,21 +171,12 @@ impl VarBinArray {
             vortex_bail!(OutOfBounds: index, 0, self.len() + 1)
         }
 
-        Ok(PrimitiveArray::maybe_from(self.offsets())
-            .map(|p| {
-                match_each_native_ptype!(p.ptype(), |$P| {
-                    p.as_slice::<$P>()[index].as_()
-                })
-            })
-            .unwrap_or_else(|| {
-                scalar_at(self.offsets(), index)
-                    .unwrap_or_else(|err| {
-                        vortex_panic!(err, "Failed to get offset at index: {}", index)
-                    })
-                    .as_ref()
-                    .try_into()
-                    .vortex_expect("Failed to convert offset to usize")
-            }))
+        // TODO(ngates): PrimitiveArrayTrait should have get_scalar(idx) -> Option<T> method
+        Ok(scalar_at(self.offsets(), index)
+            .unwrap_or_else(|err| vortex_panic!(err, "Failed to get offset at index: {}", index))
+            .as_ref()
+            .try_into()
+            .vortex_expect("Failed to convert offset to usize"))
     }
 
     /// Access value bytes at a given index
@@ -201,12 +192,7 @@ impl VarBinArray {
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(self) -> (DType, ByteBuffer, ArrayRef, Validity) {
-        (
-            self.dtype().clone(),
-            self.bytes(),
-            self.offsets(),
-            self.validity(),
-        )
+        (self.dtype, self.bytes, self.offsets, self.validity)
     }
 }
 

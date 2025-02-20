@@ -6,7 +6,7 @@ mod validity;
 mod variants;
 mod visitor;
 
-use std::any::Any;
+use std::any::{type_name, Any};
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_mask::Mask;
 
 use crate::builders::ArrayBuilder;
@@ -166,5 +166,25 @@ impl ToOwned for dyn Array {
 
     fn to_owned(&self) -> Self::Owned {
         self.to_array()
+    }
+}
+
+impl<A: Array + Clone> TryFromArrayRef for A {
+    fn try_from_array(array: ArrayRef) -> VortexResult<Self> {
+        Ok(Arc::unwrap_or_clone(
+            array
+                .as_any_arc()
+                .downcast::<A>()
+                .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<A>()))?,
+        ))
+    }
+}
+
+impl<A: Array + Clone> TryFromArrayRef for Arc<A> {
+    fn try_from_array(array: ArrayRef) -> VortexResult<Self> {
+        array
+            .as_any_arc()
+            .downcast::<A>()
+            .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<A>()))
     }
 }

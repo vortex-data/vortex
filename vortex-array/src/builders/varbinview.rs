@@ -162,7 +162,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = if let Some(array) = VarBinViewArray::maybe_from(&array) {
             array
         } else {
-            let Ok(Canonical::VarBinView(array)) = array.clone().into_canonical() else {
+            let Ok(Canonical::VarBinView(array)) = array.to_canonical() else {
                 vortex_bail!("Expected Canonical::VarBinView, found {:?}", array);
             };
             array

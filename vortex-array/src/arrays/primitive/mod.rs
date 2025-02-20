@@ -77,7 +77,7 @@ impl PrimitiveArray {
         }
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer,
+            buffer: buffer.into_byte_buffer(),
             validity,
         }
     }
@@ -88,7 +88,7 @@ impl PrimitiveArray {
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |$T| {
-            Self::new::<$T>(Buffer::from_byte_buffer(buffer), validity)
+            Self::new_with_validity::<$T>(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
@@ -111,7 +111,7 @@ impl PrimitiveArray {
                 }
             }
         }
-        Self::new(values.freeze(), Validity::from(validity.finish()))
+        Self::new_with_validity(values.freeze(), Validity::from(validity.finish()))
     }
 
     pub fn validity(&self) -> &Validity {
@@ -123,9 +123,7 @@ impl PrimitiveArray {
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
-        self.into_array()
-            .into_byte_buffer(0)
-            .vortex_expect("PrimitiveArray must have a buffer")
+        self.buffer
     }
 
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
@@ -147,11 +145,7 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::from_byte_buffer(
-            self.into_array()
-                .into_byte_buffer(0)
-                .vortex_expect("PrimitiveArray must have a buffer"),
-        )
+        Buffer::from_byte_buffer(self.buffer)
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
@@ -179,10 +173,10 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        let validity = self.validity();
+        let validity = self.validity().clone();
         Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
             .try_into_mut()
-            .map_err(|buffer| PrimitiveArray::new(buffer, validity))
+            .map_err(|buffer| PrimitiveArray::new_with_validity(buffer, validity))
     }
 
     /// Map each element in the array to a new value.
@@ -197,12 +191,12 @@ impl PrimitiveArray {
         R: NativePType,
         F: FnMut(T) -> R,
     {
-        let validity = self.validity();
+        let validity = self.validity().clone();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each(f),
             Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
-        PrimitiveArray::new(buffer.freeze(), validity)
+        PrimitiveArray::new_with_validity(buffer.freeze(), validity)
     }
 
     /// Map each element in the array to a new value.
@@ -227,11 +221,14 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                let val_bb = val.clone().into_canonical()?.into_bool()?.boolean_buffer();
-                BufferMut::<R>::from_iter(buf_iter.zip(&val_bb).map(f))
+                let val_bb = val.to_canonical()?.into_bool()?.boolean_buffer();
+                BufferMut::<R>::from_iter(buf_iter.zip(val_bb).map(f))
             }
         };
-        Ok(PrimitiveArray::new(buffer.freeze(), validity))
+        Ok(PrimitiveArray::new_with_validity(
+            buffer.freeze(),
+            validity.clone(),
+        ))
     }
 
     /// Return a slice of the array's buffer.
@@ -319,13 +316,13 @@ impl PrimitiveArrayTrait for PrimitiveArray {}
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let values = BufferMut::from_iter(iter);
-        PrimitiveArray::new(values.freeze(), Validity::NonNullable)
+        PrimitiveArray::new(values.freeze(), Nullability::NonNullable)
     }
 }
 
 impl<T: NativePType> IntoArray for Buffer<T> {
     fn into_array(self) -> ArrayRef {
-        PrimitiveArray::new(self, Validity::NonNullable).into_array()
+        PrimitiveArray::new(self, Nullability::NonNullable).into_array()
     }
 }
 

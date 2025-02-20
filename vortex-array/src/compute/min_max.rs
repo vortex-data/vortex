@@ -52,7 +52,7 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
     let min_max = if let Some(fn_) = array.vtable().min_max_fn() {
         fn_.min_max(array)?
     } else {
-        let canonical = array.clone().into_canonical()?;
+        let canonical = array.to_canonical()?;
         if let Some(fn_) = canonical.vtable().min_max_fn() {
             fn_.min_max(canonical.as_ref())?
         } else {

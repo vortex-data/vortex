@@ -6,18 +6,21 @@ use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::ToCanonical;
+use crate::{Array, ToCanonical};
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
         let (_, offset, patch_indices, patch_values) = patches.into_parts();
-        let patch_indices = patch_indices.into_primitive()?;
-        let patch_values = patch_values.into_primitive()?;
+        let patch_indices = patch_indices.to_primitive()?;
+        let patch_values = patch_values.to_primitive()?;
 
-        let patched_validity =
-            self.validity()
-                .patch(self.len(), offset, &patch_indices, patch_values.validity())?;
+        let patched_validity = self.validity().clone().patch(
+            self.len(),
+            offset,
+            &patch_indices,
+            patch_values.validity(),
+        )?;
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
                 self.patch_typed::<$T, $I>(patch_indices, offset, patch_values, patched_validity)
@@ -43,7 +46,7 @@ impl PrimitiveArray {
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_usize() - patch_indices_offset] = *value;
         }
-        Ok(Self::new(own_values, patched_validity))
+        Ok(Self::new_with_validity(own_values.into(), patched_validity))
     }
 }
 

@@ -54,7 +54,7 @@ where
     fn into_array(self) -> ArrayRef {
         PrimitiveArray::new(
             Buffer::<T>::from_arrow_scalar_buffer(self),
-            Validity::NonNullable,
+            Nullability::NonNullable,
         )
         .into_array()
     }
@@ -67,10 +67,10 @@ where
     fn into_array(self) -> ArrayRef {
         let primitive = PrimitiveArray::new(
             Buffer::from_arrow_scalar_buffer(self.into_inner()),
-            Validity::NonNullable,
+            Nullability::NonNullable,
         );
-        primitive.update_statistic(Stat::IsSorted, Precision::exact(true));
-        primitive.update_statistic(Stat::IsStrictSorted, Precision::exact(true));
+        // primitive.update_statistic(Stat::IsSorted, Precision::exact(true));
+        // primitive.update_statistic(Stat::IsStrictSorted, Precision::exact(true));
         primitive.into_array()
     }
 }
@@ -80,7 +80,7 @@ where
     <T as ArrowPrimitiveType>::Native: NativePType,
 {
     fn from_arrow(value: &ArrowPrimitiveArray<T>, nullable: bool) -> Self {
-        let arr = PrimitiveArray::new(
+        let arr = PrimitiveArray::new_with_validity(
             Buffer::from_arrow_scalar_buffer(value.values().clone()),
             nulls(value.nulls(), nullable),
         );
@@ -120,7 +120,7 @@ where
             _ => vortex_panic!("Invalid data type for ByteArray: {}", T::DATA_TYPE),
         };
         VarBinArray::try_new(
-            value.offsets().clone().into(),
+            value.offsets().clone().into_array(),
             ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
             dtype,
             nulls(value.nulls(), nullable),
@@ -159,8 +159,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::try_new(value.values().clone(), nulls(value.nulls(), nullable))
-            .vortex_expect("Validity length cannot mismatch")
+        BoolArray::new_with_validity(value.values().clone(), nulls(value.nulls(), nullable))
             .into_array()
     }
 }
@@ -194,7 +193,7 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
         ListArray::try_new(
             Self::from_arrow(value.values().clone(), elem_nullable),
             // offsets are always non-nullable
-            ArrayRef::from(value.offsets().clone()),
+            value.offsets().clone().into_array(),
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
