@@ -16,21 +16,28 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+use crate::{
+    ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical, RkyvMetadata,
 };
-use crate::{impl_encoding, ArrayRef, Canonical, IntoArray, IntoCanonical, RkyvMetadata};
 
 // mod compute;
 mod patch;
-mod stats;
+// mod stats;
 
-impl_encoding!(
-    "vortex.primitive",
-    encoding_ids::PRIMITIVE,
-    Primitive,
-    RkyvMetadata<PrimitiveMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct PrimitiveArray {
+    dtype: DType,
+    buffer: ByteBuffer,
+    validity: Validity,
+}
+
+pub struct PrimitiveEncoding;
+impl Encoding for PrimitiveEncoding {
+    const ID: EncodingId = EncodingId("vortex.primitive", encoding_ids::PRIMITIVE);
+    type Array = PrimitiveArray;
+    type Metadata = EmptyMetadata;
+}
 
 #[derive(
     Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -267,6 +274,42 @@ impl PrimitiveArray {
         );
 
         PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity())
+    }
+}
+
+impl ArrayCanonicalImpl for PrimitiveArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
+    }
+}
+
+impl ArrayValidityImpl for PrimitiveArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+impl ArrayVariantsImpl for PrimitiveArray {}
+
+impl ArrayImpl for PrimitiveArray {
+    fn _len(&self) -> usize {
+        self.byte_buffer().len() / self.ptype().byte_width()
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
     }
 }
 

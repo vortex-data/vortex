@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::take::take_canonical_array;
 
-pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult<ArrayRef> {
+pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let validity_buff = array
             .validity_mask()?

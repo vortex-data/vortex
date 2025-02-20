@@ -7,27 +7,24 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
-};
-use crate::{impl_encoding, Canonical, EmptyMetadata};
+use crate::{Canonical, EmptyMetadata, Encoding, EncodingId};
 
 // mod compute;
 
-impl_encoding!("vortex.null", encoding_ids::NULL, Null, EmptyMetadata);
+pub struct NullArray {
+    len: usize,
+}
+
+pub struct NullEncoding;
+impl Encoding for NullEncoding {
+    const ID: EncodingId = EncodingId("vortex.null", encoding_ids::NULL);
+    type Array = NullArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl NullArray {
     pub fn new(len: usize) -> Self {
-        Self::try_from_parts(
-            DType::Null,
-            len,
-            EmptyMetadata,
-            vec![].into(),
-            vec![].into(),
-            StatsSet::nulls(len, &DType::Null),
-        )
-        .vortex_expect("NullArray::new should never fail!")
+        Self { len }
     }
 }
 

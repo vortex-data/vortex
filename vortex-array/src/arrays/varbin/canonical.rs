@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::{VarBinEncoding, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::vtable::CanonicalVTable;
 use crate::{ArrayRef, Canonical, IntoArray};
 
 impl CanonicalVTable<VarBinArray> for VarBinEncoding {

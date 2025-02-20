@@ -50,7 +50,7 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
@@ -149,7 +149,7 @@ mod tests {
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
 
-    fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {

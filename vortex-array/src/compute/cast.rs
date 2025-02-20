@@ -4,7 +4,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray, IntoCanonical};
 
-pub trait CastFn<A> {
+pub trait CastFn<A: ?Sized> {
     fn cast(&self, array: &A, dtype: &DType) -> VortexResult<ArrayRef>;
 }
 
@@ -13,7 +13,7 @@ where
     E: CastFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
-    fn cast(&self, array: &ArrayRef, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         CastFn::cast(encoding, array_ref, dtype)
     }
@@ -46,7 +46,7 @@ pub fn try_cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
     Ok(casted)
 }
 
-fn try_cast_impl(array: &ArrayRef, dtype: &DType) -> VortexResult<ArrayRef> {
+fn try_cast_impl(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
     // TODO(ngates): check for null_count if dtype is non-nullable
     if let Some(f) = array.vtable().cast_fn() {
         return f.cast(array, dtype);

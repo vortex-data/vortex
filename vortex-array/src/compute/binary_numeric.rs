@@ -7,11 +7,11 @@ use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray as _};
 
-pub trait BinaryNumericFn<A> {
+pub trait BinaryNumericFn<A: ?Sized> {
     fn binary_numeric(
         &self,
         array: &A,
-        other: &ArrayRef,
+        other: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -93,8 +93,8 @@ pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
 }
 
 pub fn binary_numeric(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
+    lhs: &dyn Array,
+    rhs: &dyn Array,
     op: BinaryNumericOperator,
 ) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {
@@ -172,7 +172,7 @@ fn arrow_numeric(
 }
 
 #[inline(always)]
-fn check_numeric_result(result: &ArrayRef, lhs: &ArrayRef, rhs: &ArrayRef) {
+fn check_numeric_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -200,10 +200,10 @@ pub mod test_harness {
 
     use crate::arrays::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{ArrayRef, IntoArray as _, IntoCanonical};
+    use crate::{Array, ArrayRef, IntoArray as _, IntoCanonical};
 
     #[allow(clippy::unwrap_used)]
-    fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
+    fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
         // Not fast, but obviously correct
         (0..array.len())
             .map(|index| scalar_at(array, index))

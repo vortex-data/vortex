@@ -47,7 +47,7 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 

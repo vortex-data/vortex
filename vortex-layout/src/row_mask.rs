@@ -60,7 +60,7 @@ impl RowMask {
     }
 
     /// Creates a RowMask from an array, only supported boolean and integer types.
-    pub fn from_array(array: &ArrayRef, begin: u64, end: u64) -> VortexResult<Self> {
+    pub fn from_array(array: &dyn Array, begin: u64, end: u64) -> VortexResult<Self> {
         if array.dtype().is_int() {
             Self::from_index_array(array, begin, end)
         } else if array.dtype().is_boolean() {
@@ -76,7 +76,7 @@ impl RowMask {
     /// Construct a RowMask from a Boolean typed array.
     ///
     /// True-valued positions are kept by the returned mask.
-    fn from_mask_array(array: &ArrayRef, begin: u64) -> VortexResult<Self> {
+    fn from_mask_array(array: &dyn Array, begin: u64) -> VortexResult<Self> {
         Ok(Self::new(array.validity_mask()?, begin))
     }
 
@@ -84,7 +84,7 @@ impl RowMask {
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
     #[allow(clippy::cast_possible_truncation)]
-    fn from_index_array(array: &ArrayRef, begin: u64, end: u64) -> VortexResult<Self> {
+    fn from_index_array(array: &dyn Array, begin: u64, end: u64) -> VortexResult<Self> {
         let length = usize::try_from(end - begin)
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 

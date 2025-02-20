@@ -11,7 +11,7 @@ use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, Canonical, IntoArray, IntoArrayVariant};
 
-pub trait FilterFn<A> {
+pub trait FilterFn<A: ?Sized> {
     /// Filter an array by the provided predicate.
     ///
     /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
@@ -19,12 +19,12 @@ pub trait FilterFn<A> {
     fn filter(&self, array: &A, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FilterFn<ArrayRef> for E
+impl<E: Encoding> FilterFn<dyn Array> for E
 where
     E: FilterFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
-    fn filter(&self, array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(&self, array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
@@ -63,7 +63,7 @@ where
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
+pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -102,7 +102,7 @@ pub fn filter(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     Ok(filtered)
 }
 
-fn filter_impl(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
+fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
     // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
     let values = match &mask {
@@ -137,7 +137,7 @@ impl TryFrom<&dyn Array> for Mask {
     type Error = VortexError;
 
     /// Converts from a possible nullable boolean array. Null values are treated as false.
-    fn try_from(array: ArrayRef) -> Result<Self, Self::Error> {
+    fn try_from(array: &dyn Array) -> Result<Self, Self::Error> {
         if !matches!(array.dtype(), DType::Bool(_)) {
             vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
         }

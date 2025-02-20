@@ -21,7 +21,7 @@ impl EncodingCompressor for DictCompressor {
         constants::DICT_COST
     }
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         if !array.is_encoding(PrimitiveEncoding::ID)
             && !array.is_encoding(VarBinEncoding::ID)
             && !array.is_encoding(VarBinViewEncoding::ID)
@@ -44,7 +44,7 @@ impl EncodingCompressor for DictCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

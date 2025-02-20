@@ -19,7 +19,7 @@ use crate::compute::{
     try_cast, SearchResult, SearchSortedSide,
 };
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayRef, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, IntoArrayVariant};
 
 #[derive(
     Copy,
@@ -122,7 +122,12 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
-    pub fn new_unchecked(array_len: usize, offset: usize, indices: ArrayRef, values: ArrayRef) -> Self {
+    pub fn new_unchecked(
+        array_len: usize,
+        offset: usize,
+        indices: ArrayRef,
+        values: ArrayRef,
+    ) -> Self {
         Self {
             array_len,
             offset,
@@ -299,7 +304,7 @@ impl Patches {
     }
 
     /// Take the indices from the patches.
-    pub fn take(&self, take_indices: &ArrayRef) -> VortexResult<Option<Self>> {
+    pub fn take(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
@@ -365,7 +370,7 @@ impl Patches {
 }
 
 fn take_search<T: NativePType + TryFrom<usize>>(
-    indices: &ArrayRef,
+    indices: &dyn Array,
     take_indices: PrimitiveArray,
     indices_offset: usize,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
@@ -466,7 +471,7 @@ where
 fn filter_patches_with_mask<T: ToPrimitive + Copy + Ord>(
     patch_indices: &[T],
     offset: usize,
-    patch_values: &ArrayRef,
+    patch_values: &dyn Array,
     mask_indices: &[usize],
 ) -> VortexResult<Option<Patches>> {
     let true_count = mask_indices.len();

@@ -16,7 +16,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 mod array;
 mod bound;
@@ -423,7 +423,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &ArrayRef) -> u8 {
+pub fn trailing_zeros(array: &dyn Array) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()

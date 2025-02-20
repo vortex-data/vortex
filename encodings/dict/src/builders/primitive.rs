@@ -52,7 +52,7 @@ impl<T: NativePType> DictEncoder for PrimitiveDictBuilder<T>
 where
     private::Value<T>: Hash + Eq,
 {
-    fn encode(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if T::PTYPE != PType::try_from(array.dtype())? {
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }

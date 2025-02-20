@@ -6,7 +6,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::{ALPRDArray, ALPRDEncoding};
 
 impl TakeFn<ALPRDArray> for ALPRDEncoding {
-    fn take(&self, array: &ALPRDArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_left_parts = take(array.left_parts(), indices)?;
         let left_parts_exceptions = array
             .left_parts_patches()

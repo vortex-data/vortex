@@ -23,7 +23,7 @@ impl EncodingCompressor for ALPCompressor {
         constants::ALP_COST
     }
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array)?;
 
@@ -37,7 +37,7 @@ impl EncodingCompressor for ALPCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

@@ -50,7 +50,7 @@ impl<T> Len for SearchPrimitiveSlice<T> {
 }
 
 pub fn search_sorted_canonical_array(
-    array: &ArrayRef,
+    array: &dyn Array,
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {

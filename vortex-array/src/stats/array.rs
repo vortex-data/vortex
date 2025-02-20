@@ -1,6 +1,6 @@
 use std::sync::RwLock;
 
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::ScalarValue;
 
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
@@ -8,7 +8,8 @@ use crate::stats::{Precision, Stat, Statistics, StatsSet};
 pub trait ArrayStatistics {
     fn stats_set(&self) -> &RwLock<StatsSet>;
 
-    fn compute_statistic(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
+    // TODO(ngates): remove result?
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet>;
 }
 
 impl<S: ArrayStatistics> Statistics for S {

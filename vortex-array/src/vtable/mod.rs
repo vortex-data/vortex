@@ -6,23 +6,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
 
-mod canonical;
 mod compute;
-mod metadata;
-mod statistics;
-mod validate;
-mod validity;
-mod variants;
-mod visitor;
 
-pub use canonical::*;
 pub use compute::*;
-pub use metadata::*;
-pub use statistics::*;
-pub use validate::*;
-pub use validity::*;
-pub use variants::*;
-pub use visitor::*;
 
 use crate::encoding::EncodingId;
 use crate::ArrayRef;
@@ -67,20 +53,7 @@ impl Deref for VTableRef {
 ///
 /// It is recommended that you use [`crate::impl_encoding`] to assist in writing a new
 /// array encoding.
-pub trait EncodingVTable:
-    'static
-    + Sync
-    + Send
-    + Debug
-    + CanonicalVTable<ArrayRef>
-    + ComputeVTable
-    + MetadataVTable<ArrayRef>
-    + StatisticsVTable<ArrayRef>
-    + ValidateVTable<ArrayRef>
-    + ValidityVTable<ArrayRef>
-    + VariantsVTable<ArrayRef>
-    + VisitorVTable<ArrayRef>
-{
+pub trait EncodingVTable: 'static + Sync + Send + Debug + ComputeVTable {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
 

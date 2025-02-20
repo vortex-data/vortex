@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::visitor::ArrayVisitor;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 #[derive(Default, Debug)]
 pub struct ChildrenCollector {
@@ -26,14 +26,14 @@ impl NamedChildrenCollector {
 }
 
 impl ArrayVisitor for ChildrenCollector {
-    fn visit_child(&mut self, _name: &str, array: &ArrayRef) -> VortexResult<()> {
+    fn visit_child(&mut self, _name: &str, array: &dyn Array) -> VortexResult<()> {
         self.children.push(array.clone());
         Ok(())
     }
 }
 
 impl ArrayVisitor for NamedChildrenCollector {
-    fn visit_child(&mut self, name: &str, array: &ArrayRef) -> VortexResult<()> {
+    fn visit_child(&mut self, name: &str, array: &dyn Array) -> VortexResult<()> {
         self.children.push((name.to_string(), array.clone()));
         Ok(())
     }

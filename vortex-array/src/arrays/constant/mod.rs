@@ -1,85 +1,95 @@
+use std::sync::{Arc, RwLock};
+
+use arrow_array::builder::ArrayBuilder;
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, EmptyMetadata};
+use crate::{
+    impl_encoding, Array, ArrayCanonicalImpl, ArrayImpl, ArrayValidityImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId,
+};
 
 mod canonical;
 // mod compute;
 mod variants;
 
-impl_encoding!(
-    "vortex.constant",
-    encoding_ids::CONSTANT,
-    Constant,
-    EmptyMetadata
-);
+#[derive(Clone)]
+pub struct ConstantArray {
+    scalar: Scalar,
+    len: usize,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+pub struct ConstantEncoding;
+impl Encoding for ConstantEncoding {
+    const ID: EncodingId = EncodingId("vortex.constant", encoding_ids::CONSTANT);
+    type Array = ConstantArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl ConstantArray {
-    pub fn new<S>(scalar: S, length: usize) -> Self
+    pub fn new<S>(scalar: S, len: usize) -> Self
     where
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        let stats = StatsSet::constant(scalar.clone(), length);
-        let (dtype, scalar_value) = scalar.into_parts();
-
-        // Serialize the scalar_value into a FlatBuffer
-        let value_buffer = scalar_value.to_flexbytes();
-
-        Self::try_from_parts(
-            dtype,
-            length,
-            EmptyMetadata,
-            [value_buffer.into_inner()].into(),
-            vec![].into(),
-            stats,
-        )
-        .vortex_expect("Failed to create Constant array")
+        let stats = StatsSet::constant(scalar.clone(), len);
+        Self {
+            scalar,
+            len,
+            stats_set: Arc::new(RwLock::new(stats)),
+        }
     }
 
     /// Returns the [`Scalar`] value of this constant array.
-    pub fn scalar(&self) -> Scalar {
-        let sv = ScalarValue::from_flexbytes(
-            self.as_ref()
-                .byte_buffer(0)
-                .vortex_expect("Missing scalar value buffer"),
-        )
-        .vortex_expect("Failed to deserialize scalar value");
-        Scalar::new(self.dtype().clone(), sv)
+    pub fn scalar(&self) -> &Scalar {
+        &self.scalar
     }
 }
 
-impl ValidateVTable<ConstantArray> for ConstantEncoding {}
-
-impl ValidityVTable<ConstantArray> for ConstantEncoding {
-    fn is_valid(&self, array: &ConstantArray, _index: usize) -> VortexResult<bool> {
-        Ok(!array.scalar().is_null())
+impl ArrayImpl for ConstantArray {
+    fn _len(&self) -> usize {
+        self.len
     }
 
-    fn all_valid(&self, array: &ConstantArray) -> VortexResult<bool> {
-        Ok(!array.scalar().is_null())
+    fn _dtype(&self) -> &DType {
+        self.scalar.dtype()
+    }
+}
+
+impl ArrayValidityImpl for ConstantArray {
+    fn _is_valid(&self, _index: usize) -> VortexResult<bool> {
+        Ok(!self.scalar().is_null())
     }
 
-    fn all_invalid(&self, array: &ConstantArray) -> VortexResult<bool> {
-        Ok(array.scalar().is_null())
+    fn _all_valid(&self) -> VortexResult<bool> {
+        Ok(!self.scalar().is_null())
     }
 
-    fn validity_mask(&self, array: &ConstantArray) -> VortexResult<Mask> {
-        Ok(match array.scalar().is_null() {
-            true => Mask::AllFalse(array.len()),
-            false => Mask::AllTrue(array.len()),
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        Ok(self.scalar().is_null())
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        Ok(match self.scalar().is_null() {
+            true => Mask::AllFalse(self.len()),
+            false => Mask::AllTrue(self.len()),
         })
     }
 }
 
-impl StatisticsVTable<ConstantArray> for ConstantEncoding {
-    fn compute_statistics(&self, array: &ConstantArray, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::constant(array.scalar(), array.len()))
+impl ArrayStatistics for ConstantArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+
+    fn compute_statistic(&self, _stat: Stat) -> VortexResult<StatsSet> {
+        Ok(StatsSet::constant(self.scalar.clone(), self.len()))
     }
 }
 

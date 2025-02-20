@@ -18,33 +18,38 @@ use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayRef>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
         Some(self)
     }
 }
 
 impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn slice(&self, array: &DateTimePartsArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(
+        &self,
+        array: &DateTimePartsArray,
+        start: usize,
+        stop: usize,
+    ) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
             slice(array.days(), start, stop)?,

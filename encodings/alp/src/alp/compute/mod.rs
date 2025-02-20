@@ -13,23 +13,23 @@ use vortex_scalar::Scalar;
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ComputeVTable for ALPEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 }
@@ -59,7 +59,7 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
 }
 
 impl TakeFn<ALPArray> for ALPEncoding {
-    fn take(&self, array: &ALPArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_encoded = take(array.encoded(), indices)?;
         let taken_patches = array
             .patches()

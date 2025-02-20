@@ -186,7 +186,7 @@ fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
     }
 }
 
-fn actions_for_array(array: &ArrayRef) -> Vec<usize> {
+fn actions_for_array(array&dyn Array) -> Vec<usize> {
     array
         .depth_first_traversal()
         .map(|child| actions_for_encoding(child.encoding()))

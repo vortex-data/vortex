@@ -1,4 +1,4 @@
-use arrow_array::builder::make_view;
+use arrow_array::builder::{make_view, ArrayBuilder};
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
@@ -11,8 +11,17 @@ use crate::arrays::{
     BinaryView, BoolArray, ConstantEncoding, ExtensionArray, NullArray, VarBinViewArray,
 };
 use crate::validity::Validity;
-use crate::vtable::CanonicalVTable;
-use crate::{Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayCanonicalImpl, Canonical, IntoArray, IntoCanonical};
+
+impl ArrayCanonicalImpl for ConstantArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
+    }
+
+    fn _append_to_builder(&self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        todo!()
+    }
+}
 
 impl CanonicalVTable<ConstantArray> for ConstantEncoding {
     fn into_canonical(&self, array: ConstantArray) -> VortexResult<Canonical> {

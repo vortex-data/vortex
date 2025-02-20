@@ -23,7 +23,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
         constants::DATE_TIME_PARTS_COST
     }
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         if let Ok(temporal_array) = TemporalArray::try_from(array.clone()) {
             match temporal_array.temporal_metadata() {
                 // We only attempt to compress Timestamp arrays.
@@ -37,7 +37,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

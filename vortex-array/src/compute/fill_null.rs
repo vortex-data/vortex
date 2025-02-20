@@ -7,16 +7,16 @@ use crate::{Array, ArrayRef, IntoArray, IntoCanonical};
 /// Implementation of fill_null for an encoding.
 ///
 /// SAFETY: the fill value is guaranteed to be non-null.
-pub trait FillNullFn<A> {
+pub trait FillNullFn<A: ?Sized> {
     fn fill_null(&self, array: &A, fill_value: Scalar) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FillNullFn<ArrayRef> for E
+impl<E: Encoding> FillNullFn<dyn Array> for E
 where
     E: FillNullFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
-    fn fill_null(&self, array: &ArrayRef, fill_value: Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(&self, array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FillNullFn::fill_null(encoding, array_ref, fill_value)
     }
@@ -55,7 +55,7 @@ pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef
     Ok(filled)
 }
 
-fn fill_null_impl(array: &ArrayRef, fill_value: Scalar) -> VortexResult<ArrayRef> {
+fn fill_null_impl(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
     if let Some(fill_null_fn) = array.vtable().fill_null_fn() {
         return fill_null_fn.fill_null(array, fill_value);
     }

@@ -3,16 +3,16 @@ use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
-use crate::{ArrayRef, EncodingId};
+use crate::{Array, ArrayRef, EncodingId};
 
 pub trait CompressionStrategy {
-    fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
     fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 
 /// Check that compression did not alter the length of the validity array.
-pub fn check_validity_unchanged(arr: &ArrayRef, compressed: &ArrayRef) {
+pub fn check_validity_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -38,7 +38,7 @@ pub fn check_validity_unchanged(arr: &ArrayRef, compressed: &ArrayRef) {
 }
 
 /// Check that compression did not alter the dtype
-pub fn check_dtype_unchanged(arr: &ArrayRef, compressed: &ArrayRef) {
+pub fn check_dtype_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -55,7 +55,7 @@ pub fn check_dtype_unchanged(arr: &ArrayRef, compressed: &ArrayRef) {
 }
 
 // Check that compression preserved the statistics.
-pub fn check_statistics_unchanged(arr: &ArrayRef, compressed: &ArrayRef) {
+pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -84,7 +84,7 @@ pub fn check_statistics_unchanged(arr: &ArrayRef, compressed: &ArrayRef) {
 
 /// Eagerly compute certain statistics (i.e., pruning stats plus UncompressedSizeInBytes) for an array.
 /// This function is intended to be called in compressors, immediately before compression occurs.
-pub fn compute_precompression_stats(arr: &ArrayRef) -> VortexResult<()> {
+pub fn compute_precompression_stats(arr: &dyn Array) -> VortexResult<()> {
     arr.statistics().compute_uncompressed_size_in_bytes();
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }

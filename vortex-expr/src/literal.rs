@@ -38,7 +38,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
 

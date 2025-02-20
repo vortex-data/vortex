@@ -3,7 +3,6 @@ use vortex_error::VortexResult;
 use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedEncoding;
 use crate::stats::{Precision, Stat, StatsSet};
-use crate::vtable::StatisticsVTable;
 
 impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
     fn compute_statistics(&self, array: &ChunkedArray, stat: Stat) -> VortexResult<StatsSet> {

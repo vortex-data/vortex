@@ -143,7 +143,7 @@ impl StatsAccumulator {
         &self.stats
     }
 
-    pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.compute_stat(*s) {
                 builder.append_scalar(&Scalar::new(s.dtype(array.dtype()), v))?;

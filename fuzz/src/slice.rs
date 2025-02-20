@@ -7,7 +7,11 @@ use vortex_array::{ArrayRef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
-pub fn slice_canonical_array(array: &ArrayRef, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+pub fn slice_canonical_array(
+    array: &dyn Array,
+    start: usize,
+    stop: usize,
+) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let bool_buff = array.validity_mask()?.to_boolean_buffer();
 

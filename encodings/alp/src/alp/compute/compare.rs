@@ -14,7 +14,7 @@ impl CompareFn<ALPArray> for ALPEncoding {
     fn compare(
         &self,
         lhs: &ALPArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         if lhs.patches().is_some() {

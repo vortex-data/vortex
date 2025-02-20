@@ -49,7 +49,7 @@ impl FlatLayoutWriter {
     }
 }
 
-fn retain_only_stats(array: &ArrayRef, stats: &[Stat]) {
+fn retain_only_stats(array: &dyn Array, stats: &[Stat]) {
     array.statistics().retain_only(stats);
     for child in array.children() {
         retain_only_stats(&child, stats)
@@ -57,7 +57,11 @@ fn retain_only_stats(array: &ArrayRef, stats: &[Stat]) {
 }
 
 impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         if self.layout.is_some() {
             vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
         }

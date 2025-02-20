@@ -19,7 +19,7 @@ use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
 impl TakeFn<BitPackedArray> for BitPackedEncoding {
-    fn take(&self, array: &BitPackedArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
             return take(array.clone().into_primitive()?, indices);

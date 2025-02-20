@@ -30,7 +30,7 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(batch.clone())
     }
 

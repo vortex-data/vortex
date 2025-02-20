@@ -33,11 +33,11 @@ pub trait EncodingCompressor: Sync + Send + Debug {
 
     fn cost(&self) -> u8;
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor>;
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor>;
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>>;
@@ -144,7 +144,7 @@ impl<'a> CompressionTree<'a> {
     /// Compresses array with our compressor without verifying that the compressor can compress this array
     pub fn compress_unchecked(
         &self,
-        array: &ArrayRef,
+        array: &dyn Array,
         ctx: &SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         self.compressor.compress(
@@ -156,7 +156,7 @@ impl<'a> CompressionTree<'a> {
 
     pub fn compress(
         &self,
-        array: &ArrayRef,
+        array: &dyn Array,
         ctx: &SamplingCompressor<'a>,
     ) -> Option<VortexResult<CompressedArray<'a>>> {
         self.compressor
@@ -241,7 +241,7 @@ impl<'a> CompressedArray<'a> {
         self.validate_children(self.path.as_ref(), &self.array)
     }
 
-    fn validate_children(&self, path: Option<&CompressionTree>, array: &ArrayRef) {
+    fn validate_children(&self, path: Option<&CompressionTree>, array: &dyn Array) {
         if let Some(path) = path.as_ref() {
             path.children
                 .iter()

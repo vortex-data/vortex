@@ -50,7 +50,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
 
     /// Compute result of expression on given batch producing a new batch
     ///
-    fn evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let result = self.unchecked_evaluate(batch)?;
         debug_assert_eq!(result.dtype(), &self.return_dtype(batch.dtype())?);
         Ok(result)
@@ -61,7 +61,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
     /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
     /// includes such an assertion.
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef>;
 
     fn children(&self) -> Vec<&ExprRef>;
 

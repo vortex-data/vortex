@@ -12,12 +12,12 @@ mod bytes;
 mod primitive;
 
 pub trait DictEncoder {
-    fn encode(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
     fn values(&mut self) -> VortexResult<ArrayRef>;
 }
 
-pub fn dict_encode(array: &ArrayRef) -> VortexResult<DictArray> {
+pub fn dict_encode(array: &dyn Array) -> VortexResult<DictArray> {
     let dict_builder: &mut dyn DictEncoder = if let Some(pa) = PrimitiveArray::maybe_from(array) {
         match_each_native_ptype!(pa.ptype(), |$P| {
             &mut PrimitiveDictBuilder::<$P>::new(pa.dtype().nullability())

@@ -22,7 +22,7 @@ pub struct BoolArray {
     buffer: BooleanBuffer,
     validity: Validity,
     // TODO(ngates): do we want a stats set to be shared across all arrays?
-    stats_set: Arc<RwLock<StatsSet>>,
+    pub(crate) stats_set: Arc<RwLock<StatsSet>>,
 }
 
 impl BoolArray {
@@ -88,7 +88,7 @@ impl ArrayCanonicalImpl for BoolArray {
     }
 
     #[inline]
-    fn _to_builder(&self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn _append_to_builder(&self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         todo!()
     }
 }
@@ -128,7 +128,7 @@ impl ArrayStatistics for BoolArray {
         &self.stats_set
     }
 
-    fn compute_statistic(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
         todo!()
     }
 }

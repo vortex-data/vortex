@@ -10,7 +10,7 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
     fn compare(
         &self,
         lhs: &RunEndArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.

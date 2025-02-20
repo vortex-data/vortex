@@ -125,7 +125,7 @@ impl VortexExpr for Select {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()

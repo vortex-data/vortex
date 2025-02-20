@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
+use arrow_array::builder::ArrayBuilder;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -8,20 +9,26 @@ use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use crate::{
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId,
 };
-use crate::{impl_encoding, ArrayRef, Canonical, EmptyMetadata};
 
 // mod compute;
 
-impl_encoding!(
-    "vortex.ext",
-    encoding_ids::EXTENSION,
-    Extension,
-    EmptyMetadata
-);
+#[derive(Clone, Debug)]
+pub struct ExtensionArray {
+    dtype: DType,
+    storage: ArrayRef,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+pub struct ExtensionEncoding;
+impl Encoding for ExtensionEncoding {
+    const ID: EncodingId = EncodingId("vortex.ext", encoding_ids::EXTENSION);
+    type Array = ExtensionArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayRef) -> Self {
@@ -30,22 +37,15 @@ impl ExtensionArray {
             storage.dtype(),
             "ExtensionArray: storage_dtype must match storage array DType",
         );
-
-        Self::try_from_parts(
-            DType::Extension(ext_dtype),
-            storage.len(),
-            EmptyMetadata,
-            vec![].into(),
-            [storage].into(),
-            StatsSet::default(),
-        )
-        .vortex_expect("Invalid ExtensionArray")
+        Self {
+            dtype: DType::Extension(ext_dtype),
+            storage,
+            stats_set: Arc::new(RwLock::new(StatsSet::default())),
+        }
     }
 
-    pub fn storage(&self) -> ArrayRef {
-        self.as_ref()
-            .child(0, self.ext_dtype().storage_dtype(), self.len())
-            .vortex_expect("Missing storage array for ExtensionArray")
+    pub fn storage(&self) -> &ArrayRef {
+        &self.storage
     }
 
     #[allow(dead_code)]
@@ -54,6 +54,46 @@ impl ExtensionArray {
         self.ext_dtype().id()
     }
 }
+
+impl ArrayImpl for ExtensionArray {
+    fn _len(&self) -> usize {
+        self.storage.len()
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
+
+impl ArrayCanonicalImpl for ExtensionArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(self.clone()))
+    }
+
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        todo!()
+    }
+}
+
+impl ArrayValidityImpl for ExtensionArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+impl ArrayVariantsImpl for ExtensionArray {}
 
 impl ValidateVTable<ExtensionArray> for ExtensionEncoding {}
 

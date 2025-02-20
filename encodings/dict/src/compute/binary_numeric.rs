@@ -10,7 +10,7 @@ impl BinaryNumericFn<DictArray> for DictEncoding {
     fn binary_numeric(
         &self,
         array: &DictArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_scalar) = rhs.as_constant() else {

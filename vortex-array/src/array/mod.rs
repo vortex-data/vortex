@@ -10,6 +10,7 @@ use std::sync::Arc;
 use arrow_array::builder::ArrayBuilder;
 pub use convert::*;
 pub use implementation::*;
+use log::debug;
 pub use variants::*;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
@@ -240,7 +241,11 @@ pub trait ArrayCanonicalImpl {
     ///
     /// ## Post-conditions
     /// - The length of the builder is incremented by the length of the input array.
-    fn _to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let canonical = self._to_canonical()?;
+        // debug!("default impl canonicalize_into {}", canonical.encoding());
+        builder.extend_from_array(canonical.into_array())
+    }
 }
 
 impl ArrayCanonicalImpl for Arc<dyn Array> {
@@ -248,7 +253,7 @@ impl ArrayCanonicalImpl for Arc<dyn Array> {
         self.as_ref()._to_canonical()
     }
 
-    fn _to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref()._to_builder(builder)
     }
 }

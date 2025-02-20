@@ -66,7 +66,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     Corpus::Keep
 });
 
-fn fuzz_compress(array: &ArrayRef, compressor: &SamplingCompressor) -> Option<ArrayRef> {
+fn fuzz_compress(array: &dyn Array, compressor: &SamplingCompressor) -> Option<ArrayRef> {
     let compressed_array = compressor.compress(array, None).unwrap();
 
     compressed_array
@@ -93,7 +93,7 @@ fn assert_search_sorted(
 }
 
 // TODO(ngates): this is horrific... we should have an array_equals compute function?
-fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) {
+fn assert_array_eq(lhs: &dyn Array, rhs: &dyn Array, step: usize) {
     assert_eq!(
         lhs.len(),
         rhs.len(),

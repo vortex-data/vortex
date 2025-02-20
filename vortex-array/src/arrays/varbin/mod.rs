@@ -3,12 +3,12 @@ use std::fmt::{Debug, Display};
 // pub use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
-pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
 };
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::primitive::PrimitiveArray;
@@ -18,23 +18,33 @@ use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::ValidateVTable;
-use crate::{impl_encoding, ArrayRef, RkyvMetadata};
+use crate::{
+    impl_encoding, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+};
 
 mod accessor;
 mod array;
 pub mod builder;
 mod canonical;
 // mod compute;
-mod stats;
+// mod stats;
 mod variants;
 
-impl_encoding!(
-    "vortex.varbin",
-    encoding_ids::VAR_BIN,
-    VarBin,
-    RkyvMetadata<VarBinMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct VarBinArray {
+    dtype: DType,
+    data: ByteBuffer,
+    offsets: ArrayRef,
+    validity: Validity,
+}
+
+pub struct VarBinEncoding;
+impl Encoding for VarBinEncoding {
+    const ID: EncodingId = EncodingId("vortex.varbin", encoding_ids::VAR_BIN);
+    type Array = VarBinArray;
+    type Metadata = EmptyMetadata;
+}
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -230,6 +240,42 @@ impl VarBinArray {
             self.offsets(),
             self.validity(),
         )
+    }
+}
+
+impl ArrayCanonicalImpl for VarBinArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
+    }
+}
+
+impl ArrayValidityImpl for VarBinArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+impl ArrayVariantsImpl for VarBinArray {}
+
+impl ArrayImpl for VarBinArray {
+    fn _len(&self) -> usize {
+        self.offsets().len().saturating_sub(1)
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
     }
 }
 

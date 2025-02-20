@@ -9,7 +9,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::take::take_canonical_array;
 
-pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
+pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool()?;

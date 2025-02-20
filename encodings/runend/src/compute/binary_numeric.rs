@@ -10,7 +10,7 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
     fn binary_numeric(
         &self,
         array: &RunEndArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_scalar) = rhs.as_constant() else {

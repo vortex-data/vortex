@@ -13,7 +13,7 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
     fn compare(
         &self,
         lhs: &FSSTArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {

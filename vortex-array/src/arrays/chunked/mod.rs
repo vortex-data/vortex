@@ -25,7 +25,6 @@ use crate::validity::Validity;
 use crate::validity::Validity::NonNullable;
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{ValidateVTable, ValidityVTable, VisitorVTable};
 use crate::{
     impl_encoding, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl,
     ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, IntoCanonical,
@@ -34,7 +33,7 @@ use crate::{
 
 mod canonical;
 // mod compute;
-mod stats;
+// // mod stats;
 mod variants;
 
 #[derive(Clone)]
@@ -102,7 +101,7 @@ impl ChunkedArray {
     }
 
     pub fn nchunks(&self) -> usize {
-        self.metadata().nchunks
+        self.chunks.len()
     }
 
     #[inline]
@@ -130,17 +129,8 @@ impl ChunkedArray {
         (index_chunk, index_in_chunk)
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item = ArrayRef> + '_ {
-        (0..self.nchunks()).map(|c| {
-            self.chunk(c).unwrap_or_else(|e| {
-                vortex_panic!(
-                    e,
-                    "ChunkedArray: chunks: chunk {} should exist (num chunks: {})",
-                    c,
-                    self.nchunks()
-                )
-            })
-        })
+    pub fn chunks(&self) -> &[ArrayRef] {
+        &self.chunks
     }
 
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = ArrayRef> + '_ {
@@ -217,7 +207,7 @@ impl ArrayCanonicalImpl for ChunkedArray {
         todo!()
     }
 
-    fn _to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         todo!()
     }
 }

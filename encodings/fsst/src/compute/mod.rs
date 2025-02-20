@@ -15,23 +15,23 @@ use vortex_scalar::Scalar;
 use crate::{FSSTArray, FSSTEncoding};
 
 impl ComputeVTable for FSSTEncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 }
@@ -53,7 +53,7 @@ impl SliceFn<FSSTArray> for FSSTEncoding {
 
 impl TakeFn<FSSTArray> for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, array: &FSSTArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols(),
@@ -67,7 +67,7 @@ impl TakeFn<FSSTArray> for FSSTEncoding {
     fn take_into(
         &self,
         array: &FSSTArray,
-        indices: &ArrayRef,
+        indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         builder.extend_from_array(take(array, indices)?)

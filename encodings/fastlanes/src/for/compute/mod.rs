@@ -18,33 +18,33 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ComputeVTable for FoREncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayRef>> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 }
 
 impl TakeFn<FoRArray> for FoREncoding {
-    fn take(&self, array: &FoRArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         FoRArray::try_new(take(array.encoded(), indices)?, array.reference_scalar())
             .map(|a| a.into_array())
     }

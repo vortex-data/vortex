@@ -11,7 +11,7 @@ impl CompareFn<DictArray> for DictEncoding {
     fn compare(
         &self,
         lhs: &DictArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.

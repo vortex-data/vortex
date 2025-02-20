@@ -116,7 +116,7 @@ impl BytesDictBuilder {
 }
 
 impl DictEncoder for BytesDictBuilder {
-    fn encode(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn encode(&mut self, array: &dyn Array) -> VortexResult<ArrayRef> {
         if &self.dtype != array.dtype() {
             vortex_bail!(
                 "Array DType {} does not match builder dtype {}",

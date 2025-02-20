@@ -42,7 +42,7 @@ impl Display for SamplingCompressor<'_> {
 
 impl CompressionStrategy for SamplingCompressor<'_> {
     #[allow(clippy::same_name_method)]
-    fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
@@ -130,7 +130,7 @@ impl<'a> SamplingCompressor<'a> {
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
-        arr: &ArrayRef,
+        arr: &dyn Array,
         like: Option<&CompressionTree<'a>>,
     ) -> VortexResult<CompressedArray<'a>> {
         if arr.is_empty() {
@@ -177,7 +177,7 @@ impl<'a> SamplingCompressor<'a> {
         ))
     }
 
-    pub(crate) fn compress_array(&self, array: &ArrayRef) -> VortexResult<CompressedArray<'a>> {
+    pub(crate) fn compress_array(&self, array: &dyn Array) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
         if array.is_encoding(ConstantEncoding::ID) {
@@ -283,7 +283,7 @@ impl<'a> SamplingCompressor<'a> {
 
 pub(crate) fn find_best_compression<'a>(
     candidates: Vec<&'a dyn EncodingCompressor>,
-    sample: &ArrayRef,
+    sample: &dyn Array,
     ctx: &SamplingCompressor<'a>,
 ) -> VortexResult<CompressedArray<'a>> {
     let mut best = None;

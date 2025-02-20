@@ -72,26 +72,26 @@ impl Operator {
     }
 }
 
-pub trait CompareFn<A> {
+pub trait CompareFn<A: ?Sized> {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported for these arrays.
     fn compare(
         &self,
         lhs: &A,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> CompareFn<ArrayRef> for E
+impl<E: Encoding> CompareFn<dyn Array> for E
 where
     E: CompareFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn compare(
         &self,
-        lhs: &ArrayRef,
-        rhs: &ArrayRef,
+        lhs: &dyn Array,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         let (lhs_ref, encoding) = lhs.try_downcast_ref::<E>()?;
@@ -196,7 +196,11 @@ where
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
-fn arrow_compare(left: &ArrayRef, right: &ArrayRef, operator: Operator) -> VortexResult<ArrayRef> {
+fn arrow_compare(
+    left: &dyn Array,
+    right: &dyn Array,
+    operator: Operator,
+) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
     let lhs = Datum::try_new(left.clone())?;
     let rhs = Datum::try_new(right.clone())?;
@@ -213,7 +217,7 @@ fn arrow_compare(left: &ArrayRef, right: &ArrayRef, operator: Operator) -> Vorte
 }
 
 #[inline(always)]
-fn check_compare_result(result: &ArrayRef, lhs: &ArrayRef, rhs: &ArrayRef) {
+fn check_compare_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),

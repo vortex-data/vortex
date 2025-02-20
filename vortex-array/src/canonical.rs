@@ -2,6 +2,7 @@
 
 use std::ops::Deref;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -227,12 +228,12 @@ impl IntoCanonical for ArrayRef {
 impl IntoArrowArray for ArrayRef {
     /// Convert this [`ArrayRef`] into an Arrow [`ArrayRef`] by using the array's preferred
     /// Arrow [`DataType`].
-    fn into_arrow_preferred(self) -> VortexResult<ArrayRef> {
+    fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
         let data_type = preferred_arrow_data_type(&self)?;
         self.into_arrow(&data_type)
     }
 
-    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrayRef> {
+    fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
         to_arrow(self, data_type)
     }
 }

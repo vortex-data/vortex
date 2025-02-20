@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl TakeFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn take(&self, array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
             take(array.days(), indices)?,

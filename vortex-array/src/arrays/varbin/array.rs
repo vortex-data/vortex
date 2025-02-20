@@ -4,7 +4,6 @@ use vortex_mask::Mask;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{ValidityVTable, VisitorVTable};
 
 impl ValidityVTable<VarBinArray> for VarBinEncoding {
     fn is_valid(&self, array: &VarBinArray, index: usize) -> VortexResult<bool> {

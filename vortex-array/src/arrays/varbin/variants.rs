@@ -1,7 +1,6 @@
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
 use crate::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use crate::vtable::VariantsVTable;
 
 impl VariantsVTable<VarBinArray> for VarBinEncoding {
     fn as_utf8_array<'a>(&self, array: &'a VarBinArray) -> Option<&'a dyn Utf8ArrayTrait> {

@@ -14,7 +14,7 @@ impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
     fn compare(
         &self,
         lhs: &DateTimePartsArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
@@ -136,7 +136,7 @@ fn compare_gt(
     Ok(None)
 }
 
-fn compare_dtp(lhs: &ArrayRef, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
+fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
     match try_cast(ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
         Ok(casted) => compare(lhs, casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.

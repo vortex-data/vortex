@@ -22,7 +22,7 @@ impl EncodingCompressor for StructCompressor {
         constants::STRUCT_COST
     }
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         let is_struct =
             matches!(array.dtype(), DType::Struct(..)) && array.is_encoding(StructEncoding::ID);
         is_struct.then_some(self)
@@ -30,7 +30,7 @@ impl EncodingCompressor for StructCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

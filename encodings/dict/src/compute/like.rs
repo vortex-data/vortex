@@ -9,7 +9,7 @@ impl LikeFn<DictArray> for DictEncoding {
     fn like(
         &self,
         array: DictArray,
-        pattern: &ArrayRef,
+        pattern: &dyn Array,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(pattern) = pattern.as_constant() {

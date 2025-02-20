@@ -56,7 +56,7 @@ impl VortexExpr for GetItem {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         let child = self.child.evaluate(batch)?;
         child
             .as_struct_array()

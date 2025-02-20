@@ -20,11 +20,11 @@ pub enum BinaryOperator {
     // Xor,
 }
 
-pub trait BinaryBooleanFn<A> {
+pub trait BinaryBooleanFn<A: ?Sized> {
     fn binary_boolean(
         &self,
         array: &A,
-        other: &ArrayRef,
+        other: &dyn Array,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -36,8 +36,8 @@ where
 {
     fn binary_boolean(
         &self,
-        lhs: &ArrayRef,
-        rhs: &ArrayRef,
+        lhs: &dyn Array,
+        rhs: &dyn Array,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayRef>> {
         let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
@@ -70,8 +70,8 @@ pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 }
 
 pub fn binary_boolean(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
+    lhs: &dyn Array,
+    rhs: &dyn Array,
     op: BinaryOperator,
 ) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {

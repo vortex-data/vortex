@@ -20,12 +20,14 @@ use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{CanonicalVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, ArrayRef, Canonical, IntoArray, RkyvMetadata};
+use crate::{
+    impl_encoding, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+};
 
 mod accessor;
 // mod compute;
-mod stats;
+// mod stats;
 mod variants;
 
 #[derive(Clone, Copy, Debug)]
@@ -223,12 +225,20 @@ impl Display for VarBinViewMetadata {
     }
 }
 
-impl_encoding!(
-    "vortex.varbinview",
-    encoding_ids::VAR_BIN_VIEW,
-    VarBinView,
-    RkyvMetadata<VarBinViewMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct VarBinViewArray {
+    dtype: DType,
+    buffers: Vec<ByteBuffer>,
+    views: Buffer<BinaryView>,
+    validity: Validity,
+}
+
+pub struct VarBinViewEncoding;
+impl Encoding for VarBinViewEncoding {
+    const ID: EncodingId = EncodingId("vortex.varbinview", encoding_ids::VAR_BIN_VIEW);
+    type Array = VarBinViewArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl VarBinViewArray {
     pub fn try_new(
@@ -337,7 +347,7 @@ impl VarBinViewArray {
     /// Iterate over the underlying raw data buffers, not including the views buffer.
     #[inline]
     pub fn buffers(&self) -> impl Iterator<Item = ByteBuffer> + '_ {
-        self.0.byte_buffers().skip(1)
+        self.buffers.iter().cloned()
     }
 
     /// Validity of the array
@@ -450,6 +460,42 @@ where
     }
 
     builder.finish()
+}
+
+impl ArrayCanonicalImpl for VarBinViewArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
+    }
+}
+
+impl ArrayValidityImpl for VarBinViewArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+impl ArrayVariantsImpl for VarBinViewArray {}
+
+impl ArrayImpl for VarBinViewArray {
+    fn _len(&self) -> usize {
+        self.views.len()
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
 }
 
 impl ValidateVTable<VarBinViewArray> for VarBinViewEncoding {}

@@ -237,7 +237,7 @@ impl BitPackedArray {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<Self> {
+    pub fn encode(array: &dyn Array, bit_width: u8) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
             bitpack_encode(parray, bit_width)
         } else {

@@ -15,31 +15,31 @@ use vortex_scalar::Scalar;
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayRef>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayRef>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn like_fn(&self) -> Option<&dyn LikeFn<ArrayRef>> {
+    fn like_fn(&self) -> Option<&dyn LikeFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 }
@@ -52,7 +52,7 @@ impl ScalarAtFn<DictArray> for DictEncoding {
 }
 
 impl TakeFn<DictArray> for DictEncoding {
-    fn take(&self, array: &DictArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h

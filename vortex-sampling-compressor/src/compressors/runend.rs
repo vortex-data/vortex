@@ -31,7 +31,7 @@ impl EncodingCompressor for RunEndCompressor {
         constants::RUN_END_COST
     }
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         if !array.is_encoding(PrimitiveEncoding::ID) {
             return None;
         }
@@ -50,7 +50,7 @@ impl EncodingCompressor for RunEndCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

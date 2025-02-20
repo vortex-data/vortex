@@ -10,7 +10,14 @@ use vortex_scalar::ScalarValue;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::stats::{ArrayStatistics, Precision, Stat, StatsSet};
-use crate::vtable::StatisticsVTable;
+
+impl ArrayStatistics for BoolArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {}
+
+    fn compute_statistic(&self, stat: Stat) -> VortexResult<StatsSet> {
+        todo!()
+    }
+}
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {

@@ -3,21 +3,26 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
-pub trait LikeFn<A> {
-    fn like(&self, array: A, pattern: &ArrayRef, options: LikeOptions) -> VortexResult<Option<ArrayRef>>;
+pub trait LikeFn<A: ?Sized> {
+    fn like(
+        &self,
+        array: &A,
+        pattern: &dyn Array,
+        options: LikeOptions,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> LikeFn<ArrayRef> for E
+impl<E: Encoding> LikeFn<dyn Array> for E
 where
     E: LikeFn<E::Array>,
-    E::Array: TryFrom<ArrayRef, Error = VortexError>,
+    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn like(
         &self,
-        array: ArrayRef,
-        pattern: &ArrayRef,
+        array: &dyn Array,
+        pattern: &dyn Array,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         let encoding = array.vtable().clone();
@@ -45,7 +50,7 @@ pub struct LikeOptions {
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(array: ArrayRef, pattern: &ArrayRef, options: LikeOptions) -> VortexResult<ArrayRef> {
+pub fn like(array: ArrayRef, pattern: &dyn Array, options: LikeOptions) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -98,7 +103,7 @@ pub fn like(array: ArrayRef, pattern: &ArrayRef, options: LikeOptions) -> Vortex
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
     array: ArrayRef,
-    pattern: &ArrayRef,
+    pattern: &dyn Array,
     options: LikeOptions,
 ) -> VortexResult<ArrayRef> {
     let nullable = array.dtype().is_nullable();

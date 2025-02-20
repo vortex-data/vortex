@@ -14,7 +14,7 @@ impl CompareFn<FoRArray> for FoREncoding {
     fn compare(
         &self,
         lhs: &FoRArray,
-        rhs: &ArrayRef,
+        rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant() {

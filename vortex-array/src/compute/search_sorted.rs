@@ -110,7 +110,7 @@ impl Display for SearchResult {
 /// Searches for value assuming the array is sorted.
 ///
 /// For nullable arrays we assume that the nulls are sorted last, i.e. they're the greatest value
-pub trait SearchSortedFn<A> {
+pub trait SearchSortedFn<A: ?Sized> {
     fn search_sorted(
         &self,
         array: &A,
@@ -132,7 +132,7 @@ pub trait SearchSortedFn<A> {
     }
 }
 
-pub trait SearchSortedUsizeFn<A> {
+pub trait SearchSortedUsizeFn<A: ?Sized> {
     fn search_sorted_usize(
         &self,
         array: &A,
@@ -153,14 +153,14 @@ pub trait SearchSortedUsizeFn<A> {
     }
 }
 
-impl<E: Encoding> SearchSortedFn<ArrayRef> for E
+impl<E: Encoding> SearchSortedFn<dyn Array> for E
 where
     E: SearchSortedFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn search_sorted(
         &self,
-        array: &ArrayRef,
+        array: &dyn Array,
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
@@ -170,7 +170,7 @@ where
 
     fn search_sorted_many(
         &self,
-        array: &ArrayRef,
+        array: &dyn Array,
         values: &[Scalar],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
@@ -179,14 +179,14 @@ where
     }
 }
 
-impl<E: Encoding> SearchSortedUsizeFn<ArrayRef> for E
+impl<E: Encoding> SearchSortedUsizeFn<dyn Array> for E
 where
     E: SearchSortedUsizeFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn search_sorted_usize(
         &self,
-        array: &ArrayRef,
+        array: &dyn Array,
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
@@ -196,7 +196,7 @@ where
 
     fn search_sorted_usize_many(
         &self,
-        array: &ArrayRef,
+        array: &dyn Array,
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
@@ -206,7 +206,7 @@ where
 }
 
 pub fn search_sorted<T: Into<Scalar>>(
-    array: &ArrayRef,
+    array: &dyn Array,
     target: T,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
@@ -236,7 +236,7 @@ pub fn search_sorted<T: Into<Scalar>>(
 }
 
 pub fn search_sorted_usize(
-    array: &ArrayRef,
+    array: &dyn Array,
     target: usize,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
@@ -272,7 +272,7 @@ pub fn search_sorted_usize(
 
 /// Search for many elements in the array.
 pub fn search_sorted_many<T: Into<Scalar> + Clone>(
-    array: &ArrayRef,
+    array: &dyn Array,
     targets: &[T],
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
@@ -307,7 +307,7 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
 
 // Native functions for each of the values, cast up to u64 or down to something lower.
 pub fn search_sorted_usize_many(
-    array: &ArrayRef,
+    array: &dyn Array,
     targets: &[usize],
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {

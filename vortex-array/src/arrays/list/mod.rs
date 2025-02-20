@@ -23,18 +23,21 @@ use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
-};
-use crate::{impl_encoding, ArrayRef, Canonical, RkyvMetadata};
+use crate::{ArrayRef, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata};
 
-impl_encoding!(
-    "vortex.list",
-    encoding_ids::LIST,
-    List,
-    RkyvMetadata<ListMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct ListArray {
+    elements: ArrayRef,
+    offsets: ArrayRef,
+    validity: Validity,
+}
+
+pub struct ListEncoding;
+impl Encoding for ListEncoding {
+    const ID: EncodingId = EncodingId("vortex.list", encoding_ids::LIST);
+    type Array = ListArray;
+    type Metadata = EmptyMetadata;
+}
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
@@ -64,7 +67,11 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
-    pub fn try_new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();

@@ -8,16 +8,16 @@ use crate::{Array, ArrayRef};
 /// If the array is non-nullable, it is returned as-is.
 /// If the array is entirely nulls, the fill forward operation returns an array of the same length, filled with the default value of the array's type.
 /// The DType of the returned array is the same as the input array; the Validity of the returned array is always either NonNullable or AllValid.
-pub trait FillForwardFn<A> {
+pub trait FillForwardFn<A: ?Sized> {
     fn fill_forward(&self, array: &A) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FillForwardFn<ArrayRef> for E
+impl<E: Encoding> FillForwardFn<dyn Array> for E
 where
     E: FillForwardFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
-    fn fill_forward(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn fill_forward(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         FillForwardFn::fill_forward(encoding, array_ref)
     }

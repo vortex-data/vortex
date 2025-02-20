@@ -5,5 +5,5 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
-mod stats;
+// mod stats;
 mod timestamp;

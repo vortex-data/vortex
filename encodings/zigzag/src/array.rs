@@ -42,7 +42,7 @@ impl ZigZagArray {
         )
     }
 
-    pub fn encode(array: &ArrayRef) -> VortexResult<ZigZagArray> {
+    pub fn encode(array: &dyn Array) -> VortexResult<ZigZagArray> {
         PrimitiveArray::try_from(array.clone())
             .map_err(|_| vortex_err!("ZigZag can only encoding primitive arrays"))
             .and_then(zigzag_encode)

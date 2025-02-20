@@ -12,23 +12,23 @@ use vortex_scalar::Scalar;
 use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ComputeVTable for ByteBoolEncoding {
-    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayRef>> {
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<dyn Array>> {
         None
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayRef>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 }
@@ -60,7 +60,7 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
 }
 
 impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
-    fn take(&self, array: &ByteBoolArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
         let indices = indices.clone().into_primitive()?;
         let bools = array.as_slice();

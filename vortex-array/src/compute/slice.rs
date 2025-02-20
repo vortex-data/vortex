@@ -5,19 +5,19 @@ use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Limit array to start...stop range
-pub trait SliceFn<A> {
+pub trait SliceFn<A: ?Sized> {
     /// Return a zero-copy slice of an array, between `start` (inclusive) and `end` (exclusive).
     /// If start >= stop, returns an empty array of the same type as `self`.
     /// Assumes that start or stop are out of bounds, may panic otherwise.
     fn slice(&self, array: &A, start: usize, stop: usize) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> SliceFn<ArrayRef> for E
+impl<E: Encoding> SliceFn<dyn Array> for E
 where
     E: SliceFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
-    fn slice(&self, array: &ArrayRef, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(&self, array: &dyn Array, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
         SliceFn::slice(encoding, array_ref, start, stop)
     }
@@ -82,7 +82,7 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
     Ok(sliced)
 }
 
-fn derive_sliced_stats(arr: &ArrayRef) -> StatsSet {
+fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
     let stats = arr.stats_set();
 
     // an array that is not constant can become constant after slicing
@@ -112,7 +112,7 @@ fn derive_sliced_stats(arr: &ArrayRef) -> StatsSet {
     stats
 }
 
-fn check_slice_bounds(array: &ArrayRef, start: usize, stop: usize) -> VortexResult<()> {
+fn check_slice_bounds(array: &dyn Array, start: usize, stop: usize) -> VortexResult<()> {
     if start > array.len() {
         vortex_bail!(OutOfBounds: start, 0, array.len());
     }

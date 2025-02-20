@@ -13,7 +13,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
-use crate::{ArrayRef, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, IntoArrayVariant};
 
 #[derive(
     Copy,
@@ -188,7 +188,7 @@ impl Validity {
         }
     }
 
-    pub fn take(&self, indices: &ArrayRef) -> VortexResult<Self> {
+    pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
             Self::NonNullable => match indices.validity_mask()?.boolean_buffer() {
                 AllOr::All => {
@@ -224,7 +224,7 @@ impl Validity {
     /// buffer.
     ///
     /// Failure to do so may result in UB.
-    pub unsafe fn take_unchecked(&self, indices: &ArrayRef) -> VortexResult<Self> {
+    pub unsafe fn take_unchecked(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
             v @ Self::NonNullable | v @ Self::AllValid => {
                 match indices.validity_mask()?.boolean_buffer() {
@@ -334,7 +334,7 @@ impl Validity {
         self,
         len: usize,
         indices_offset: usize,
-        indices: &ArrayRef,
+        indices: &dyn Array,
         patches: Validity,
     ) -> VortexResult<Self> {
         match (&self, &patches) {

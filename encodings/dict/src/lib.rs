@@ -10,7 +10,7 @@ mod array;
 pub mod builders;
 mod compress;
 mod compute;
-mod stats;
+// mod stats;
 #[cfg(feature = "test-harness")]
 pub mod test;
 mod variants;

@@ -10,7 +10,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
-pub fn take_canonical_array(array: &ArrayRef, indices: &[usize]) -> VortexResult<ArrayRef> {
+pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array
             .validity_mask()?

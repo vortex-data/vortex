@@ -12,22 +12,22 @@ use crate::arrays::{BoolArray, ChunkedEncoding, ListArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::vtable::CanonicalVTable;
-use crate::{ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
+use crate::{
+    Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray, IntoArrayVariant, IntoCanonical,
+};
 
-impl CanonicalVTable<ChunkedArray> for ChunkedEncoding {
-    fn into_canonical(&self, array: ChunkedArray) -> VortexResult<Canonical> {
-        let validity = Validity::from_mask(array.validity_mask()?, array.dtype().nullability());
-        try_canonicalize_chunks(array.chunks().collect(), validity, array.dtype())
+impl ArrayCanonicalImpl for ChunkedArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        let validity = Validity::from_mask(self.validity_mask()?, self.dtype().nullability());
+        try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
     }
 
-    fn canonicalize_into(
+    fn _append_to_builder(
         &self,
-        array: ChunkedArray,
-        builder: &mut dyn ArrayBuilder,
+        builder: &mut dyn arrow_array::builder::ArrayBuilder,
     ) -> VortexResult<()> {
-        for chunk in array.chunks() {
-            chunk.canonicalize_into(builder)?;
+        for chunk in self.chunks() {
+            chunk.append_to_builder(builder)?;
         }
         Ok(())
     }

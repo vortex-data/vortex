@@ -18,7 +18,7 @@ impl EncodingCompressor for ConstantCompressor {
         constants::CONSTANT_COST
     }
 
-    fn can_compress(&self, array: &ArrayRef) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         array
             .statistics()
             .compute_is_constant()?
@@ -27,7 +27,7 @@ impl EncodingCompressor for ConstantCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &ArrayRef,
+        array: &dyn Array,
         _like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

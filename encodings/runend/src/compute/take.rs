@@ -8,7 +8,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::{RunEndArray, RunEndEncoding};
 
 impl TakeFn<RunEndArray> for RunEndEncoding {
-    fn take(&self, array: &RunEndArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.clone().into_primitive()?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {

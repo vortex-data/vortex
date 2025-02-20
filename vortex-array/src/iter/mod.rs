@@ -6,7 +6,7 @@ pub use ext::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
+use crate::{Array, ArrayRef};
 
 mod adapter;
 mod ext;
@@ -22,7 +22,7 @@ pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayRef>> {
 pub type AccessorRef<T> = Arc<dyn Accessor<T>>;
 
 /// Define the basic behavior required for batched iterators
-pub trait Accessor<T>: Send + Sync + Deref<Target =ArrayRef> {
+pub trait Accessor<T>: Array {
     fn batch_size(&self, start_idx: usize) -> usize {
         usize::min(ITER_BATCH_SIZE, self.len() - start_idx)
     }

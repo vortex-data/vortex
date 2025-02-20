@@ -11,20 +11,27 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use crate::{
+    ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayValidityImpl, ArrayVariantsImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
-use crate::{impl_encoding, ArrayRef, Canonical, IntoArray, RkyvMetadata};
 
 // mod compute;
 
-impl_encoding!(
-    "vortex.struct",
-    encoding_ids::STRUCT,
-    Struct,
-    RkyvMetadata<StructMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct StructArray {
+    len: usize,
+    dtype: DType,
+    fields: Vec<ArrayRef>,
+    validity: Validity,
+}
+
+pub struct StructEncoding;
+impl Encoding for StructEncoding {
+    const ID: EncodingId = EncodingId("vortex.struct", encoding_ids::STRUCT);
+    type Array = StructArray;
+    type Metadata = EmptyMetadata;
+}
 
 #[derive(
     Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -49,7 +56,7 @@ impl StructArray {
         })
     }
 
-    pub fn fields(&self) -> impl Iterator<Item =ArrayRef> + '_ {
+    pub fn fields(&self) -> impl Iterator<Item = ArrayRef> + '_ {
         (0..self.nfields()).map(move |idx| {
             self.maybe_null_field_by_idx(idx)
                 .vortex_expect("never out of bounds")
@@ -145,6 +152,42 @@ impl StructArray {
             self.len(),
             self.validity(),
         )
+    }
+}
+
+impl ArrayCanonicalImpl for StructArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        todo!()
+    }
+}
+
+impl ArrayValidityImpl for StructArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        todo!()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+impl ArrayVariantsImpl for StructArray {}
+
+impl ArrayImpl for StructArray {
+    fn _len(&self) -> usize {
+        self.len
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
     }
 }
 

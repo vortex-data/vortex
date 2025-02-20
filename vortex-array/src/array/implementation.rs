@@ -113,7 +113,7 @@ impl<A: ArrayImpl> Array for A {
         //     );
         // }
         let len = builder.len();
-        ArrayCanonicalImpl::_to_builder(self, builder)?;
+        ArrayCanonicalImpl::_append_to_builder(self, builder)?;
         assert_eq!(
             len + self.len(),
             builder.len(),

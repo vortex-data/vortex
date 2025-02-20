@@ -13,19 +13,19 @@ use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 use crate::{ZigZagArray, ZigZagEncoding};
 
 impl ComputeVTable for ZigZagEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayRef>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayRef>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayRef>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayRef>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 }
@@ -67,7 +67,7 @@ impl SliceFn<ZigZagArray> for ZigZagEncoding {
 }
 
 impl TakeFn<ZigZagArray> for ZigZagEncoding {
-    fn take(&self, array: &ZigZagArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }

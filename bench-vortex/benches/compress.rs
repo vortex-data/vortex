@@ -110,7 +110,11 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 }
 
 #[inline(never)]
-fn vortex_compress_write(runtime: &Runtime, array: &ArrayRef, buf: &mut Vec<u8>) -> VortexResult<u64> {
+fn vortex_compress_write(
+    runtime: &Runtime,
+    array: &dyn Array,
+    buf: &mut Vec<u8>,
+) -> VortexResult<u64> {
     runtime
         .block_on(async {
             VortexWriteOptions::default()
@@ -136,7 +140,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<Arr
     })
 }
 
-fn vortex_compressed_written_size(runtime: &Runtime, array: &ArrayRef) -> VortexResult<u64> {
+fn vortex_compressed_written_size(runtime: &Runtime, array: &dyn Array) -> VortexResult<u64> {
     vortex_compress_write(runtime, array, &mut Vec::new())
 }
 
