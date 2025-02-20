@@ -21,7 +21,7 @@ pub struct BetweenOptions {
     pub upper_strict: StrictComparison,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StrictComparison {
     Strict,
     NonStrict,
