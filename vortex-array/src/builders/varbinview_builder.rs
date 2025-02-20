@@ -152,7 +152,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn finish(&mut self) -> VortexResult<ArrayRef> {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 

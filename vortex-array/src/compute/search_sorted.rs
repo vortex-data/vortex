@@ -156,7 +156,6 @@ pub trait SearchSortedUsizeFn<A: ?Sized> {
 impl<E: Encoding> SearchSortedFn<dyn Array> for E
 where
     E: SearchSortedFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn search_sorted(
         &self,
@@ -164,7 +163,15 @@ where
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         SearchSortedFn::search_sorted(encoding, array_ref, value, side)
     }
 
@@ -174,7 +181,15 @@ where
         values: &[Scalar],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         SearchSortedFn::search_sorted_many(encoding, array_ref, values, side)
     }
 }
@@ -182,7 +197,6 @@ where
 impl<E: Encoding> SearchSortedUsizeFn<dyn Array> for E
 where
     E: SearchSortedUsizeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn search_sorted_usize(
         &self,
@@ -190,7 +204,15 @@ where
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         SearchSortedUsizeFn::search_sorted_usize(encoding, array_ref, value, side)
     }
 
@@ -200,7 +222,15 @@ where
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         SearchSortedUsizeFn::search_sorted_usize_many(encoding, array_ref, values, side)
     }
 }

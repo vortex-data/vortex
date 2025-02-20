@@ -13,7 +13,7 @@ use crate::{
     ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl,
     ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
-// mod compute;
+mod compute;
 
 #[derive(Clone, Debug)]
 pub struct NullArray {

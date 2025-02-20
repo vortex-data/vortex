@@ -15,11 +15,18 @@ pub trait FillForwardFn<A: ?Sized> {
 impl<E: Encoding> FillForwardFn<dyn Array> for E
 where
     E: FillForwardFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn fill_forward(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
-        FillForwardFn::fill_forward(encoding, array_ref)
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding_ref = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        FillForwardFn::fill_forward(encoding_ref, array_ref)
     }
 }
 

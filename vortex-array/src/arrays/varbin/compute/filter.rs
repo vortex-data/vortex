@@ -10,10 +10,10 @@ use crate::arrays::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl FilterFn<VarBinArray> for VarBinEncoding {
-    fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }

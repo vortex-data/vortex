@@ -14,10 +14,17 @@ pub trait ScalarAtFn<A: ?Sized> {
 impl<E: Encoding> ScalarAtFn<dyn Array> for E
 where
     E: ScalarAtFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn scalar_at(&self, array: &dyn Array, index: usize) -> VortexResult<Scalar> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         ScalarAtFn::scalar_at(encoding, array_ref, index)
     }
 }

@@ -16,7 +16,7 @@ use crate::{
 };
 
 mod canonical;
-// mod compute;
+mod compute;
 mod variants;
 
 #[derive(Clone, Debug)]

@@ -12,26 +12,26 @@ use crate::compute::{
     scalar_at, slice, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl ComputeVTable for ListEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<dyn Array>> {
         Some(self)
     }
 }
@@ -50,7 +50,7 @@ impl ScalarAtFn<ListArray> for ListEncoding {
 }
 
 impl SliceFn<ListArray> for ListEncoding {
-    fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ListArray::try_new(
             array.elements(),
             slice(array.offsets(), start, stop + 1)?,
@@ -61,7 +61,7 @@ impl SliceFn<ListArray> for ListEncoding {
 }
 
 impl MaskFn<ListArray> for ListEncoding {
-    fn mask(&self, array: &ListArray, mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &ListArray, mask: Mask) -> VortexResult<ArrayRef> {
         ListArray::try_new(
             array.elements(),
             array.offsets(),

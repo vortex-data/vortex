@@ -6,6 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ToArrowFn;
+use crate::Array;
 
 impl ToArrowFn<BoolArray> for BoolEncoding {
     fn to_arrow(&self, array: &BoolArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
@@ -13,7 +14,7 @@ impl ToArrowFn<BoolArray> for BoolEncoding {
             vortex_bail!("Unsupported data type: {data_type}");
         }
         Ok(Some(Arc::new(ArrowBoolArray::new(
-            array.boolean_buffer(),
+            array.boolean_buffer().clone(),
             array.validity_mask()?.to_null_buffer(),
         ))))
     }

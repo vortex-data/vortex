@@ -3,13 +3,14 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{fill_null, FillNullFn};
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl FillNullFn<ChunkedArray> for ChunkedEncoding {
-    fn fill_null(&self, array: &ChunkedArray, fill_value: Scalar) -> VortexResult<Array> {
+    fn fill_null(&self, array: &ChunkedArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
         Ok(ChunkedArray::try_new_unchecked(
             array
                 .chunks()
+                .iter()
                 .map(|c| fill_null(c, fill_value.clone()))
                 .collect::<VortexResult<Vec<_>>>()?,
             array.dtype().as_nonnullable(),

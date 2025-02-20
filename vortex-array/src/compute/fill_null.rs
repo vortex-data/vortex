@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -14,10 +14,17 @@ pub trait FillNullFn<A: ?Sized> {
 impl<E: Encoding> FillNullFn<dyn Array> for E
 where
     E: FillNullFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn fill_null(&self, array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         FillNullFn::fill_null(encoding, array_ref, fill_value)
     }
 }

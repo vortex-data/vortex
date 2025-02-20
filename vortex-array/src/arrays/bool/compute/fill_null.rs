@@ -4,10 +4,10 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl FillNullFn<BoolArray> for BoolEncoding {
-    fn fill_null(&self, array: &BoolArray, fill_value: Scalar) -> VortexResult<Array> {
+    fn fill_null(&self, array: &BoolArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
         let fill = fill_value
             .as_bool()
             .value()
@@ -15,13 +15,13 @@ impl FillNullFn<BoolArray> for BoolEncoding {
 
         Ok(match array.validity() {
             Validity::NonNullable => array.clone().into_array(),
-            Validity::AllValid => BoolArray::from(array.boolean_buffer()).into_array(),
+            Validity::AllValid => BoolArray::from(array.boolean_buffer().clone()).into_array(),
             Validity::AllInvalid => ConstantArray::new(fill, array.len()).into_array(),
             Validity::Array(v) => {
                 let bool_buffer = if fill {
-                    &array.boolean_buffer() | &!&v.into_bool()?.boolean_buffer()
+                    array.boolean_buffer() | &!v.to_bool()?.boolean_buffer()
                 } else {
-                    &array.boolean_buffer() & &v.into_bool()?.boolean_buffer()
+                    array.boolean_buffer() & v.to_bool()?.boolean_buffer()
                 };
                 BoolArray::from(bool_buffer).into_array()
             }

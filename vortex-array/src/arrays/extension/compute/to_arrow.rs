@@ -11,7 +11,6 @@ use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{ExtensionArray, ExtensionEncoding, TemporalArray};
-use crate::canonical::IntoArrayVariant;
 use crate::compute::{to_arrow, try_cast, ToArrowFn};
 use crate::IntoArray;
 

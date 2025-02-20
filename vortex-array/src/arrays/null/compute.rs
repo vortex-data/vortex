@@ -1,4 +1,4 @@
-use arrow_array::{new_null_array, ArrayRef};
+use arrow_array::{new_null_array, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
@@ -10,42 +10,42 @@ use crate::arrays::NullEncoding;
 use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl ComputeVTable for NullEncoding {
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<dyn Array>> {
         Some(self)
     }
 }
 
 impl MaskFn<NullArray> for NullEncoding {
-    fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<ArrayRef> {
         Ok(array.clone().into_array())
     }
 }
 
 impl SliceFn<NullArray> for NullEncoding {
-    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
@@ -57,7 +57,7 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 }
 
 impl TakeFn<NullArray> for NullEncoding {
-    fn take(&self, array: &NullArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &NullArray, indices: &Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
         // Enforce all indices are valid
@@ -72,13 +72,17 @@ impl TakeFn<NullArray> for NullEncoding {
         Ok(NullArray::new(indices.len()).into_array())
     }
 
-    unsafe fn take_unchecked(&self, _array: &NullArray, indices: &Array) -> VortexResult<Array> {
+    unsafe fn take_unchecked(&self, _array: &NullArray, indices: &Array) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(indices.len()).into_array())
     }
 }
 
 impl ToArrowFn<NullArray> for NullEncoding {
-    fn to_arrow(&self, array: &NullArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
+    fn to_arrow(
+        &self,
+        array: &NullArray,
+        data_type: &DataType,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
         if data_type != &DataType::Null {
             vortex_bail!("Unsupported data type: {data_type}");
         }

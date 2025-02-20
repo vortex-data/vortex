@@ -25,10 +25,17 @@ pub trait ToArrowFn<A: ?Sized> {
 impl<E: Encoding> ToArrowFn<dyn Array> for E
 where
     E: ToArrowFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn preferred_arrow_data_type(&self, array: &dyn Array) -> VortexResult<Option<DataType>> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         ToArrowFn::preferred_arrow_data_type(encoding, array_ref)
     }
 
@@ -37,7 +44,15 @@ where
         array: &dyn Array,
         data_type: &DataType,
     ) -> VortexResult<Option<ArrowArrayRef>> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         ToArrowFn::to_arrow(encoding, array_ref, data_type)
     }
 }

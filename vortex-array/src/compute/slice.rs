@@ -15,10 +15,17 @@ pub trait SliceFn<A: ?Sized> {
 impl<E: Encoding> SliceFn<dyn Array> for E
 where
     E: SliceFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn slice(&self, array: &dyn Array, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         SliceFn::slice(encoding, array_ref, start, stop)
     }
 }

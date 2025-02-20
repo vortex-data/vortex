@@ -86,7 +86,6 @@ pub trait CompareFn<A: ?Sized> {
 impl<E: Encoding> CompareFn<dyn Array> for E
 where
     E: CompareFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn compare(
         &self,

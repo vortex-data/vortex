@@ -2,7 +2,7 @@ use std::ops::BitAnd;
 
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::ConstantArray;
@@ -22,10 +22,17 @@ pub trait FilterFn<A: ?Sized> {
 impl<E: Encoding> FilterFn<dyn Array> for E
 where
     E: FilterFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn filter(&self, array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         FilterFn::filter(encoding, array_ref, mask)
     }
 }

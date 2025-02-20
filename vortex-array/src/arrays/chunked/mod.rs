@@ -32,7 +32,7 @@ use crate::{
 };
 
 mod canonical;
-// mod compute;
+mod compute;
 // // mod stats;
 mod encoding;
 mod variants;

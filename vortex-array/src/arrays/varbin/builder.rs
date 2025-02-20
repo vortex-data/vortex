@@ -8,7 +8,7 @@ use vortex_error::{vortex_panic, VortexExpect as _};
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct VarBinBuilder<O: NativePType> {
     offsets: BufferMut<O>,

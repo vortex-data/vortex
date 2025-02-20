@@ -29,7 +29,7 @@ use crate::{
 };
 
 mod accessor;
-// mod compute;
+mod compute;
 // mod stats;
 mod variants;
 

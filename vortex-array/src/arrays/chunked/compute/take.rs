@@ -9,10 +9,10 @@ use crate::arrays::ChunkedEncoding;
 use crate::compute::{
     scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast, SearchSortedSide, TakeFn,
 };
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl TakeFn<ChunkedArray> for ChunkedEncoding {
-    fn take(&self, array: &ChunkedArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &ChunkedArray, indices: &Array) -> VortexResult<ArrayRef> {
         // Fast path for strict sorted indices.
         if indices
             .statistics()
@@ -65,7 +65,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
 }
 
 /// When the indices are non-null and strict-sorted, we can do better
-fn take_strict_sorted(chunked: &ChunkedArray, indices: &Array) -> VortexResult<Array> {
+fn take_strict_sorted(chunked: &ChunkedArray, indices: &Array) -> VortexResult<ArrayRef> {
     let mut indices_by_chunk = vec![None; chunked.nchunks()];
 
     // Track our position in the indices array
@@ -125,7 +125,7 @@ mod test {
 
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::take;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::IntoArray;
 
     #[test]
     fn test_take() {

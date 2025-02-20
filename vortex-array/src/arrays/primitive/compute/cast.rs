@@ -7,10 +7,10 @@ use crate::arrays::PrimitiveEncoding;
 use crate::compute::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl CastFn<PrimitiveArray> for PrimitiveEncoding {
-    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Array> {
+    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             vortex_bail!(MismatchedTypes: "primitive type", dtype);
         };
@@ -74,7 +74,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::compute::try_cast;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::IntoArray;
 
     #[test]
     fn cast_u32_u8() {

@@ -3,21 +3,21 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{binary_boolean, slice, BinaryBooleanFn, BinaryOperator};
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl BinaryBooleanFn<ChunkedArray> for ChunkedEncoding {
     fn binary_boolean(
         &self,
         lhs: &ChunkedArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         op: BinaryOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let mut idx = 0;
         let mut chunks = Vec::with_capacity(lhs.nchunks());
 
         for chunk in lhs.non_empty_chunks() {
             let sliced = slice(rhs, idx, idx + chunk.len())?;
-            let result = binary_boolean(&chunk, &sliced, op)?;
+            let result = binary_boolean(chunk, &sliced, op)?;
             chunks.push(result);
             idx += chunk.len();
         }
@@ -34,7 +34,7 @@ mod tests {
 
     use crate::arrays::{BoolArray, ChunkedArray};
     use crate::compute::{binary_boolean, BinaryOperator};
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::IntoArray;
 
     #[test]
     fn test_bin_bool_chunked() {

@@ -43,10 +43,17 @@ pub trait TakeFn<A: ?Sized> {
 impl<E: Encoding> TakeFn<dyn Array> for E
 where
     E: TakeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn take(&self, array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         TakeFn::take(encoding, array_ref, indices)
     }
 
@@ -56,7 +63,15 @@ where
         indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         TakeFn::take_into(encoding, array_ref, indices, builder)
     }
 }

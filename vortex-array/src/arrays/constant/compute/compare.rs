@@ -2,15 +2,15 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{scalar_cmp, CompareFn, Operator};
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl CompareFn<ConstantArray> for ConstantEncoding {
     fn compare(
         &self,
         lhs: &ConstantArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // We only support comparing a constant array to another constant array.
         // For all other encodings, we assume the constant is on the RHS.
         if let Some(const_scalar) = rhs.as_constant() {

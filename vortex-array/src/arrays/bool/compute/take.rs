@@ -7,14 +7,15 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
+use crate::builders::ArrayBuilder;
 use crate::compute::{fill_null, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeFn<BoolArray> for BoolEncoding {
-    fn take(&self, array: &BoolArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
-            Mask::AllTrue(_) => indices.clone(),
+            Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
                 return Ok(ConstantArray::new(
                     Scalar::null(array.dtype().as_nullable()),
@@ -24,16 +25,15 @@ impl TakeFn<BoolArray> for BoolEncoding {
             }
             Mask::Values(_) => fill_null(indices, Scalar::from(0).cast(indices.dtype())?)?,
         };
-        let indices_nulls_zeroed = indices_nulls_zeroed.into_primitive()?;
+        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |$I| {
             take_valid_indices::<$I>(array, &indices_nulls_zeroed)
         });
 
-        BoolArray::try_new(buffer, array.validity().take(indices.as_ref())?)
-            .map(IntoArray::into_array)
+        Ok(BoolArray::new_with_validity(buffer, array.validity().take(indices)?).into_array())
     }
 
-    unsafe fn take_unchecked(&self, array: &BoolArray, indices: &Array) -> VortexResult<Array> {
+    unsafe fn take_unchecked(&self, array: &BoolArray, indices: &Array) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
@@ -52,16 +52,16 @@ impl TakeFn<BoolArray> for BoolEncoding {
 
         // SAFETY: caller enforces indices are valid for array, and array has same len as validity.
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
-        BoolArray::try_new(buffer, validity).map(IntoArray::into_array)
+        Ok(BoolArray::new_with_validity(buffer, validity).into_array())
     }
 
     fn take_into(
         &self,
         array: &BoolArray,
-        indices: &Array,
-        builder: &mut dyn crate::builders::ArrayBuilder,
+        indices: &dyn Array,
+        builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        builder.extend_from_array(self.take(array, indices)?)
+        builder.extend_from_array(&self.take(array, indices)?)
     }
 }
 

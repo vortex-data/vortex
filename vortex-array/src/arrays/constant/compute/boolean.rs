@@ -4,15 +4,15 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
     fn binary_boolean(
         &self,
         lhs: &ConstantArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         op: BinaryOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // We only implement this for constant <-> constant arrays, otherwise we allow fall back
         // to the Arrow implementation.
         if !rhs.is_constant() {
@@ -80,7 +80,7 @@ mod test {
     use crate::arrays::constant::ConstantArray;
     use crate::arrays::BoolArray;
     use crate::compute::{and, or, scalar_at};
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{Array, ArrayRef, IntoArray};
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()

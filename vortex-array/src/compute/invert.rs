@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -12,10 +12,17 @@ pub trait InvertFn<A: ?Sized> {
 impl<E: Encoding> InvertFn<dyn Array> for E
 where
     E: InvertFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn invert(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = array
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         InvertFn::invert(encoding, array_ref)
     }
 }

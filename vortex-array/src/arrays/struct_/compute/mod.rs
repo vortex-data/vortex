@@ -14,44 +14,44 @@ use crate::compute::{
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl ComputeVTable for StructEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<dyn Array>> {
         Some(self)
     }
 }
 
 impl CastFn<StructArray> for StructEncoding {
-    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<Array> {
+    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let Some(target_sdtype) = dtype.as_struct() else {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         };
@@ -95,7 +95,7 @@ impl ScalarAtFn<StructArray> for StructEncoding {
 }
 
 impl TakeFn<StructArray> for StructEncoding {
-    fn take(&self, array: &StructArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &StructArray, indices: &Array) -> VortexResult<ArrayRef> {
         StructArray::try_new(
             array.names().clone(),
             array
@@ -110,7 +110,7 @@ impl TakeFn<StructArray> for StructEncoding {
 }
 
 impl SliceFn<StructArray> for StructEncoding {
-    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let fields = array
             .fields()
             .map(|field| slice(&field, start, stop))
@@ -126,10 +126,10 @@ impl SliceFn<StructArray> for StructEncoding {
 }
 
 impl FilterFn<StructArray> for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
-        let fields: Vec<Array> = array
+        let fields: Vec<ArrayRef> = array
             .fields()
             .map(|field| filter(&field, mask))
             .try_collect()?;
@@ -144,7 +144,7 @@ impl FilterFn<StructArray> for StructEncoding {
 }
 
 impl MaskFn<StructArray> for StructEncoding {
-    fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(&filter_mask)?;
 
         StructArray::try_new(

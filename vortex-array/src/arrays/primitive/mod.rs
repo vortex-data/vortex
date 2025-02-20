@@ -24,7 +24,7 @@ use crate::{
     Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 
-// mod compute;
+mod compute;
 mod patch;
 // mod stats;
 

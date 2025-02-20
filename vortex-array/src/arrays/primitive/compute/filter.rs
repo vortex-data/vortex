@@ -7,13 +7,13 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::FilterFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
-    fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<Array> {
+    fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask

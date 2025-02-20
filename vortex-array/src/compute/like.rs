@@ -17,7 +17,6 @@ pub trait LikeFn<A: ?Sized> {
 impl<E: Encoding> LikeFn<dyn Array> for E
 where
     E: LikeFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn like(
         &self,

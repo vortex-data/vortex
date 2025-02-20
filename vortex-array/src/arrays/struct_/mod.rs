@@ -18,7 +18,7 @@ use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
     Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
-// mod compute;
+mod compute;
 
 #[derive(Clone, Debug)]
 pub struct StructArray {

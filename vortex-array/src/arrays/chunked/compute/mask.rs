@@ -8,10 +8,10 @@ use super::filter::{chunk_filters, find_chunk_idx, ChunkFilter};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
 use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
 use crate::compute::{mask, try_cast, MaskFn};
-use crate::{Array, IntoArray as _};
+use crate::{Array, ArrayRef, IntoArray as _};
 
 impl MaskFn<ChunkedArray> for ChunkedEncoding {
-    fn mask(&self, array: &ChunkedArray, mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &ChunkedArray, mask: Mask) -> VortexResult<ArrayRef> {
         let new_dtype = array.dtype().as_nullable();
         let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
             AllOr::All => unreachable!("handled in top-level mask"),
@@ -26,7 +26,7 @@ impl MaskFn<ChunkedArray> for ChunkedEncoding {
             new_chunks.iter().map(|x| x.len()).sum::<usize>(),
             array.len()
         );
-        ChunkedArray::try_new(new_chunks, new_dtype).map(IntoArray::into_array)
+        ChunkedArray::try_new(new_chunks, new_dtype).map(|c| c.into_array())
     }
 }
 
@@ -34,7 +34,7 @@ fn mask_indices(
     array: &ChunkedArray,
     indices: &[usize],
     new_dtype: &DType,
-) -> VortexResult<Vec<Array>> {
+) -> VortexResult<Vec<ArrayRef>> {
     let mut new_chunks = Vec::with_capacity(array.nchunks());
     let mut current_chunk_id = 0;
     let mut chunk_indices = Vec::new();
@@ -93,13 +93,13 @@ fn mask_slices(
     array: &ChunkedArray,
     slices: impl Iterator<Item = (usize, usize)>,
     new_dtype: &DType,
-) -> VortexResult<Vec<Array>> {
+) -> VortexResult<Vec<ArrayRef>> {
     let chunked_filters = chunk_filters(array, slices)?;
 
     array
         .chunks()
         .zip_eq(chunked_filters)
-        .map(|(chunk, chunk_filter)| -> VortexResult<Array> {
+        .map(|(chunk, chunk_filter)| -> VortexResult<ArrayRef> {
             Ok(match chunk_filter {
                 ChunkFilter::All => {
                     // entire chunk is masked out

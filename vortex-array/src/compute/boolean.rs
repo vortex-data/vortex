@@ -32,7 +32,6 @@ pub trait BinaryBooleanFn<A: ?Sized> {
 impl<E: Encoding> BinaryBooleanFn<dyn Array> for E
 where
     E: BinaryBooleanFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a dyn Array, Error = VortexError>,
 {
     fn binary_boolean(
         &self,

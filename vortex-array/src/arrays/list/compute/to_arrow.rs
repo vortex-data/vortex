@@ -9,7 +9,6 @@ use crate::arrays::{ListArray, ListEncoding};
 use crate::arrow::IntoArrowArray;
 use crate::compute::{try_cast, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::IntoArrayVariant;
 
 impl ToArrowFn<ListArray> for ListEncoding {
     fn to_arrow(&self, array: &ListArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {

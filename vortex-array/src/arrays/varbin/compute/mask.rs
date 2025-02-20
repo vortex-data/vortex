@@ -4,10 +4,10 @@ use vortex_mask::Mask;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
 use crate::compute::MaskFn;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl MaskFn<VarBinArray> for VarBinEncoding {
-    fn mask(&self, array: &VarBinArray, mask: Mask) -> VortexResult<Array> {
+    fn mask(&self, array: &VarBinArray, mask: Mask) -> VortexResult<ArrayRef> {
         VarBinArray::try_new(
             array.offsets(),
             array.bytes(),

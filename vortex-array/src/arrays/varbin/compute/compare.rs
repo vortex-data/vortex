@@ -9,16 +9,16 @@ use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding};
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{compare_lengths_to_empty, CompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait as _;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {
     fn compare(
         &self,
         lhs: &VarBinArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();

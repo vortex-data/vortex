@@ -10,11 +10,11 @@ use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
-    fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, array: &VarBinViewArray, indices: &Array) -> VortexResult<ArrayRef> {
         // Compute the new validity
 
         // This is valid since all elements (of all arrays) even null values are inside must be the
@@ -41,8 +41,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     unsafe fn take_unchecked(
         &self,
         array: &VarBinViewArray,
-        indices: &Array,
-    ) -> VortexResult<Array> {
+        indices: &dyn Array,
+    ) -> VortexResult<ArrayRef> {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive()?;
@@ -63,7 +63,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     fn take_into(
         &self,
         array: &VarBinViewArray,
-        indices: &Array,
+        indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {

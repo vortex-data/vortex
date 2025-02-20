@@ -3,10 +3,10 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::CastFn;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl CastFn<VarBinArray> for VarBinEncoding {
-    fn cast(&self, array: &VarBinArray, dtype: &DType) -> VortexResult<Array> {
+    fn cast(&self, array: &VarBinArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
         }

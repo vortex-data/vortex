@@ -164,7 +164,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
 
     use crate::float::stats::FloatStats;

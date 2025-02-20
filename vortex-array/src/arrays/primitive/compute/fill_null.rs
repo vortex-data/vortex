@@ -10,10 +10,10 @@ use crate::arrays::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant as _};
+use crate::{Array, ArrayRef, IntoArray as _};
 
 impl FillNullFn<PrimitiveArray> for PrimitiveEncoding {
-    fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<Array> {
+    fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
         let result_validity = match fill_value.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
@@ -54,7 +54,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::IntoArray;
 
     #[test]
     fn fill_null_leading_none() {

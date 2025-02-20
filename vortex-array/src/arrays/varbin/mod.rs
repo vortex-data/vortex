@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-// pub use compute::compute_min_max;
+pub use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::ByteBuffer;
@@ -30,7 +30,7 @@ use crate::{
 mod accessor;
 pub mod builder;
 mod canonical;
-// mod compute;
+mod compute;
 // mod stats;
 mod variants;
 
