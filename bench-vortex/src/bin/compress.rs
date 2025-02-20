@@ -15,7 +15,7 @@ use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
-use vortex::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex::{IntoArray, IntoCanonical};
 
 feature_flagged_allocator!();
 
