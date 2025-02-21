@@ -19,17 +19,17 @@ test-harness = ["rand", "vortex-fsst"]
 [dependencies]
 arrow-buffer = { workspace = true }
 num-traits = { workspace = true }
+# test-harness
+rand = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
+vortex-fsst = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-# test-harness
-rand = { workspace = true, optional = true }
-vortex-fsst = { workspace = true, optional = true }
 
 [lints]
 workspace = true
