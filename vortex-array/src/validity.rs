@@ -378,7 +378,7 @@ impl Validity {
         );
 
         Ok(Self::from_array(
-            source.patch(patches)?.into_array(),
+            source.patch(&patches)?.into_array(),
             own_nullability,
         ))
     }

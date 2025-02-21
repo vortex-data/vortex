@@ -17,12 +17,12 @@ impl ArrayCanonicalImpl for SparseArray {
         }
 
         if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
+            canonicalize_sparse_bools(&resolved_patches, &self.fill_scalar())
         } else {
             let ptype = PType::try_from(resolved_patches.values().dtype())?;
             match_each_native_ptype!(ptype, |$P| {
                 canonicalize_sparse_primitives::<$P>(
-                    resolved_patches,
+                    &resolved_patches,
                     &self.fill_scalar(),
                 )
             })
@@ -30,7 +30,7 @@ impl ArrayCanonicalImpl for SparseArray {
     }
 }
 
-fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
+fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
     } else {
@@ -59,7 +59,7 @@ fn canonicalize_sparse_bools(patches: Patches, fill_value: &Scalar) -> VortexRes
 fn canonicalize_sparse_primitives<
     T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
 >(
-    patches: Patches,
+    patches: &Patches,
     fill_value: &Scalar,
 ) -> VortexResult<Canonical> {
     let (primitive_fill, validity) = if fill_value.is_null() {

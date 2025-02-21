@@ -1,4 +1,3 @@
-use std::any::type_name;
 use std::fmt::{Debug, Display};
 use std::sync::{Arc, RwLock};
 
@@ -14,7 +13,7 @@ use vortex_array::{
     ArrayValidityImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId, ToCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 

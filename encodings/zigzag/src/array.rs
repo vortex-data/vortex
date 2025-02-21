@@ -1,21 +1,38 @@
+use std::sync::{Arc, RwLock};
+
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::stats::{Precision, Stat, Statistics, StatsSet};
+use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::{
+    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId, ToCanonical,
 };
-use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Canonical, EmptyMetadata, ToCanonical};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_mask::Mask;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compress::zigzag_encode;
 use crate::zigzag_decode;
 
-impl_encoding!("vortex.zigzag", encoding_ids::ZIGZAG, ZigZag, EmptyMetadata);
+#[derive(Clone, Debug)]
+pub struct ZigZagArray {
+    dtype: DType,
+    encoded: ArrayRef,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+try_from_array_ref!(ZigZagArray);
+
+pub struct ZigZagEncoding;
+impl Encoding for ZigZagEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.zigzag", encoding_ids::ZIGZAG);
+    type Array = ZigZagArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl ZigZagArray {
     pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
@@ -27,17 +44,11 @@ impl ZigZagArray {
         let dtype = DType::from(PType::try_from(&encoded_dtype)?.to_signed())
             .with_nullability(encoded_dtype.nullability());
 
-        let len = encoded.len();
-        let children = [encoded];
-
-        Self::try_from_parts(
+        Ok(Self {
             dtype,
-            len,
-            EmptyMetadata,
-            vec![].into(),
-            children.into(),
-            StatsSet::default(),
-        )
+            encoded,
+            stats_set: Default::default(),
+        })
     }
 
     pub fn encode(array: &dyn Array) -> VortexResult<ZigZagArray> {
@@ -46,51 +57,68 @@ impl ZigZagArray {
             .and_then(zigzag_encode)
     }
 
-    pub fn encoded(&self) -> ArrayRef {
-        let ptype = PType::try_from(self.dtype()).unwrap_or_else(|err| {
-            vortex_panic!(err, "Failed to convert DType {} to PType", self.dtype())
-        });
-        let encoded = DType::from(ptype.to_unsigned()).with_nullability(self.dtype().nullability());
-        self.as_ref()
-            .child(0, &encoded, self.len())
-            .vortex_expect("ZigZagArray is missing its encoded child array")
+    pub fn encoded(&self) -> &ArrayRef {
+        &self.encoded
     }
 }
 
-impl ValidateVTable<ZigZagArray> for ZigZagEncoding {}
+impl ArrayImpl for ZigZagArray {
+    type Encoding = ZigZagEncoding;
 
-impl VariantsVTable<ZigZagArray> for ZigZagEncoding {
-    fn as_primitive_array<'a>(
-        &self,
-        array: &'a ZigZagArray,
-    ) -> Option<&'a dyn PrimitiveArrayTrait> {
-        Some(array)
+    fn _len(&self) -> usize {
+        self.encoded.len()
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&ZigZagEncoding)
+    }
+}
+
+impl ArrayCanonicalImpl for ZigZagArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        zigzag_decode(self.encoded().to_primitive()?).map(Canonical::Primitive)
+    }
+}
+
+impl ArrayStatisticsImpl for ZigZagArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
+impl ArrayValidityImpl for ZigZagArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.encoded.is_valid(index)
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.encoded.all_valid()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.encoded.all_invalid()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.encoded.validity_mask()
+    }
+}
+
+impl ArrayVariantsImpl for ZigZagArray {
+    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
     }
 }
 
 impl PrimitiveArrayTrait for ZigZagArray {}
 
-impl ValidityVTable<ZigZagArray> for ZigZagEncoding {
-    fn is_valid(&self, array: &ZigZagArray, index: usize) -> VortexResult<bool> {
-        array.encoded().is_valid(index)
-    }
-
-    fn all_valid(&self, array: &ZigZagArray) -> VortexResult<bool> {
-        array.encoded().all_valid()
-    }
-
-    fn all_invalid(&self, array: &ZigZagArray) -> VortexResult<bool> {
-        array.encoded().all_invalid()
-    }
-
-    fn validity_mask(&self, array: &ZigZagArray) -> VortexResult<Mask> {
-        array.encoded().validity_mask()
-    }
-}
-
-impl VisitorVTable<ZigZagArray> for ZigZagEncoding {
-    fn accept(&self, array: &ZigZagArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", &array.encoded())
+impl ArrayVisitorImpl for ZigZagArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("encoded", self.encoded())
     }
 }
 
@@ -100,7 +128,7 @@ impl StatisticsVTable<'_, ZigZagArray> for ZigZagEncoding {
 
         // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
-            if let Some(val) = array.encoded().compute_stat(stat) {
+            if let Some(val) = array.encoded().statistics().compute_stat(stat) {
                 stats.set(stat, Precision::exact(val));
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
@@ -114,12 +142,6 @@ impl StatisticsVTable<'_, ZigZagArray> for ZigZagEncoding {
         }
 
         Ok(stats)
-    }
-}
-
-impl CanonicalVTable<ZigZagArray> for ZigZagEncoding {
-    fn into_canonical(&self, array: ZigZagArray) -> VortexResult<Canonical> {
-        zigzag_decode(array.encoded().into_primitive()?).map(Canonical::Primitive)
     }
 }
 
@@ -150,7 +172,7 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = ZigZagArray::try_from(slice(zigzag, 0, 2).unwrap()).unwrap();
+        let sliced = ZigZagArray::try_from(slice(&zigzag, 0, 2).unwrap()).unwrap();
         assert_eq!(
             scalar_at(&sliced, sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)

@@ -8,9 +8,9 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 
 impl BoolArray {
-    pub fn patch(self, patches: Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let len = self.len();
-        let (_, offset, indices, values) = patches.into_parts();
+        let (_, offset, indices, values) = patches.clone().into_parts();
         let indices = indices.to_primitive()?;
         let values = values.to_bool()?;
 
