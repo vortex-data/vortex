@@ -170,7 +170,7 @@ fn benchmark_compress<F, U>(
     ensure_dir_exists("benchmarked-files").unwrap();
     let runtime = &TOKIO_RUNTIME;
     let uncompressed = make_uncompressed();
-    let uncompressed_size = uncompressed.as_ref().nbytes();
+    let uncompressed_size = &uncompressed.nbytes();
     let mut compressed_size = 0;
 
     {
@@ -180,8 +180,7 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
         group.bench_function(bench_name, |b| {
             b.iter(|| {
-                compressed_size =
-                    vortex_compressed_written_size(runtime, uncompressed.as_ref()).unwrap();
+                compressed_size = vortex_compressed_written_size(runtime, &uncompressed).unwrap();
             });
         });
         group.finish();
@@ -196,7 +195,7 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
 
         group.bench_function(bench_name, |b| {
-            let chunked = ChunkedArray::try_from(uncompressed.as_ref().clone()).unwrap();
+            let chunked = ChunkedArray::try_from(&uncompressed.clone()).unwrap();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
 
             b.iter_with_large_drop(|| {
@@ -219,7 +218,7 @@ fn benchmark_compress<F, U>(
 
         let buffer = LazyCell::new(|| {
             let mut buf = Vec::new();
-            vortex_compress_write(runtime, uncompressed.as_ref(), &mut buf).unwrap();
+            vortex_compress_write(runtime, &uncompressed, &mut buf).unwrap();
             Bytes::from(buf)
         });
 
@@ -238,7 +237,7 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
 
         let buffer = LazyCell::new(|| {
-            let chunked = ChunkedArray::try_from(uncompressed.as_ref().clone()).unwrap();
+            let chunked = ChunkedArray::try_from(&uncompressed.clone()).unwrap();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
             let mut buf = Vec::new();
             parquet_compress_write(

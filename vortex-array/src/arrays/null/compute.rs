@@ -106,15 +106,15 @@ mod test {
     use vortex_dtype::DType;
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::null::NullArray;
     use crate::compute::{scalar_at, slice, take};
-    use crate::IntoArray;
+    use crate::{ArrayExt, IntoArray};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-
-        let sliced = NullArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
+        let sliced = slice(&nulls, 0, 4).unwrap().as_::<NullArray>().clone();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
@@ -123,9 +123,10 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
-        let taken =
-            NullArray::try_from(take(nulls, buffer![0u64, 2, 4, 6, 8].into_array()).unwrap())
-                .unwrap();
+        let taken = take(&nulls, &buffer![0u64, 2, 4, 6, 8].into_array())
+            .unwrap()
+            .as_::<NullArray>()
+            .clone();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));

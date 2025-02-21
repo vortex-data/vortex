@@ -60,21 +60,7 @@ impl Display for PrimitiveMetadata {
 }
 
 impl PrimitiveArray {
-    /// Create a new [`PrimitiveArray`] from an all-valid buffer with the given nullability.
-    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, nullability: Nullability) -> Self {
-        let buffer = buffer.into().into_byte_buffer();
-        Self {
-            dtype: DType::Primitive(T::PTYPE, nullability),
-            buffer,
-            validity: nullability.into(),
-            stats_set: Default::default(),
-        }
-    }
-
-    pub fn new_with_validity<T: NativePType>(
-        buffer: impl Into<Buffer<T>>,
-        validity: Validity,
-    ) -> Self {
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
@@ -94,12 +80,12 @@ impl PrimitiveArray {
     }
 
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
-        Self::new(Buffer::<T>::empty(), nullability)
+        Self::new(Buffer::<T>::empty(), nullability.into())
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |$T| {
-            Self::new_with_validity::<$T>(Buffer::from_byte_buffer(buffer), validity)
+            Self::new::<$T>(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
@@ -122,7 +108,7 @@ impl PrimitiveArray {
                 }
             }
         }
-        Self::new_with_validity(values.freeze(), Validity::from(validity.finish()))
+        Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
     pub fn validity(&self) -> &Validity {
@@ -187,7 +173,7 @@ impl PrimitiveArray {
         let validity = self.validity().clone();
         Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
             .try_into_mut()
-            .map_err(|buffer| PrimitiveArray::new_with_validity(buffer, validity))
+            .map_err(|buffer| PrimitiveArray::new(buffer, validity))
     }
 
     /// Map each element in the array to a new value.
@@ -207,7 +193,7 @@ impl PrimitiveArray {
             Ok(buffer_mut) => buffer_mut.map_each(f),
             Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
-        PrimitiveArray::new_with_validity(buffer.freeze(), validity)
+        PrimitiveArray::new(buffer.freeze(), validity)
     }
 
     /// Map each element in the array to a new value.
@@ -236,10 +222,7 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(val.boolean_buffer()).map(f))
             }
         };
-        Ok(PrimitiveArray::new_with_validity(
-            buffer.freeze(),
-            validity.clone(),
-        ))
+        Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
     }
 
     /// Return a slice of the array's buffer.
@@ -338,13 +321,13 @@ impl PrimitiveArrayTrait for PrimitiveArray {}
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let values = BufferMut::from_iter(iter);
-        PrimitiveArray::new(values.freeze(), Nullability::NonNullable)
+        PrimitiveArray::new(values.freeze(), Validity::NonNullable)
     }
 }
 
 impl<T: NativePType> IntoArray for Buffer<T> {
     fn into_array(self) -> ArrayRef {
-        PrimitiveArray::new(self, Nullability::NonNullable).into_array()
+        PrimitiveArray::new(self, Validity::NonNullable).into_array()
     }
 }
 
@@ -393,22 +376,28 @@ impl ArrayVisitorImpl for PrimitiveArray {
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
+
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).into_array());
-        test_mask(
-            PrimitiveArray::new(
-                buffer![0, 1, 2, 3, 4],
-                Validity::Array(
-                    BoolArray::from_iter([true, false, true, false, true]).into_array(),
-                ),
-            )
-            .into_array(),
-        );
+        test_mask(&PrimitiveArray::new(
+            buffer![0, 1, 2, 3, 4],
+            Validity::NonNullable,
+        ));
+        test_mask(&PrimitiveArray::new(
+            buffer![0, 1, 2, 3, 4],
+            Validity::AllValid,
+        ));
+        test_mask(&PrimitiveArray::new(
+            buffer![0, 1, 2, 3, 4],
+            Validity::AllInvalid,
+        ));
+        test_mask(&PrimitiveArray::new(
+            buffer![0, 1, 2, 3, 4],
+            Validity::Array(BoolArray::from_iter([true, false, true, false, true]).into_array()),
+        ));
     }
 }

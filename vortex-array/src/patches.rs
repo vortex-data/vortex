@@ -406,7 +406,7 @@ where
     let values_validity = take_indices_validity.take(&new_indices)?;
     Ok(Some((
         new_indices,
-        PrimitiveArray::new_with_validity(values_indices, values_validity).into_array(),
+        PrimitiveArray::new(values_indices, values_validity).into_array(),
     )))
 }
 
@@ -459,7 +459,7 @@ where
     let values_validity = take_indices_validity.take(&new_sparse_indices)?;
     Ok(Some((
         new_sparse_indices,
-        PrimitiveArray::new_with_validity(value_indices, values_validity).into_array(),
+        PrimitiveArray::new(value_indices, values_validity).into_array(),
     )))
 }
 
@@ -562,6 +562,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::compute::{SearchResult, SearchSortedSide};
     use crate::patches::Patches;

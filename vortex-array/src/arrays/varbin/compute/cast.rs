@@ -52,7 +52,7 @@ mod tests {
     fn try_cast_varbin_nullable(#[case] source: DType, #[case] target: DType) {
         let varbin = VarBinArray::from_iter(vec![Some("a"), Some("b"), Some("c")], source);
 
-        let res = try_cast(varbin, &target);
+        let res = try_cast(&varbin, &target);
         assert_eq!(res.unwrap().dtype(), &target);
     }
 
@@ -64,6 +64,6 @@ mod tests {
     fn try_cast_varbin_fail(#[case] source: DType) {
         let non_nullable_source = source.as_nonnullable();
         let varbin = VarBinArray::from_iter(vec![Some("a"), Some("b"), None], source);
-        try_cast(varbin, &non_nullable_source).unwrap();
+        try_cast(&varbin, &non_nullable_source).unwrap();
     }
 }

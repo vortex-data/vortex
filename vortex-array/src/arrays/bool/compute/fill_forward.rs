@@ -21,15 +21,12 @@ impl FillForwardFn<&BoolArray> for BoolEncoding {
         match validity.boolean_buffer() {
             AllOr::All => {
                 // all valid, but we need to convert to non-nullable
-                Ok(
-                    BoolArray::new(array.boolean_buffer().clone(), Nullability::Nullable)
-                        .into_array(),
-                )
+                Ok(BoolArray::new(array.boolean_buffer().clone(), Validity::AllValid).into_array())
             }
             AllOr::None => {
                 // all invalid => fill with default value (false)
                 Ok(
-                    BoolArray::new(BooleanBuffer::new_unset(array.len()), Nullability::Nullable)
+                    BoolArray::new(BooleanBuffer::new_unset(array.len()), Validity::AllValid)
                         .into_array(),
                 )
             }
@@ -44,7 +41,7 @@ impl FillForwardFn<&BoolArray> for BoolEncoding {
                         last_value
                     },
                 ));
-                Ok(BoolArray::new(buffer, Nullability::Nullable).into_array())
+                Ok(BoolArray::new(buffer, Validity::AllValid).into_array())
             }
         }
     }
@@ -54,17 +51,16 @@ impl FillForwardFn<&BoolArray> for BoolEncoding {
 mod test {
     use crate::arrays::BoolArray;
     use crate::validity::Validity;
-    use crate::{compute, IntoArray};
+    use crate::{compute, IntoArray, ToCanonical};
 
     #[test]
     fn fill_forward() {
-        let barr =
-            BoolArray::from_iter(vec![None, Some(false), None, Some(true), None]).into_array();
-        let filled_bool = BoolArray::try_from(compute::fill_forward(&barr).unwrap()).unwrap();
+        let barr = BoolArray::from_iter(vec![None, Some(false), None, Some(true), None]);
+        let filled_bool = compute::fill_forward(&barr).unwrap().to_bool().unwrap();
         assert_eq!(
             filled_bool.boolean_buffer().iter().collect::<Vec<bool>>(),
             vec![false, false, false, true, true]
         );
-        assert_eq!(filled_bool.validity(), Validity::AllValid);
+        assert_eq!(filled_bool.validity(), &Validity::AllValid);
     }
 }

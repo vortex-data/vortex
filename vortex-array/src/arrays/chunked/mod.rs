@@ -221,8 +221,7 @@ impl ArrayStatisticsImpl for ChunkedArray {
 
 impl ArrayVisitorImpl for ChunkedArray {
     fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        let chunk_offsets =
-            PrimitiveArray::new(self.chunk_offsets.clone(), Nullability::NonNullable);
+        let chunk_offsets = PrimitiveArray::new(self.chunk_offsets.clone(), Validity::NonNullable);
         visitor.visit_child("chunk_offsets", &chunk_offsets)?;
 
         for (idx, chunk) in self.chunks().iter().enumerate() {
@@ -283,10 +282,11 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexResult;
 
+    use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{assert_arrays_eq, IntoArray, ToCanonical};
+    use crate::{array, assert_arrays_eq, ArrayExt, IntoArray, ToCanonical};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -306,29 +306,23 @@ mod test {
         let to_subtract = 1u64;
         let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
 
-        let chunked = ChunkedArray::try_from(array).unwrap();
-        let mut chunks_out = chunked.chunks();
+        let chunked = array.as_::<ChunkedArray>();
+        let chunks_out = chunked.chunks();
 
-        let results = chunks_out
-            .next()
-            .unwrap()
-            .into_primitive()
+        let results = chunks_out[0]
+            .to_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[0u64, 1, 2]);
-        let results = chunks_out
-            .next()
-            .unwrap()
-            .into_primitive()
+        let results = chunks_out[1]
+            .to_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[3u64, 4, 5]);
-        let results = chunks_out
-            .next()
-            .unwrap()
-            .into_primitive()
+        let results = chunks_out[2]
+            .to_primitive()
             .unwrap()
             .as_slice::<u64>()
             .to_vec();
@@ -376,7 +370,7 @@ mod test {
         let rechunked = chunked.rechunk(1 << 16, 5).unwrap();
 
         assert_eq!(rechunked.nchunks(), 2);
-        assert!(rechunked.chunks().all(|c| c.len() < 5));
+        assert!(rechunked.chunks().iter().all(|c| c.len() < 5));
         assert_arrays_eq!(chunked, rechunked);
     }
 
@@ -403,10 +397,10 @@ mod test {
 
     #[test]
     fn test_chunked_binary_numeric() {
-        let array = chunked_array().into_array();
+        let array = chunked_array();
         // The tests test both X - 1 and 1 - X, so we need signed values
         let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
-        let array = try_cast(array, &signed_dtype).unwrap();
+        let array = try_cast(&array, &signed_dtype).unwrap();
         test_binary_numeric::<u64>(array)
     }
 }

@@ -43,7 +43,7 @@ impl IntoArray for ArrowBuffer {
 
 impl IntoArray for BooleanBuffer {
     fn into_array(self) -> ArrayRef {
-        BoolArray::new(self, Nullability::NonNullable).into_array()
+        BoolArray::new(self, Validity::NonNullable).into_array()
     }
 }
 
@@ -54,7 +54,7 @@ where
     fn into_array(self) -> ArrayRef {
         PrimitiveArray::new(
             Buffer::<T>::from_arrow_scalar_buffer(self),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         )
         .into_array()
     }
@@ -67,7 +67,7 @@ where
     fn into_array(self) -> ArrayRef {
         let primitive = PrimitiveArray::new(
             Buffer::from_arrow_scalar_buffer(self.into_inner()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         // primitive.update_statistic(Stat::IsSorted, Precision::exact(true));
         // primitive.update_statistic(Stat::IsStrictSorted, Precision::exact(true));
@@ -80,7 +80,7 @@ where
     <T as ArrowPrimitiveType>::Native: NativePType,
 {
     fn from_arrow(value: &ArrowPrimitiveArray<T>, nullable: bool) -> Self {
-        let arr = PrimitiveArray::new_with_validity(
+        let arr = PrimitiveArray::new(
             Buffer::from_arrow_scalar_buffer(value.values().clone()),
             nulls(value.nulls(), nullable),
         );
@@ -159,8 +159,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::new_with_validity(value.values().clone(), nulls(value.nulls(), nullable))
-            .into_array()
+        BoolArray::new(value.values().clone(), nulls(value.nulls(), nullable)).into_array()
     }
 }
 

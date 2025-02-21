@@ -43,7 +43,7 @@ impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |$T| {
-            Ok(PrimitiveArray::new_with_validity(
+            Ok(PrimitiveArray::new(
                 cast::<$T>(array)?,
                 new_validity,
             ).into_array())
@@ -72,6 +72,7 @@ mod test {
     use vortex_error::VortexError;
 
     use crate::arrays::PrimitiveArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
     use crate::validity::Validity;
     use crate::IntoArray;
@@ -83,42 +84,42 @@ mod test {
         // cast from u32 to u8
         let p = try_cast(&arr, PType::U8.into())
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::NonNullable);
+        assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::AllValid);
+        assert_eq!(p.validity(), &Validity::AllValid);
 
         // back to non-nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::NonNullable);
+        assert_eq!(p.validity(), &Validity::NonNullable);
 
         // to nullable u32
         let p = try_cast(&p, &DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
-        assert_eq!(p.validity(), Validity::AllValid);
+        assert_eq!(p.validity(), &Validity::AllValid);
 
         // to non-nullable u8
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
-        assert_eq!(p.validity(), Validity::NonNullable);
+        assert_eq!(p.validity(), &Validity::NonNullable);
     }
 
     #[test]
@@ -126,7 +127,7 @@ mod test {
         let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = try_cast(&arr, PType::F32.into())
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }
@@ -143,7 +144,7 @@ mod test {
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
-        let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]).into_array();
+        let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
         let err = try_cast(&arr, PType::I32.into()).unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()

@@ -13,7 +13,7 @@ use vortex_scalar::ScalarValue;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl StatisticsVTable<RunEndArray> for RunEndEncoding {
+impl StatisticsVTable<'_, RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
             Stat::Min | Stat::Max => array.values().compute_stat(stat),
@@ -44,7 +44,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 impl RunEndArray {
     fn true_count(&self) -> VortexResult<u64> {
         let ends = self.ends().into_primitive()?;
-        let values = self.values().into_bool()?.boolean_buffer();
+        let values = self.values().to_bool()?.boolean_buffer();
 
         match_each_unsigned_integer_ptype!(ends.ptype(), |$P| self.typed_true_count(ends.as_slice::<$P>(), values))
     }

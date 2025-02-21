@@ -24,6 +24,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::{BoolArray, ChunkedArray};
     use crate::compute::fill_null;
     use crate::validity::Validity;
@@ -33,16 +34,14 @@ mod tests {
     fn fill_null_chunks() {
         let chunked = ChunkedArray::try_new(
             vec![
-                BoolArray::try_new(BooleanBuffer::new_set(5), Validity::AllInvalid)
-                    .unwrap()
-                    .into_array(),
-                BoolArray::new(BooleanBuffer::new_set(5), Nullability::Nullable).into_array(),
+                BoolArray::new(BooleanBuffer::new_set(5), Validity::AllInvalid).to_array(),
+                BoolArray::new(BooleanBuffer::new_set(5), Validity::AllValid).to_array(),
             ],
             DType::Bool(Nullability::Nullable),
         )
         .unwrap();
 
-        let filled = fill_null(chunked, false.into()).unwrap();
+        let filled = fill_null(&chunked, false.into()).unwrap();
         assert_eq!(*filled.dtype(), DType::Bool(Nullability::NonNullable));
     }
 }

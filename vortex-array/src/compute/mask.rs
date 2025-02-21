@@ -130,11 +130,11 @@ pub mod test_harness {
     use crate::compute::{mask, scalar_at};
     use crate::{Array, ArrayRef, IntoArray};
 
-    pub fn test_mask(array: ArrayRef) {
+    pub fn test_mask(array: &dyn Array) {
         assert_eq!(array.len(), 5);
-        test_heterogenous_mask(&array);
-        test_empty_mask(&array);
-        test_full_mask(&array);
+        test_heterogenous_mask(array);
+        test_empty_mask(array);
+        test_full_mask(array);
     }
 
     #[allow(clippy::unwrap_used)]
@@ -222,7 +222,7 @@ mod test {
 
     #[test]
     fn test_mask_non_nullable_array() {
-        let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
-        test_mask(non_nullable_array);
+        let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
+        test_mask(&non_nullable_array);
     }
 }

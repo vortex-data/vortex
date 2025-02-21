@@ -12,7 +12,7 @@ use vortex_array::vtable::{
     CanonicalVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
 };
 use vortex_array::{
-    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, ToCanonical, SerdeMetadata,
+    encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, SerdeMetadata, ToCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -201,7 +201,7 @@ impl ValidityVTable<RunEndArray> for RunEndEncoding {
                 )
                 .vortex_expect("invalid array")
                 .into_array();
-                Mask::from_buffer(ree_validity.into_bool()?.boolean_buffer())
+                Mask::from_buffer(ree_validity.to_bool()?.boolean_buffer())
             }
         })
     }
@@ -212,7 +212,7 @@ impl CanonicalVTable<RunEndArray> for RunEndEncoding {
         let pends = array.ends().into_primitive()?;
         match array.dtype() {
             DType::Bool(_) => {
-                let bools = array.values().into_bool()?;
+                let bools = array.values().to_bool()?;
                 runend_decode_bools(pends, bools, array.offset(), array.len()).map(Canonical::Bool)
             }
             DType::Primitive(..) => {

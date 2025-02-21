@@ -123,7 +123,7 @@ mod tests {
             not_expr
                 .evaluate(bools.as_ref())
                 .unwrap()
-                .into_bool()
+                .to_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()

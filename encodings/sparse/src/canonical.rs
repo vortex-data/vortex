@@ -106,7 +106,7 @@ mod test {
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(sparse_bools.dtype(), &DType::Bool(Nullability::Nullable));
 
-        let flat_bools = sparse_bools.into_bool().unwrap();
+        let flat_bools = sparse_bools.to_bool().unwrap();
         let expected = bool_array_from_nullable_vec(
             vec![
                 Some(true),

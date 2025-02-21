@@ -168,12 +168,11 @@ mod test {
             Validity::Array(
                 BoolArray::new(
                     BooleanBuffer::collect_bool(3, |idx| idx != 0),
-                    Nullability::NonNullable,
+                    Validity::NonNullable,
                 )
                 .into_array(),
             ),
-        )
-        .into_array();
+        );
 
         assert_eq!(
             search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),
@@ -195,7 +194,7 @@ mod test {
 
     #[test]
     fn search_sorted_all_nulls() {
-        let values = PrimitiveArray::new(buffer![1u16, 2, 3], Validity::AllInvalid).into_array();
+        let values = PrimitiveArray::new(buffer![1u16, 2, 3], Validity::AllInvalid);
 
         assert_eq!(
             search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),

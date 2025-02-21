@@ -7,7 +7,7 @@ use crate::{Array, ArrayRef, IntoArray};
 
 impl MaskFn<&BoolArray> for BoolEncoding {
     fn mask(&self, array: &BoolArray, mask: Mask) -> VortexResult<ArrayRef> {
-        Ok(BoolArray::new_with_validity(
+        Ok(BoolArray::new(
             array.boolean_buffer().clone(),
             array.validity().mask(&mask)?,
         )

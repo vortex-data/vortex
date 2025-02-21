@@ -181,7 +181,7 @@ mod test {
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.
-        let sliced = slice(array.as_ref(), 922, 2061).unwrap();
+        let sliced = slice(&array, 922, 2061).unwrap();
 
         // Take one element from each chunk.
         // Chunk 1: physical indices  922-1023, logical indices    0-101

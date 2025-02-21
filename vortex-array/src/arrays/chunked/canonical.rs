@@ -164,7 +164,7 @@ fn pack_lists(chunks: &[ArrayRef], validity: Validity, dtype: &DType) -> VortexR
         );
     }
     let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
-    let offsets = PrimitiveArray::new(offsets.freeze(), Nullability::NonNullable);
+    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
 
     ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
@@ -208,9 +208,9 @@ fn pack_bools(chunks: &[ArrayRef], validity: Validity) -> VortexResult<BoolArray
     let mut buffer = BooleanBufferBuilder::new(len);
     for chunk in chunks {
         let chunk = chunk.to_bool()?;
-        buffer.append_buffer(&chunk.boolean_buffer());
+        buffer.append_buffer(chunk.boolean_buffer());
     }
-    Ok(BoolArray::new_with_validity(buffer.finish(), validity))
+    Ok(BoolArray::new(buffer.finish(), validity))
 }
 
 /// Builds a new [PrimitiveArray] by repacking the values from the chunks into a single
@@ -228,7 +228,7 @@ fn pack_primitives<T: NativePType>(
         let chunk = chunk.to_primitive()?;
         buffer.extend_from_slice(chunk.as_slice::<T>());
     }
-    Ok(PrimitiveArray::new_with_validity(buffer.freeze(), validity))
+    Ok(PrimitiveArray::new(buffer.freeze(), validity))
 }
 
 /// Builds a new [VarBinViewArray] by repacking the values from the chunks into a single
@@ -270,6 +270,7 @@ mod tests {
     use vortex_dtype::PType::I32;
 
     use crate::accessor::ArrayAccessor;
+    use crate::array::Array;
     use crate::arrays::chunked::canonical::pack_views;
     use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
     use crate::compute::{scalar_at, slice};
@@ -283,8 +284,8 @@ mod tests {
 
     #[test]
     pub fn pack_sliced_varbin() {
-        let array1 = slice(stringview_array().as_ref(), 1, 3).unwrap();
-        let array2 = slice(stringview_array().as_ref(), 2, 4).unwrap();
+        let array1 = slice(&stringview_array(), 1, 3).unwrap();
+        let array2 = slice(&stringview_array(), 2, 4).unwrap();
         let packed = pack_views(
             &[array1, array2],
             &DType::Utf8(NonNullable),
@@ -314,7 +315,7 @@ mod tests {
         let dtype = struct_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
-                ChunkedArray::try_new(vec![struct_array.to_array().into_array()], dtype.clone())
+                ChunkedArray::try_new(vec![struct_array.clone().to_array()], dtype.clone())
                     .unwrap()
                     .into_array(),
             ],
@@ -322,16 +323,16 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        let canonical_struct = chunked.into_struct().unwrap();
+        let canonical_struct = chunked.to_struct().unwrap();
         let canonical_varbin = canonical_struct
             .maybe_null_field_by_idx(0)
             .unwrap()
-            .into_varbinview()
+            .to_varbinview()
             .unwrap();
         let original_varbin = struct_array
             .maybe_null_field_by_idx(0)
             .unwrap()
-            .into_varbinview()
+            .to_varbinview()
             .unwrap();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
@@ -363,15 +364,15 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().into_list().unwrap();
+        let canon_values = chunked_list.unwrap().to_list().unwrap();
 
         assert_eq!(
-            scalar_at(l1, 0).unwrap(),
-            scalar_at(canon_values.clone(), 0).unwrap()
+            scalar_at(&l1, 0).unwrap(),
+            scalar_at(&canon_values, 0).unwrap()
         );
         assert_eq!(
-            scalar_at(l2, 0).unwrap(),
-            scalar_at(canon_values, 1).unwrap()
+            scalar_at(&l2, 0).unwrap(),
+            scalar_at(&canon_values, 1).unwrap()
         );
     }
 }

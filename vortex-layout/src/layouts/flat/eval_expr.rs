@@ -104,7 +104,7 @@ mod test {
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
                 .unwrap()
-                .into_bool()
+                .to_bool()
                 .unwrap();
 
             assert_eq!(

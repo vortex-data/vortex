@@ -293,55 +293,51 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::try_new(
+        let arr = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
-        )
-        .unwrap()
-        .into_array();
+        );
 
         let matches = compare(&arr, &arr, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
 
         assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
 
         let matches = compare(&arr, &arr, Operator::NotEq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
 
-        let other = BoolArray::try_new(
+        let other = BoolArray::new(
             BooleanBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
-        )
-        .unwrap()
-        .into_array();
+        );
 
         let matches = compare(&arr, &other, Operator::Lte)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&arr, &other, Operator::Lt)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
 
         let matches = compare(&other, &arr, Operator::Gte)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
         let matches = compare(&other, &arr, Operator::Gt)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
     }
@@ -351,7 +347,7 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(left.clone(), right.clone(), Operator::Gt).unwrap();
+        let compare = compare(&left, &right, Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);

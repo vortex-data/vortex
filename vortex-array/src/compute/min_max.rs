@@ -107,13 +107,13 @@ mod tests {
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{min_max, MinMaxResult};
-    use crate::validity::Validity::NonNullable;
+    use crate::validity::Validity;
 
     #[test]
     fn test_prim_max() {
-        let p = PrimitiveArray::new(buffer![1, 2, 3], NonNullable);
+        let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable);
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -125,10 +125,10 @@ mod tests {
     fn test_bool_max() {
         let p = BoolArray::new(
             BooleanBuffer::from([true, true, true].as_slice()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -137,10 +137,10 @@ mod tests {
 
         let p = BoolArray::new(
             BooleanBuffer::from([false, false, false].as_slice()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -149,10 +149,10 @@ mod tests {
 
         let p = BoolArray::new(
             BooleanBuffer::from([false, true, false].as_slice()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -163,6 +163,6 @@ mod tests {
     #[test]
     fn test_null() {
         let p = NullArray::new(1);
-        assert_eq!(min_max(p).unwrap(), None);
+        assert_eq!(min_max(&p).unwrap(), None);
     }
 }

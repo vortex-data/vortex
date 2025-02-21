@@ -27,7 +27,7 @@ fn varbinview(bencher: Bencher) {
     let indices = indices(1024);
 
     bencher
-        .with_inputs(|| (array.as_ref(), &indices))
+        .with_inputs(|| (&array, &indices))
         .bench_refs(|(array, indices)| take(array, indices).unwrap());
 }
 

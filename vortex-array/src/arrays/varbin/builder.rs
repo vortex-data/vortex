@@ -86,7 +86,7 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     pub fn finish(mut self, dtype: DType) -> VarBinArray {
-        let offsets = PrimitiveArray::new(self.offsets.freeze(), Nullability::NonNullable);
+        let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
         let nulls = self.validity.finish();
 
         let validity = if dtype.is_nullable() {
@@ -107,6 +107,7 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::compute::scalar_at;
     use crate::IntoArray;
@@ -117,7 +118,7 @@ mod test {
         builder.append(Some(b"hello"));
         builder.append(None);
         builder.append(Some(b"world"));
-        let array = builder.finish(DType::Utf8(Nullable)).into_array();
+        let array = builder.finish(DType::Utf8(Nullable));
 
         assert_eq!(array.len(), 3);
         assert_eq!(array.dtype().nullability(), Nullable);

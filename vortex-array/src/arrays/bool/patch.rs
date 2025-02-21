@@ -30,7 +30,7 @@ impl BoolArray {
             }
         });
 
-        Ok(Self::new_with_validity(
+        Ok(Self::new(
             own_values.finish().slice(bit_offset, len),
             patched_validity,
         ))
@@ -48,8 +48,8 @@ mod tests {
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BooleanBuffer::new_set(12));
-        let sliced = slice(arr, 4, 12).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let sliced = slice(&arr, 4, 12).unwrap();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), 12);
         assert_eq!(values.as_slice(), &[255, 15]);
@@ -58,8 +58,8 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let sliced = slice(arr, 4, 15).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let sliced = slice(&arr, 4, 15).unwrap();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[255, 127]);
     }
@@ -67,8 +67,8 @@ mod tests {
     #[test]
     fn patch_sliced_bools_even() {
         let arr = BoolArray::from(BooleanBuffer::new_set(31));
-        let sliced = slice(arr, 8, 24).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let sliced = slice(&arr, 8, 24).unwrap();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.len(), 16);
         assert_eq!(values.as_slice(), &[255, 255]);

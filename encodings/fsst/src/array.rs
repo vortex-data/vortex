@@ -194,7 +194,7 @@ impl VisitorVTable<FSSTArray> for FSSTEncoding {
     }
 }
 
-impl StatisticsVTable<FSSTArray> for FSSTEncoding {}
+impl StatisticsVTable<'_, FSSTArray> for FSSTEncoding {}
 
 impl ValidityVTable<FSSTArray> for FSSTEncoding {
     fn is_valid(&self, array: &FSSTArray, index: usize) -> VortexResult<bool> {

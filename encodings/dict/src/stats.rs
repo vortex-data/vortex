@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};
 
-impl StatisticsVTable<DictArray> for DictEncoding {
+impl StatisticsVTable<'_, DictArray> for DictEncoding {
     fn compute_statistics(&self, array: &DictArray, stat: Stat) -> VortexResult<StatsSet> {
         let mut stats = StatsSet::default();
 

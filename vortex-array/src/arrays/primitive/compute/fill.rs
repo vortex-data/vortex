@@ -46,7 +46,7 @@ impl FillForwardFn<&PrimitiveArray> for PrimitiveEncoding {
                                 last_value
                             })
                     );
-                    Ok(PrimitiveArray::new(filled, Nullability::Nullable).into_array())
+                    Ok(PrimitiveArray::new(filled, Validity::AllValid).into_array())
                 })
             }
         }
@@ -57,27 +57,27 @@ impl FillForwardFn<&PrimitiveArray> for PrimitiveEncoding {
 mod test {
     use vortex_buffer::buffer;
 
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::BoolArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::fill_forward;
     use crate::validity::Validity;
     use crate::IntoArray;
 
     #[test]
     fn leading_none() {
-        let arr =
-            PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]).into_array();
-        let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
+        let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
+        let p = fill_forward(&arr).unwrap().to_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0, 8, 8, 10, 10]);
         assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
     fn all_none() {
-        let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None])
-            .into_array();
+        let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
-        let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
+        let p = fill_forward(&arr).unwrap().to_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0, 0, 0, 0, 0]);
         assert!(p.validity_mask().unwrap().all_true());
     }
@@ -87,9 +87,8 @@ mod test {
         let arr = PrimitiveArray::new(
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
-        )
-        .into_array();
-        let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
+        );
+        let p = fill_forward(&arr).unwrap().to_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![8u8, 10, 12, 14, 16]);
         assert!(p.validity_mask().unwrap().all_true());
     }

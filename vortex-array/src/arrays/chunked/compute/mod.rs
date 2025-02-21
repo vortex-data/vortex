@@ -88,7 +88,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::try_cast;
     use crate::IntoArray;
 
@@ -118,7 +120,7 @@ mod test {
                 &DType::Primitive(PType::U64, Nullability::NonNullable)
             )
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<u64>(),
             &[0u64, 1, 2, 3],

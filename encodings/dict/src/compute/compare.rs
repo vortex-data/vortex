@@ -22,7 +22,7 @@ impl CompareFn<&DictArray> for DictEncoding {
                 operator,
             )?;
 
-            let bool = compare_result.into_bool()?;
+            let bool = compare_result.to_bool()?;
             let bool_buffer = bool.boolean_buffer();
             let mut indices_iter = bool_buffer.set_indices();
 
@@ -79,7 +79,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.into_bool().unwrap();
+        let res = res.to_bool().unwrap();
         assert_eq!(res.len(), 3);
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),

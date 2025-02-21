@@ -189,13 +189,11 @@ mod test {
         let items =
             PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
-        let mask =
-            Mask::try_from(BoolArray::from_iter([true, false, true, false, true]).into_array())
-                .unwrap();
+        let mask = Mask::try_from(&BoolArray::from_iter([true, false, true, false, true])).unwrap();
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
-            filtered.into_primitive().unwrap().as_slice::<i32>(),
+            filtered.to_primitive().unwrap().as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

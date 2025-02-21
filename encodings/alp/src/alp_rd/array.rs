@@ -263,7 +263,7 @@ impl VisitorVTable<ALPRDArray> for ALPRDEncoding {
     }
 }
 
-impl StatisticsVTable<ALPRDArray> for ALPRDEncoding {}
+impl StatisticsVTable<'_, ALPRDArray> for ALPRDEncoding {}
 
 impl ValidateVTable<ALPRDArray> for ALPRDEncoding {}
 

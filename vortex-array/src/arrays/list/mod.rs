@@ -210,7 +210,7 @@ impl ArrayValidityImpl for ListArray {
     }
 }
 
-impl StatisticsVTable<ListArray> for ListEncoding {}
+impl StatisticsVTable<'_, ListArray> for ListEncoding {}
 
 #[cfg(feature = "test-harness")]
 impl ListArray {
@@ -279,6 +279,7 @@ mod test {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::list::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::{filter, scalar_at};

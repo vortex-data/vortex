@@ -22,6 +22,7 @@ impl MaskFn<&VarBinArray> for VarBinEncoding {
 mod test {
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::VarBinArray;
     use crate::compute::test_harness::test_mask;
     use crate::IntoArray as _;
@@ -31,15 +32,13 @@ mod test {
         let array = VarBinArray::from_vec(
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
-        )
-        .into_array();
-        test_mask(array);
+        );
+        test_mask(&array);
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
-        )
-        .into_array();
-        test_mask(array);
+        );
+        test_mask(&array);
     }
 }

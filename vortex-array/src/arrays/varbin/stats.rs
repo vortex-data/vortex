@@ -12,7 +12,7 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::{Array, ArrayRef};
 
-impl StatisticsVTable<VarBinArray> for VarBinEncoding {
+impl StatisticsVTable<'_, VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
         compute_varbin_statistics(array, stat)
     }
@@ -53,7 +53,7 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             let is_constant = array.with_iterator(compute_is_constant)?;
             if is_constant {
                 // we know that the array is not empty
-                StatsSet::constant(scalar_at(array.deref(), 0)?, array.len())
+                StatsSet::constant(scalar_at(array, 0)?, array.len())
             } else {
                 StatsSet::of(Stat::IsConstant, Precision::exact(is_constant))
             }
@@ -111,6 +111,7 @@ mod test {
     use vortex_buffer::{BufferString, ByteBuffer};
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::varbin::VarBinArray;
 
     fn array(dtype: DType) -> VarBinArray {

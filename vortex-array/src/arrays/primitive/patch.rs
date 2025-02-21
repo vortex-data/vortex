@@ -46,7 +46,7 @@ impl PrimitiveArray {
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_usize() - patch_indices_offset] = *value;
         }
-        Ok(Self::new_with_validity(own_values, patched_validity))
+        Ok(Self::new(own_values, patched_validity))
     }
 }
 
@@ -62,10 +62,7 @@ mod tests {
     #[test]
     fn patch_sliced() {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
-        let sliced = slice(input, 2, 8).unwrap();
-        assert_eq!(
-            sliced.into_primitive().unwrap().as_slice::<u32>(),
-            &[2u32; 6]
-        );
+        let sliced = slice(&input, 2, 8).unwrap();
+        assert_eq!(sliced.to_primitive().unwrap().as_slice::<u32>(), &[2u32; 6]);
     }
 }

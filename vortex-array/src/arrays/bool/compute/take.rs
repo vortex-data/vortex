@@ -30,7 +30,7 @@ impl TakeFn<&BoolArray> for BoolEncoding {
             take_valid_indices::<$I>(array, &indices_nulls_zeroed)
         });
 
-        Ok(BoolArray::new_with_validity(buffer, array.validity().take(indices)?).into_array())
+        Ok(BoolArray::new(buffer, array.validity().take(indices)?).into_array())
     }
 
     unsafe fn take_unchecked(
@@ -56,7 +56,7 @@ impl TakeFn<&BoolArray> for BoolEncoding {
 
         // SAFETY: caller enforces indices are valid for array, and array has same len as validity.
         let validity = unsafe { array.validity().take_unchecked(indices)? };
-        Ok(BoolArray::new_with_validity(buffer, validity).into_array())
+        Ok(BoolArray::new(buffer, validity).into_array())
     }
 
     fn take_into(
@@ -79,7 +79,7 @@ fn take_valid_indices<I: AsPrimitive<usize> + NativePType>(
         let bools = array.boolean_buffer().into_iter().collect_vec();
         take_byte_bool(bools, indices.as_slice::<I>())
     } else {
-        take_bool(&array.boolean_buffer(), indices.as_slice::<I>())
+        take_bool(array.boolean_buffer(), indices.as_slice::<I>())
     }
 }
 
@@ -93,7 +93,7 @@ fn take_valid_indices_unchecked<I: AsPrimitive<usize> + NativePType>(
         let bools = array.boolean_buffer().into_iter().collect_vec();
         take_byte_bool_unchecked(bools, indices.as_slice::<I>())
     } else {
-        take_bool_unchecked(&array.boolean_buffer(), indices.as_slice::<I>())
+        take_bool_unchecked(array.boolean_buffer(), indices.as_slice::<I>())
     }
 }
 
@@ -139,7 +139,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::compute::{scalar_at, take};
     use crate::validity::Validity;
-    use crate::IntoArray as _;
+    use crate::{Array, IntoArray as _, ToCanonical};
 
     #[test]
     fn take_nullable() {
@@ -151,9 +151,10 @@ mod test {
             Some(false),
         ]);
 
-        let b =
-            BoolArray::try_from(take(&reference, PrimitiveArray::from_iter([0, 3, 4])).unwrap())
-                .unwrap();
+        let b = take(&reference, &PrimitiveArray::from_iter([0, 3, 4]))
+            .unwrap()
+            .to_bool()
+            .unwrap();
         assert_eq!(
             b.boolean_buffer(),
             BoolArray::from_iter([Some(false), None, Some(false)]).boolean_buffer()
@@ -161,7 +162,7 @@ mod test {
 
         let nullable_bool_dtype = DType::Bool(Nullability::Nullable);
         let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);
-        let b = take(&reference, all_invalid_indices).unwrap();
+        let b = take(&reference, &all_invalid_indices).unwrap();
         assert_eq!(b.dtype(), &nullable_bool_dtype);
         assert_eq!(
             scalar_at(&b, 0).unwrap(),
@@ -179,9 +180,9 @@ mod test {
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+            Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
         );
-        let actual = take(values, indices).unwrap();
+        let actual = take(&values, &indices).unwrap();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(false)));
         // position 3 is null
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<bool>());
@@ -194,9 +195,9 @@ mod test {
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+            Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
         );
-        let actual = take(values, indices).unwrap();
+        let actual = take(&values, &indices).unwrap();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(false)));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(true)));
         // the third index is null
@@ -208,9 +209,9 @@ mod test {
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
+            Validity::Array(BoolArray::from_iter([false, false, false]).to_array()),
         );
-        let actual = take(values, indices).unwrap();
+        let actual = take(&values, &indices).unwrap();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<bool>());
@@ -221,9 +222,9 @@ mod test {
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
-            Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
+            Validity::Array(BoolArray::from_iter([false, false, false]).to_array()),
         );
-        let actual = take(values, indices).unwrap();
+        let actual = take(&values, &indices).unwrap();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(scalar_at(&actual, 2).unwrap(), Scalar::null_typed::<bool>());

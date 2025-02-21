@@ -310,7 +310,7 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
     }
 }
 
-impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
+impl StatisticsVTable<'_, BitPackedArray> for BitPackedEncoding {}
 
 impl ValidateVTable<BitPackedArray> for BitPackedEncoding {}
 

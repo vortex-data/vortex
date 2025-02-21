@@ -139,15 +139,16 @@ mod tests {
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
+    use crate::Array;
 
     #[test]
     fn test_slice_primitive() {
         let c = PrimitiveArray::from_iter(0i32..100);
         c.compute_all(STATS_TO_WRITE).unwrap();
 
-        let c2 = slice(c, 10, 20).unwrap();
+        let c2 = slice(&c, 10, 20).unwrap();
 
-        let result_stats = c2.stats_set();
+        let result_stats = c2.statistics().stats_set();
         assert_eq!(
             result_stats.get_as::<i32>(Stat::Max),
             Some(Precision::inexact(99))
@@ -163,8 +164,8 @@ mod tests {
         let c = ConstantArray::new(Scalar::from(10), 100);
         c.compute_all(STATS_TO_WRITE).unwrap();
 
-        let c2 = slice(c, 10, 20).unwrap();
-        let result_stats = c2.stats_set();
+        let c2 = slice(&c, 10, 20).unwrap();
+        let result_stats = c2.statistics().stats_set();
 
         // Constant always knows its exact stats
         assert_eq!(

@@ -74,7 +74,7 @@ impl CastFn<&StructArray> for StructEncoding {
             target_sdtype.names().clone(),
             array
                 .fields()
-                .into_iter()
+                .iter()
                 .zip_eq(target_sdtype.fields())
                 .map(|(field, dtype)| try_cast(field, &dtype))
                 .try_collect()?,
@@ -183,7 +183,7 @@ mod tests {
     use crate::compute::test_harness::test_mask;
     use crate::compute::{filter, try_cast};
     use crate::validity::Validity;
-    use crate::IntoArray as _;
+    use crate::{Array, IntoArray as _};
 
     #[test]
     fn filter_empty_struct() {
@@ -192,7 +192,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter(mask)).unwrap();
+        let filtered = filter(&struct_arr, &Mask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -200,17 +200,13 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter::<[bool; 0]>([])).unwrap();
+        let filtered = filter(&struct_arr, &Mask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 
     #[test]
     fn test_mask_empty_struct() {
-        test_mask(
-            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
-                .unwrap()
-                .into_array(),
-        );
+        test_mask(&StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable).unwrap());
     }
 
     #[test]
@@ -225,7 +221,7 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
         test_mask(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     StructArray::try_new(
@@ -242,8 +238,7 @@ mod tests {
                 5,
                 Validity::NonNullable,
             )
-            .unwrap()
-            .into_array(),
+            .unwrap(),
         );
     }
 
@@ -279,13 +274,12 @@ mod tests {
             1,
             Validity::NonNullable,
         )
-        .unwrap()
-        .into_array();
+        .unwrap();
 
         let tu8 = DType::Primitive(PType::U8, Nullability::NonNullable);
 
         let result = try_cast(
-            array,
+            &array,
             &DType::Struct(
                 Arc::from(StructDType::new(
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
@@ -306,31 +300,28 @@ mod tests {
 
     #[test]
     fn test_cast_complex_struct() {
-        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)])
-            .into_array();
+        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::Nullable),
-        )
-        .into_array();
+        );
         let zs = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, false, true]),
-            Nullability::Nullable,
-        )
-        .into_array();
+            Validity::AllValid,
+        );
         let fully_nullable_array = StructArray::try_new(
             ["xs".into(), "ys".into(), "zs".into()].into(),
             vec![
                 StructArray::try_new(
                     ["left".into(), "right".into()].into(),
-                    vec![xs.clone(), xs],
+                    vec![xs.to_array(), xs.to_array()],
                     5,
                     Validity::AllValid,
                 )
                 .unwrap()
                 .into_array(),
-                ys,
-                zs,
+                ys.into_array(),
+                zs.into_array(),
             ],
             5,
             Validity::AllValid,

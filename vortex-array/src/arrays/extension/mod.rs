@@ -121,7 +121,7 @@ impl ArrayVisitorImpl for ExtensionArray {
 }
 
 // TODO(ngates): forward?
-impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {}
+impl StatisticsVTable<'_, ExtensionArray> for ExtensionEncoding {}
 
 #[cfg(test)]
 mod tests {

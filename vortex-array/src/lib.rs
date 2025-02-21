@@ -1,6 +1,7 @@
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
 #![feature(substr_range)]
+#![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).

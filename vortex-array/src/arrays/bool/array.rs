@@ -26,19 +26,9 @@ pub struct BoolArray {
 }
 
 impl BoolArray {
-    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Nullability`].
-    pub fn new(buffer: BooleanBuffer, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Bool(nullability),
-            buffer,
-            validity: nullability.into(),
-            stats_set: Arc::new(RwLock::new(StatsSet::default())),
-        }
-    }
-
     /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
     /// any invariants.
-    pub fn new_with_validity(buffer: BooleanBuffer, validity: Validity) -> Self {
+    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
                 vortex_panic!(

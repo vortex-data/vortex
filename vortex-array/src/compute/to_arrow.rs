@@ -115,6 +115,7 @@ mod tests {
     use arrow_array::{ArrayRef, PrimitiveArray, StringViewArray, StructArray};
     use arrow_buffer::NullBuffer;
 
+    use crate::array::Array;
     use crate::arrow::infer_data_type;
     use crate::compute::to_arrow;
     use crate::{arrays, IntoArray};

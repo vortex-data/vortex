@@ -165,7 +165,7 @@ impl VisitorVTable<ALPArray> for ALPEncoding {
     }
 }
 
-impl StatisticsVTable<ALPArray> for ALPEncoding {}
+impl StatisticsVTable<'_, ALPArray> for ALPEncoding {}
 
 #[cfg(test)]
 mod tests {

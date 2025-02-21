@@ -50,7 +50,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     };
     if mask.density() >= full_decompression_threshold {
         let decompressed_array = array.to_primitive()?;
-        filter(decompressed_array.as_ref(), mask)?.into_primitive()
+        filter(decompressed_ & array, mask)?.into_primitive()
     } else {
         filter_primitive_no_decompression::<T>(array, mask)
     }

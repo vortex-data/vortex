@@ -8,9 +8,6 @@ use crate::{Array, ArrayRef, IntoArray};
 
 impl InvertFn<&BoolArray> for BoolEncoding {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {
-        Ok(
-            BoolArray::new_with_validity(array.boolean_buffer().not(), array.validity().clone())
-                .into_array(),
-        )
+        Ok(BoolArray::new(array.boolean_buffer().not(), array.validity().clone()).into_array())
     }
 }

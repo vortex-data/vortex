@@ -2,6 +2,7 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 
+use crate::array::Array;
 use crate::arrays::{PrimitiveArray, TemporalArray};
 use crate::validity::Validity;
 use crate::{IntoArray, ToCanonical};
@@ -10,7 +11,7 @@ macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
         let array = buffer![100 as $prim].into_array();
         let temporal: TemporalArray = $constructor(array, $unit);
-        let prims = temporal.temporal_values().into_primitive().unwrap();
+        let prims = temporal.temporal_values().to_primitive().unwrap();
 
         assert_eq!(prims.as_slice::<$prim>(), vec![100 as $prim].as_slice(),);
         assert_eq!(temporal.temporal_metadata().time_unit(), $unit);
@@ -123,7 +124,7 @@ fn test_timestamp() {
             let temporal_array =
                 TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
 
-            let values = temporal_array.temporal_values().into_primitive().unwrap();
+            let values = temporal_array.temporal_values().to_primitive().unwrap();
             assert_eq!(values.as_slice::<i64>(), vec![100i64].as_slice());
             assert_eq!(
                 temporal_array.temporal_metadata(),
@@ -162,9 +163,9 @@ fn test_validity_preservation(#[case] validity: Validity) {
     assert_eq!(
         temporal_array
             .temporal_values()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .validity(),
-        validity
+        &validity
     );
 }

@@ -35,23 +35,23 @@ mod tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::BoolArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::IntoArrayVariant;
 
     #[rstest]
     #[case(true, vec![true, true, false, true])]
     #[case(false, vec![true, false, false, false])]
     fn bool_fill_null(#[case] fill_value: bool, #[case] expected: Vec<bool>) {
-        let bool_array = BoolArray::try_new(
+        let bool_array = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
-        )
-        .unwrap();
-        let non_null_array = fill_null(bool_array, fill_value.into())
+        );
+        let non_null_array = fill_null(&bool_array, fill_value.into())
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),

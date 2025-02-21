@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(
             vec![true, false, false],
             result
-                .into_bool()
+                .to_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()
@@ -167,7 +167,7 @@ mod tests {
         assert_eq!(
             vec![true, false],
             result
-                .into_bool()
+                .to_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()

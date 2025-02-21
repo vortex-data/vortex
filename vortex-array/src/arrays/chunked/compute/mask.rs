@@ -121,6 +121,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::IntoArray;
@@ -132,14 +133,13 @@ mod test {
             vec![
                 buffer![0u64, 1].into_array(),
                 buffer![2_u64].into_array(),
-                PrimitiveArray::empty::<u64>(dtype.nullability()).into_array(),
+                PrimitiveArray::empty::<u64>(dtype.nullability()).to_array(),
                 buffer![3_u64, 4].into_array(),
             ],
             dtype,
         )
-        .unwrap()
-        .into_array();
+        .unwrap();
 
-        test_mask(chunked);
+        test_mask(&chunked);
     }
 }

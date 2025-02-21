@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
+impl StatisticsVTable<'_, ByteBoolArray> for ByteBoolEncoding {
     fn compute_statistics(&self, array: &ByteBoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());

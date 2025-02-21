@@ -224,7 +224,7 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        Array as ArrowArray, ArrayRef, ListArray as ArrowListArray,
+        Array as ArrowArray, ArrayRef as ArrowArrayRef, ListArray as ArrowListArray,
         PrimitiveArray as ArrowPrimitiveArray, StringArray, StringViewArray,
         StructArray as ArrowStructArray,
     };
@@ -232,6 +232,7 @@ mod test {
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
+    use crate::array::Array;
     use crate::arrays::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
     use crate::{ArrayRef, IntoArray};
@@ -354,7 +355,7 @@ mod test {
         let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 
         assert_eq!(
-            (Arc::new(arrow_list.clone()) as ArrayRef).as_ref(),
+            (Arc::new(arrow_list.clone()) as ArrowArrayRef).as_ref(),
             rt_arrow_list.as_ref()
         );
     }

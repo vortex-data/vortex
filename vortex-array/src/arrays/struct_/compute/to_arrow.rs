@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn nullable_non_null_to_arrow() {
-        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Nullability::Nullable);
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs".into()]),

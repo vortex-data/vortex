@@ -131,7 +131,7 @@ mod tests {
         let inverted = invert(&sparse_bools).unwrap();
         assert_eq!(
             inverted
-                .into_bool()
+                .to_bool()
                 .unwrap()
                 .boolean_buffer()
                 .iter()

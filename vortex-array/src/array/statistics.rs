@@ -17,8 +17,7 @@ pub trait ArrayStatistics {
 impl<A: Array + 'static> ArrayStatistics for A {
     fn is_constant(&self) -> bool {
         let vtable = self.vtable();
-        if let Some(Precision::Exact(is_constant)) = self
-            .vtable()
+        if let Some(Precision::Exact(is_constant)) = vtable
             .compute_statistics(self, Stat::IsConstant)
             .ok()
             .and_then(|stats| stats.get_as::<bool>(Stat::IsConstant))
@@ -40,7 +39,7 @@ pub trait ArrayStatisticsImpl {
     fn stats_set(&self) -> &RwLock<StatsSet>;
 }
 
-impl<A: Array + ArrayImpl + ?Sized> Statistics for A {
+impl<A: Array + ArrayImpl> Statistics for A {
     fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
         self.stats_set()
             .read()

@@ -14,7 +14,7 @@ use crate::DeltaArray;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     // Fill forward nulls
-    let filled = fill_forward(array.as_ref())?.into_primitive()?;
+    let filled = fill_forward(&array)?.into_primitive()?;
 
     // Compress the filled array
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |$T| {

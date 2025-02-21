@@ -116,7 +116,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             }
         };
 
-        PrimitiveArray::new_with_validity(std::mem::take(&mut self.values).freeze(), validity)
+        PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
     }
 
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {

@@ -80,6 +80,7 @@ impl MinMaxFn<&ListArray> for ListEncoding {
 
 #[cfg(test)]
 mod test {
+    use crate::array::Array;
     use crate::arrays::{ListArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
@@ -90,10 +91,9 @@ mod test {
         let elements = PrimitiveArray::from_iter(0..35);
         let offsets = PrimitiveArray::from_iter([0, 5, 11, 18, 26, 35]);
         let validity = Validity::AllValid;
-        let array = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
-            .unwrap()
-            .into_array();
+        let array =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_mask(array);
+        test_mask(&array);
     }
 }

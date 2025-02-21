@@ -24,7 +24,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             ));
         }
-        Validity::Array(a) => Some(a.into_bool()?.boolean_buffer()),
+        Validity::Array(a) => Some(a.to_bool()?.boolean_buffer()),
     };
 
     Ok(match validity {

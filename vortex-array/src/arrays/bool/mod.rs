@@ -25,27 +25,27 @@ impl BoolArray {
             .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
         Self::new(
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         )
     }
 }
 
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {
-        Self::new(value, Nullability::NonNullable)
+        Self::new(value, Validity::NonNullable)
     }
 }
 
 impl FromIterator<bool> for BoolArray {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::new(BooleanBuffer::from_iter(iter), Nullability::NonNullable)
+        Self::new(BooleanBuffer::from_iter(iter), Validity::NonNullable)
     }
 }
 
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
-        Self::new_with_validity(
+        Self::new(
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
         )
@@ -58,6 +58,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
 
+    use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::compute::{scalar_at, slice};
@@ -67,7 +68,7 @@ mod tests {
 
     #[test]
     fn bool_array() {
-        let arr = BoolArray::from_iter([true, false, true]).into_array();
+        let arr = BoolArray::from_iter([true, false, true]);
         let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
         assert!(scalar);
     }
@@ -78,8 +79,6 @@ mod tests {
 
         assert!(matches!(arr.validity(), Validity::AllValid));
 
-        let arr = arr.into_array();
-
         let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
         assert!(scalar);
         let scalar = bool::try_from(&scalar_at(&arr, 1).unwrap()).unwrap();
@@ -88,8 +87,7 @@ mod tests {
 
     #[test]
     fn test_bool_from_iter() {
-        let arr =
-            BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]).into_array();
+        let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
         let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
         assert!(scalar);
@@ -115,7 +113,7 @@ mod tests {
             builder.append_n(11, true);
             BoolArray::from(builder.finish())
         };
-        let sliced = slice(arr.clone(), 4, 12).unwrap();
+        let sliced = slice(&arr, 4, 12).unwrap();
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
@@ -130,13 +128,13 @@ mod tests {
         );
         let arr = arr.patch(patches).unwrap();
         let arr_len = arr.len();
-        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
+        let (values, offset) = arr.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.len(), arr_len + offset);
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), sliced_len + offset);
         assert_eq!(values.as_slice(), &[254, 15]); // unchanged
@@ -145,9 +143,9 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
-        let sliced = slice(arr, 4, 12).unwrap();
+        let sliced = slice(&arr, 4, 12).unwrap();
         let sliced_len = sliced.len();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), sliced_len + offset);
         assert_eq!(values.as_slice(), &[255, 15]);
@@ -158,7 +156,7 @@ mod tests {
     fn patch_bools_owned() {
         let buffer = buffer![255u8; 2];
         let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
-        let arr = BoolArray::new(buf, Nullability::NonNullable);
+        let arr = BoolArray::new(buf, Validity::NonNullable);
         let buf_ptr = arr.boolean_buffer().sliced().as_ptr();
 
         let patches = Patches::new(
@@ -170,12 +168,12 @@ mod tests {
         let arr = arr.patch(patches).unwrap();
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
-        let (values, _byte_bit_offset) = arr.into_bool().unwrap().into_boolean_builder();
+        let (values, _byte_bit_offset) = arr.to_bool().unwrap().into_boolean_builder();
         assert_eq!(values.as_slice(), &[254, 127]);
     }
 
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(BoolArray::from_iter([true, false, true, true, false]).into_array());
+        test_mask(&BoolArray::from_iter([true, false, true, true, false]));
     }
 }

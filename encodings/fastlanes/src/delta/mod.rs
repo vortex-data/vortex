@@ -263,7 +263,7 @@ impl VisitorVTable<DeltaArray> for DeltaEncoding {
     }
 }
 
-impl StatisticsVTable<DeltaArray> for DeltaEncoding {}
+impl StatisticsVTable<'_, DeltaArray> for DeltaEncoding {}
 
 #[cfg(test)]
 mod test {

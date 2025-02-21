@@ -20,7 +20,7 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive(array.as_slice::<$T>(), indices.as_slice::<$I>());
-                Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
+                Ok(PrimitiveArray::new(values, validity).into_array())
             })
         })
     }
@@ -36,7 +36,7 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive_unchecked(array.as_slice::<$T>(), indices.as_slice::<$I>());
-                Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
+                Ok(PrimitiveArray::new(values, validity).into_array())
             })
         })
     }
@@ -108,9 +108,11 @@ mod test {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::primitive::compute::take::take_primitive;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::builders::{ArrayBuilder as _, PrimitiveBuilder};
+    use crate::canonical::ToCanonical;
     use crate::compute::{scalar_at, take, take_into};
     use crate::validity::Validity;
     use crate::IntoArray as _;
@@ -132,7 +134,7 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(values, indices).unwrap();
+        let actual = take(&values, &indices).unwrap();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
         // position 3 is null
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
@@ -148,7 +150,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, true]).into_array()),
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
-        take_into(&values, all_valid_indices, &mut builder).unwrap();
+        take_into(&values, &all_valid_indices, &mut builder).unwrap();
         let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
@@ -159,7 +161,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
-        take_into(&values, mixed_valid_indices, &mut builder).unwrap();
+        take_into(&values, &mixed_valid_indices, &mut builder).unwrap();
         let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(Some(1)));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(Some(4)));
@@ -171,7 +173,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
         );
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::Nullable);
-        take_into(&values, all_invalid_indices, &mut builder).unwrap();
+        take_into(&values, &all_invalid_indices, &mut builder).unwrap();
         let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::null_typed::<i32>());
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::null_typed::<i32>());
@@ -179,7 +181,7 @@ mod test {
 
         let non_null_indices = PrimitiveArray::new(buffer![0, 3, 4], Validity::NonNullable);
         let mut builder = PrimitiveBuilder::<i32>::new(Nullability::NonNullable);
-        take_into(&values, non_null_indices, &mut builder).unwrap();
+        take_into(&values, &non_null_indices, &mut builder).unwrap();
         let actual = builder.finish();
         assert_eq!(scalar_at(&actual, 0).unwrap(), Scalar::from(1));
         assert_eq!(scalar_at(&actual, 1).unwrap(), Scalar::from(4));

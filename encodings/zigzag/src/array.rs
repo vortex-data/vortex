@@ -94,7 +94,7 @@ impl VisitorVTable<ZigZagArray> for ZigZagEncoding {
     }
 }
 
-impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
+impl StatisticsVTable<'_, ZigZagArray> for ZigZagEncoding {
     fn compute_statistics(&self, array: &ZigZagArray, stat: Stat) -> VortexResult<StatsSet> {
         let mut stats = StatsSet::default();
 

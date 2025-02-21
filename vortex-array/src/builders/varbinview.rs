@@ -210,8 +210,10 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::accessor::ArrayAccessor;
+    use crate::array::{Array, ArrayExt};
     use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::ToCanonical;
 
     #[test]
     fn test_utf8_builder() {
@@ -226,9 +228,10 @@ mod tests {
         builder.append_zeros(2);
         builder.append_value("test");
 
-        let arr = VarBinViewArray::try_from(builder.finish()).unwrap();
+        let arr = builder.finish();
 
         let arr = arr
+            .as_::<VarBinViewArray>()
             .with_iterator(|iter| {
                 iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
                     .collect_vec()
@@ -261,11 +264,11 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_option(Some("Hello1"));
-        builder.extend_from_array(array).unwrap();
+        builder.extend_from_array(&array).unwrap();
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = VarBinViewArray::try_from(builder.finish()).unwrap();
+        let arr = builder.finish().to_varbinview().unwrap();
 
         let arr = arr
             .with_iterator(|iter| {

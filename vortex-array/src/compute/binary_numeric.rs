@@ -142,7 +142,7 @@ pub fn binary_numeric(
     );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
-    arrow_numeric(lhs.clone(), rhs.clone(), op)
+    arrow_numeric(lhs, rhs, op)
 }
 
 /// Implementation of `BinaryBooleanFn` using the Arrow crate.
@@ -293,8 +293,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::canonical::IntoCanonical;
+    use crate::canonical::ToCanonical;
     use crate::compute::{scalar_at, sub_scalar};
     use crate::IntoArray;
 
@@ -303,9 +304,7 @@ mod test {
         let values = buffer![1u16, 2, 3].into_array();
         let results = sub_scalar(&values, 1u16.into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<u16>()
             .to_vec();
@@ -317,9 +316,7 @@ mod test {
         let values = buffer![1i64, 2, 3].into_array();
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<i64>()
             .to_vec();
@@ -328,13 +325,10 @@ mod test {
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let values =
-            PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]).into_array();
+        let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
         let result = sub_scalar(&values, Some(1u16).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
 
         let actual = (0..result.len())
@@ -357,9 +351,7 @@ mod test {
         let to_subtract = -1f64;
         let results = sub_scalar(&values, to_subtract.into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<f64>()
             .to_vec();

@@ -16,7 +16,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
         let validity_buff = array
             .validity_mask()?
             .into_array()
-            .into_bool()?
+            .to_bool()?
             .boolean_buffer();
         Validity::from_iter(
             filter

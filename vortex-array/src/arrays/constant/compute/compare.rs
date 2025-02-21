@@ -15,7 +15,7 @@ impl CompareFn<&ConstantArray> for ConstantEncoding {
         // For all other encodings, we assume the constant is on the RHS.
         if let Some(const_scalar) = rhs.as_constant() {
             let lhs_scalar = lhs.scalar();
-            let scalar = scalar_cmp(&lhs_scalar, &const_scalar, operator);
+            let scalar = scalar_cmp(lhs_scalar, &const_scalar, operator);
             return Ok(Some(ConstantArray::new(scalar, lhs.len()).into_array()));
         }
 

@@ -61,7 +61,7 @@ fuzz_target!(|array_data: ArrayRef| -> Corpus {
             compare_struct(array_data, output);
         } else {
             let r = compare(&array_data, output, Operator::Eq).unwrap();
-            let true_count = r.into_bool().unwrap().boolean_buffer().count_set_bits();
+            let true_count = r.to_bool().unwrap().boolean_buffer().count_set_bits();
             assert_eq!(true_count, array_data.len());
         }
     });

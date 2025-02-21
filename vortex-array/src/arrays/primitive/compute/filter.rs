@@ -24,13 +24,13 @@ impl FilterFn<&PrimitiveArray> for PrimitiveEncoding {
             MaskIter::Indices(indices) => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let values = filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied());
-                    Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
+                    Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }
             MaskIter::Slices(slices) => {
                 match_each_native_ptype!(array.ptype(), |$T| {
                     let values = filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied());
-                    Ok(PrimitiveArray::new_with_validity(values, validity).into_array())
+                    Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }
         }
@@ -63,9 +63,10 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::filter;
-    use crate::IntoArrayVariant;
 
     #[test]
     fn filter_run_variant_mixed_test() {
@@ -74,7 +75,7 @@ mod test {
 
         let filtered = filter(&arr, &Mask::from_iter(mask))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(
             filtered.len(),

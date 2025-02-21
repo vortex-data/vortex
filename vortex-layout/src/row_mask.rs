@@ -184,8 +184,6 @@ impl RowMask {
             return Ok(None);
         }
 
-        let array = array.as_ref();
-
         let sliced = if self.len() == array.len() {
             array
         } else {

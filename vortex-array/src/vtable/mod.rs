@@ -56,7 +56,7 @@ impl Deref for VTableRef {
 /// It is recommended that you use [`crate::impl_encoding`] to assist in writing a new
 /// array encoding.
 pub trait EncodingVTable:
-    'static + Sync + Send + ComputeVTable + StatisticsVTable<dyn Array>
+    'static + Sync + Send + ComputeVTable + for<'a> StatisticsVTable<'a, dyn Array>
 {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
@@ -85,7 +85,7 @@ impl Debug for dyn EncodingVTable + '_ {
     }
 }
 
-impl<E: Encoding + ComputeVTable + StatisticsVTable<dyn Array>> EncodingVTable for E {
+impl<E: Encoding + ComputeVTable + for<'a> StatisticsVTable<'a, dyn Array>> EncodingVTable for E {
     fn id(&self) -> EncodingId {
         E::ID
     }

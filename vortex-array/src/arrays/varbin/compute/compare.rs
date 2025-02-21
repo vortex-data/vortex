@@ -50,7 +50,7 @@ impl CompareFn<&VarBinArray> for VarBinEncoding {
                 };
 
                 return Ok(Some(
-                    BoolArray::new_with_validity(buffer, lhs.validity().clone()).into_array(),
+                    BoolArray::new(buffer, lhs.validity().clone()).into_array(),
                 ));
             }
 

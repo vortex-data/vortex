@@ -81,8 +81,10 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::accessor::ArrayAccessor;
+    use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::canonical::ToCanonical;
     use crate::compute::test_harness::test_mask;
     use crate::compute::{take, take_into};
     use crate::IntoArray;
@@ -98,12 +100,12 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr, buffer![0, 3].into_array()).unwrap();
+        let taken = take(&arr, &buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
             taken
-                .into_varbinview()
+                .to_varbinview()
                 .unwrap()
                 .with_iterator(|it| it
                     .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
@@ -115,20 +117,17 @@ mod tests {
 
     #[test]
     fn take_mask_var_bin_view_array() {
-        test_mask(
-            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
-        );
+        test_mask(&VarBinViewArray::from_iter_str([
+            "one", "two", "three", "four", "five",
+        ]));
 
-        test_mask(
-            VarBinViewArray::from_iter_nullable_str([
-                Some("one"),
-                None,
-                Some("three"),
-                Some("four"),
-                Some("five"),
-            ])
-            .into_array(),
-        );
+        test_mask(&VarBinViewArray::from_iter_nullable_str([
+            Some("one"),
+            None,
+            Some("three"),
+            Some("four"),
+            Some("five"),
+        ]));
     }
 
     #[test]
@@ -144,13 +143,13 @@ mod tests {
 
         let mut builder = VarBinViewBuilder::with_capacity(arr.dtype().clone(), arr.len());
 
-        take_into(arr, buffer![0, 3].into_array(), &mut builder).unwrap();
+        take_into(&arr, &buffer![0, 3].into_array(), &mut builder).unwrap();
 
         let taken = builder.finish();
         assert!(taken.dtype().is_nullable());
         assert_eq!(
             taken
-                .into_varbinview()
+                .to_varbinview()
                 .unwrap()
                 .with_iterator(|it| it
                     .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))

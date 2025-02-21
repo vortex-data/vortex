@@ -28,7 +28,7 @@ impl ArrayCanonicalImpl for ConstantArray {
 
         Ok(match self.dtype() {
             DType::Null => Canonical::Null(NullArray::new(self.len())),
-            DType::Bool(..) => Canonical::Bool(BoolArray::new_with_validity(
+            DType::Bool(..) => Canonical::Bool(BoolArray::new(
                 if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
                     BooleanBuffer::new_set(self.len())
                 } else {
@@ -38,7 +38,7 @@ impl ArrayCanonicalImpl for ConstantArray {
             )),
             DType::Primitive(ptype, ..) => {
                 match_each_native_ptype!(ptype, |$P| {
-                    Canonical::Primitive(PrimitiveArray::new_with_validity(
+                    Canonical::Primitive(PrimitiveArray::new(
                         if scalar.is_valid() {
                             Buffer::full(
                                 $P::try_from(scalar)
@@ -121,16 +121,18 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
     use crate::stats::{Stat, StatsSet};
+
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.into_null().unwrap();
+        let actual = const_null.to_null().unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(scalar_at(actual, 33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(scalar_at(&actual, 33).unwrap(), Scalar::null(DType::Null));
     }
 
     #[test]
@@ -138,7 +140,7 @@ mod tests {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         // Check all values correct.
-        let canonical = const_array.into_varbinview().unwrap();
+        let canonical = const_array.to_varbinview().unwrap();
 
         assert_eq!(canonical.len(), 4);
 
@@ -153,14 +155,15 @@ mod tests {
         let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
         let stats = const_array.statistics().stats_set();
 
-        let canonical = const_array.into_canonical().unwrap();
+        let canonical = const_array.to_canonical().unwrap();
         let canonical_stats = canonical.as_ref().statistics().stats_set();
 
         let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
-            let canonical_stat = canonical_stats.get_scalar(stat, stat.dtype(canonical.dtype()));
-            let reference_stat = reference.get_scalar(stat, stat.dtype(canonical.dtype()));
-            let original_stat = stats.get_scalar(stat, stat.dtype(canonical.dtype()));
+            let canonical_stat =
+                canonical_stats.get_scalar(stat, stat.dtype(canonical.as_ref().dtype()));
+            let reference_stat = reference.get_scalar(stat, stat.dtype(canonical.as_ref().dtype()));
+            let original_stat = stats.get_scalar(stat, stat.dtype(canonical.as_ref().dtype()));
             assert_eq!(canonical_stat, reference_stat);
             assert_eq!(canonical_stat, original_stat);
         }
@@ -174,7 +177,7 @@ mod tests {
             Scalar::primitive(96u8, Nullability::NonNullable).into_value(),
         );
         let const_array = ConstantArray::new(scalar.clone(), 1).into_array();
-        let canonical_const = const_array.into_primitive().unwrap();
+        let canonical_const = const_array.to_primitive().unwrap();
         assert_eq!(scalar_at(&canonical_const, 0).unwrap(), scalar);
         assert_eq!(scalar_at(&canonical_const, 0).unwrap(), f16_scalar);
     }

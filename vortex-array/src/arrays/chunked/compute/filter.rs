@@ -146,7 +146,7 @@ fn filter_indices(
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
                 let filtered_chunk = take(
                     chunk,
-                    &PrimitiveArray::new(chunk_indices.clone().freeze(), Nullability::NonNullable),
+                    &PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable),
                 )?;
                 result.push(filtered_chunk);
             }
@@ -165,7 +165,7 @@ fn filter_indices(
             .vortex_expect("find_chunk_idx must return valid chunk ID");
         let filtered_chunk = take(
             chunk,
-            &PrimitiveArray::new(chunk_indices.clone().freeze(), Nullability::NonNullable),
+            &PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable),
         )?;
         result.push(filtered_chunk);
     }
@@ -192,6 +192,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::filter;
     use crate::IntoArray;
@@ -200,7 +201,7 @@ mod test {
     fn filter_chunked_floats() {
         let chunked = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter([f16::from_f32(0.1463623)]).into_array(),
+                PrimitiveArray::from_iter([f16::from_f32(0.1463623)]).to_array(),
                 PrimitiveArray::from_iter([
                     f16::NAN,
                     f16::from_f32(0.24987793),
@@ -208,7 +209,7 @@ mod test {
                     f16::from_f32(0.22497559),
                     f16::from_f32(-36160.0),
                 ])
-                .into_array(),
+                .to_array(),
                 PrimitiveArray::from_iter([
                     f16::NAN,
                     f16::NAN,
@@ -216,12 +217,11 @@ mod test {
                     f16::from_f32(0.22497559),
                     f16::from_f32(3174.0),
                 ])
-                .into_array(),
+                .to_array(),
             ],
             DType::Primitive(PType::F16, Nullability::NonNullable),
         )
-        .unwrap()
-        .into_array();
+        .unwrap();
         let mask = Mask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);

@@ -19,7 +19,7 @@ pub use validity::*;
 pub use variants::*;
 pub use visitor::*;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{
@@ -245,6 +245,33 @@ impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
             .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<A>()))
     }
 }
+
+pub trait ArrayExt: Array {
+    /// Returns the array downcast to the given `A`.
+    fn as_<A: Array + 'static>(&self) -> &A {
+        self.as_any()
+            .downcast_ref::<A>()
+            .vortex_expect("Failed to downcast")
+    }
+
+    /// Returns the array downcast to the given `A`.
+    fn maybe_as<A: Array + 'static>(&self) -> Option<&A> {
+        self.as_any().downcast_ref::<A>()
+    }
+
+    /// Returns the array downcast to the given `A`.
+    fn try_as<A: Array + 'static>(&self) -> VortexResult<&A> {
+        self.as_any().downcast_ref::<A>().ok_or_else(|| {
+            vortex_err!(
+                "Failed to downcast {} to {}",
+                self.encoding(),
+                type_name::<A>()
+            )
+        })
+    }
+}
+
+impl<A: Array + ?Sized> ArrayExt for A {}
 
 impl Display for dyn Array {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

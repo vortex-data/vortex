@@ -47,8 +47,9 @@ mod tests {
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
     use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::canonical::ToCanonical;
     use crate::compute::slice;
-    use crate::{Array, ArrayRef, IntoArray};
+    use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -62,62 +63,53 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_equal_slices<T: NativePType>(arr: Array, slice: &[T]) {
+    fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
-        ChunkedArray::try_from(arr)
-            .unwrap()
+        arr.as_::<ChunkedArray>()
             .chunks()
-            .map(|a| a.into_primitive().unwrap())
+            .iter()
+            .map(|a| a.to_primitive().unwrap())
             .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
         assert_eq!(values, slice);
     }
 
     #[test]
     fn slice_middle() {
-        assert_equal_slices(
-            slice(chunked_array().as_ref(), 2, 5).unwrap(),
-            &[3u64, 4, 5],
-        )
+        assert_equal_slices(&slice(&chunked_array(), 2, 5).unwrap(), &[3u64, 4, 5])
     }
 
     #[test]
     fn slice_begin() {
-        assert_equal_slices(slice(chunked_array().as_ref(), 1, 3).unwrap(), &[2u64, 3]);
+        assert_equal_slices(&slice(&chunked_array(), 1, 3).unwrap(), &[2u64, 3]);
     }
 
     #[test]
     fn slice_aligned() {
-        assert_equal_slices(
-            slice(chunked_array().as_ref(), 3, 6).unwrap(),
-            &[4u64, 5, 6],
-        );
+        assert_equal_slices(&slice(&chunked_array(), 3, 6).unwrap(), &[4u64, 5, 6]);
     }
 
     #[test]
     fn slice_many_aligned() {
         assert_equal_slices(
-            slice(chunked_array().as_ref(), 0, 6).unwrap(),
+            &slice(&chunked_array(), 0, 6).unwrap(),
             &[1u64, 2, 3, 4, 5, 6],
         );
     }
 
     #[test]
     fn slice_end() {
-        assert_equal_slices(slice(chunked_array().as_ref(), 7, 8).unwrap(), &[8u64]);
+        assert_equal_slices(&slice(&chunked_array(), 7, 8).unwrap(), &[8u64]);
     }
 
     #[test]
     fn slice_exactly_end() {
-        assert_equal_slices(
-            slice(chunked_array().as_ref(), 6, 9).unwrap(),
-            &[7u64, 8, 9],
-        );
+        assert_equal_slices(&slice(&chunked_array(), 6, 9).unwrap(), &[7u64, 8, 9]);
     }
 
     #[test]
     fn slice_empty() {
         let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
-        let sliced = slice(chunked, 0, 0).unwrap();
+        let sliced = slice(&chunked, 0, 0).unwrap();
 
         assert!(sliced.is_empty());
     }

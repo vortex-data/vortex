@@ -24,7 +24,7 @@ where
         pattern: &dyn Array,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        let encoding = array.vtable().clone();
+        let encoding = array.vtable();
         LikeFn::like(
             encoding
                 .as_any()

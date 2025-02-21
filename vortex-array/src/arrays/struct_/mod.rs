@@ -218,7 +218,7 @@ impl ArrayVisitorImpl for StructArray {
     }
 }
 
-impl StatisticsVTable<StructArray> for StructEncoding {
+impl StatisticsVTable<'_, StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
             Stat::UncompressedSizeInBytes => array
@@ -243,12 +243,15 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
+    use crate::ArrayExt;
+
     #[test]
     fn test_project() {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
@@ -276,13 +279,20 @@ mod test {
 
         assert_eq!(struct_b.len(), 5);
 
-        let bools = BoolArray::try_from(struct_b.maybe_null_field_by_idx(0).unwrap()).unwrap();
+        let bools = struct_b.maybe_null_field_by_idx(0).unwrap();
         assert_eq!(
-            bools.boolean_buffer().iter().collect::<Vec<_>>(),
+            bools
+                .as_::<BoolArray>()
+                .boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>(),
             vec![true, true, true, false, false]
         );
 
-        let prims = PrimitiveArray::try_from(struct_b.maybe_null_field_by_idx(1).unwrap()).unwrap();
-        assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
+        let prims = struct_b.maybe_null_field_by_idx(1).unwrap();
+        assert_eq!(
+            prims.as_::<PrimitiveArray>().as_slice::<i64>(),
+            [0i64, 1, 2, 3, 4]
+        );
     }
 }

@@ -468,7 +468,7 @@ impl ArrayStatisticsImpl for VarBinViewArray {
 impl ArrayCanonicalImpl for VarBinViewArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         let nullable = self.dtype().is_nullable();
-        let arrow_array = varbinview_as_arrow(&self);
+        let arrow_array = varbinview_as_arrow(self);
         let vortex_array = ArrayRef::from_arrow(arrow_array, nullable);
 
         Ok(Canonical::VarBinView(VarBinViewArray::try_from_array(
@@ -539,10 +539,10 @@ impl ArrayValidityImpl for VarBinViewArray {
 impl ArrayVisitorImpl for VarBinViewArray {
     fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         for buffer in self.buffers() {
-            visitor.visit_buffer(&buffer)?;
+            visitor.visit_buffer(buffer)?;
         }
 
-        visitor.visit_validity(&self.validity())
+        visitor.visit_validity(self.validity())
     }
 }
 
@@ -574,8 +574,8 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 mod test {
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::canonical::IntoCanonical;
     use crate::compute::{scalar_at, slice};
     use crate::Canonical;
 
@@ -597,8 +597,7 @@ mod test {
     #[test]
     pub fn slice_array() {
         let binary_arr = slice(
-            VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-                .into_array(),
+            &VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]),
             1,
             2,
         )
@@ -613,7 +612,7 @@ mod test {
     pub fn flatten_array() {
         let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
 
-        let flattened = binary_arr.into_canonical().unwrap();
+        let flattened = binary_arr.to_canonical().unwrap();
         assert!(matches!(flattened, Canonical::VarBinView(_)));
 
         let var_bin = flattened.into_varbinview().unwrap().into_array();

@@ -139,7 +139,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals: Vec<bool> = compare(&lhs, &rhs, Operator::Eq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap()
             .boolean_buffer()
             .into_iter()
@@ -150,7 +150,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals: Vec<bool> = compare(&lhs, &rhs, Operator::NotEq)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap()
             .boolean_buffer()
             .into_iter()

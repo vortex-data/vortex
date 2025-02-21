@@ -314,6 +314,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::compute::{scalar_at, slice};

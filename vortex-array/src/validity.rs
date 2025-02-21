@@ -323,7 +323,7 @@ impl Validity {
                 let lhs = lhs.boolean_buffer();
                 let rhs = rhs.boolean_buffer();
 
-                Validity::from(lhs.bitand(&rhs))
+                Validity::from(lhs.bitand(rhs))
             }
         };
 
@@ -554,7 +554,7 @@ impl IntoArray for Mask {
 
 impl IntoArray for &MaskValues {
     fn into_array(self) -> ArrayRef {
-        BoolArray::new(self.boolean_buffer().clone(), Nullability::NonNullable).into_array()
+        BoolArray::new(self.boolean_buffer().clone(), Validity::NonNullable).into_array()
     }
 }
 
@@ -565,6 +565,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
     use crate::{ArrayRef, IntoArray};
@@ -595,14 +596,17 @@ mod tests {
     ) {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
-        assert_eq!(validity.patch(len, 0, &indices, patches).unwrap(), expected);
+        assert_eq!(
+            validity.patch(len, 0, &indices, &patches).unwrap(),
+            expected
+        );
     }
 
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
         Validity::NonNullable
-            .patch(2, 0, &buffer![4].into_array(), Validity::AllInvalid)
+            .patch(2, 0, &buffer![4].into_array(), &Validity::AllInvalid)
             .unwrap();
     }
 
