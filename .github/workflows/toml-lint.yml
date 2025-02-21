@@ -4,7 +4,7 @@ on:
   pull_request: {}
 
 jobs:
-  lint_toml_files:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
