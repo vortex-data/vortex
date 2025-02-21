@@ -1,6 +1,5 @@
 mod canonical;
 mod convert;
-pub mod data;
 mod implementation;
 mod statistics;
 mod validity;
@@ -9,7 +8,7 @@ mod visitor;
 
 use std::any::{type_name, Any};
 use std::borrow::Cow;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 pub use canonical::*;
@@ -227,7 +226,7 @@ impl ToOwned for dyn Array {
     }
 }
 
-impl<A: Array + Clone> TryFromArrayRef for A {
+impl<A: Array + Clone + 'static> TryFromArrayRef for A {
     fn try_from_array(array: ArrayRef) -> VortexResult<Self> {
         Ok(Arc::unwrap_or_clone(
             array
@@ -238,11 +237,23 @@ impl<A: Array + Clone> TryFromArrayRef for A {
     }
 }
 
-impl<A: Array + Clone> TryFromArrayRef for Arc<A> {
+impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
     fn try_from_array(array: ArrayRef) -> VortexResult<Self> {
         array
             .as_any_arc()
             .downcast::<A>()
             .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<A>()))
+    }
+}
+
+impl Display for dyn Array {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}({}, len={})",
+            self.encoding(),
+            self.dtype(),
+            self.len()
+        )
     }
 }

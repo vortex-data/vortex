@@ -20,7 +20,8 @@ use crate::{
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl:
-    Send
+    'static
+    + Send
     + Sync
     + Debug
     + Clone

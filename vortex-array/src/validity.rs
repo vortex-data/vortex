@@ -210,7 +210,7 @@ impl Validity {
             Self::Array(is_valid) => {
                 let maybe_is_valid = take(is_valid, indices)?;
                 // Null indices invalidite that position.
-                let is_valid = fill_null(maybe_is_valid, Scalar::from(false))?;
+                let is_valid = fill_null(&maybe_is_valid, Scalar::from(false))?;
                 Ok(Self::Array(is_valid))
             }
         }
@@ -273,7 +273,7 @@ impl Validity {
                 }
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
-                    let is_valid = BoolArray::try_from(is_valid.clone())?.boolean_buffer();
+                    let is_valid = is_valid.to_bool()?.boolean_buffer();
                     let keep_valid = make_invalid.not();
                     Validity::from(is_valid.bitand(&keep_valid))
                 }
@@ -294,7 +294,7 @@ impl Validity {
                     is_valid.len(),
                     length,
                 );
-                Mask::try_from(is_valid.clone())?
+                Mask::try_from(&is_valid.to_bool()?)?
             }
         })
     }
@@ -317,8 +317,8 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                let lhs = BoolArray::try_from(lhs)?;
-                let rhs = BoolArray::try_from(rhs)?;
+                let lhs = lhs.to_bool()?;
+                let rhs = rhs.to_bool()?;
 
                 let lhs = lhs.boolean_buffer();
                 let rhs = rhs.boolean_buffer();
@@ -360,7 +360,7 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(len)),
-            Validity::Array(a) => a.into_bool()?,
+            Validity::Array(a) => a.to_bool()?,
         };
 
         let patch_values = match patches {
@@ -451,13 +451,11 @@ impl PartialEq for Validity {
             (Self::AllInvalid, Self::AllInvalid) => true,
             (Self::Array(a), Self::Array(b)) => {
                 let a_buffer = a
-                    .clone()
-                    .into_bool()
+                    .to_bool()
                     .vortex_expect("Failed to get Validity Array as BoolArray")
                     .boolean_buffer();
                 let b_buffer = b
-                    .clone()
-                    .into_bool()
+                    .to_bool()
                     .vortex_expect("Failed to get Validity Array as BoolArray")
                     .boolean_buffer();
                 a_buffer == b_buffer

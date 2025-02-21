@@ -17,6 +17,7 @@
 pub use array::*;
 pub use canonical::*;
 pub use context::*;
+pub use data::*;
 pub use encoding::*;
 pub use metadata::*;
 pub use partial_ord::*;
@@ -32,6 +33,7 @@ mod canonical;
 pub mod compress;
 pub mod compute;
 mod context;
+mod data;
 mod encoding;
 pub mod iter;
 mod macros;
@@ -39,7 +41,7 @@ mod metadata;
 pub mod nbytes;
 pub mod partial_ord;
 pub mod patches;
-pub mod serde;
+// pub mod serde;
 pub mod stats;
 pub mod stream;
 #[cfg(feature = "test-harness")]

@@ -7,14 +7,12 @@ use crate::validity::Validity;
 
 mod array;
 pub mod compute;
-mod data;
 mod encoding;
 mod patch;
 mod stats;
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
-pub use data::*;
 pub use encoding::*;
 
 impl BoolArray {

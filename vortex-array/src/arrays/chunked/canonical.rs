@@ -252,7 +252,7 @@ fn pack_views(
         views.extend(
             canonical_chunk
                 .views()
-                .into_iter()
+                .iter()
                 .map(|view| view.offset_view(buffers_offset)),
         );
     }

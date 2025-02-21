@@ -14,7 +14,7 @@ pub trait ArrayStatistics {
     fn as_constant(&self) -> Option<Scalar>;
 }
 
-impl<A: Array> ArrayStatistics for A {
+impl<A: Array + 'static> ArrayStatistics for A {
     fn is_constant(&self) -> bool {
         if let Some(Precision::Exact(is_constant)) = self
             .vtable()
