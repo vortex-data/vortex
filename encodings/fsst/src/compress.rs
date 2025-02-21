@@ -46,11 +46,11 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
 ///
 /// If the provided array is not FSST compressible.
 pub fn fsst_train_compressor(array: &dyn Array) -> VortexResult<Compressor> {
-    if let Ok(varbin) = VarBinArray::try_from(array.clone()) {
+    if let Ok(varbin) = VarBinArray::try_from(array.to_array()) {
         varbin
             .with_iterator(|iter| fsst_train_compressor_iter(iter))
             .map_err(|err| err.with_context("Failed to train FSST Compressor from VarBinArray"))
-    } else if let Ok(varbin_view) = VarBinViewArray::try_from(array.clone()) {
+    } else if let Ok(varbin_view) = VarBinViewArray::try_from(array.to_array()) {
         varbin_view
             .with_iterator(|iter| fsst_train_compressor_iter(iter))
             .map_err(|err| err.with_context("Failed to train FSST Compressor from VarBinViewArray"))

@@ -43,11 +43,13 @@ fn compress(bencher: Bencher, (compressor, array_type): (CompressorRef, PType)) 
     let ctx = SamplingCompressor::new(HashSet::new());
     let array = fixture(array_type);
 
-    bencher.with_inputs(|| array.clone()).bench_values(|array| {
-        compressor
-            .compress(&array, None, ctx.including(compressor))
-            .unwrap()
-    })
+    bencher
+        .with_inputs(|| array.to_array())
+        .bench_values(|array| {
+            compressor
+                .compress(&array, None, ctx.including(compressor))
+                .unwrap()
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -68,8 +70,8 @@ fn fixture(ptype: PType) -> ArrayRef {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     let uint_array =
         Buffer::from_iter((0..u16::MAX as u64).map(|_| rng.gen_range(0u32..256))).into_array();
-    let int_array = try_cast(uint_array.clone(), PType::I32.into()).unwrap();
-    let float_array = try_cast(uint_array.clone(), PType::F32.into()).unwrap();
+    let int_array = try_cast(uint_array.to_array(), PType::I32.into()).unwrap();
+    let float_array = try_cast(uint_array.to_array(), PType::F32.into()).unwrap();
 
     match ptype {
         PType::F32 => float_array,
@@ -110,7 +112,7 @@ mod varbinview {
             fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
 
         bencher
-            .with_inputs(|| fsst_array.clone())
+            .with_inputs(|| fsst_array.to_array())
             .counter(divan::counter::BytesCount::new(
                 varbinview_arr.into_array().nbytes(),
             ))

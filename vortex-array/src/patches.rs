@@ -203,7 +203,7 @@ impl Patches {
             self.array_len,
             self.offset,
             self.indices,
-            try_cast(self.values, values_dtype)?,
+            try_cast(&self.values, values_dtype)?,
         ))
     }
 
@@ -329,7 +329,7 @@ impl Patches {
             new_length,
             0,
             new_indices,
-            take(self.values(), values_indices)?,
+            take(self.values(), &values_indices)?,
         )))
     }
 
@@ -349,7 +349,7 @@ impl Patches {
             new_length,
             0,
             new_sparse_indices,
-            take(self.values(), value_indices)?,
+            take(self.values(), &value_indices)?,
         )))
     }
 

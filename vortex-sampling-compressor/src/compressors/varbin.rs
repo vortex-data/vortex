@@ -29,7 +29,7 @@ impl EncodingCompressor for VarBinCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let varbin_array = VarBinArray::try_from(array.clone())?;
+        let varbin_array = VarBinArray::try_from(array.to_array())?;
         let offsets = ctx.auxiliary("offsets").compress(
             &downscale_integer_array(varbin_array.offsets())?,
             like.as_ref().and_then(|l| l.child(0)),

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::encoding::Encoding;
@@ -61,19 +62,19 @@ pub fn and(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::AndKleene)
+    binary_boolean(lhs, rhs, BinaryOperator::AndKleene)
 }
 
 /// Point-wise logical _or_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
 pub fn or(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::Or)
+    binary_boolean(lhs, rhs, BinaryOperator::Or)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
 pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::OrKleene)
+    binary_boolean(lhs, rhs, BinaryOperator::OrKleene)
 }
 
 pub fn binary_boolean(
@@ -95,7 +96,7 @@ pub fn binary_boolean(
 
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
     if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
-        return arrow_boolean(lhs.clone(), rhs.clone(), op);
+        return arrow_boolean(lhs.to_array(), rhs.to_array(), op);
     }
 
     // Check if either LHS or RHS supports the operation directly.
@@ -149,7 +150,7 @@ pub fn binary_boolean(
     );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
-    arrow_boolean(lhs.clone(), rhs.clone(), op)
+    arrow_boolean(lhs.to_array(), rhs.to_array(), op)
 }
 
 /// Implementation of `BinaryBooleanFn` using the Arrow crate.
@@ -173,7 +174,10 @@ pub(crate) fn arrow_boolean(
         BinaryOperator::OrKleene => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
     };
 
-    Ok(ArrayRef::from_arrow(Arc::new(array) as ArrayRef, nullable))
+    Ok(ArrayRef::from_arrow(
+        Arc::new(array) as ArrowArrayRef,
+        nullable,
+    ))
 }
 
 #[cfg(test)]

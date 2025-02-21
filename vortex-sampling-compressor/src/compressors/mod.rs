@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::tree::TreeFormatter;
-use vortex_array::{ArrayRef, EncodingId};
+use vortex_array::{Array, ArrayRef, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::SamplingCompressor;
@@ -296,7 +296,7 @@ impl<'a> CompressedArray<'a> {
     }
 }
 
-impl AsRef<ArrayRef> for CompressedArray<'_> {
+impl AsRef<dyn Array> for CompressedArray<'_> {
     fn as_ref(&self) -> &ArrayRef {
         &self.array
     }

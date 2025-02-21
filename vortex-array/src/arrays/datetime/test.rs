@@ -120,7 +120,8 @@ fn test_timestamp() {
 
     for unit in [TimeUnit::S, TimeUnit::Ms, TimeUnit::Us, TimeUnit::Ns] {
         for tz in [Some("UTC".to_string()), None] {
-            let temporal_array = TemporalArray::new_timestamp(ts_array.clone(), unit, tz.clone());
+            let temporal_array =
+                TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
 
             let values = temporal_array.temporal_values().into_primitive().unwrap();
             assert_eq!(values.as_slice::<i64>(), vec![100i64].as_slice());

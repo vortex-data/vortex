@@ -52,7 +52,11 @@ pub struct LikeOptions {
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(array: ArrayRef, pattern: &dyn Array, options: LikeOptions) -> VortexResult<ArrayRef> {
+pub fn like(
+    array: &dyn Array,
+    pattern: &dyn Array,
+    options: LikeOptions,
+) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -76,7 +80,7 @@ pub fn like(array: ArrayRef, pattern: &dyn Array, options: LikeOptions) -> Vorte
     let result = array
         .vtable()
         .like_fn()
-        .and_then(|f| f.like(array.clone(), pattern, options).transpose())
+        .and_then(|f| f.like(array, pattern, options).transpose())
         .unwrap_or_else(|| {
             // Otherwise, we canonicalize into a UTF8 array.
             log::debug!(
@@ -104,7 +108,7 @@ pub fn like(array: ArrayRef, pattern: &dyn Array, options: LikeOptions) -> Vorte
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: ArrayRef,
+    array: &dyn Array,
     pattern: &dyn Array,
     options: LikeOptions,
 ) -> VortexResult<ArrayRef> {
@@ -116,8 +120,8 @@ pub(crate) fn arrow_like(
         "Arrow Like: length mismatch for {}",
         array.encoding()
     );
-    let lhs = Datum::try_new(array)?;
-    let rhs = Datum::try_new(pattern.clone())?;
+    let lhs = Datum::try_new(array.to_array())?;
+    let rhs = Datum::try_new(pattern.to_array())?;
 
     let result = match (options.negated, options.case_insensitive) {
         (false, false) => arrow_string::like::like(&lhs, &rhs)?,

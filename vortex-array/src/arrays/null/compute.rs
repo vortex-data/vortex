@@ -40,7 +40,7 @@ impl ComputeVTable for NullEncoding {
 
 impl MaskFn<NullArray> for NullEncoding {
     fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<ArrayRef> {
-        Ok(array.clone().into_array())
+        Ok(array.to_array().into_array())
     }
 }
 

@@ -52,6 +52,6 @@ fn decompress(bencher: Bencher, (length, run_step): (usize, usize)) {
     let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
 
     bencher
-        .with_inputs(|| runend_array.clone())
+        .with_inputs(|| runend_array.to_array())
         .bench_values(|array| array.into_canonical().unwrap());
 }

@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
@@ -93,15 +93,20 @@ where
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
-        let (lhs_ref, encoding) = lhs.try_downcast_ref::<E>()?;
-        CompareFn::compare(encoding, lhs_ref, rhs, operator)
+        let array_ref = lhs
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let encoding = lhs
+            .vtable()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        CompareFn::compare(encoding, array_ref, rhs, operator)
     }
 }
 
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
-    let left = left.as_ref();
-    let right = right.as_ref();
-
     if left.len() != right.len() {
         vortex_bail!("Compare operations only support arrays of the same length");
     }
@@ -201,8 +206,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = Datum::try_new(left.clone())?;
-    let rhs = Datum::try_new(right.clone())?;
+    let lhs = Datum::try_new(left.to_array())?;
+    let rhs = Datum::try_new(right.to_array())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,

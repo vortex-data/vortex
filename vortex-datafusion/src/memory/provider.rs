@@ -44,7 +44,7 @@ impl VortexMemTable {
         let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
-        let array = match ChunkedArray::try_from(array.clone()) {
+        let array = match ChunkedArray::try_from(array.to_array()) {
             Ok(a) => a,
             _ => {
                 let dtype = array.dtype().clone();
@@ -100,7 +100,7 @@ impl TableProvider for VortexMemTable {
                 make_filter_then_take_plan(
                     self.schema_ref.clone(),
                     filter_expr,
-                    self.array.clone(),
+                    self.array.to_array(),
                     output_projection,
                     state,
                 )
@@ -124,7 +124,7 @@ impl TableProvider for VortexMemTable {
                 );
 
                 Ok(Arc::new(VortexScanExec::try_new(
-                    self.array.clone(),
+                    self.array.to_array(),
                     output_projection,
                     plan_properties,
                 )?))

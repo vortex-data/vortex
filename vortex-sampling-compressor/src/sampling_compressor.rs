@@ -182,7 +182,7 @@ impl<'a> SamplingCompressor<'a> {
 
         if array.is_encoding(ConstantEncoding::ID) {
             // Not much better we can do than constant!
-            return Ok(CompressedArray::uncompressed(array.clone()));
+            return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
         if let Some(cc) = DEFAULT_CHUNKED_COMPRESSOR.can_compress(array) {
@@ -229,7 +229,7 @@ impl<'a> SamplingCompressor<'a> {
                 array.dtype(),
                 array.encoding(),
             );
-            return Ok(CompressedArray::uncompressed(array.clone()));
+            return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
         // We prefer all other candidates to the array's own encoding.
@@ -277,7 +277,7 @@ impl<'a> SamplingCompressor<'a> {
             })
             .transpose()?;
 
-        Ok(best.unwrap_or_else(|| CompressedArray::uncompressed(array.clone())))
+        Ok(best.unwrap_or_else(|| CompressedArray::uncompressed(array.to_array())))
     }
 }
 

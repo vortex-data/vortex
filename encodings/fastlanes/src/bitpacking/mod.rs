@@ -238,7 +238,7 @@ impl BitPackedArray {
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
     pub fn encode(array: &dyn Array, bit_width: u8) -> VortexResult<Self> {
-        if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
+        if let Ok(parray) = PrimitiveArray::try_from(array.to_array()) {
             bitpack_encode(parray, bit_width)
         } else {
             vortex_bail!("Bitpacking can only encode primitive arrays");
@@ -331,7 +331,7 @@ mod test {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
-    use vortex_array::{IntoArray, ToCanonical, RkyvMetadata};
+    use vortex_array::{IntoArray, RkyvMetadata, ToCanonical};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
 

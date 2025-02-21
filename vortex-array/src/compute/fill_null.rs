@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -30,9 +30,8 @@ where
 }
 
 pub fn fill_null(array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
-    let array = array.as_ref();
     if !array.dtype().is_nullable() {
-        return Ok(array.clone());
+        return Ok(array.to_array());
     }
 
     if fill_value.is_null() {

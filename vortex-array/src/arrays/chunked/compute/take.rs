@@ -20,7 +20,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
             .unwrap_or(false)
         {
             if array.len() == indices.len() {
-                return Ok(array.clone().into_array());
+                return Ok(array.to_array().into_array());
             }
 
             return take_strict_sorted(array, indices);

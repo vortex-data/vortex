@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};
@@ -30,9 +30,8 @@ where
 ///
 /// Some array support the ability to narrow or upcast.
 pub fn try_cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
-    let array = array.as_ref();
     if array.dtype() == dtype {
-        return Ok(array.clone());
+        return Ok(array.to_array());
     }
 
     let casted = try_cast_impl(array, dtype)?;

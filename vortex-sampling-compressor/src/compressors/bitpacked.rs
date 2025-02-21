@@ -117,7 +117,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
         if bit_width == parray.ptype().bit_width() as u8 {
             // Nothing we can do
-            return Ok(CompressedArray::uncompressed(array.clone()));
+            return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
         let validity = ctx.compress_validity(parray.validity())?;

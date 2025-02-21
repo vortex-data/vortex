@@ -90,8 +90,7 @@ pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowAr
 
     // Fall back to canonicalizing and then converting.
     let mut builder = builder_with_capacity(array.dtype(), array.len());
-    // TODO(joe), take owned here and avoid the clone?
-    array.clone().canonicalize_into(builder.as_mut())?;
+    array.append_to_builder(builder.as_mut())?;
     let array = builder.finish();
     array
         .vtable()

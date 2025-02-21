@@ -67,7 +67,7 @@ impl EncodingCompressor for FSSTCompressor {
         //
         // It's not worth running a full compression step unless the array is large enough.
         if array.nbytes() < 5 * FSST_SYMTAB_MAX_SIZE {
-            return Ok(CompressedArray::uncompressed(array.clone()));
+            return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
         let compressor = like

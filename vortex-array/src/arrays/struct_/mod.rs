@@ -94,7 +94,7 @@ impl StructArray {
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
-        let fields: Vec<ArrayRef> = items.iter().map(|(_, array)| array.clone()).collect();
+        let fields: Vec<ArrayRef> = items.iter().map(|(_, array)| array.to_array()).collect();
         let len = fields
             .first()
             .map(|f| f.len())

@@ -170,7 +170,7 @@ fn arrow_numeric(
     };
 
     let result = from_arrow_array_with_len(array, len, nullable)?;
-    check_numeric_result(&result, &lhs, &rhs);
+    check_numeric_result(&result, lhs, rhs);
     Ok(result)
 }
 
@@ -219,13 +219,7 @@ pub mod test_harness {
     where
         Scalar: From<T>,
     {
-        let canonicalized_array = array
-            .clone()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
-
+        let canonicalized_array = array.to_canonical().unwrap().into_primitive().unwrap();
         let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
         let one = T::from(1)
@@ -261,7 +255,7 @@ pub mod test_harness {
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<Scalar>>(),
-                "({}) {} (Constant array of {}) did not produce expected results",
+                "({:?}) {} (Constant array of {}) did not produce expected results",
                 array,
                 operator,
                 scalar_one,
@@ -285,7 +279,7 @@ pub mod test_harness {
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<_>>(),
-                "(Constant array of {}) {} ({}) did not produce expected results",
+                "(Constant array of {}) {} ({:?}) did not produce expected results",
                 scalar_one,
                 operator,
                 array,

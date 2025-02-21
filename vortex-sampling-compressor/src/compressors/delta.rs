@@ -38,7 +38,7 @@ impl EncodingCompressor for DeltaCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = PrimitiveArray::try_from(array.clone())?;
+        let parray = PrimitiveArray::try_from(array.to_array())?;
         let validity = ctx.compress_validity(parray.validity())?;
 
         // Compress the filled array

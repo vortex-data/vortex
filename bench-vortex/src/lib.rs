@@ -65,7 +65,7 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         (*(ALL_ENCODINGS_CONTEXT.clone()))
             .clone()
-            .with_encoding(DeltaEncoding::vtable()),
+            .with_encoding(DeltaEncoding.vtable()),
     )
 });
 

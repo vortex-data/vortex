@@ -160,7 +160,7 @@ where
     // Special case: empty array
     if array.is_empty() {
         return IntegerStats {
-            src: array.clone(),
+            src: array.to_array(),
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
@@ -260,7 +260,7 @@ where
         .vortex_expect("value_count must fit in u32");
 
     IntegerStats {
-        src: array.clone(),
+        src: array.to_array(),
         null_count,
         value_count,
         average_run_length: value_count / runs,

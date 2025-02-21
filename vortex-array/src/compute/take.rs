@@ -36,7 +36,7 @@ pub trait TakeFn<A: ?Sized> {
         indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        builder.extend_from_array(self.take(array, indices)?)
+        builder.extend_from_array(&self.take(array, indices)?)
     }
 }
 
@@ -103,15 +103,15 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let derived_stats = (!array.must_be_constant()).then(|| derive_take_stats(array));
+    let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
 
     let taken = take_impl(array, indices, checked_indices)?;
 
     if let Some(derived_stats) = derived_stats {
-        let mut stats = taken.stats_set();
+        let mut stats = taken.statistics().stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
-            taken.set_stat(stat, val)
+            taken.statistics().set_stat(stat, val)
         }
     }
 
@@ -144,9 +144,6 @@ pub fn take_into(
     indices: &dyn Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
-    let array = array.as_ref();
-    let indices = indices.as_ref();
-
     #[cfg(debug_assertions)]
     {
         // If either the indices or the array are nullable, the result should be nullable.
@@ -188,7 +185,7 @@ pub fn take_into(
 }
 
 fn derive_take_stats(arr: &dyn Array) -> StatsSet {
-    let stats = arr.stats_set();
+    let stats = arr.statistics().stats_set();
 
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
 

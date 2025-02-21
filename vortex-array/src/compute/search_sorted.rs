@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
@@ -505,7 +505,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
     }
 }
 
-impl IndexOrd<Scalar> for ArrayRef {
+impl IndexOrd<Scalar> for dyn Array + '_ {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> Option<Ordering> {
         let scalar_a = scalar_at(self, idx).ok()?;
         scalar_a.partial_cmp(elem)
@@ -519,7 +519,7 @@ impl<T: PartialOrd> IndexOrd<T> for [T] {
     }
 }
 
-impl Len for ArrayRef {
+impl Len for dyn Array + '_ {
     #[allow(clippy::same_name_method)]
     fn len(&self) -> usize {
         Self::len(self)

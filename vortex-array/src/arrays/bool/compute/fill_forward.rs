@@ -15,7 +15,7 @@ impl FillForwardFn<BoolArray> for BoolEncoding {
 
         // nothing to see or do in this case
         if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.clone().into_array());
+            return Ok(array.to_array().into_array());
         }
 
         match validity.boolean_buffer() {

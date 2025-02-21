@@ -21,7 +21,7 @@ const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 impl FilterFn<RunEndArray> for RunEndEncoding {
     fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
         match mask {
-            Mask::AllTrue(_) => Ok(array.clone().into_array()),
+            Mask::AllTrue(_) => Ok(array.to_array().into_array()),
             Mask::AllFalse(_) => Ok(Canonical::empty(array.dtype()).into()),
             Mask::Values(mask_values) => {
                 let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;

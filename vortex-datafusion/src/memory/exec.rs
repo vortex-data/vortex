@@ -107,7 +107,7 @@ impl ExecutionPlan for VortexScanExec {
             schema_ref: self.schema(),
             idx: 0,
             num_chunks: self.array.nchunks(),
-            chunks: self.array.clone(),
+            chunks: self.array.to_array(),
             projection: self.scan_projection.iter().cloned().collect(),
         }))
     }

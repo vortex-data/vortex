@@ -3,10 +3,8 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use crate::vtable::ComputeVTable;
+use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
 use crate::{DeserializeMetadata, SerializeMetadata};
-
-pub mod opaque;
 
 // TODO(robert): Outline how you create a well known encoding id
 
@@ -55,11 +53,18 @@ impl AsRef<str> for EncodingId {
 }
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding: 'static + Send + Sync {
+pub trait Encoding: 'static + Send + Sync + EncodingVTable {
     const ID: EncodingId;
 
     type Array;
     type Metadata: SerializeMetadata + DeserializeMetadata;
+
+    fn vtable(&'static self) -> VTableRef
+    where
+        Self: Sized,
+    {
+        VTableRef::from_static(self)
+    }
 }
 
 #[doc = "Encoding ID constants for all Vortex-provided encodings"]

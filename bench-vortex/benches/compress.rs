@@ -32,7 +32,7 @@ use vortex::arrow::IntoArrowArray;
 use vortex::dtype::FieldName;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::{ArrayRef, IntoArray, ToCanonical};
+use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
 
 feature_flagged_allocator!();
 
@@ -118,7 +118,7 @@ fn vortex_compress_write(
     runtime
         .block_on(async {
             VortexWriteOptions::default()
-                .write(Cursor::new(buf), array.clone().into_array_stream())
+                .write(Cursor::new(buf), array.to_array().into_array_stream())
                 .await
         })
         .map(|c| c.position())
@@ -152,7 +152,7 @@ fn benchmark_compress<F, U>(
     bench_name: &str,
 ) where
     F: Fn() -> U,
-    U: AsRef<ArrayRef>,
+    U: Array,
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {

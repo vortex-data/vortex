@@ -45,7 +45,7 @@ impl EncodingCompressor for ZigZagCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let encoded = zigzag_encode(PrimitiveArray::try_from(array.clone())?)?;
+        let encoded = zigzag_encode(PrimitiveArray::try_from(array.to_array())?)?;
         let compressed =
             ctx.compress(&encoded.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
         Ok(CompressedArray::compressed(

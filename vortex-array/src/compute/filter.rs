@@ -5,11 +5,11 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::arrays::ConstantArray;
+use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 
 pub trait FilterFn<A: ?Sized> {
     /// Filter an array by the provided predicate.
@@ -88,7 +88,7 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
 
     // Fast-path for full mask
     if true_count == mask.len() {
-        return Ok(array.clone());
+        return Ok(array.to_array());
     }
 
     let filtered = filter_impl(array, mask)?;
@@ -113,7 +113,7 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
     // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
     let values = match &mask {
-        Mask::AllTrue(_) => return Ok(array.clone()),
+        Mask::AllTrue(_) => return Ok(array.to_array()),
         Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array()),
         Mask::Values(values) => values,
     };
@@ -133,11 +133,35 @@ fn filter_impl(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // Fallback: implement using Arrow kernels.
     log::debug!("No filter implementation found for {}", array.encoding(),);
 
-    let array_ref = array.clone().into_arrow_preferred()?;
+    let array_ref = array.to_array().into_arrow_preferred()?;
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
     Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()))
+}
+
+impl TryFrom<&BoolArray> for Mask {
+    type Error = VortexError;
+
+    fn try_from(array: &BoolArray) -> Result<Self, Self::Error> {
+        if let Some(constant) = array.as_constant() {
+            let bool_constant = constant.as_bool();
+            if bool_constant.value().unwrap_or(false) {
+                return Ok(Self::new_true(array.len()));
+            } else {
+                return Ok(Self::new_false(array.len()));
+            }
+        }
+
+        // Extract a boolean buffer, treating null values to false
+        let buffer = match array.validity_mask()? {
+            Mask::AllTrue(_) => array.boolean_buffer().clone(),
+            Mask::AllFalse(_) => return Ok(Self::new_false(array.len())),
+            Mask::Values(validity) => validity.boolean_buffer().bitand(array.boolean_buffer()),
+        };
+
+        Ok(Self::from_buffer(buffer))
+    }
 }
 
 impl TryFrom<&dyn Array> for Mask {
@@ -149,26 +173,7 @@ impl TryFrom<&dyn Array> for Mask {
             vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
         }
 
-        if let Some(constant) = array.as_constant() {
-            let bool_constant = constant.as_bool();
-            if bool_constant.value().unwrap_or(false) {
-                return Ok(Self::new_true(array.len()));
-            } else {
-                return Ok(Self::new_false(array.len()));
-            }
-        }
-
-        // Otherwise, we canonicalize
-        let array = array.into_bool()?;
-
-        // Extract a boolean buffer, treating null values to false
-        let buffer = match array.validity_mask()? {
-            Mask::AllTrue(_) => array.boolean_buffer(),
-            Mask::AllFalse(_) => return Ok(Self::new_false(array.len())),
-            Mask::Values(validity) => validity.boolean_buffer().bitand(&array.boolean_buffer()),
-        };
-
-        Ok(Self::from_buffer(buffer))
+        Self::try_from(&array.to_bool()?)
     }
 }
 

@@ -14,7 +14,7 @@ impl FillNullFn<BoolArray> for BoolEncoding {
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
         Ok(match array.validity() {
-            Validity::NonNullable => array.clone().into_array(),
+            Validity::NonNullable => array.to_array().into_array(),
             Validity::AllValid => BoolArray::from(array.boolean_buffer().clone()).into_array(),
             Validity::AllInvalid => ConstantArray::new(fill, array.len()).into_array(),
             Validity::Array(v) => {

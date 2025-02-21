@@ -71,6 +71,7 @@ pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
             .filter(|(stat, _)| *stat != Stat::RunCount)
         {
             let compressed_scalar = compressed
+                .statistics()
                 .get_stat(stat)
                 .map(|sv| sv.into_scalar(stat.dtype(compressed.dtype())));
             debug_assert_eq!(

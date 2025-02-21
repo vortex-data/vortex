@@ -6,9 +6,7 @@ use vortex_array::vtable::{
     CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
     VisitorVTable,
 };
-use vortex_array::{
-    encoding_ids, impl_encoding, ArrayRef, Canonical, EmptyMetadata, ToCanonical,
-};
+use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Canonical, EmptyMetadata, ToCanonical};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -43,7 +41,7 @@ impl ZigZagArray {
     }
 
     pub fn encode(array: &dyn Array) -> VortexResult<ZigZagArray> {
-        PrimitiveArray::try_from(array.clone())
+        PrimitiveArray::try_from(array.to_array())
             .map_err(|_| vortex_err!("ZigZag can only encoding primitive arrays"))
             .and_then(zigzag_encode)
     }

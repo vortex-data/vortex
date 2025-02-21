@@ -29,7 +29,7 @@ impl EncodingCompressor for ListCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let list_array = ListArray::try_from(array.clone())?;
+        let list_array = ListArray::try_from(array.to_array())?;
         let compressed_elements = ctx.named("elements").compress(
             &list_array.elements(),
             like.as_ref().and_then(|l| l.child(0)),

@@ -100,7 +100,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
         assert!(array.statistics().stats_set().into_iter().next().is_none());
 
-        let compressed = for_compress(array.clone()).unwrap();
+        let compressed = for_compress(array.to_array()).unwrap();
         assert_eq!(compressed.dtype(), array.dtype());
         assert!(compressed.dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_unsigned_int());
@@ -113,7 +113,7 @@ mod test {
     fn test_decompress() {
         // Create a range offset by a million
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
-        let compressed = for_compress(array.clone()).unwrap();
+        let compressed = for_compress(array.to_array()).unwrap();
         let decompressed = compressed.into_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }
@@ -121,7 +121,7 @@ mod test {
     #[test]
     fn test_overflow() {
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = for_compress(array.clone()).unwrap();
+        let compressed = for_compress(array.to_array()).unwrap();
         assert_eq!(
             i8::MIN,
             compressed

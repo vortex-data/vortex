@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
@@ -41,7 +41,7 @@ where
 /// returns an error.
 pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<ArrayRef> {
     if start == 0 && stop == array.len() {
-        return Ok(array.clone());
+        return Ok(array.to_array());
     }
 
     if start == stop {
@@ -52,7 +52,7 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let derived_stats = (!array.must_be_constant()).then(|| derive_sliced_stats(array));
+    let derived_stats = (!array.is_constant()).then(|| derive_sliced_stats(array));
 
     let sliced = array
         .vtable()
@@ -66,10 +66,10 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
         })?;
 
     if let Some(derived_stats) = derived_stats {
-        let mut stats = sliced.stats_set();
+        let mut stats = sliced.statistics().stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
-            sliced.set_stat(stat, val)
+            sliced.statistics().set_stat(stat, val)
         }
     }
 
@@ -90,7 +90,7 @@ pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<Array
 }
 
 fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
-    let stats = arr.stats_set();
+    let stats = arr.statistics().stats_set();
 
     // an array that is not constant can become constant after slicing
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);

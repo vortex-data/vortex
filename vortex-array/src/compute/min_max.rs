@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat, Statistics};
@@ -41,8 +41,6 @@ where
 ///
 /// This will update the stats set of this array (as a side effect).
 pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
-    let array = array.as_ref();
-
     let min = array
         .statistics()
         .get_scalar(Stat::Min, array.dtype())
@@ -60,7 +58,7 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
         fn_.min_max(array)?
     } else {
         let canonical = array.to_canonical()?;
-        if let Some(fn_) = canonical.vtable().min_max_fn() {
+        if let Some(fn_) = canonical.as_ref().vtable().min_max_fn() {
             fn_.min_max(canonical.as_ref())?
         } else {
             vortex_bail!(NotImplemented: "min_max", array.encoding());
@@ -75,7 +73,9 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
             array.encoding()
         );
 
-        array.set_stat(Stat::Min, Precision::exact(min.clone().into_value()));
+        array
+            .statistics()
+            .set_stat(Stat::Min, Precision::exact(min.clone().into_value()));
 
         debug_assert_eq!(
             max.dtype(),
@@ -83,7 +83,9 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
             "MinMax max dtype mismatch {}",
             array.encoding()
         );
-        array.set_stat(Stat::Max, Precision::exact(max.clone().into_value()));
+        array
+            .statistics()
+            .set_stat(Stat::Max, Precision::exact(max.clone().into_value()));
 
         debug_assert!(
             min <= max,

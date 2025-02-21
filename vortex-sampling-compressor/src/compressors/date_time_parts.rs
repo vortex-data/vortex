@@ -24,7 +24,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
     }
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
-        if let Ok(temporal_array) = TemporalArray::try_from(array.clone()) {
+        if let Ok(temporal_array) = TemporalArray::try_from(array.to_array()) {
             match temporal_array.temporal_metadata() {
                 // We only attempt to compress Timestamp arrays.
                 TemporalMetadata::Timestamp(..) => Some(self),
@@ -45,7 +45,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
             days,
             seconds,
             subseconds,
-        } = split_temporal(TemporalArray::try_from(array.clone())?)?;
+        } = split_temporal(TemporalArray::try_from(array.to_array())?)?;
 
         let days = ctx.named("days").compress(
             &downscale_integer_array(days)?,

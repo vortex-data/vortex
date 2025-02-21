@@ -9,7 +9,11 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayRef> {
         assert!(row_mask.true_count() > 0);
 
         let mut array = self.array().await?.clone();
@@ -65,7 +69,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.clone().into_array())
+                .push_one(&mut segments, array.to_array().into_array())
                 .unwrap();
 
             let result = layout
@@ -116,7 +120,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.clone().into_array())
+                .push_one(&mut segments, array.to_array().into_array())
                 .unwrap();
 
             let result = layout

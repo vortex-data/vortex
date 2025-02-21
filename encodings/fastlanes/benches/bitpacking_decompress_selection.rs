@@ -62,7 +62,7 @@ fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_
     let mask = &Mask::from_buffer(mask);
 
     bencher
-        .with_inputs(|| array.clone())
+        .with_inputs(|| array.to_array())
         .bench_local_values(|array| {
             filter(array.into_canonical().unwrap().as_ref(), mask).unwrap()
         });

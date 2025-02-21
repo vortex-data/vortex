@@ -109,7 +109,7 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
     fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
         if array.dtype().nullability() == Nullability::NonNullable {
-            return Ok(array.clone().into_array());
+            return Ok(array.to_array().into_array());
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_true() {

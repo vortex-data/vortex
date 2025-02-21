@@ -153,7 +153,7 @@ where
         null_count,
         value_count,
         distinct_values_count,
-        src: array.clone(),
+        src: array.to_array(),
         average_run_length: value_count / runs,
         distinct_values: DistinctValues {
             values: distinct_values,

@@ -23,6 +23,10 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_mask::Mask;
 
+use crate::arrays::{
+    BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
+    VarBinEncoding, VarBinViewEncoding,
+};
 use crate::builders::ArrayBuilder;
 use crate::stats::Statistics;
 use crate::visitor::ArrayVisitor;
@@ -65,6 +69,33 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants {
 
     /// Returns the encoding VTable.
     fn vtable(&self) -> VTableRef;
+
+    /// Returns whether the array is of the given encoding.
+    fn is_encoding(&self, encoding: EncodingId) -> bool {
+        self.encoding() == encoding
+    }
+
+    /// Returns whether this array is an arrow encoding.
+    // TODO(ngates): this shouldn't live here.
+    fn is_arrow(&self) -> bool {
+        self.is_encoding(NullEncoding.id())
+            || self.is_encoding(BoolEncoding.id())
+            || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(VarBinEncoding.id())
+            || self.is_encoding(VarBinViewEncoding.id())
+    }
+
+    /// Whether the array is of a canonical encoding.
+    // TODO(ngates): this shouldn't live here.
+    fn is_canonical(&self) -> bool {
+        self.is_encoding(NullEncoding.id())
+            || self.is_encoding(BoolEncoding.id())
+            || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(StructEncoding.id())
+            || self.is_encoding(ListEncoding.id())
+            || self.is_encoding(VarBinViewEncoding.id())
+            || self.is_encoding(ExtensionEncoding.id())
+    }
 
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool>;

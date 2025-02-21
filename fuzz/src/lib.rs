@@ -66,7 +66,7 @@ pub enum Action {
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let array = ArrayRef::arbitrary(u)?;
-        let mut current_array = array.clone();
+        let mut current_array = array.to_array();
 
         let valid_actions = actions_for_array(&current_array);
 
@@ -84,7 +84,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
                     (
                         Action::Compress(u.arbitrary()?),
-                        ExpectedValue::Array(current_array.clone()),
+                        ExpectedValue::Array(current_array.to_array()),
                     )
                 }
                 1 => {
@@ -94,7 +94,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     (
                         Action::Slice(start..stop),
-                        ExpectedValue::Array(current_array.clone()),
+                        ExpectedValue::Array(current_array.to_array()),
                     )
                 }
                 2 => {
@@ -114,7 +114,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .unwrap();
                     (
                         Action::Take(compressed.into_array()),
-                        ExpectedValue::Array(current_array.clone()),
+                        ExpectedValue::Array(current_array.to_array()),
                     )
                 }
                 3 => {
@@ -149,7 +149,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     current_array = filter_canonical_array(&current_array, &mask).unwrap();
                     (
                         Action::Filter(Mask::from_iter(mask)),
-                        ExpectedValue::Array(current_array.clone()),
+                        ExpectedValue::Array(current_array.to_array()),
                     )
                 }
                 _ => unreachable!(),

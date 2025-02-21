@@ -16,7 +16,7 @@ use vortex_scalar::Scalar;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;
-    let mut current_array = array.clone();
+    let mut current_array = array.to_array();
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress(c) => {

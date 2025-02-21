@@ -56,7 +56,7 @@ impl RowSelectorExec {
 
         Ok(Self {
             filter_expr,
-            chunked_array: chunked_array.clone(),
+            chunked_array: chunked_array.to_array(),
             cached_plan_props,
         })
     }
@@ -120,7 +120,7 @@ impl ExecutionPlan for RowSelectorExec {
 
         let filter_projection = self.filter_expr.references().into_iter().collect();
         Ok(Box::pin(RowIndicesStream {
-            chunked_array: self.chunked_array.clone(),
+            chunked_array: self.chunked_array.to_array(),
             chunk_idx: 0,
             filter_projection,
             conjunction_expr: self.filter_expr.clone(),

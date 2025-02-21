@@ -74,7 +74,7 @@ fn canonicalize_compare(bencher: Bencher, args: (usize, usize, u8)) {
 
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
     bencher
-        .with_inputs(|| array.clone())
+        .with_inputs(|| array.to_array())
         .bench_local_values(|array| {
             compare(array.into_canonical().unwrap(), &constant, Operator::Eq).unwrap()
         });
@@ -101,7 +101,7 @@ fn chunked_canonicalize_into(
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
     bencher
-        .with_inputs(|| array.clone())
+        .with_inputs(|| array.to_array())
         .bench_local_values(|array| {
             let mut builder = VarBinViewBuilder::with_capacity(
                 DType::Binary(Nullability::NonNullable),
@@ -120,7 +120,7 @@ fn chunked_into_canonical(
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
     bencher
-        .with_inputs(|| array.clone())
+        .with_inputs(|| array.to_array())
         .bench_local_values(|array| array.into_canonical().unwrap());
 }
 

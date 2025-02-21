@@ -57,7 +57,7 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let list_array = array.clone().into_list()?;
+            let list_array = array.to_array().into_list()?;
             let offsets =
                 slice_canonical_array(&list_array.offsets(), start, stop + 1)?.into_primitive()?;
 

@@ -89,7 +89,7 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
 
             // TODO(ngates): this is probably too heavy to run on the event loop. We should spawn
             //  onto a worker pool.
-            let indices_for_batch = slice(this.indices, left, right)?.into_primitive()?;
+            let indices_for_batch = slice(this.indices, left, right)?.to_primitive()?;
             let shifted_arr = match_each_integer_ptype!(indices_for_batch.ptype(), |$T| {
                 sub_scalar(&indices_for_batch.into_array(), Scalar::from(curr_offset as $T))?
             });
