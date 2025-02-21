@@ -38,7 +38,7 @@ datafusion = { workspace = true, features = [
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 enum-iterator = { workspace = true }
-futures = { workspace = true, features = ["executor"] }
+futures = { workspace = true }
 governor = { workspace = true }
 homedir = { workspace = true }
 humansize = { workspace = true }
@@ -67,20 +67,12 @@ tracing-subscriber = { workspace = true, features = [
     "tracing-log",
 ] }
 url = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
 xshell = { workspace = true }
-
-[dev-dependencies]
-criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 
 [features]
 mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
 tracing = ["vortex-datafusion/tracing"]
-
-[[bench]]
-name = "compress"
-test = false
-harness = false

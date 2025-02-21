@@ -28,14 +28,14 @@ fn make_array() -> PrimitiveArray {
 fn encode_generic(bencher: Bencher) {
     bencher
         .with_inputs(|| make_array().into_array())
-        .bench_local_values(|array| dict_encode(&array).unwrap());
+        .bench_values(|array| dict_encode(&array).unwrap());
 }
 
 #[divan::bench]
 fn encode_specialized(bencher: Bencher) {
     bencher
         .with_inputs(|| IntegerStats::generate(&make_array()))
-        .bench_local_values(|stats| dictionary_encode(&stats).unwrap());
+        .bench_values(|stats| dictionary_encode(&stats).unwrap());
 }
 
 fn main() {

@@ -13,7 +13,6 @@
 //!
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
-//!
 
 pub use array::*;
 pub use canonical::*;
@@ -21,8 +20,6 @@ pub use context::*;
 pub use data::*;
 pub use encoding::*;
 pub use metadata::*;
-pub use partial_ord::*;
-pub use paste;
 
 pub mod accessor;
 pub mod aliases;
@@ -39,15 +36,15 @@ mod encoding;
 pub mod iter;
 mod macros;
 mod metadata;
-pub mod nbytes;
-pub mod partial_ord;
+mod nbytes;
+mod partial_ord;
 pub mod patches;
 // pub mod serde;
 pub mod stats;
 pub mod stream;
 #[cfg(feature = "test-harness")]
 pub mod test_harness;
-pub mod tree;
+mod tree;
 pub mod validity;
 pub mod variants;
 pub mod visitor;

@@ -38,6 +38,8 @@ where
         Alignment::of::<simd::Simd<V, LANE_COUNT>>(),
     );
 
+    let buf_slice = buffer.spare_capacity_mut();
+
     for chunk_idx in 0..(codes_len / LANE_COUNT) {
         let offset = chunk_idx * LANE_COUNT;
         let mask = simd::Mask::from_bitmask(u64::MAX);
@@ -51,13 +53,15 @@ where
                 simd::Simd::<V, LANE_COUNT>::default(),
             );
 
-            selection.store_select_ptr(buffer.as_mut_ptr().add(offset), mask.cast());
+            selection.store_select_ptr(buf_slice.as_mut_ptr().add(offset) as *mut V, mask.cast());
         }
     }
 
     for idx in ((codes_len / LANE_COUNT) * LANE_COUNT)..codes_len {
         unsafe {
-            *buffer.as_mut_ptr().add(idx) = values[codes[idx].as_()];
+            buf_slice
+                .get_unchecked_mut(idx)
+                .write(values[codes[idx].as_()]);
         }
     }
 

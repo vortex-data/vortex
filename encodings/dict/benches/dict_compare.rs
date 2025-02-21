@@ -38,9 +38,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
 
     bencher
         .with_inputs(|| dict.clone())
-        .bench_local_refs(|dict| {
-            compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap()
-        })
+        .bench_refs(|dict| compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -54,9 +52,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
 
     bencher
         .with_inputs(|| dict.clone())
-        .bench_local_refs(|dict| {
-            compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap()
-        })
+        .bench_refs(|dict| compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -69,7 +65,5 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     let value = from_utf8(bytes.as_slice()).unwrap();
     bencher
         .with_inputs(|| dict.clone())
-        .bench_local_refs(|dict| {
-            compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap()
-        })
+        .bench_refs(|dict| compare(dict, ConstantArray::new(value, len), Operator::Eq).unwrap())
 }

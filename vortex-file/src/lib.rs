@@ -34,15 +34,13 @@
 //! Succinctly, the file format specification is as follows:
 //!
 //! 1. Data is written first, in a form that is describable by a Layout (typically Array IPC Messages).
-//!     a. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays,
-//!        and then writes the "metadata" arrays (i.e., per-column statistics)
+//!    a. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays, and then writes the "metadata" arrays (i.e., per-column statistics)
+//!
 //! 2. We write what is collectively referred to as the "Footer", which contains:
-//!     a. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
-//!     b. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
-//!        the those byte ranges that we wrote in part 1.
-//!     c. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout
-//!        flatbuffers within the file.
-//!     d. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
+//!    a. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
+//!    b. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst those byte ranges that we wrote in part 1.
+//!    c. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout flatbuffers within the file.
+//!    d. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
 //!
 //! ## Reified File Format
 //! ```text

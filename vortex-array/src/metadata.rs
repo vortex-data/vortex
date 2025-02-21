@@ -39,6 +39,7 @@ where
     fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
+/// Empty array metadata
 pub struct EmptyMetadata;
 impl ArrayMetadata for EmptyMetadata {}
 
@@ -69,7 +70,7 @@ impl Display for EmptyMetadata {
     }
 }
 
-/// A utility wrapper for automating the serialization of metadata using rkyv.
+/// A utility wrapper for automating the serialization of metadata using [rkyv](https://docs.rs/rkyv/latest/rkyv/).
 pub struct RkyvMetadata<M>(pub M);
 
 impl<M> SerializeMetadata for RkyvMetadata<M>
@@ -133,6 +134,7 @@ where
     }
 }
 
+/// A utility wrapper for automating the serialization of metadata using [serde](docs.rs/serde) into [flexbuffers](https://docs.rs/flexbuffers/latest/flexbuffers/).
 pub struct SerdeMetadata<M>(pub M);
 
 impl<M> SerializeMetadata for SerdeMetadata<M>

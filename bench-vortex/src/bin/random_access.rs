@@ -1,12 +1,10 @@
-use std::future::Future;
-use std::hint::black_box;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
 
-use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
-use bench_vortex::measurements::GenericMeasurement;
-use bench_vortex::reader::{take_parquet, take_vortex_tokio};
-use bench_vortex::taxi_data::{taxi_data_parquet, taxi_data_vortex};
+use bench_vortex::bench_run::run_with_setup;
+use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
+use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
+use bench_vortex::measurements::TimingMeasurement;
+use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -71,10 +69,9 @@ fn random_access(
 
     let mut measurements = Vec::new();
 
-    let taxi_vortex = taxi_data_vortex();
+    let taxi_vortex = runtime.block_on(taxi_data_vortex());
     let taxi_parquet = taxi_data_parquet();
-    measurements.push(GenericMeasurement {
-        id: 0,
+    measurements.push(TimingMeasurement {
         name: "random-access/vortex-tokio-local-disk".to_string(),
         storage: "nvme".to_string(),
         format: Format::OnDiskVortex,
@@ -88,8 +85,7 @@ fn random_access(
     progress.inc(1);
 
     if formats.contains(&Format::Parquet) {
-        measurements.push(GenericMeasurement {
-            id: 0,
+        measurements.push(TimingMeasurement {
             name: "random-access/parquet-tokio-local-disk".to_string(),
             storage: "nvme".to_string(),
             format: Format::Parquet,
@@ -105,7 +101,7 @@ fn random_access(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &formats).unwrap();
+            render_table(measurements, &formats, RatioMode::Time).unwrap();
         }
         DisplayFormat::GhJson => {
             print_measurements_json(measurements).unwrap();
@@ -114,35 +110,4 @@ fn random_access(
 
     progress.finish();
     ExitCode::SUCCESS
-}
-
-fn run_with_setup<I, O, S, R, F>(
-    runtime: &Runtime,
-    iterations: usize,
-    mut setup: S,
-    mut routine: R,
-) -> Duration
-where
-    S: FnMut() -> I,
-    R: FnMut(I) -> F,
-    F: Future<Output = O>,
-{
-    for _ in 0..2 {
-        black_box(routine(setup()));
-    }
-
-    let mut fastest_result = Duration::from_millis(u64::MAX);
-    for _ in 0..iterations {
-        let state = black_box(setup());
-        let elapsed = runtime.block_on(async {
-            let start = Instant::now();
-            let output = routine(state).await;
-            let elapsed = start.elapsed();
-            drop(black_box(output));
-            elapsed
-        });
-        fastest_result = fastest_result.min(elapsed);
-    }
-
-    fastest_result
 }

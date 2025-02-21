@@ -5,9 +5,12 @@ use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
 use crate::{Array, ArrayRef, EncodingId};
 
+/// Extendable compression interface, allowing implementations to explore different choices.
 pub trait CompressionStrategy {
+    /// Compress input array.
     fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef>;
 
+    /// A set of the IDs of the encodings the compressor can choose from.
     fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 

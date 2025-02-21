@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayRef, Canonical, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -234,8 +234,7 @@ pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {
     #[allow(clippy::only_used_in_recursion)]
-    pub fn compress(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        // println!("compressing array of len {}", array.len());
+    pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         match array.into_canonical()? {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.

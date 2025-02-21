@@ -6,6 +6,7 @@
 //! Every array encoding has the ability to implement their own efficient implementations of these
 //! operators, else we will decode, and perform the equivalent operator from Arrow.
 
+pub use between::{between, BetweenFn, BetweenOptions, StrictComparison};
 pub use binary_numeric::{
     add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub, sub_scalar,
     BinaryNumericFn,
@@ -28,6 +29,7 @@ pub use slice::{slice, SliceFn};
 pub use take::{take, take_into, TakeFn};
 pub use to_arrow::*;
 
+mod between;
 mod binary_numeric;
 mod boolean;
 mod cast;

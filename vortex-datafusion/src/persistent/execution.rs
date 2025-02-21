@@ -9,9 +9,8 @@ use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
-use datafusion_physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
+use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use itertools::Itertools;
 use object_store::ObjectStoreScheme;
 use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
@@ -19,12 +18,14 @@ use vortex_expr::{and, VortexExpr};
 
 use super::cache::FileLayoutCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
+use super::metrics::VortexExecMetrics;
+use crate::persistent::metrics::PARTITION_LABEL;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
 pub(crate) struct VortexExec {
     file_scan_config: FileScanConfig,
-    metrics: ExecutionPlanMetricsSet,
+    metrics: VortexExecMetrics,
     predicate: Option<Arc<dyn VortexExpr>>,
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
@@ -37,7 +38,7 @@ pub(crate) struct VortexExec {
 impl VortexExec {
     pub fn try_new(
         file_scan_config: FileScanConfig,
-        metrics: ExecutionPlanMetricsSet,
+        metrics: VortexExecMetrics,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: ContextRef,
         initial_read_cache: FileLayoutCache,
@@ -122,6 +123,9 @@ impl ExecutionPlan for VortexExec {
         context: Arc<TaskContext>,
     ) -> DFResult<SendableRecordBatchStream> {
         log::debug!("Executing partition {partition}");
+        let partition_metrics = self
+            .metrics
+            .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
         let object_store = context
             .runtime_env()
             .object_store(&self.file_scan_config.object_store_url)?;
@@ -137,8 +141,14 @@ impl ExecutionPlan for VortexExec {
             self.initial_read_cache.clone(),
             self.projected_arrow_schema.clone(),
             context.session_config().batch_size(),
+            partition_metrics,
         )?;
-        let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
+        let stream = FileStream::new(
+            &self.file_scan_config,
+            partition,
+            opener,
+            &self.metrics.execution_plan,
+        )?;
 
         Ok(Box::pin(stream))
     }
@@ -148,20 +158,34 @@ impl ExecutionPlan for VortexExec {
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
-        Some(self.metrics.clone_inner())
+        Some(self.metrics.metrics_set())
     }
 
     fn repartitioned(
         &self,
         target_partitions: usize,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
-        let file_groups = self.file_scan_config.file_groups.clone();
+        let all_files = self
+            .file_scan_config
+            .file_groups
+            .iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
-        let repartitioned_file_groups = repartition_by_size(file_groups, target_partitions);
+        let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
 
+        // If there's one file or less total files in the scan, we can't repartition it
+        if all_files.len() <= 1 {
+            return Ok(None);
+        }
+
+        if total_size < config.optimizer.repartition_file_min_size {
+            return Ok(None);
+        }
+
+        let repartitioned_file_groups = repartition_by_size(all_files, target_partitions);
         let mut new_plan = self.clone();
-
         let num_partitions = repartitioned_file_groups.len();
 
         log::debug!("VortexExec repartitioned to {num_partitions} partitions");
@@ -188,10 +212,9 @@ fn make_vortex_predicate(predicate: Option<Arc<dyn PhysicalExpr>>) -> Option<Arc
 }
 
 fn repartition_by_size(
-    file_groups: Vec<Vec<PartitionedFile>>,
+    all_files: Vec<&PartitionedFile>,
     desired_partitions: usize,
 ) -> Vec<Vec<PartitionedFile>> {
-    let all_files = file_groups.into_iter().concat();
     let total_file_count = all_files.len();
     let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
     let target_partition_size = total_size / (desired_partitions + 1);
@@ -203,7 +226,7 @@ fn repartition_by_size(
 
     for file in all_files.into_iter() {
         curr_partition_size += file.object_meta.size;
-        curr_partition.push(file);
+        curr_partition.push(file.clone());
 
         if curr_partition_size >= target_partition_size {
             curr_partition_size = 0;
@@ -218,7 +241,7 @@ fn repartition_by_size(
     } else if !curr_partition.is_empty() {
         for (idx, file) in curr_partition.into_iter().enumerate() {
             let new_part_idx = idx % partitions.len();
-            partitions[new_part_idx].push(file);
+            partitions[new_part_idx].push(file.clone());
         }
     }
 
@@ -238,20 +261,23 @@ mod tests {
 
     #[test]
     fn basic_repartition_test() {
-        let file_groups = vec![vec![
+        let file_groups = vec![
             PartitionedFile::new("a", 100),
             PartitionedFile::new("b", 25),
             PartitionedFile::new("c", 25),
             PartitionedFile::new("d", 25),
             PartitionedFile::new("e", 50),
-        ]];
+        ];
 
-        repartition_by_size(file_groups, 2);
+        let groups = repartition_by_size(file_groups.iter().collect(), 2);
 
-        let file_groups = vec![(0..100)
+        assert_eq!(groups.len(), 2);
+
+        let file_groups = (0..100)
             .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
-            .collect()];
+            .collect::<Vec<_>>();
 
-        repartition_by_size(file_groups, 16);
+        let groups = repartition_by_size(file_groups.iter().collect(), 16);
+        assert_eq!(groups.len(), 16);
     }
 }

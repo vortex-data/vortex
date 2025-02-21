@@ -26,6 +26,7 @@ pub(crate) struct VortexFileOpener {
     pub(crate) file_layout_cache: FileLayoutCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
+    metrics: VortexMetrics,
 }
 
 impl VortexFileOpener {
@@ -39,6 +40,7 @@ impl VortexFileOpener {
         file_layout_cache: FileLayoutCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
+        metrics: VortexMetrics,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -49,22 +51,23 @@ impl VortexFileOpener {
             file_layout_cache,
             projected_arrow_schema,
             batch_size,
+            metrics,
         })
     }
 }
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
-        let metrics = VortexMetrics::default_with_tags(
-            [("filename", file_meta.location().to_string())].as_slice(),
-        );
+        let file_metrics = self
+            .metrics
+            .child_with_tags([("filename", file_meta.location().to_string())]);
         let read_at = InstrumentedReadAt::new(
             ObjectStoreReadAt::new(
                 self.object_store.clone(),
                 file_meta.location().clone(),
                 Some(self.scheme.clone()),
             ),
-            &metrics,
+            &file_metrics,
         );
 
         let filter = self.filter.clone();
@@ -79,6 +82,7 @@ impl FileOpener for VortexFileOpener {
         Ok(async move {
             let vxf = VortexOpenOptions::file(read_at)
                 .with_ctx(ctx.clone())
+                .with_metrics(file_metrics)
                 .with_file_layout(
                     file_layout_cache
                         .try_get(&file_meta.object_meta, object_store)

@@ -1,11 +1,10 @@
 use std::cmp::Ordering;
 
 use vortex_error::{VortexError, VortexResult};
-use Precision::Inexact;
 
-use crate::stats::Precision::Exact;
+use crate::partial_ord::{partial_max, partial_min};
+use crate::stats::Precision::{Exact, Inexact};
 use crate::stats::{Precision, StatBound};
-use crate::{partial_max, partial_min};
 
 /// Interpret the value as a lower bound.
 /// These form a partial order over successively more precise bounds

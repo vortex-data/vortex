@@ -1,10 +1,8 @@
 use vortex_dtype::FieldName;
-use vortex_error::{VortexError, VortexExpect as _, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::VortexResult;
 
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::ConstantEncoding;
-use crate::iter::Accessor;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
@@ -49,16 +47,6 @@ impl ArrayVariantsImpl for ConstantArray {
 impl NullArrayTrait for ConstantArray {}
 
 impl BoolArrayTrait for ConstantArray {}
-
-impl<T> Accessor<T> for ConstantArray
-where
-    T: Clone,
-    T: for<'a> TryFrom<&'a Scalar, Error = VortexError>,
-{
-    fn value_unchecked(&self, _index: usize) -> T {
-        T::try_from(self.scalar()).vortex_expect("Failed to convert scalar to value")
-    }
-}
 
 impl PrimitiveArrayTrait for ConstantArray {}
 

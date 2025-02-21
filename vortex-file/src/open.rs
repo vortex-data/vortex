@@ -36,7 +36,7 @@ pub trait FileType: Sized {
         options: Self::Options,
         file_layout: FileLayout,
         segment_cache: Arc<dyn SegmentCache>,
-        metrics: Arc<VortexMetrics>,
+        metrics: VortexMetrics,
     ) -> Self::ScanDriver;
 }
 
@@ -57,7 +57,7 @@ pub struct VortexOpenOptions<F: FileType> {
     file_layout: Option<FileLayout>,
     segment_cache: Arc<dyn SegmentCache>,
     initial_read_size: u64,
-    metrics: Arc<VortexMetrics>,
+    metrics: VortexMetrics,
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
@@ -112,7 +112,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     }
 
     /// Configure a custom [`VortexMetrics`].
-    pub fn with_metrics(mut self, metrics: Arc<VortexMetrics>) -> Self {
+    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
         self.metrics = metrics;
         self
     }
@@ -130,7 +130,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
             file_layout: None,
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: 0,
-            metrics: Arc::new(VortexMetrics::default()),
+            metrics: VortexMetrics::default(),
         }
     }
 }
@@ -152,7 +152,7 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
                 CacheBuilder::new(1 << 30),
             )),
             initial_read_size: Self::INITIAL_READ_SIZE,
-            metrics: Arc::new(VortexMetrics::default()),
+            metrics: VortexMetrics::default(),
         }
     }
 }

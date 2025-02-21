@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
+use std::iter;
 use std::sync::{Arc, RwLock};
-use std::{iter, ptr};
 
 mod accessor;
 
@@ -15,8 +15,7 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
-use crate::iter::Accessor;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
@@ -288,31 +287,6 @@ impl ArrayStatisticsImpl for PrimitiveArray {
 impl ArrayVariantsImpl for PrimitiveArray {
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         Some(self)
-    }
-}
-
-impl<T: NativePType> Accessor<T> for PrimitiveArray {
-    #[inline]
-    fn value_unchecked(&self, index: usize) -> T {
-        self.as_slice::<T>()[index]
-    }
-
-    #[inline]
-    fn decode_batch(&self, start_idx: usize) -> Vec<T> {
-        let batch_size = <Self as Accessor<T>>::batch_size(self, start_idx);
-        let mut v = Vec::<T>::with_capacity(batch_size);
-        let null_slice = self.as_slice::<T>();
-
-        unsafe {
-            v.set_len(batch_size);
-            ptr::copy_nonoverlapping(
-                null_slice.as_ptr().add(start_idx),
-                v.as_mut_ptr(),
-                batch_size,
-            );
-        }
-
-        v
     }
 }
 

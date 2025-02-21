@@ -8,6 +8,7 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod between;
 pub mod datafusion;
 mod field;
 pub mod forms;

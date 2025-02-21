@@ -75,11 +75,11 @@ impl ArrayValidityImpl for NullArray {
     }
 
     fn _all_valid(&self) -> VortexResult<bool> {
-        Ok(self.len == 0)
+        Ok(self.is_empty())
     }
 
     fn _all_invalid(&self) -> VortexResult<bool> {
-        Ok(self.len > 0)
+        Ok(!self.is_empty())
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
