@@ -108,9 +108,6 @@ jobs:
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
     runs-on: ubuntu-latest
-    env:
-      # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: "-A warnings"
     strategy:
       fail-fast: false
       matrix:

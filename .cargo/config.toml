@@ -1,3 +1,4 @@
+rustflags = ["-A", "warnings"]
 [target.'(target_familiy="unix")']
 rustflags = ["-C", "force-frame-pointers=yes"]
 # For pyo3 to successfully link on Macos
