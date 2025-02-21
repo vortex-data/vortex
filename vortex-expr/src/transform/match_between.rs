@@ -10,6 +10,8 @@ use crate::{and, lit, BinaryExpr, ExprRef, GetItem, Literal, Operator};
 ///      `x >= a && x < b` and converts them into x between a and b`
 #[allow(dead_code)]
 pub fn find_between(expr: ExprRef) -> ExprRef {
+    // We search all pairs of cnfs to find any pair of expressions can be converted into a between
+    // expression.
     let mut conjuncts = cnf(expr.clone());
     let mut rest = vec![];
 
@@ -18,11 +20,13 @@ pub fn find_between(expr: ExprRef) -> ExprRef {
             continue;
         };
         let mut matched = false;
-        for idx2 in (idx + 1)..(conjuncts.len()) {
+        for idx2 in (idx + 1)..conjuncts.len() {
+            // Since values are removed in iterations there might not be a value at idx2,
+            // but all values will have been considered.
             let Some(c2) = conjuncts.get(idx2) else {
                 continue;
             };
-            if let Some(expr) = maybe_match(&c, &c2) {
+            if let Some(expr) = maybe_match(&c, c2) {
                 rest.push(expr);
                 conjuncts.remove(idx2);
                 matched = true;
@@ -33,21 +37,8 @@ pub fn find_between(expr: ExprRef) -> ExprRef {
             rest.push(c.clone())
         }
     }
-    let res = rest.into_iter().reduce(and).unwrap_or(lit(true));
-    // if &expr != &res {
-    //     println!("{}", res);
-    // }
-    res
 
-    // for c in &rest {
-    //     println!("conjuncts {}", c);
-    // }
-
-    // expr.clone()
-    //     .transform(&mut MatchBetween)
-    //     .inspect(|e|)
-    //     .vortex_expect("cannot fail")
-    //     .result
+    rest.into_iter().reduce(and).unwrap_or(lit(true))
 }
 
 #[allow(dead_code)]

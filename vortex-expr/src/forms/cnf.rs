@@ -20,7 +20,7 @@ use crate::{lit, or, BinaryExpr, ExprRef, Operator};
 /// use vortex_expr::forms::cnf::cnf;
 ///
 /// let double_negation = not(not(col("a")));
-/// let cnfed = cnf(double_negation).unwrap();
+/// let cnfed = cnf(double_negation);
 /// assert_eq!(cnfed, vec![col("a")]);
 /// ```
 ///
@@ -38,7 +38,7 @@ use crate::{lit, or, BinaryExpr, ExprRef, Operator};
 ///             and(col("a"), col("b")),
 ///             col("c"),
 ///         )
-///     ).unwrap(),
+///     ),
 ///     vec![
 ///         or(col("a"), col("c")),
 ///         or(col("b"), col("c")),

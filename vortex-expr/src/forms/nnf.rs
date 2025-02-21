@@ -17,7 +17,7 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// let double_negation = not(not(col("a")));
-/// let nnfed = nnf(double_negation).unwrap();
+/// let nnfed = nnf(double_negation);
 /// assert_eq!(&nnfed, &col("a"));
 /// ```
 ///
@@ -28,7 +28,7 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// let triple_negation = not(not(not(col("a"))));
-/// let nnfed = nnf(triple_negation).unwrap();
+/// let nnfed = nnf(triple_negation);
 /// assert_eq!(&nnfed, &not(col("a")));
 /// ```
 ///
@@ -39,7 +39,7 @@ use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 /// use vortex_expr::forms::nnf::nnf;
 ///
 /// assert_eq!(
-///     &nnf(not(and(col("a"), col("b")))).unwrap(),
+///     &nnf(not(and(col("a"), col("b")))),
 ///     &or(not(col("a")), not(col("b")))
 /// );
 /// ```
