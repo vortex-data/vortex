@@ -108,6 +108,9 @@ jobs:
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
     runs-on: ubuntu-latest
+    env:
+      # disable lints for build, they will be caught in Rust lint job.
+      RUSTFLAGS: '-A warnings --cfg getrandom_backend="wasm_js"'
     strategy:
       fail-fast: false
       matrix:
@@ -165,6 +168,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
+      - name: Rustc check
+        run: cargo check --locked --all-features --all-targets
       - name: Rust Lint - Clippy All Features
         run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
