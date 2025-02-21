@@ -14,18 +14,17 @@ impl ScalarAtFn<&RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::scalar_at;
-    use vortex_array::IntoArray;
+    use vortex_array::Array;
 
     use crate::RunEndArray;
 
     #[test]
     fn ree_scalar_at_end() {
         let scalar = scalar_at(
-            RunEndArray::encode(
+            &RunEndArray::encode(
                 PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
             )
-            .unwrap()
-            .as_ref(),
+            .unwrap(),
             11,
         )
         .unwrap();

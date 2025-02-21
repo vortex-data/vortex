@@ -21,8 +21,9 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    try_from_array_ref, validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
+    RkyvMetadata,
 };
 
 mod compute;
@@ -36,6 +37,8 @@ pub struct PrimitiveArray {
     validity: Validity,
     stats_set: Arc<RwLock<StatsSet>>,
 }
+
+try_from_array_ref!(PrimitiveArray);
 
 pub struct PrimitiveEncoding;
 impl Encoding for PrimitiveEncoding {
