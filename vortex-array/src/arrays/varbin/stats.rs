@@ -6,7 +6,7 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
-use crate::compute::scalar_at;
+use crate::compute::{min_max, scalar_at};
 use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
@@ -22,17 +22,8 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
     array: &T,
     stat: Stat,
 ) -> VortexResult<StatsSet> {
-    if stat == Stat::UncompressedSizeInBytes {
-        return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
-    }
-
-    if array.is_empty()
-        || stat == Stat::TrueCount
-        || stat == Stat::RunCount
-        || stat == Stat::BitWidthFreq
-        || stat == Stat::TrailingZeroFreq
-    {
-        return Ok(StatsSet::default());
+    if array.is_empty() {
+        return Ok(StatsSet::empty_array());
     }
 
     Ok(match stat {
@@ -77,13 +68,12 @@ pub fn compute_varbin_statistics<T: ArrayAccessor<[u8]> + Array>(
             }
             stats
         }
-        Stat::UncompressedSizeInBytes
-        | Stat::TrueCount
-        | Stat::RunCount
-        | Stat::BitWidthFreq
-        | Stat::TrailingZeroFreq
-        | Stat::Min
-        | Stat::Max => {
+        Stat::UncompressedSizeInBytes => StatsSet::of(stat, Precision::exact(array.nbytes())),
+        Stat::TrueCount | Stat::RunCount | Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
+            StatsSet::default()
+        }
+        Stat::Min | Stat::Max => {
+            // Min and max are automatically dispatched to min_max compute function.
             vortex_panic!(
                 "Unreachable, stat {} should have already been handled",
                 stat

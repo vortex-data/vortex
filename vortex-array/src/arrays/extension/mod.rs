@@ -120,8 +120,11 @@ impl ArrayVisitorImpl for ExtensionArray {
     }
 }
 
-// TODO(ngates): forward?
-impl StatisticsVTable<'_, ExtensionArray> for ExtensionEncoding {}
+impl StatisticsVTable<'_, ExtensionArray> for ExtensionEncoding {
+    fn compute_statistics(&self, array: &'_ ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
+        array.storage().statistics().compute_all(&[stat])
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -41,6 +41,10 @@ where
 ///
 /// This will update the stats set of this array (as a side effect).
 pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
+    if array.is_empty() {
+        return Ok(None);
+    }
+
     let min = array
         .statistics()
         .get_scalar(Stat::Min, array.dtype())
