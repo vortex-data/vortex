@@ -17,6 +17,7 @@ readme = { workspace = true }
 workspace = true
 
 [dependencies]
+getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
