@@ -10,14 +10,12 @@ then
     exit 1;
 fi
 
-
 export RUST_LOG="OFF"
 OUTPUT_FILE="output.txt"
 echo "Writing results to $OUTPUT_FILE"
 
 # Clear output file
 > $OUTPUT_FILE
-
 
 echo "Building binaries with mimalloc"
 cargo build --bin tpch --bin clickbench --release --features mimalloc
@@ -34,6 +32,3 @@ for i in "tpch 1 22" "clickbench 0 42"; do
         gtime -f %M target/release/$benchmark -q $q -i 2 --formats vortex 2>> $OUTPUT_FILE
     done
 done
-
-
-
