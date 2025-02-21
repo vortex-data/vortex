@@ -4,7 +4,7 @@ use vortex_array::compute::{
     SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -55,7 +55,7 @@ impl ScalarAtFn<&SparseArray> for SparseEncoding {
         Ok(array
             .patches()
             .get_patched(index)?
-            .unwrap_or_else(|| array.fill_scalar()))
+            .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }
 
@@ -92,11 +92,13 @@ impl FilterFn<&SparseArray> for SparseEncoding {
         let new_length = mask.true_count();
 
         let Some(new_patches) = array.patches().filter(mask)? else {
-            return Ok(ConstantArray::new(array.fill_scalar(), new_length).into_array());
+            return Ok(ConstantArray::new(array.fill_scalar().clone(), new_length).into_array());
         };
 
-        SparseArray::try_new_from_patches(new_patches, new_length, array.fill_scalar())
-            .map(IntoArray::into_array)
+        Ok(
+            SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
+                .into_array(),
+        )
     }
 }
 
@@ -109,7 +111,7 @@ mod test {
         filter, search_sorted, slice, try_cast, SearchResult, SearchSortedSide,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
@@ -213,11 +215,7 @@ mod test {
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
 
         assert_eq!(filtered_array.len(), 4);
-        let primitive = filtered_array
-            .patches()
-            .into_indices()
-            .into_primitive()
-            .unwrap();
+        let primitive = filtered_array.patches().indices().to_primitive().unwrap();
 
         assert_eq!(primitive.as_slice::<u64>(), &[1, 3]);
     }
@@ -231,30 +229,28 @@ mod test {
     fn test_mask_sparse_array() {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         test_mask(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 try_cast(
-                    buffer![100i32, 200, 300].into_array(),
+                    &buffer![100i32, 200, 300].into_array(),
                     null_fill_value.dtype(),
                 )
                 .unwrap(),
                 5,
                 null_fill_value,
             )
-            .unwrap()
-            .into_array(),
+            .unwrap(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
         test_mask(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
             )
-            .unwrap()
-            .into_array(),
+            .unwrap(),
         )
     }
 }

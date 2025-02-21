@@ -12,9 +12,9 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
+    EmptyMetadata, Encoding, EncodingId,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
@@ -35,6 +35,8 @@ pub struct BitPackedArray {
     validity: Validity,
     stats_set: Arc<RwLock<StatsSet>>,
 }
+
+try_from_array_ref!(BitPackedArray);
 
 pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
@@ -226,19 +228,6 @@ impl BitPackedArray {
     #[inline]
     fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
-    }
-}
-
-impl TryFrom<ArrayRef> for BitPackedArray {
-    type Error = VortexError;
-
-    fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
-        Ok(Arc::unwrap_or_clone(
-            value
-                .as_any_arc()
-                .downcast::<BitPackedArray>()
-                .map_err(|_| vortex_err!("Cannot downcast to BitPackedArray"))?,
-        ))
     }
 }
 
