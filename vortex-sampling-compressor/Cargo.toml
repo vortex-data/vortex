@@ -37,7 +37,9 @@ vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
-chrono = { workspace = true }
+divan = { workspace = true }
+jiff = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [lints]
@@ -45,3 +47,13 @@ workspace = true
 
 [features]
 arbitrary = ["dep:arbitrary"]
+
+[[bench]]
+name = "compressor_throughput"
+test = false
+harness = false
+
+[[bench]]
+name = "sel_vec"
+test = false
+harness = false

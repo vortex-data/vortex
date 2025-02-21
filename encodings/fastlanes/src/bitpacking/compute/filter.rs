@@ -1,6 +1,6 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
@@ -139,7 +139,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{filter, slice};
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;

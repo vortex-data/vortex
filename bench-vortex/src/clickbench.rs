@@ -9,6 +9,7 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use futures::{stream, StreamExt, TryStreamExt};
 use tokio::fs::{create_dir_all, OpenOptions};
+use tracing::info;
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexError};
@@ -158,7 +159,7 @@ pub async fn register_vortex_files(
             tokio::spawn(async move {
                 let output_path = output_path.clone();
                 idempotent_async(&output_path, move |vtx_file| async move {
-                    eprintln!("Processing file {idx}");
+                    info!("Processing file {idx}");
                     let record_batches = session
                         .read_parquet(
                             parquet_file_path.to_str().unwrap(),

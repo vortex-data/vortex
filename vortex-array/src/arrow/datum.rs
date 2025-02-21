@@ -1,7 +1,7 @@
 use arrow_array::{Array as ArrowArray, ArrayRef, Datum as ArrowDatum};
 use vortex_error::{vortex_panic, VortexResult};
 
-use crate::array::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
 use crate::{Array, IntoArray};

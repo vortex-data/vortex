@@ -7,11 +7,11 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::array::{
+use crate::arrays::{
     BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
-use crate::builders::builder_with_capacity;
+use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::{preferred_arrow_data_type, to_arrow};
 use crate::{Array, IntoArray};
 
@@ -63,7 +63,6 @@ impl Canonical {
     pub fn empty(dtype: &DType) -> Canonical {
         builder_with_capacity(dtype, 0)
             .finish()
-            .vortex_expect("cannot fail to build an empty array")
             .into_canonical()
             .vortex_expect("cannot fail to convert an empty array to canonical")
     }
@@ -129,11 +128,18 @@ impl Canonical {
 pub trait IntoCanonical {
     /// Canonicalize the array.
     fn into_canonical(self) -> VortexResult<Canonical>;
+
+    /// Canonicalize the array into the given builder.
+    fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 }
 
 impl<A: IntoArray> IntoCanonical for A {
     fn into_canonical(self) -> VortexResult<Canonical> {
         self.into_array().into_canonical()
+    }
+
+    fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        self.into_array().canonicalize_into(builder)
     }
 }
 
@@ -206,10 +212,16 @@ impl IntoCanonical for Array {
         #[cfg(feature = "canonical_counter")]
         self.inc_canonical_counter();
 
+        // If the encoding isn't already canonical, and it's a primitive DType, then we
+        // should canonicalize_into?
         let canonical = self.vtable().into_canonical(self.clone())?;
         canonical.as_ref().inherit_statistics(self.statistics());
-
         Ok(canonical)
+    }
+
+    /// Canonicalize an [`Array`] into an existing [`ArrayBuilder`].
+    fn canonicalize_into(self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        self.vtable().canonicalize_into(self.clone(), builder)
     }
 }
 
@@ -288,7 +300,7 @@ mod test {
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
-    use crate::array::{ConstantArray, StructArray};
+    use crate::arrays::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
     use crate::{Array, IntoArray};
 

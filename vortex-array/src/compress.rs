@@ -5,13 +5,16 @@ use crate::aliases::hash_set::HashSet;
 use crate::stats::PRUNING_STATS;
 use crate::{Array, EncodingId};
 
+/// Extendable compression interface, allowing implementations to explore different choices.
 pub trait CompressionStrategy {
+    /// Compress input array.
     fn compress(&self, array: &Array) -> VortexResult<Array>;
 
+    /// A set of the IDs of the encodings the compressor can choose from.
     fn used_encodings(&self) -> HashSet<EncodingId>;
 }
 
-/// Check that compression did not alter the length of the validity array.
+/// Verify that compression did not alter the length of the validity array.
 pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
     let _ = arr;
     let _ = compressed;
@@ -37,7 +40,7 @@ pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
     }
 }
 
-/// Check that compression did not alter the dtype
+/// Verify that compression did not alter the dtype.
 pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
     let _ = arr;
     let _ = compressed;
@@ -54,7 +57,7 @@ pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
     }
 }
 
-// Check that compression preserved the statistics.
+/// Verify that compression preserved the statistics.
 pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
     let _ = arr;
     let _ = compressed;

@@ -17,7 +17,6 @@ use datafusion_expr::dml::InsertOp;
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::insert::DataSinkExec;
-use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::{stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools;
@@ -184,6 +183,7 @@ impl FileFormat for VortexFormat {
         Ok(schema)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
     async fn infer_stats(
         &self,
         _state: &SessionState,
@@ -191,14 +191,14 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+        let read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone(), None);
+        let file_layout = self
+            .file_layout_cache
+            .try_get(object, store.clone())
+            .await?;
 
         let vxf = VortexOpenOptions::file(read_at)
-            .with_file_layout(
-                self.file_layout_cache
-                    .try_get(object, store.clone())
-                    .await?,
-            )
+            .with_file_layout(file_layout)
             .open()
             .await?;
 
@@ -276,8 +276,6 @@ impl FileFormat for VortexFormat {
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        let metrics = ExecutionPlanMetricsSet::new();
-
         if file_scan_config
             .file_groups
             .iter()
@@ -295,9 +293,13 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
 
+        if !file_scan_config.output_ordering.is_empty() {
+            return not_impl_err!("Vortex doesn't support output ordering");
+        }
+
         let exec = VortexExec::try_new(
             file_scan_config,
-            metrics,
+            Default::default(),
             filters.cloned(),
             self.context.clone(),
             self.file_layout_cache.clone(),

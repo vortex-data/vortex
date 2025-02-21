@@ -6,12 +6,15 @@ mod tokio;
 mod wasm;
 
 use std::future::Future;
+use std::sync::{Arc, LazyLock};
 use std::task::Poll;
 
 use cfg_if::cfg_if;
 use futures::channel::oneshot;
 use futures::FutureExt;
 use vortex_error::{vortex_err, VortexResult};
+
+static DEFAULT: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
 #[cfg(feature = "compio")]
 use self::compio::*;
@@ -66,8 +69,49 @@ pub trait Dispatch: sealed::Sealed {
 /// of asynchronous, `!Send` tasks across potentially many worker threads, and allowing work
 /// submission from any other runtime.
 ///
-#[derive(Debug)]
-pub struct IoDispatcher(Inner);
+#[derive(Clone, Debug)]
+pub struct IoDispatcher(Arc<Inner>);
+
+impl IoDispatcher {
+    pub fn new() -> Self {
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                Self(Arc::new(Inner::Wasm(WasmDispatcher::new())))
+            } else if #[cfg(not(feature = "compio"))] {
+                Self(Arc::new(Inner::Tokio(TokioDispatcher::new(1))))
+            } else {
+                Self(Arc::new(Inner::Compio(CompioDispatcher::new(1))))
+            }
+        }
+    }
+
+    /// Create a new IO dispatcher that uses a set of Tokio `current_thread` runtimes to
+    /// execute both `Send` and `!Send` futures.
+    ///
+    /// A handle to the dispatcher can be passed freely among threads, allowing multiple parties to
+    /// perform dispatching across different threads.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new_tokio(num_thread: usize) -> Self {
+        Self(Arc::new(Inner::Tokio(TokioDispatcher::new(num_thread))))
+    }
+
+    #[cfg(feature = "compio")]
+    pub fn new_compio(num_threads: usize) -> Self {
+        Self(Arc::new(Inner::Compio(CompioDispatcher::new(num_threads))))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new_wasm() -> Self {
+        Self(Arc::new(Inner::Wasm(WasmDispatcher)))
+    }
+}
+
+impl Default for IoDispatcher {
+    fn default() -> Self {
+        // By default, we return a shared handle
+        DEFAULT.clone()
+    }
+}
 
 pub struct JoinHandle<R>(oneshot::Receiver<R>);
 
@@ -96,20 +140,6 @@ enum Inner {
     Wasm(WasmDispatcher),
 }
 
-impl Default for IoDispatcher {
-    fn default() -> Self {
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                Self(Inner::Wasm(WasmDispatcher::new()))
-            } else if #[cfg(not(feature = "compio"))] {
-                Self(Inner::Tokio(TokioDispatcher::new(1)))
-            } else {
-                Self(Inner::Compio(CompioDispatcher::new(1)))
-            }
-        }
-    }
-}
-
 impl Dispatch for IoDispatcher {
     #[allow(unused_variables)] // If no features are enabled `task` ends up being unused
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<JoinHandle<R>>
@@ -118,7 +148,7 @@ impl Dispatch for IoDispatcher {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
-        match self.0 {
+        match self.0.as_ref() {
             #[cfg(not(target_arch = "wasm32"))]
             Inner::Tokio(ref tokio_dispatch) => tokio_dispatch.dispatch(task),
             #[cfg(feature = "compio")]
@@ -129,35 +159,17 @@ impl Dispatch for IoDispatcher {
     }
 
     fn shutdown(self) -> VortexResult<()> {
-        match self.0 {
-            #[cfg(not(target_arch = "wasm32"))]
-            Inner::Tokio(tokio_dispatch) => tokio_dispatch.shutdown(),
-            #[cfg(feature = "compio")]
-            Inner::Compio(compio_dispatch) => compio_dispatch.shutdown(),
-            #[cfg(target_arch = "wasm32")]
-            Inner::Wasm(wasm_dispatch) => wasm_dispatch.shutdown(),
+        if let Ok(inner) = Arc::try_unwrap(self.0) {
+            match inner {
+                #[cfg(not(target_arch = "wasm32"))]
+                Inner::Tokio(tokio_dispatch) => tokio_dispatch.shutdown(),
+                #[cfg(feature = "compio")]
+                Inner::Compio(compio_dispatch) => compio_dispatch.shutdown(),
+                #[cfg(target_arch = "wasm32")]
+                Inner::Wasm(wasm_dispatch) => wasm_dispatch.shutdown(),
+            }
+        } else {
+            Ok(())
         }
-    }
-}
-
-impl IoDispatcher {
-    /// Create a new IO dispatcher that uses a set of Tokio `current_thread` runtimes to
-    /// execute both `Send` and `!Send` futures.
-    ///
-    /// A handle to the dispatcher can be passed freely among threads, allowing multiple parties to
-    /// perform dispatching across different threads.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_tokio(num_thread: usize) -> Self {
-        Self(Inner::Tokio(TokioDispatcher::new(num_thread)))
-    }
-
-    #[cfg(feature = "compio")]
-    pub fn new_compio(num_threads: usize) -> Self {
-        Self(Inner::Compio(CompioDispatcher::new(num_threads)))
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn new_wasm() -> Self {
-        Self(Inner::Wasm(WasmDispatcher))
     }
 }

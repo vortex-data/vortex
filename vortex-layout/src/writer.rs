@@ -42,4 +42,4 @@ pub trait LayoutWriterExt: LayoutWriter {
     }
 }
 
-impl<L: LayoutWriter> LayoutWriterExt for L {}
+impl<L: LayoutWriter + ?Sized> LayoutWriterExt for L {}

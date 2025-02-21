@@ -8,7 +8,7 @@ use crate::Array;
 #[macro_export]
 macro_rules! impl_encoding {
     ($id:literal, $code:expr, $Name:ident, $Metadata:ty) => {
-        $crate::paste::paste! {
+        $crate::aliases::paste::paste! {
             #[derive(std::fmt::Debug, Clone)]
             #[repr(transparent)]
             pub struct [<$Name Array>]($crate::Array);
@@ -31,8 +31,8 @@ macro_rules! impl_encoding {
                     dtype: vortex_dtype::DType,
                     len: usize,
                     metadata: $Metadata,
-                    buffers: Option<Box<[vortex_buffer::ByteBuffer]>>,
-                    children: Option<Box<[$crate::Array]>>,
+                    buffers: Box<[vortex_buffer::ByteBuffer]>,
+                    children: Box<[$crate::Array]>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
                     use $crate::SerializeMetadata;

@@ -1,4 +1,4 @@
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     BinaryNumericFn, FilterFn, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
     SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
@@ -54,7 +54,7 @@ impl ScalarAtFn<SparseArray> for SparseEncoding {
     fn scalar_at(&self, array: &SparseArray, index: usize) -> VortexResult<Scalar> {
         Ok(array
             .patches()
-            .get_patched(array.indices_offset() + index)?
+            .get_patched(index)?
             .unwrap_or_else(|| array.fill_scalar()))
     }
 }
@@ -67,10 +67,7 @@ impl SearchSortedFn<SparseArray> for SparseEncoding {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        Ok(array
-            .patches()
-            .search_sorted(value.clone(), side)?
-            .map(|i| i - array.indices_offset()))
+        array.patches().search_sorted(value.clone(), side)
     }
 }
 
@@ -94,11 +91,11 @@ impl FilterFn<SparseArray> for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<Array> {
         let new_length = mask.true_count();
 
-        let Some(new_patches) = array.resolved_patches()?.filter(mask)? else {
+        let Some(new_patches) = array.patches().filter(mask)? else {
             return Ok(ConstantArray::new(array.fill_scalar(), new_length).into_array());
         };
 
-        SparseArray::try_new_from_patches(new_patches, new_length, 0, array.fill_scalar())
+        SparseArray::try_new_from_patches(new_patches, new_length, array.fill_scalar())
             .map(IntoArray::into_array)
     }
 }
@@ -106,12 +103,15 @@ impl FilterFn<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
-    use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::test_harness::test_binary_numeric;
-    use vortex_array::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
+    use vortex_array::compute::{
+        filter, search_sorted, slice, try_cast, SearchResult, SearchSortedSide,
+    };
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
@@ -225,5 +225,36 @@ mod test {
     #[rstest]
     fn test_sparse_binary_numeric(array: Array) {
         test_binary_numeric::<i32>(array)
+    }
+
+    #[test]
+    fn test_mask_sparse_array() {
+        let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+        test_mask(
+            SparseArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                try_cast(
+                    buffer![100i32, 200, 300].into_array(),
+                    null_fill_value.dtype(),
+                )
+                .unwrap(),
+                5,
+                null_fill_value,
+            )
+            .unwrap()
+            .into_array(),
+        );
+
+        let ten_fill_value = Scalar::from(10i32);
+        test_mask(
+            SparseArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                buffer![100i32, 200, 300].into_array(),
+                5,
+                ten_fill_value,
+            )
+            .unwrap()
+            .into_array(),
+        )
     }
 }

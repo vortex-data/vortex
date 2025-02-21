@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::array::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
@@ -30,7 +30,30 @@ where
     }
 }
 
-/// Return a new array by applying a boolean predicate to select items from a base Array.
+/// Keep only the elements for which the corresponding mask value is true.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::IntoArray;
+/// use vortex_array::arrays::{BoolArray, PrimitiveArray};
+/// use vortex_array::compute::{scalar_at, filter, mask};
+/// use vortex_mask::Mask;
+/// use vortex_scalar::Scalar;
+///
+/// let array =
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
+///         .into_array();
+/// let mask = Mask::try_from(
+///     BoolArray::from_iter([true, false, false, false, true]).into_array(),
+/// )
+/// .unwrap();
+///
+/// let filtered = filter(&array, &mask).unwrap();
+/// assert_eq!(filtered.len(), 2);
+/// assert_eq!(scalar_at(&filtered, 0).unwrap(), Scalar::from(Some(0_i32)));
+/// assert_eq!(scalar_at(&filtered, 1).unwrap(), Scalar::from(Some(2_i32)));
+/// ```
 ///
 /// # Performance
 ///
@@ -145,7 +168,7 @@ impl TryFrom<Array> for Mask {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
     use crate::IntoArray;
 

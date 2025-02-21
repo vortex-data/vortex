@@ -8,6 +8,7 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod between;
 pub mod datafusion;
 mod field;
 pub mod forms;
@@ -184,43 +185,42 @@ mod tests {
 
     #[test]
     fn expr_display() {
-        assert_eq!(col("a").to_string(), "[].$a");
-        assert_eq!(Identity.to_string(), "[]");
-        assert_eq!(Identity.to_string(), "[]");
+        assert_eq!(col("a").to_string(), "$.a");
+        assert_eq!(Identity.to_string(), "$");
 
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
         assert_eq!(
             and(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 and [].$col2)"
+            "($.col1 and $.col2)"
         );
         assert_eq!(
             or(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 or [].$col2)"
+            "($.col1 or $.col2)"
         );
         assert_eq!(
             eq(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 = [].$col2)"
+            "($.col1 = $.col2)"
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 != [].$col2)"
+            "($.col1 != $.col2)"
         );
         assert_eq!(
             gt(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 > [].$col2)"
+            "($.col1 > $.col2)"
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 >= [].$col2)"
+            "($.col1 >= $.col2)"
         );
         assert_eq!(
             lt(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 < [].$col2)"
+            "($.col1 < $.col2)"
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone()).to_string(),
-            "([].$col1 <= [].$col2)"
+            "($.col1 <= $.col2)"
         );
 
         assert_eq!(
@@ -229,14 +229,14 @@ mod tests {
                 not_eq(col1.clone(), col2.clone()),
             )
             .to_string(),
-            "(([].$col1 < [].$col2) or ([].$col1 != [].$col2))"
+            "(($.col1 < $.col2) or ($.col1 != $.col2))"
         );
 
-        assert_eq!(not(col1.clone()).to_string(), "![].$col1");
+        assert_eq!(not(col1.clone()).to_string(), "!$.col1");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], ident()).to_string(),
-            "select +($col1) []"
+            "${col1}"
         );
         assert_eq!(
             select(
@@ -244,7 +244,7 @@ mod tests {
                 ident()
             )
             .to_string(),
-            "select +($col1,$col2) []"
+            "${col1, col2}"
         );
         assert_eq!(
             select_exclude(
@@ -252,7 +252,7 @@ mod tests {
                 ident()
             )
             .to_string(),
-            "select -($col1,$col2) []"
+            "$~{col1, col2}"
         );
 
         assert_eq!(lit(Scalar::from(0_u8)).to_string(), "0_u8");

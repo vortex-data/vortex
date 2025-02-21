@@ -108,15 +108,15 @@ impl SelectField {
 impl Display for SelectField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SelectField::Include(fields) => write!(f, "+({})", DisplayFieldNames(fields)),
-            SelectField::Exclude(fields) => write!(f, "-({})", DisplayFieldNames(fields)),
+            SelectField::Include(fields) => write!(f, "{{{}}}", DisplayFieldNames(fields)),
+            SelectField::Exclude(fields) => write!(f, "~{{{}}}", DisplayFieldNames(fields)),
         }
     }
 }
 
 impl Display for Select {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "select {} {}", self.fields, self.child)
+        write!(f, "{}{}", self.child, self.fields)
     }
 }
 
@@ -187,7 +187,7 @@ impl PartialEq for Select {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::array::StructArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};

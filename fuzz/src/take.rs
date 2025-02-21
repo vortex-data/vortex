@@ -1,6 +1,6 @@
 use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
@@ -66,7 +66,7 @@ pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Ar
             for idx in indices {
                 builder.append_scalar(&scalar_at(array, *idx)?)?;
             }
-            builder.finish()
+            Ok(builder.finish())
         }
         _ => unreachable!("Not a canonical array"),
     }

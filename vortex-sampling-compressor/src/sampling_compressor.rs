@@ -4,7 +4,7 @@ use std::fmt::Display;
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{ChunkedArray, ConstantEncoding};
+use vortex_array::arrays::{ChunkedArray, ConstantEncoding};
 use vortex_array::compress::{
     check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged,
     CompressionStrategy,
@@ -170,6 +170,7 @@ impl<'a> SamplingCompressor<'a> {
     pub fn compress_patches(&self, patches: Patches) -> VortexResult<Patches> {
         Ok(Patches::new(
             patches.array_len(),
+            patches.offset(),
             self.compress(&downscale_integer_array(patches.indices().clone())?, None)?
                 .into_array(),
             self.compress(patches.values(), None)?.into_array(),
@@ -371,7 +372,7 @@ pub(crate) fn find_best_compression<'a>(
 #[cfg(test)]
 mod tests {
     use vortex_alp::ALPRDEncoding;
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{Encoding, IntoArray};
 
     use crate::SamplingCompressor;

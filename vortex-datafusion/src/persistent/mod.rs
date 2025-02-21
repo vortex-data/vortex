@@ -3,6 +3,7 @@ mod cache;
 mod config;
 mod execution;
 mod format;
+mod metrics;
 mod opener;
 mod sink;
 

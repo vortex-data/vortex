@@ -201,7 +201,7 @@ impl<T> Len for BitPackedSearch<'_, T> {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::array::{BoolArray, PrimitiveArray};
+    use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::compute::{
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
     };

@@ -9,7 +9,7 @@ use compressors::struct_::StructCompressor;
 use compressors::varbin::VarBinCompressor;
 use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::array::{
+use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };

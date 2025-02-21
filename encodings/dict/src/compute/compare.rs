@@ -1,4 +1,4 @@
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::DType;
@@ -15,10 +15,10 @@ impl CompareFn<DictArray> for DictEncoding {
         operator: Operator,
     ) -> VortexResult<Option<Array>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(rhs_c) = rhs.as_constant() {
+        if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(
                 lhs.values(),
-                ConstantArray::new(rhs_c, lhs.values().len()),
+                ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
 
@@ -57,7 +57,7 @@ impl CompareFn<DictArray> for DictEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::ConstantArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::{compare, Operator};
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;

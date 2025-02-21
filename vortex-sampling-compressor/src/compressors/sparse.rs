@@ -36,7 +36,6 @@ impl EncodingCompressor for SparseCompressor {
             SparseArray::try_new_from_patches(
                 compressed_patches,
                 sparse_array.len(),
-                sparse_array.indices_offset(),
                 sparse_array.fill_scalar(),
             )?
             .into_array(),

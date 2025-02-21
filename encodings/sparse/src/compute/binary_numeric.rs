@@ -1,4 +1,4 @@
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
 use vortex_array::{Array, IntoArray};
 use vortex_error::{vortex_err, VortexResult};
@@ -28,13 +28,8 @@ impl BinaryNumericFn<SparseArray> for SparseEncoding {
             .checked_binary_numeric(rhs_scalar.as_primitive(), op)?
             .ok_or_else(|| vortex_err!("numeric overflow"))?
             .into();
-        SparseArray::try_new_from_patches(
-            new_patches,
-            array.len(),
-            array.indices_offset(),
-            new_fill_value,
-        )
-        .map(IntoArray::into_array)
-        .map(Some)
+        SparseArray::try_new_from_patches(new_patches, array.len(), new_fill_value)
+            .map(IntoArray::into_array)
+            .map(Some)
     }
 }

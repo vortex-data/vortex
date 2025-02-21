@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::PrimitiveEncoding;
+use vortex_array::arrays::PrimitiveEncoding;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_runend::compress::runend_encode;
@@ -14,6 +14,12 @@ pub const DEFAULT_RUN_END_COMPRESSOR: RunEndCompressor = RunEndCompressor { ree_
 #[derive(Debug, Clone, Copy)]
 pub struct RunEndCompressor {
     ree_threshold: f32,
+}
+
+impl Default for RunEndCompressor {
+    fn default() -> Self {
+        DEFAULT_RUN_END_COMPRESSOR
+    }
 }
 
 impl EncodingCompressor for RunEndCompressor {

@@ -1,5 +1,4 @@
 mod eval_expr;
-mod eval_stats;
 mod reader;
 pub mod writer;
 
@@ -28,9 +27,9 @@ impl LayoutVTable for FlatLayout {
         &self,
         layout: Layout,
         ctx: ContextRef,
-        segments: Arc<dyn AsyncSegmentReader>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(FlatReader::try_new(layout, ctx, segments)?.into_arc())
+        Ok(FlatReader::try_new(layout, ctx, segment_reader)?.into_arc())
     }
 
     fn register_splits(

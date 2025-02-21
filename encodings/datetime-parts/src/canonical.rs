@@ -1,4 +1,4 @@
-use vortex_array::array::{PrimitiveArray, TemporalArray};
+use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Canonical, IntoArray as _, IntoArrayVariant as _};
@@ -98,7 +98,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::array::{PrimitiveArray, TemporalArray};
+    use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray as _, IntoArrayVariant};
     use vortex_buffer::buffer;

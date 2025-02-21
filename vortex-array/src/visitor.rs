@@ -1,3 +1,5 @@
+//! Utilities to traverse array trees using the visitor pattern.
+
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
@@ -27,6 +29,32 @@ pub trait ArrayVisitor {
     }
 
     fn visit_buffer(&mut self, _buffer: &ByteBuffer) -> VortexResult<()> {
+        Ok(())
+    }
+}
+
+/// Visitor to flatten an array tree.
+#[derive(Default, Debug)]
+pub struct ChildrenVisitor {
+    pub children: Vec<Array>,
+}
+
+/// Visitor to flatten an array tree while keeping each child's name.
+#[derive(Default, Debug)]
+pub struct NamedChildrenVisitor {
+    pub children: Vec<(String, Array)>,
+}
+
+impl ArrayVisitor for ChildrenVisitor {
+    fn visit_child(&mut self, _name: &str, array: &Array) -> VortexResult<()> {
+        self.children.push(array.clone());
+        Ok(())
+    }
+}
+
+impl ArrayVisitor for NamedChildrenVisitor {
+    fn visit_child(&mut self, name: &str, array: &Array) -> VortexResult<()> {
+        self.children.push((name.to_string(), array.clone()));
         Ok(())
     }
 }

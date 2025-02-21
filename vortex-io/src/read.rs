@@ -3,9 +3,9 @@ use std::io;
 use std::ops::Range;
 use std::sync::Arc;
 
-use bytes::Bytes;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, VortexExpect};
+use vortex_metrics::{Histogram, Timer, VortexMetrics};
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -14,7 +14,7 @@ use vortex_error::{vortex_err, VortexExpect};
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
 pub trait VortexReadAt: Clone + 'static {
-    /// Request an asynchronous positional read. Results will be returned as a [`Bytes`].
+    /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
@@ -23,7 +23,11 @@ pub trait VortexReadAt: Clone + 'static {
     ///
     /// The resultant Future need not be [`Send`], allowing implementations that use thread-per-core
     /// executors.
-    fn read_byte_range(&self, range: Range<u64>) -> impl Future<Output = io::Result<Bytes>>;
+    fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> impl Future<Output = io::Result<ByteBuffer>>;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -40,35 +44,56 @@ pub trait VortexReadAt: Clone + 'static {
 
 pub struct PerformanceHint {
     coalescing_window: u64,
+    max_read: Option<u64>,
 }
 
 impl Default for PerformanceHint {
     fn default() -> Self {
         Self {
             coalescing_window: 2 << 20, //1MB,
+            max_read: None,
         }
     }
 }
 
 impl PerformanceHint {
-    pub fn new(coalescing_window: u64) -> Self {
-        Self { coalescing_window }
+    pub fn new(coalescing_window: u64, max_read: Option<u64>) -> Self {
+        Self {
+            coalescing_window,
+            max_read,
+        }
     }
 
     /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
     pub fn local() -> Self {
-        Self::new(0)
+        Self::new(0, None)
+    }
+
+    pub fn object_storage() -> Self {
+        Self::new(
+            2 << 20,        //1MB,
+            Some(16 << 20), //16MB,
+        )
     }
 
     /// The maximum distance between two reads that should coalesced into a single operation.
     pub fn coalescing_window(&self) -> u64 {
         self.coalescing_window
     }
+
+    /// Maximum number of bytes in a coalesced read.
+    pub fn max_read(&self) -> Option<u64> {
+        self.max_read
+    }
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
-    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
-        T::read_byte_range(self, range).await
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
+        T::read_byte_range(self, range, alignment).await
     }
 
     fn performance_hint(&self) -> PerformanceHint {
@@ -80,8 +105,12 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
     }
 }
 
-impl VortexReadAt for Bytes {
-    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
+impl VortexReadAt for ByteBuffer {
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
         let start = usize::try_from(range.start).vortex_expect("start too big for usize");
         let end = usize::try_from(range.end).vortex_expect("end too big for usize");
         if end > self.len() {
@@ -90,28 +119,50 @@ impl VortexReadAt for Bytes {
                 vortex_err!("unexpected eof"),
             ));
         }
-        Ok(self.slice(start..end))
-    }
-
-    async fn size(&self) -> io::Result<u64> {
-        Ok(self.len() as u64)
+        Ok(self.clone().slice_unaligned(start..end).aligned(alignment))
     }
 
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
+    }
+
+    async fn size(&self) -> io::Result<u64> {
+        Ok(self.len() as u64)
     }
 }
 
-impl VortexReadAt for ByteBuffer {
-    async fn read_byte_range(&self, range: Range<u64>) -> io::Result<Bytes> {
-        self.inner().read_byte_range(range).await
+#[derive(Clone)]
+pub struct InstrumentedReadAt<T: VortexReadAt> {
+    read: T,
+    sizes: Arc<Histogram>,
+    durations: Arc<Timer>,
+}
+
+impl<T: VortexReadAt> InstrumentedReadAt<T> {
+    pub fn new(read: T, metrics: &VortexMetrics) -> Self {
+        Self {
+            read,
+            sizes: metrics.histogram("vortex.io.read.size"),
+            durations: metrics.timer("vortex.io.read.duration"),
+        }
+    }
+}
+
+impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
+        let _timer = self.durations.time();
+        let size = range.end - range.start;
+        let buf = self.read.read_byte_range(range, alignment).await;
+        let _ = size.try_into().map(|size| self.sizes.update(size));
+        buf
     }
 
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
-    }
-
+    #[inline]
     async fn size(&self) -> io::Result<u64> {
-        Ok(self.len() as u64)
+        self.read.size().await
     }
 }

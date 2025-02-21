@@ -27,6 +27,7 @@ tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 tracing = { workspace = true, optional = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-metrics = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
@@ -36,9 +37,11 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [features]
+compio = ["dep:compio", "vortex-buffer/compio"]
 futures = ["futures-util/io"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs"]
+tracing = ["dep:tracing"]
 
 [lints]
 workspace = true

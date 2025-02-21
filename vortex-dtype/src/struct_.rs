@@ -271,7 +271,7 @@ where
             .into_iter()
             .map(|(name, dtype)| (name.into(), dtype.into()))
             .unzip();
-        StructDType::from_fields(names.into(), dtypes.into_iter().map(Into::into).collect())
+        StructDType::from_fields(names.into(), dtypes.into_iter().collect())
     }
 }
 

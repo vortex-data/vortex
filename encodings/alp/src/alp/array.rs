@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
@@ -67,8 +67,8 @@ impl ALPArray {
             dtype,
             length,
             SerdeMetadata(ALPMetadata { exponents, patches }),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             Default::default(),
         )
     }
@@ -96,6 +96,7 @@ impl ALPArray {
         self.metadata().patches.as_ref().map(|p| {
             Patches::new(
                 self.len(),
+                p.offset(),
                 self.as_ref()
                     .child(1, &p.indices_dtype(), p.len())
                     .vortex_expect("ALPArray: patch indices"),
@@ -139,6 +140,10 @@ impl ValidityVTable<ALPArray> for ALPEncoding {
         array.encoded().all_valid()
     }
 
+    fn all_invalid(&self, array: &ALPArray) -> VortexResult<bool> {
+        array.encoded().all_invalid()
+    }
+
     fn validity_mask(&self, array: &ALPArray) -> VortexResult<Mask> {
         array.encoded().validity_mask()
     }
@@ -177,7 +182,7 @@ mod tests {
         check_metadata(
             "alp.metadata",
             SerdeMetadata(ALPMetadata {
-                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
                 exponents: Exponents {
                     e: u8::MAX,
                     f: u8::MAX,

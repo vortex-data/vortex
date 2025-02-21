@@ -152,7 +152,7 @@ impl Iterator for ArrayIteratorIPCBytes {
 mod test {
     use std::io::Cursor;
 
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
     use vortex_array::{IntoArray, IntoArrayVariant};
 

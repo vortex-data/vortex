@@ -7,7 +7,6 @@ use vortex_array::Array;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::field::DisplayFieldName;
 use crate::{ident, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
@@ -32,6 +31,10 @@ impl GetItem {
     pub fn child(&self) -> &ExprRef {
         &self.child
     }
+
+    pub fn is(expr: &ExprRef) -> bool {
+        expr.as_any().is::<Self>()
+    }
 }
 
 pub fn col(field: impl Into<FieldName>) -> ExprRef {
@@ -48,7 +51,7 @@ pub fn get_item_scope(field: impl Into<FieldName>) -> ExprRef {
 
 impl Display for GetItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.child, DisplayFieldName(&self.field))
+        write!(f, "{}.{}", self.child, &self.field)
     }
 }
 
@@ -92,7 +95,7 @@ impl PartialEq for GetItem {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::StructArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;

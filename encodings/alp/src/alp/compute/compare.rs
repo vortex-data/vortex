@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::array::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{Array, IntoArray};
 use vortex_error::{vortex_bail, VortexResult};
@@ -95,7 +95,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{ConstantArray, PrimitiveArray};
+    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{compare, Operator};
     use vortex_array::IntoArrayVariant;
     use vortex_dtype::{DType, Nullability, PType};

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{ChunkedArray, ChunkedEncoding};
+use vortex_array::arrays::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -117,7 +117,7 @@ impl ChunkedCompressor {
 
         let ratio = previous.map(|(_, ratio)| ratio);
         Ok(CompressedArray::compressed(
-            ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
+            ChunkedArray::try_new_unchecked(compressed_chunks, array.dtype().clone()).into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
                 compressed_trees,
@@ -158,6 +158,18 @@ fn like_into_parts(
     match (latest_child, target_ratio) {
         (None, None) => Ok(None),
         (Some(child), Some(ratio)) => Ok(Some((child, *ratio))),
-        (..) => vortex_bail!("Chunked array compression tree must have a child iff it has a ratio"),
+        (Some(child), None) => {
+            vortex_bail!(
+                "Chunked array compression tree has a child {child:?} without compression ratio"
+            )
+        }
+        (None, Some(ratio)) => {
+            debug_assert!(
+                *ratio >= 1.0f32,
+                "When there's no compressor tree compression ratio must be greater than 1"
+            );
+            log::debug!("Last compressed child of chunked array has compression ration of {ratio} and no compressor");
+            Ok(None)
+        }
     }
 }

@@ -1,5 +1,5 @@
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -113,7 +113,8 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     }
     if let Some(patches) = array.patches() {
         if let Some(patches) = patches.take(indices)? {
-            return unpatched_taken.patch(patches);
+            let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
+            return unpatched_taken.patch(cast_patches);
         }
     }
 
@@ -125,12 +126,13 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 mod test {
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng};
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::{buffer, Buffer};
 
+    use crate::bitpacking::compute::take::take_primitive;
     use crate::BitPackedArray;
 
     #[test]
@@ -217,12 +219,28 @@ mod test {
         let start =
             BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
-        let taken_primitive = super::take_primitive::<u32, u64>(
+        let taken_primitive = take_primitive::<u32, u64>(
             &start,
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
             Validity::NonNullable,
         )
         .unwrap();
         assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 3, 4]);
+    }
+
+    #[test]
+    fn take_nullable_with_nullables() {
+        let start =
+            BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
+
+        let taken_primitive = take(
+            &start,
+            PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]),
+        )
+        .unwrap()
+        .into_primitive()
+        .unwrap();
+        assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
+        assert_eq!(taken_primitive.invalid_count().unwrap(), 1);
     }
 }

@@ -125,7 +125,7 @@ where
     let primitive_value: T = value.cast(array.dtype())?.as_ref().try_into()?;
     // Make sure that smaller values are still smaller and not larger than (which they would be after wrapping_sub)
     if primitive_value < min {
-        return Ok(SearchResult::NotFound(0));
+        return Ok(SearchResult::NotFound(array.invalid_count()?));
     }
 
     // When the values in the array are shifted, not all values in the domain are representable in the compressed
@@ -139,7 +139,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
     use vortex_array::IntoArray;
 
@@ -192,6 +192,22 @@ mod test {
         );
         assert_eq!(
             search_sorted(&for_arr, 115, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(2)
+        );
+    }
+
+    #[test]
+    fn search_with_nulls() {
+        let for_arr = for_compress(PrimitiveArray::from_option_iter([
+            None,
+            None,
+            Some(-8739),
+            Some(-29),
+        ]))
+        .unwrap()
+        .into_array();
+        assert_eq!(
+            search_sorted(&for_arr, -22360, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(2)
         );
     }

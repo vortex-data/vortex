@@ -2,51 +2,43 @@
 
 use std::clone::Clone;
 use std::env::temp_dir;
-use std::fs::{create_dir_all, File};
+use std::fmt::Display;
+use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
 
-use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_array::RecordBatch;
 use blob::SlowObjectStoreRegistry;
+use clap::ValueEnum;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::object_store::DefaultObjectStoreRegistry;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{collect, ExecutionPlan};
-use itertools::Itertools;
-use log::LevelFilter;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rand::{Rng, SeedableRng as _};
-use serde::Serialize;
-use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
-use vortex::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
-use vortex::arrow::FromArrowType;
-use vortex::compress::CompressionStrategy;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
+use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::{DType, Nullability, PType, StructDType};
 use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
-use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{Array, ContextRef, IntoArray};
+use vortex::{ContextRef, IntoArray};
 
-use crate::data_downloads::FileType;
-use crate::reader::BATCH_SIZE;
-use crate::taxi_data::taxi_data_parquet;
-
+pub mod bench_run;
 pub mod blob;
 pub mod clickbench;
-pub mod data_downloads;
+pub mod compress;
+pub mod datasets;
 pub mod display;
-pub mod parquet_utils;
-pub mod public_bi_data;
-pub mod reader;
-pub mod taxi_data;
+pub mod measurements;
+pub mod parquet_reader;
+pub mod random_access;
 pub mod tpch;
-pub mod vortex_utils;
 
 #[macro_export]
 macro_rules! feature_flagged_allocator {
@@ -71,39 +63,34 @@ pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     )
 });
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
 pub enum Format {
+    #[clap(name = "csv")]
     Csv,
+    #[clap(name = "arrow")]
     Arrow,
+    #[clap(name = "parquet")]
     Parquet,
+    #[clap(name = "in-memory-vortex")]
     InMemoryVortex,
+    #[clap(name = "vortex")]
     OnDiskVortex,
 }
 
-impl std::fmt::Display for Format {
+impl Display for Format {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Format::Csv => write!(f, "csv"),
-            Format::Arrow => write!(f, "arrow"),
-            Format::Parquet => write!(f, "parquet"),
-            Format::InMemoryVortex => {
-                write!(f, "in_memory_vortex")
-            }
-            Format::OnDiskVortex => {
-                write!(f, "on_disk_vortex(compressed=true)")
-            }
-        }
+        write!(f, "{}", self.name())
     }
 }
 
 impl Format {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> &str {
         match self {
-            Format::Csv => "csv".to_string(),
-            Format::Arrow => "arrow".to_string(),
-            Format::Parquet => "parquet".to_string(),
-            Format::InMemoryVortex => "vortex-in-memory".to_string(),
-            Format::OnDiskVortex => "vortex-file-compressed".to_string(),
+            Format::Csv => "csv",
+            Format::Arrow => "arrow",
+            Format::Parquet => "parquet",
+            Format::InMemoryVortex => "vortex-in-memory",
+            Format::OnDiskVortex => "vortex-file-compressed",
         }
     }
 }
@@ -183,79 +170,31 @@ impl IdempotentPath for PathBuf {
     }
 }
 
-pub fn setup_logger(level: LevelFilter) {
-    TermLogger::init(
-        level,
-        Config::default(),
-        TerminalMode::Stderr,
-        ColorChoice::Auto,
-    )
-    .unwrap();
+pub fn setup_logger(filter: EnvFilter) {
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_file(true)
+        .with_level(true)
+        .with_line_number(true)
+        .with_env_filter(filter)
+        .init();
 }
 
-pub fn fetch_taxi_data() -> Array {
-    let file = File::open(taxi_data_parquet()).unwrap();
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
-    let reader = builder.with_batch_size(BATCH_SIZE).build().unwrap();
+pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
+    match EnvFilter::try_from_default_env() {
+        Ok(filter) => filter,
+        Err(_e) => {
+            let default_level = if is_verbose {
+                LevelFilter::TRACE
+            } else {
+                LevelFilter::INFO
+            };
 
-    let schema = reader.schema();
-    ChunkedArray::try_new(
-        reader
-            .into_iter()
-            .map(|batch_result| batch_result.unwrap())
-            .map(Array::try_from)
-            .map(Result::unwrap)
-            .collect_vec(),
-        DType::from_arrow(schema),
-    )
-    .unwrap()
-    .into_array()
-}
-
-pub fn compress_taxi_data() -> Array {
-    CompressionStrategy::compress(&SamplingCompressor::default(), &fetch_taxi_data()).unwrap()
-}
-
-pub struct CompressionRunStats {
-    schema: DType,
-    total_compressed_size: Option<u64>,
-    compressed_sizes: Vec<u64>,
-    file_type: FileType,
-    file_name: String,
-}
-
-impl CompressionRunStats {
-    pub fn to_results(&self, dataset_name: String) -> Vec<CompressionRunResults> {
-        let DType::Struct(st, _) = &self.schema else {
-            unreachable!()
-        };
-
-        self.compressed_sizes
-            .iter()
-            .zip_eq(st.names().iter().zip_eq(st.fields()))
-            .map(
-                |(&size, (column_name, column_type))| CompressionRunResults {
-                    dataset_name: dataset_name.clone(),
-                    file_name: self.file_name.clone(),
-                    file_type: self.file_type.to_string(),
-                    column_name: (**column_name).to_string(),
-                    column_type: column_type.to_string(),
-                    compressed_size: size,
-                    total_compressed_size: self.total_compressed_size,
-                },
-            )
-            .collect::<Vec<_>>()
+            EnvFilter::builder()
+                .with_default_directive(default_level.into())
+                .from_env_lossy()
+        }
     }
-}
-
-pub struct CompressionRunResults {
-    pub dataset_name: String,
-    pub file_name: String,
-    pub file_type: String,
-    pub column_name: String,
-    pub column_type: String,
-    pub compressed_size: u64,
-    pub total_compressed_size: Option<u64>,
 }
 
 pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Vec<RecordBatch>> {
@@ -266,6 +205,14 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> VortexResult<Ve
     Ok(result)
 }
 
+pub async fn execute_physical_plan(
+    ctx: &SessionContext,
+    plan: Arc<dyn ExecutionPlan>,
+) -> VortexResult<Vec<RecordBatch>> {
+    let result = collect(plan.clone(), ctx.state().task_ctx()).await?;
+    Ok(result)
+}
+
 pub async fn physical_plan(
     ctx: &SessionContext,
     query: &str,
@@ -273,22 +220,6 @@ pub async fn physical_plan(
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     Ok(state.create_physical_plan(&plan).await?)
-}
-
-#[derive(Clone, Debug)]
-pub struct Measurement {
-    pub query_idx: usize,
-    pub time: Duration,
-    pub format: Format,
-    pub dataset: String,
-}
-
-#[derive(Serialize)]
-pub struct JsonValue {
-    pub name: String,
-    pub unit: String,
-    pub value: u128,
-    pub commit_id: String,
 }
 
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
@@ -303,24 +234,6 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     .trim()
     .to_string()
 });
-
-impl Measurement {
-    pub fn to_json(&self) -> JsonValue {
-        let name = format!(
-            "{dataset}_q{query_idx:02}/{format}",
-            dataset = self.dataset,
-            format = self.format.name(),
-            query_idx = self.query_idx
-        );
-
-        JsonValue {
-            name,
-            unit: "ns".to_string(),
-            value: self.time.as_nanos(),
-            commit_id: GIT_COMMIT_ID.to_string(),
-        }
-    }
-}
 
 pub fn get_session_with_cache(emulate_object_store: bool) -> SessionContext {
     let registry = if emulate_object_store {

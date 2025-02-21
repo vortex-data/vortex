@@ -1,5 +1,4 @@
 mod eval_expr;
-mod eval_stats;
 mod reader;
 pub mod writer;
 
@@ -29,9 +28,9 @@ impl LayoutVTable for StructLayout {
         &self,
         layout: Layout,
         ctx: ContextRef,
-        segments: Arc<dyn AsyncSegmentReader>,
+        segment_reader: Arc<dyn AsyncSegmentReader>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(StructReader::try_new(layout, segments, ctx)?.into_arc())
+        Ok(StructReader::try_new(layout, ctx, segment_reader)?.into_arc())
     }
 
     fn register_splits(
@@ -48,7 +47,7 @@ impl LayoutVTable for StructLayout {
         // If the field mask contains an `All` fields, then register splits for all fields.
         if field_mask.iter().any(|mask| mask.matches_all()) {
             for (idx, field_dtype) in dtype.fields().enumerate() {
-                let child = layout.child(idx, field_dtype)?;
+                let child = layout.child(idx, field_dtype, dtype.field_name(idx)?)?;
                 child.register_splits(&[FieldMask::All], row_offset, splits)?;
             }
             return Ok(());
@@ -65,7 +64,7 @@ impl LayoutVTable for StructLayout {
             };
 
             let idx = dtype.find(field_name)?;
-            let child = layout.child(idx, dtype.field_by_index(idx)?)?;
+            let child = layout.child(idx, dtype.field_by_index(idx)?, field_name)?;
             child.register_splits(&[path.clone().step_into()?], row_offset, splits)?;
         }
 

@@ -3,16 +3,18 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::StructScalar;
 
-use crate::array::StructArray;
+use crate::arrays::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::variants::StructArrayTrait;
+use crate::{Array, Canonical, IntoArray, IntoCanonical};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
+    // TODO(ngates): this should be a NullBufferBuilder? Or mask builder?
     validity: BoolBuilder,
     struct_dtype: Arc<StructDType>,
     nullability: Nullability,
@@ -94,23 +96,74 @@ impl ArrayBuilder for StructBuilder {
         self.validity.append_value(false);
     }
 
-    fn finish(&mut self) -> VortexResult<Array> {
+    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+        let array = array.into_canonical()?;
+        let Canonical::Struct(array) = array else {
+            vortex_bail!("Expected Canonical::Struct, found {:?}", array);
+        };
+        if array.dtype() != self.dtype() {
+            vortex_bail!(
+                "Cannot extend from array with different dtype: expected {:?}, found {:?}",
+                self.dtype(),
+                array.dtype()
+            );
+        }
+
+        for (a, builder) in (0..array.nfields())
+            .map(|i| {
+                array
+                    .maybe_null_field_by_idx(i)
+                    .vortex_expect("out of bounds")
+            })
+            .zip_eq(self.builders.iter_mut())
+        {
+            a.canonicalize_into(builder.as_mut())?;
+        }
+
+        match array.validity() {
+            Validity::NonNullable | Validity::AllValid => {
+                self.validity.append_values(true, array.len());
+            }
+            Validity::AllInvalid => {
+                self.validity.append_values(false, array.len());
+            }
+            Validity::Array(validity) => {
+                validity.canonicalize_into(&mut self.validity)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Array {
         let len = self.len();
-        let fields: Vec<Array> = self
+        let fields = self
             .builders
             .iter_mut()
             .map(|builder| builder.finish())
-            .try_collect()?;
+            .collect::<Vec<_>>();
+
+        if fields.len() > 1 {
+            let expected_length = fields[0].len();
+            for (index, field) in fields[1..].iter().enumerate() {
+                assert_eq!(
+                    field.len(),
+                    expected_length,
+                    "Field {} does not have expected length {}",
+                    index,
+                    expected_length
+                );
+            }
+        }
 
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::Array(self.validity.finish()?),
+            Nullability::Nullable => Validity::Array(self.validity.finish()),
         };
 
-        Ok(
-            StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)?
-                .into_array(),
-        )
+        StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)
+            .vortex_expect("Fields must all have same length.")
+            .into_array()
     }
 }
 
@@ -138,7 +191,7 @@ mod tests {
             .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
-        let struct_ = builder.finish().unwrap();
+        let struct_ = builder.finish();
         assert_eq!(struct_.len(), 1);
         assert_eq!(struct_.dtype(), &dtype);
     }

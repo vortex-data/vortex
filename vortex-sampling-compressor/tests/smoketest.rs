@@ -1,9 +1,8 @@
 use std::ops::Add;
 
-use chrono::TimeDelta;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{BoolArray, StructArray, TemporalArray};
+use vortex_array::arrays::builder::VarBinBuilder;
+use vortex_array::arrays::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
@@ -11,7 +10,8 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::BooleanBuffer;
+    use jiff::Span;
+    use vortex_array::arrays::BooleanBuffer;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
@@ -94,10 +94,10 @@ mod tests {
 
     fn make_timestamp_column(count: usize) -> Array {
         // Make new timestamps in incrementing order from EPOCH.
-        let t0 = chrono::NaiveDateTime::default().and_utc();
+        let t0 = jiff::Timestamp::now();
 
         let timestamps = Buffer::from_iter(
-            (0..count).map(|inc| t0.add(TimeDelta::seconds(inc as i64)).timestamp_millis()),
+            (0..count).map(|inc| t0.add(Span::new().seconds(inc as i64)).as_millisecond()),
         )
         .into_array();
 

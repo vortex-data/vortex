@@ -1,13 +1,11 @@
-#![feature(float_next_up_down)]
-
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use tabled::builder::Builder;
 use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
-use vortex::array::builder::VarBinBuilder;
-use vortex::array::{
+use vortex::arrays::builder::VarBinBuilder;
+use vortex::arrays::{
     BoolArray, ChunkedArray, ConstantArray, ListArray, NullArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };

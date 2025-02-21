@@ -1,0 +1,61 @@
+[package]
+name = "vortex-btrblocks"
+description = "BtrBlocks style compressor"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[dependencies]
+arrow-buffer = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+num-traits = { workspace = true }
+rand = { workspace = true }
+rustc-hash = { workspace = true }
+vortex-array = { workspace = true }
+vortex-alp = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-datetime-dtype = { workspace = true }
+vortex-datetime-parts = { workspace = true }
+vortex-dict = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-fsst = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-scalar = { workspace = true }
+vortex-sparse = { workspace = true }
+vortex-runend = { workspace = true }
+vortex-zigzag = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+env_logger = "0.11"
+vortex-sampling-compressor = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "compress"
+harness = false
+test = false
+
+[[bench]]
+name = "dict_encode"
+harness = false
+test = false
+
+[[bench]]
+name = "stats_calc"
+harness = false
+test = false
+

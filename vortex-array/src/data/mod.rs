@@ -9,17 +9,18 @@ use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
-use crate::array::{
+use crate::arrays::{
     BoolEncoding, ChunkedArray, ExtensionEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::visitor::{ChildrenVisitor, NamedChildrenVisitor};
 use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{ArrayChildrenIterator, ChildrenCollector, ContextRef, NamedChildrenCollector};
+use crate::ContextRef;
 
 mod owned;
 mod statistics;
@@ -57,8 +58,8 @@ impl Array {
         dtype: DType,
         len: usize,
         metadata: Option<ByteBuffer>,
-        buffers: Option<Box<[ByteBuffer]>>,
-        children: Option<Box<[Array]>>,
+        buffers: Box<[ByteBuffer]>,
+        children: Box<[Array]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
         Self::try_new(InnerArray::Owned(Arc::new(OwnedArray {
@@ -235,6 +236,16 @@ impl Array {
             || self.is_encoding(VarBinViewEncoding.id())
     }
 
+    /// A method that *cheaply* checks if the array is constant, might may return false when
+    /// the array is in-fact constant.
+    pub fn must_be_constant(&self) -> bool {
+        self.is_encoding(BoolEncoding.id())
+            || self
+                .statistics()
+                .get_as::<bool>(Stat::IsConstant)
+                .is_some_and(|p| p == Precision::Exact(true))
+    }
+
     /// Return whether the array is constant.
     pub fn is_constant(&self) -> bool {
         self.statistics()
@@ -262,24 +273,24 @@ impl Array {
     // TODO(ngates): deprecate this function and return impl Iterator
     pub fn children(&self) -> Vec<Array> {
         match &self.0 {
-            InnerArray::Owned(d) => d.children.as_ref().map(|c| c.to_vec()).unwrap_or_default(),
+            InnerArray::Owned(d) => d.children.to_vec(),
             InnerArray::Viewed(_) => {
-                let mut collector = ChildrenCollector::default();
+                let mut visitor = ChildrenVisitor::default();
                 self.vtable()
-                    .accept(self, &mut collector)
+                    .accept(self, &mut visitor)
                     .vortex_expect("Failed to get children");
-                collector.children()
+                visitor.children
             }
         }
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn named_children(&self) -> Vec<(String, Array)> {
-        let mut collector = NamedChildrenCollector::default();
+        let mut visitor = NamedChildrenVisitor::default();
         self.vtable()
-            .accept(&self.clone(), &mut collector)
+            .accept(&self.clone(), &mut visitor)
             .vortex_expect("Failed to get children");
-        collector.children()
+        visitor.children
     }
 
     /// Returns the number of child arrays
@@ -290,7 +301,7 @@ impl Array {
         }
     }
 
-    pub fn depth_first_traversal(&self) -> ArrayChildrenIterator {
+    pub fn depth_first_traversal(&self) -> impl Iterator<Item = Array> {
         ArrayChildrenIterator::new(self.clone())
     }
 
@@ -332,7 +343,7 @@ impl Array {
 
     pub fn nbuffers(&self) -> usize {
         match &self.0 {
-            InnerArray::Owned(o) => o.buffers.as_ref().map_or(0, |b| b.len()),
+            InnerArray::Owned(o) => o.buffers.len(),
             InnerArray::Viewed(v) => v.nbuffers(),
         }
     }
@@ -449,5 +460,28 @@ impl Iterator for ArrayChunkIterator {
                 chunk
             }),
         }
+    }
+}
+
+/// A depth-first pre-order iterator over a Array.
+struct ArrayChildrenIterator {
+    stack: Vec<Array>,
+}
+
+impl ArrayChildrenIterator {
+    pub fn new(array: Array) -> Self {
+        Self { stack: vec![array] }
+    }
+}
+
+impl Iterator for ArrayChildrenIterator {
+    type Item = Array;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.stack.pop()?;
+        for child in next.children().into_iter().rev() {
+            self.stack.push(child);
+        }
+        Some(next)
     }
 }

@@ -38,7 +38,7 @@ datafusion = { workspace = true, features = [
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 enum-iterator = { workspace = true }
-futures = { workspace = true, features = ["executor"] }
+futures = { workspace = true }
 governor = { workspace = true }
 homedir = { workspace = true }
 humansize = { workspace = true }
@@ -46,7 +46,7 @@ indicatif = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
-object_store = { workspace = true, features = ["aws"] }
+object_store = { workspace = true, features = ["aws", "gcp"] }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -55,44 +55,24 @@ regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-simplelog = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
-uuid = { workspace = true, features = ["v4"] }
+tracing = { workspace = true }
+tracing-chrome = { workspace = true }
+tracing-futures = { workspace = true }
+tracing-subscriber = { workspace = true, features = [
+    "env-filter",
+    "tracing-log",
+] }
+url = { workspace = true }
+uuid = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
 xshell = { workspace = true }
 
-[dev-dependencies]
-criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
-
 [features]
 mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
-
-[[bench]]
-name = "compress"
-test = false
-harness = false
-
-[[bench]]
-name = "random_access"
-test = false
-harness = false
-
-[[bench]]
-name = "bytes_at"
-test = false
-harness = false
-
-[[bench]]
-name = "compressor_throughput"
-test = false
-harness = false
-
-[[bench]]
-name = "sel_vec"
-test = false
-harness = false
+tracing = ["vortex-datafusion/tracing"]

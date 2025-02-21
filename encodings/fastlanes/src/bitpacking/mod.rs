@@ -2,7 +2,8 @@ use std::fmt::{Debug, Display};
 
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
@@ -14,7 +15,7 @@ use vortex_array::vtable::{
 };
 use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, RkyvMetadata};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
@@ -119,7 +120,7 @@ impl BitPackedArray {
 
         // expected packed size is in bytes
         let expected_packed_size =
-            ((length + offset as usize + 1023) / 1024) * (128 * bit_width as usize);
+            (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
         if packed.len() != expected_packed_size {
             return Err(vortex_err!(
                 "Expected {} packed bytes, got {}",
@@ -155,8 +156,8 @@ impl BitPackedArray {
             dtype,
             length,
             RkyvMetadata(metadata),
-            Some([packed].into()),
-            Some(children.into()),
+            [packed].into(),
+            children.into(),
             StatsSet::default(),
         )
     }
@@ -196,6 +197,7 @@ impl BitPackedArray {
         self.metadata().patches.as_ref().map(|patches| {
             Patches::new(
                 self.len(),
+                patches.offset(),
                 self.as_ref()
                     .child(0, &patches.indices_dtype(), patches.len())
                     .vortex_expect("BitPackedArray: patch indices"),
@@ -256,6 +258,28 @@ impl CanonicalVTable<BitPackedArray> for BitPackedEncoding {
     fn into_canonical(&self, array: BitPackedArray) -> VortexResult<Canonical> {
         unpack(array).map(Canonical::Primitive)
     }
+
+    fn canonicalize_into(
+        &self,
+        array: BitPackedArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        match_each_integer_ptype_with_unsigned_type!(array.ptype(), |$T, $UnsignedT| {
+            unpack_into::<$T, $UnsignedT, _, _>(
+                array,
+                builder
+                    .as_any_mut()
+                    .downcast_mut()
+                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &[UnsignedT] to
+                // &[T] is therefore safe.
+                |x| unsafe { std::mem::transmute(x) },
+                // SAFETY: UnsignedT is the unsigned verison of T, reinterpreting &mut [T] to
+                // &mut [UnsignedT] is therefore safe.
+                |x| unsafe { std::mem::transmute(x) },
+            )
+        })
+    }
 }
 
 impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
@@ -265,6 +289,10 @@ impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
 
     fn all_valid(&self, array: &BitPackedArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &BitPackedArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &BitPackedArray) -> VortexResult<Mask> {
@@ -299,7 +327,7 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ValidityMetadata;
@@ -315,7 +343,7 @@ mod test {
         check_metadata(
             "bitpacked.metadata",
             RkyvMetadata(BitPackedMetadata {
-                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
                 validity: ValidityMetadata::AllValid,
                 offset: u16::MAX,
                 bit_width: u8::MAX,

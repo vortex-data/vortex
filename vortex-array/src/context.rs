@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::aliases::hash_map::HashMap;
-use crate::array::{
+use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };

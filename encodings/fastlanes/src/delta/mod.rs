@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 pub use compress::*;
-use vortex_array::array::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -142,8 +142,8 @@ impl DeltaArray {
             dtype,
             logical_len,
             RkyvMetadata(metadata),
-            None,
-            Some(children.into()),
+            vec![].into(),
+            children.into(),
             StatsSet::default(),
         )?;
 
@@ -245,6 +245,10 @@ impl ValidityVTable<DeltaArray> for DeltaEncoding {
 
     fn all_valid(&self, array: &DeltaArray) -> VortexResult<bool> {
         array.validity().all_valid()
+    }
+
+    fn all_invalid(&self, array: &DeltaArray) -> VortexResult<bool> {
+        array.validity().all_invalid()
     }
 
     fn validity_mask(&self, array: &DeltaArray) -> VortexResult<Mask> {

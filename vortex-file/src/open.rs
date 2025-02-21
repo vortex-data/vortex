@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use flatbuffers::root;
-use futures_util::stream::FuturesUnordered;
-use futures_util::{stream, StreamExt, TryStreamExt};
+use futures::stream::FuturesUnordered;
+use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use moka::future::CacheBuilder;
 use vortex_array::stats::StatsSet;
 use vortex_array::ContextRef;
-use vortex_buffer::{ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer as fb, FlatBuffer, ReadFlatBuffer};
@@ -16,6 +16,7 @@ use vortex_io::VortexReadAt;
 use vortex_layout::scan::ScanDriver;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{Layout, LayoutContextRef, LayoutId};
+use vortex_metrics::VortexMetrics;
 use vortex_sampling_compressor::ALL_ENCODINGS_CONTEXT;
 
 use crate::footer::{FileLayout, Postscript, Segment};
@@ -35,6 +36,7 @@ pub trait FileType: Sized {
         options: Self::Options,
         file_layout: FileLayout,
         segment_cache: Arc<dyn SegmentCache>,
+        metrics: VortexMetrics,
     ) -> Self::ScanDriver;
 }
 
@@ -55,6 +57,7 @@ pub struct VortexOpenOptions<F: FileType> {
     file_layout: Option<FileLayout>,
     segment_cache: Arc<dyn SegmentCache>,
     initial_read_size: u64,
+    metrics: VortexMetrics,
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
@@ -107,6 +110,12 @@ impl<F: FileType> VortexOpenOptions<F> {
     pub fn without_segment_cache(self) -> Self {
         self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
+
+    /// Configure a custom [`VortexMetrics`].
+    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
 }
 
 impl VortexOpenOptions<InMemoryVortexFile> {
@@ -121,6 +130,7 @@ impl VortexOpenOptions<InMemoryVortexFile> {
             file_layout: None,
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: 0,
+            metrics: VortexMetrics::default(),
         }
     }
 }
@@ -142,6 +152,7 @@ impl<R: VortexReadAt> VortexOpenOptions<GenericVortexFile<R>> {
                 CacheBuilder::new(1 << 30),
             )),
             initial_read_size: Self::INITIAL_READ_SIZE,
+            metrics: VortexMetrics::default(),
         }
     }
 }
@@ -161,6 +172,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             ctx: self.ctx.clone(),
             file_layout,
             segment_cache: self.segment_cache,
+            metrics: self.metrics,
             _marker: PhantomData,
         })
     }
@@ -180,9 +192,8 @@ impl<F: FileType> VortexOpenOptions<F> {
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = self
             .read
-            .read_byte_range(initial_offset..file_size)
-            .await?
-            .into();
+            .read_byte_range(initial_offset..file_size, Alignment::none())
+            .await?;
 
         // We know the initial read _must_ contain at least the Postscript.
         let postscript = self.parse_postscript(&initial_read)?;
@@ -193,10 +204,20 @@ impl<F: FileType> VortexOpenOptions<F> {
         {
             // NOTE(ngates): for now, we assume the dtype and layout segments are adjacent.
             let offset = postscript.dtype.offset.min(postscript.file_layout.offset);
+            log::info!(
+                "Initial read from {} did not cover all footer segments, reading from {}",
+                initial_offset,
+                offset
+            );
+
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - offset)?);
-            new_initial_read
-                .extend_from_slice(&self.read.read_byte_range(offset..initial_offset).await?);
+            new_initial_read.extend_from_slice(
+                &self
+                    .read
+                    .read_byte_range(offset..initial_offset, Alignment::none())
+                    .await?,
+            );
             new_initial_read.extend_from_slice(&initial_read);
             (offset, new_initial_read.freeze())
         } else {
@@ -297,6 +318,7 @@ impl<F: FileType> VortexOpenOptions<F> {
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
             Layout::new_viewed_unchecked(
+                "$".into(),
                 root_encoding,
                 dtype,
                 bytes.clone(),

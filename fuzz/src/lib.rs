@@ -12,7 +12,7 @@ use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::ListEncoding;
+use vortex_array::arrays::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
 use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_buffer::Buffer;

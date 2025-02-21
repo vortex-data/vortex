@@ -5,8 +5,8 @@
 [![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.rs/vortex-array)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
-> [!TIP]
-> Check out the [Docs](https://docs.vortex.dev/)
+> \[!TIP\]
+> Check out our [Docs](https://docs.vortex.dev/)
 
 Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache
 Arrow arrays
@@ -21,7 +21,7 @@ decompression on GPUs.
 Vortex is intended to be to columnar file formats what Apache DataFusion is to query engines: highly extensible,
 extremely fast, & batteries-included.
 
-> [!CAUTION]
+> \[!CAUTION\]
 > This library is still under rapid development and is a work in progress!
 >
 > Some key features are not yet implemented, both the API and the serialized format are likely to change in breaking

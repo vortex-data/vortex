@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
@@ -70,8 +70,8 @@ impl DateTimePartsArray {
             dtype,
             length,
             SerdeMetadata(metadata),
-            None,
-            Some([days, seconds, subseconds].into()),
+            vec![].into(),
+            [days, seconds, subseconds].into(),
             StatsSet::default(),
         )
     }
@@ -142,6 +142,10 @@ impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
 
     fn all_valid(&self, array: &DateTimePartsArray) -> VortexResult<bool> {
         array.days().all_valid()
+    }
+
+    fn all_invalid(&self, array: &DateTimePartsArray) -> VortexResult<bool> {
+        array.days().all_invalid()
     }
 
     fn validity_mask(&self, array: &DateTimePartsArray) -> VortexResult<Mask> {

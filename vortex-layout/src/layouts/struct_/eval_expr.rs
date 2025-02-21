@@ -1,15 +1,14 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
-use vortex_array::array::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for StructReader {
@@ -22,6 +21,15 @@ impl ExprEvaluator for StructReader {
             .map(|name| self.child(name))
             .try_collect()?;
 
+        // Short-circuit if there is only one partition
+        if partitioned.partitions.len() == 1 {
+            return self
+                .child(&partitioned.partition_names[0])?
+                .evaluate_expr(row_mask, partitioned.partitions[0].clone())
+                .await;
+        }
+
+        // Otherwise, evaluate all partitions concurrently
         let arrays = try_join_all(
             field_readers
                 .iter()
@@ -45,6 +53,25 @@ impl ExprEvaluator for StructReader {
 
         partitioned.root.evaluate(&root_scope)
     }
+
+    async fn prune_mask(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<RowMask> {
+        // We currently can only perform pruning if the expression references a single field.
+        // Otherwise, we have no good way to recombine the results.
+        let partitioned = self.partition_expr(expr.clone())?;
+        if partitioned.partitions.len() != 1 {
+            log::debug!("Cannot push-down pruning for multi-field expr {}", expr);
+            return Ok(row_mask);
+        }
+
+        let field_name = partitioned
+            .partition_names
+            .iter()
+            .next()
+            .vortex_expect("one partition");
+        self.child(field_name)?
+            .prune_mask(row_mask, partitioned.partitions[0].clone())
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -52,23 +79,25 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use vortex_array::array::StructArray;
+    use rstest::{fixture, rstest};
+    use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructDType};
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
-    use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::segments::test::TestSegments;
+    use crate::segments::AsyncSegmentReader;
     use crate::writer::LayoutWriterExt;
-    use crate::Layout;
+    use crate::{Layout, RowMask};
 
+    #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<TestSegments>, Layout) {
+    fn struct_layout() -> (Arc<dyn AsyncSegmentReader>, Layout) {
         let mut segments = TestSegments::default();
 
         let layout = StructLayoutWriter::new(
@@ -101,10 +130,10 @@ mod tests {
         (Arc::new(segments), layout)
     }
 
-    #[test]
-    fn test_struct_layout() {
-        let (segments, layout) = struct_layout();
-
+    #[rstest]
+    fn test_struct_layout(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
         let reader = layout.reader(segments, Default::default()).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result =
@@ -120,10 +149,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_struct_layout_row_mask() {
-        let (segments, layout) = struct_layout();
-
+    #[rstest]
+    fn test_struct_layout_row_mask(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn AsyncSegmentReader>, Layout),
+    ) {
         let reader = layout.reader(segments, Default::default()).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(reader.evaluate_expr(
