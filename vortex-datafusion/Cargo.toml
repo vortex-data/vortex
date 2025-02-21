@@ -1,4 +1,5 @@
 [package]
+name = "vortex-datafusion"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Apache Datafusion integration for Vortex"
@@ -7,15 +8,10 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-datafusion"
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-
-[lib]
-name = "vortex_datafusion"
-path = "src/lib.rs"
 
 [dependencies]
 arrow-array = { workspace = true }

@@ -1,4 +1,5 @@
 [package]
+name = "vortex-dict"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex dictionary array"
@@ -7,7 +8,7 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-dict"
+
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }

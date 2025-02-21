@@ -1,4 +1,5 @@
 [package]
+name = "vortex-dtype"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex's core type system"
@@ -7,16 +8,10 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-dtype"
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-
-[lib]
-bench = false
-name = "vortex_dtype"
-path = "src/lib.rs"
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }

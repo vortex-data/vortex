@@ -1,4 +1,5 @@
 [package]
+name = "vortex-fuzz"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Fuzzer for vortex arrays"
@@ -7,7 +8,6 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-fuzz"
 publish = false
 readme = "README.md"
 repository = { workspace = true }
@@ -32,10 +32,6 @@ vortex-error = { workspace = true }
 vortex-file = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
-
-[lib]
-name = "vortex_fuzz"
-path = "src/lib.rs"
 
 [[bin]]
 bench = false

@@ -1,4 +1,5 @@
 [package]
+name = "vortex-layout"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex layouts provide a way to perform lazy push-down scans over abstract storage"
@@ -7,7 +8,6 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-layout"
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }

@@ -1,4 +1,5 @@
 [package]
+name = "vortex-tui"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "a small but might tool for working with Vortex files"
@@ -7,7 +8,6 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-tui"
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }

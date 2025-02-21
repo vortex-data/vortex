@@ -1,4 +1,5 @@
 [package]
+name = "pyvortex"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Python bindings for Vortex, an Apache Arrow-compatible toolkit for working with compressed array data."
@@ -7,7 +8,6 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "pyvortex"
 publish = false
 readme = { workspace = true }
 repository = { workspace = true }

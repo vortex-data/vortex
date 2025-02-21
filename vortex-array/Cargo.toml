@@ -1,4 +1,5 @@
 [package]
+name = "vortex-array"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex in memory columnar data format"
@@ -7,16 +8,10 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-array"
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-
-[lib]
-bench = false
-name = "vortex_array"
-path = "src/lib.rs"
 
 [lints]
 workspace = true

@@ -1,4 +1,5 @@
 [package]
+name = "vortex-datetime-parts"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex physical encoding that compresses temporal components individually"
@@ -7,7 +8,6 @@ homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-name = "vortex-datetime-parts"
 readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
