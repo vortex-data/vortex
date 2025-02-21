@@ -1,7 +1,9 @@
-# Vortex: an extensible, state-of-the-art columnar format
+# Vortex
 
-Vortex is an in-memory, on-disk, and over-the-wire format for working with columnar data, built around
-the latest research from the database community.
+Vortex is an extensible, state-of-the-art format for columnar data. It includes
+specifications & tools for manipulating (possibly compressed) arrays in-memory,
+on-disk (i.e., file format), and over-the-wire (i.e., IPC format),
+and is built around the latest research from the database community.
 
 ## In-memory
 
