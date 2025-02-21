@@ -46,10 +46,9 @@ where
 /// use vortex_scalar::Scalar;
 ///
 /// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
-///         .into_array();
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask_array = Mask::try_from(
-///     BoolArray::from_iter([true, false, false, false, true]).into_array(),
+///     &BoolArray::from_iter([true, false, false, false, true]),
 /// )
 /// .unwrap();
 ///
