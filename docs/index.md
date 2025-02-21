@@ -81,18 +81,33 @@ Python <quickstart/python>
 Rust <quickstart/rust>
 ```
 
+## API Documentation
+
+Vortex is primarily written in Rust, and the Rust API is the most complete API for Vortex.
+The Vortex Python bindings provide a more usable Python interface to the Vortex Rust library.
+
+```{toctree}
+---
+maxdepth: 2
+caption: API Documentation
+---
+
+Python API <api/python/index>
+Rust API <https://docs.rs/vortex>
+```
+
 ## User Guides
 
 The user guides for each language provide a comprehensive overview of the Vortex API and how to use it.
 
 ```{toctree}
 ---
-maxdepth: 3
+maxdepth: 1
 caption: User Guides
 ---
 
-Python <python/index>
-Rust <rust/index>
+guides/python-integrations
+guides/writing-an-encoding
 ```
 
 ## Specifications
