@@ -1,5 +1,5 @@
 [package]
-name = "vortex"
+name = "vortex-fastlanes"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex fastlanes arrays"
