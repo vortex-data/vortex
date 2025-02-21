@@ -9,7 +9,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -111,20 +111,20 @@ impl FilterFn<&ALPArray> for ALPEncoding {
             .flatten();
 
         Ok(
-            ALPArray::try_new(filter(&array.encoded(), mask)?, array.exponents(), patches)?
+            ALPArray::try_new(filter(array.encoded(), mask)?, array.exponents(), patches)?
                 .into_array(),
         )
     }
 }
 
-impl BetweenFn<ALPArray> for ALPEncoding {
+impl BetweenFn<&ALPArray> for ALPEncoding {
     fn between(
         &self,
         array: &ALPArray,
-        lower: &Array,
-        upper: &Array,
+        lower: &dyn Array,
+        upper: &dyn Array,
         options: &BetweenOptions,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
         };
@@ -145,7 +145,7 @@ fn between_impl<T: NativePType + ALPFloat>(
     lower: T,
     upper: T,
     options: &BetweenOptions,
-) -> VortexResult<Array>
+) -> VortexResult<ArrayRef>
 where
     Scalar: From<T::ALPInt>,
     <T as ALPFloat>::ALPInt: ScalarType + Debug,
@@ -174,8 +174,8 @@ where
 
     between(
         array.encoded(),
-        ConstantArray::new(lower_enc, array.len()),
-        ConstantArray::new(upper_enc, array.len()),
+        &ConstantArray::new(lower_enc, array.len()),
+        &ConstantArray::new(upper_enc, array.len()),
         &options,
     )
 }
@@ -185,7 +185,7 @@ mod tests {
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
 
     use crate::alp::compute::between_impl;
     use crate::ALPArray;
@@ -193,7 +193,7 @@ mod tests {
     fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
         let res = between_impl(arr, lower, upper, options)
             .unwrap()
-            .into_bool()
+            .to_bool()
             .unwrap()
             .boolean_buffer()
             .iter()
@@ -210,11 +210,7 @@ mod tests {
         let encoded = crate::alp::compress::alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![605; 1]
         );
 

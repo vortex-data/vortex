@@ -1,5 +1,5 @@
 use vortex_array::compute::{slice, SliceFn};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 
 use crate::{ALPRDArray, ALPRDEncoding};
@@ -15,7 +15,7 @@ impl SliceFn<&ALPRDArray> for ALPRDEncoding {
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
             slice(array.left_parts(), start, stop)?,
-            array.left_parts_dict(),
+            array.left_parts_dictionary().clone(),
             slice(array.right_parts(), start, stop)?,
             array.right_bit_width(),
             left_parts_exceptions,
@@ -42,10 +42,7 @@ mod test {
 
         assert!(encoded.left_parts_patches().is_some());
 
-        let decoded = slice(encoded.as_ref(), 1, 3)
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let decoded = slice(&encoded, 1, 3).unwrap().to_primitive().unwrap();
 
         assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);
     }

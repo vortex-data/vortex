@@ -8,7 +8,7 @@ use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
@@ -269,12 +269,12 @@ where
     Ok(())
 }
 
-fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: Patches) -> VortexResult<()> {
-    let (array_len, indices_offset, indices, values) = patches.into_parts();
+fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) -> VortexResult<()> {
+    let (array_len, indices_offset, indices, values) = patches.clone().into_parts();
     assert_eq!(array_len, dst.len());
 
-    let indices = indices.into_primitive()?;
-    let values = values.into_primitive()?;
+    let indices = indices.to_primitive()?;
+    let values = values.to_primitive()?;
     let validity = values.validity();
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
@@ -282,7 +282,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: Patches) -> 
             dst,
             indices,
             values,
-            validity,
+            validity.clone(),
             indices_offset,
         )
     })

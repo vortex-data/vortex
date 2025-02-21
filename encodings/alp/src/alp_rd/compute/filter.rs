@@ -1,5 +1,5 @@
 use vortex_array::compute::{filter, FilterFn};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -15,9 +15,9 @@ impl FilterFn<&ALPRDArray> for ALPRDEncoding {
 
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
-            filter(&array.left_parts(), mask)?,
-            array.left_parts_dict(),
-            filter(&array.right_parts(), mask)?,
+            filter(array.left_parts(), mask)?,
+            array.left_parts_dictionary().clone(),
+            filter(array.right_parts(), mask)?,
             array.right_bit_width(),
             left_parts_exceptions,
         )?
@@ -48,9 +48,9 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
+        let filtered = filter(&encoded, &Mask::from_iter([true, false, true]))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
         assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
     }

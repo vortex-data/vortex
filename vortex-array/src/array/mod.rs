@@ -293,10 +293,9 @@ macro_rules! try_from_array_ref {
 
             fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
                 Ok(Arc::unwrap_or_clone(
-                    value
-                        .as_any_arc()
-                        .downcast::<Self>()
-                        .map_err(|_| vortex_err!("Cannot downcast to {}", type_name::<Self>()))?,
+                    value.as_any_arc().downcast::<Self>().map_err(|_| {
+                        vortex_err!("Cannot downcast to {}", std::any::type_name::<Self>())
+                    })?,
                 ))
             }
         }

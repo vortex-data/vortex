@@ -10,8 +10,8 @@ use crate::{Array, ToCanonical};
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
-    pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let (_, offset, patch_indices, patch_values) = patches.into_parts();
+    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+        let (_, offset, patch_indices, patch_values) = patches.clone().into_parts();
         let patch_indices = patch_indices.to_primitive()?;
         let patch_values = patch_values.to_primitive()?;
 

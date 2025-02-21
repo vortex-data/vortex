@@ -114,7 +114,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     if let Some(patches) = array.patches() {
         if let Some(patches) = patches.take(indices)? {
             let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
-            return unpatched_taken.patch(cast_patches);
+            return unpatched_taken.patch(&cast_patches);
         }
     }
 

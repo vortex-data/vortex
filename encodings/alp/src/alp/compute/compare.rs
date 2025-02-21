@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
@@ -65,7 +65,7 @@ where
     match encoded {
         Some(encoded) => {
             let s = ConstantArray::new(encoded, alp.len());
-            Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
+            Ok(Some(compare(alp.encoded(), &s, operator)?))
         }
         None => match operator {
             // Since this value is not encodable it cannot be equal to any value in the encoded
@@ -76,7 +76,7 @@ where
             Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
             Operator::Gt | Operator::Gte => Ok(Some(compare(
                 alp.encoded(),
-                ConstantArray::new(F::encode_above(value, exponents), alp.len()),
+                &ConstantArray::new(F::encode_above(value, exponents), alp.len()),
                 // Since the encoded value is unencodable gte is equivalent to gt.
                 // Consider a value v, between two encodable values v_l (just less) and
                 // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
@@ -84,7 +84,7 @@ where
             )?)),
             Operator::Lt | Operator::Lte => Ok(Some(compare(
                 alp.encoded(),
-                ConstantArray::new(F::encode_below(value, exponents), alp.len()),
+                &ConstantArray::new(F::encode_below(value, exponents), alp.len()),
                 // Since the encoded values unencodable lt is equivalent to lte.
                 // See Gt | Gte for further explanation.
                 Operator::Lte,
@@ -124,11 +124,7 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
@@ -159,11 +155,7 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![1234; 1025]
         );
 
@@ -192,11 +184,7 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![605; 10]
         );
 
@@ -243,11 +231,7 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![0; 10]
         );
 
@@ -296,7 +280,7 @@ mod tests {
             array.len(),
         );
 
-        let r = compare(encoded, other.as_ref(), Operator::Eq)
+        let r = compare(&encoded, &other, Operator::Eq)
             .unwrap()
             .to_bool()
             .unwrap();

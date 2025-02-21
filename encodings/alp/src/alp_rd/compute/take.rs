@@ -1,5 +1,5 @@
 use vortex_array::compute::{fill_null, take, TakeFn};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -22,7 +22,7 @@ impl TakeFn<&ALPRDArray> for ALPRDEncoding {
             })
             .transpose()?;
         let right_parts = fill_null(
-            take(array.right_parts(), indices)?,
+            &take(array.right_parts(), indices)?,
             Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
         )?;
 
@@ -31,7 +31,7 @@ impl TakeFn<&ALPRDArray> for ALPRDEncoding {
                 .dtype()
                 .with_nullability(taken_left_parts.dtype().nullability()),
             taken_left_parts,
-            array.left_parts_dict(),
+            array.left_parts_dictionary().clone(),
             right_parts,
             array.right_bit_width(),
             left_parts_exceptions,
@@ -45,7 +45,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
-    use vortex_array::ToCanonical;
+    use vortex_array::{Array, ToCanonical};
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -63,9 +63,9 @@ mod test {
             .dtype()
             .is_unsigned_int());
 
-        let taken = take(encoded.as_ref(), PrimitiveArray::from_iter([0, 2]).as_ref())
+        let taken = take(&encoded, &PrimitiveArray::from_iter([0, 2]))
             .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
 
         assert_eq!(taken.as_slice::<T>(), &[a, outlier]);
@@ -86,11 +86,11 @@ mod test {
             .is_unsigned_int());
 
         let taken = take(
-            encoded.as_ref(),
-            PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
+            &encoded,
+            &PrimitiveArray::from_option_iter([Some(0), Some(2), None]),
         )
         .unwrap()
-        .into_primitive()
+        .to_primitive()
         .unwrap();
 
         assert_eq!(taken.as_slice::<T>()[0], a);

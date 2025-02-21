@@ -83,7 +83,7 @@ fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeTy
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
-        values = values.patch(patches)?;
+        values = values.patch(&patches)?;
     }
     Ok(values)
 }
