@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat, RatioMode};
 use bench_vortex::measurements::QueryMeasurement;
+use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::duckdb::{generate_tpch, DuckdbTpchOptions};
 use bench_vortex::tpch::{
@@ -11,6 +12,7 @@ use bench_vortex::tpch::{
 };
 use bench_vortex::{default_env_filter, feature_flagged_allocator, setup_logger, Format};
 use clap::{Parser, ValueEnum};
+use datafusion_physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
@@ -48,6 +50,8 @@ struct Args {
     emulate_object_store: bool,
     #[arg(long, default_value_t, value_enum)]
     data_generator: DataGenerator,
+    #[arg(long)]
+    all_metrics: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug)]
@@ -132,6 +136,7 @@ fn main() -> ExitCode {
         args.emulate_object_store,
         args.scale_factor,
         url,
+        args.all_metrics,
     ))
 }
 
@@ -145,6 +150,7 @@ async fn bench_main(
     emulate_object_store: bool,
     scale_factor: u8,
     url: Url,
+    display_all_metrics: bool,
 ) -> ExitCode {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -170,6 +176,8 @@ async fn bench_main(
     let mut row_counts = Vec::new();
     let mut measurements = Vec::new();
 
+    let mut metrics = MetricsSet::new();
+
     for format in formats.iter().copied() {
         // Load datasets
         let ctx = load_datasets(&url, format, emulate_object_store)
@@ -192,9 +200,18 @@ async fn bench_main(
             }
 
             for i in 0..2 {
-                let row_count = run_tpch_query(&ctx, &sql_queries, query_idx).await;
+                let (row_count, new_metrics) = run_tpch_query(&ctx, &sql_queries, query_idx).await;
                 if i == 0 {
                     row_counts.push((query_idx, format, row_count));
+                    for (idx, m) in new_metrics.into_iter().enumerate() {
+                        metrics.merge_all_with_label(
+                            m,
+                            &[
+                                Label::new("query_idx", query_idx.to_string()),
+                                Label::new("vortex_exec_idx", idx.to_string()),
+                            ],
+                        );
+                    }
                 }
             }
 
@@ -271,6 +288,12 @@ async fn bench_main(
 
     match display_format {
         DisplayFormat::Table => {
+            if !display_all_metrics {
+                metrics = metrics.aggregate();
+            }
+            for m in metrics.timestamps_removed().sorted_for_display().iter() {
+                println!("{}", m);
+            }
             render_table(measurements, &formats, RatioMode::Time).unwrap();
         }
         DisplayFormat::GhJson => {

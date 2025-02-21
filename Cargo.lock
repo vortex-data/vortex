@@ -500,6 +500,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-datafusion",
+ "vortex-metrics",
  "xshell",
 ]
 
@@ -5105,7 +5106,6 @@ dependencies = [
  "flatbuffers 25.2.10",
  "flexbuffers",
  "futures-util",
- "getrandom 0.2.15",
  "goldenfile",
  "hashbrown 0.15.2",
  "humansize",
@@ -5137,6 +5137,7 @@ dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
  "env_logger",
+ "getrandom 0.2.15",
  "itertools 0.14.0",
  "log",
  "num-traits",
@@ -5242,6 +5243,7 @@ dependencies = [
 name = "vortex-datetime-parts"
 version = "0.24.0"
 dependencies = [
+ "getrandom 0.2.15",
  "rstest",
  "serde",
  "vortex-array",
@@ -5575,6 +5577,7 @@ dependencies = [
  "datafusion-common",
  "flatbuffers 25.2.10",
  "flexbuffers",
+ "getrandom 0.2.15",
  "itertools 0.14.0",
  "num-traits",
  "paste",
