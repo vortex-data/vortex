@@ -64,10 +64,26 @@ Data Types <concepts/dtypes>
 Compute <concepts/compute>
 ```
 
+## Quickstarts
+
+Vortex is currently available for both Python and Rust. If you want to get started right away, feel free to
+jump right in with the language-specific quickstarts. For more detailed information, see the
+[User Guides](#user-guides) instead.
+
+```{toctree}
+---
+maxdepth: 1
+includehidden:
+caption: Quickstarts
+---
+
+Python <quickstart/python>
+Rust <quickstart/rust>
+```
+
 ## User Guides
 
-Vortex is currently available for both Python and Rust. The user guides for each language provide a comprehensive
-overview of the Vortex API and how to use it, or jump right in with the [Quickstart](/quickstart/quickstart).
+The user guides for each language provide a comprehensive overview of the Vortex API and how to use it.
 
 ```{toctree}
 ---
@@ -75,7 +91,6 @@ maxdepth: 3
 caption: User Guides
 ---
 
-Quickstart <quickstart/quickstart>
 Python <python/index>
 Rust <rust/index>
 ```

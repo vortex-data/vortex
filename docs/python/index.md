@@ -1,15 +1,20 @@
-# Vortex Python
+# Python User Guide
+
+The Vortex Python bindings provide a Python interface to the Vortex Rust library.
+See the parent documentation for details on the Vortex project itself or other language bindings.
+
+## Python API
 
 ```{toctree}
 ---
+maxdepth: 2
 hidden:
 ---
 
 API <api/index>
 ```
 
-The Vortex Python bindings provide a Python interface to the Vortex Rust library.
-See the parent documentation for details on the Vortex project itself or other language bindings.
+The Python API is fully documented in the [Python API section](api/index).
 
 ## Installation
 
@@ -25,7 +30,7 @@ uv add vortex-array
 ```
 ````
 
-## Guide
+## Getting Started
 
 Construct a Vortex array from lists of simple Python values:
 
