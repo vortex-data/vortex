@@ -16,7 +16,7 @@ use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::{IntoArray, IntoArrayVariant};
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{buffer_mut, Buffer, BufferMut};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
@@ -129,7 +129,7 @@ impl ALPRDFloat for f32 {
 /// [C++ implementation]: https://github.com/cwida/ALP/blob/main/include/alp/rd.hpp
 pub struct RDEncoder {
     right_bit_width: u8,
-    codes: Vec<u16>,
+    codes: Buffer<u16>,
 }
 
 impl RDEncoder {
@@ -141,7 +141,7 @@ impl RDEncoder {
     {
         let dictionary = find_best_dictionary::<T>(sample);
 
-        let mut codes = vec![0; dictionary.dictionary.len()];
+        let mut codes = buffer_mut![0u16; dictionary.dictionary.len()];
         dictionary.dictionary.into_iter().for_each(|(bits, code)| {
             // write the reverse mapping into the codes vector.
             codes[code as usize] = bits
@@ -149,7 +149,7 @@ impl RDEncoder {
 
         Self {
             right_bit_width: dictionary.right_bit_width,
-            codes,
+            codes: codes.freeze(),
         }
     }
 
@@ -242,7 +242,7 @@ impl RDEncoder {
         ALPRDArray::try_new(
             DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
             packed_left,
-            &self.codes,
+            self.codes.clone(),
             packed_right,
             self.right_bit_width,
             exceptions,
