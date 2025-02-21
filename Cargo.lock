@@ -2112,10 +2112,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a49c392881ce6d5c3b8cb70f98717b7c07aabbdff06687b9030dbfbe2725f8"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi 0.13.3+wasi-0.2.2",
- "wasm-bindgen",
  "windows-targets",
 ]
 
@@ -5110,7 +5108,6 @@ dependencies = [
  "flatbuffers 25.2.10",
  "flexbuffers",
  "futures-util",
- "getrandom 0.3.1",
  "goldenfile",
  "hashbrown 0.15.2",
  "humansize",
@@ -5142,6 +5139,7 @@ dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
  "env_logger",
+ "getrandom 0.2.15",
  "itertools 0.14.0",
  "log",
  "num-traits",
@@ -5236,7 +5234,6 @@ name = "vortex-datetime-dtype"
 version = "0.24.0"
 dependencies = [
  "arrow-schema",
- "getrandom 0.2.15",
  "jiff",
  "num_enum 0.7.3",
  "serde",
@@ -5248,6 +5245,7 @@ dependencies = [
 name = "vortex-datetime-parts"
 version = "0.24.0"
 dependencies = [
+ "getrandom 0.2.15",
  "rstest",
  "serde",
  "vortex-array",
@@ -5550,7 +5548,6 @@ dependencies = [
  "arbitrary",
  "codspeed-divan-compat",
  "fsst-rs",
- "getrandom 0.2.15",
  "itertools 0.14.0",
  "jiff",
  "log",
@@ -5582,6 +5579,7 @@ dependencies = [
  "datafusion-common",
  "flatbuffers 25.2.10",
  "flexbuffers",
+ "getrandom 0.2.15",
  "itertools 0.14.0",
  "num-traits",
  "paste",

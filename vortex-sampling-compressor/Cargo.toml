@@ -23,7 +23,6 @@ vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
-getrandom_v02 = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }

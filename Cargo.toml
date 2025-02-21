@@ -197,11 +197,11 @@ zigzag = "0.1.0"
 [workspace.dependencies.getrandom_v03]
 package = "getrandom"
 version = "0.3.1"
-features = ["wasm-js"]
+features = ["wasm_js"]
 
 [workspace.dependencies.getrandom_v02]
 package = "getrandom"
-version = "0.2"
+version = "0.2.15"
 features = ["js"]
 
 [workspace.lints.rust]
