@@ -11,7 +11,7 @@ use vortex_dtype::{FieldName, StructDType};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::forms::cnf::cnf;
 use vortex_expr::transform::immediate_access::immediate_scope_access;
-use vortex_expr::{get_item, ident, or, ExprRef};
+use vortex_expr::{get_item, ident, ExprRef};
 use vortex_mask::Mask;
 
 use crate::{ExprEvaluator, RowMask};
@@ -55,11 +55,7 @@ impl FilterExpr {
             .collect();
 
         // Partition the expression into conjuncts
-        let conjuncts = cnf(expr)?;
-        let conjuncts: Vec<ExprRef> = conjuncts
-            .into_iter()
-            .filter_map(|disjunction| disjunction.into_iter().reduce(or))
-            .collect();
+        let conjuncts = cnf(expr);
 
         // Find which fields are referenced by each conjunct.
         let conjunct_fields = conjuncts

@@ -1,8 +1,11 @@
-use vortex_array::compute::{FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn};
+use vortex_array::compute::{
+    between, BetweenFn, BetweenOptions, FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn,
+};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::Array;
+use vortex_array::{Array, IntoCanonical};
+use vortex_error::VortexResult;
 
-use crate::BitPackedEncoding;
+use crate::{BitPackedArray, BitPackedEncoding};
 
 mod filter;
 mod scalar_at;
@@ -28,6 +31,10 @@ impl ComputeVTable for BitPackedEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+        Some(self)
+    }
+
+    fn between_fn(&self) -> Option<&dyn BetweenFn<Array>> {
         Some(self)
     }
 }
@@ -59,5 +66,21 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 
     if !indices_within_chunk.is_empty() {
         chunk_fn(current_chunk_idx, &indices_within_chunk);
+    }
+}
+
+impl BetweenFn<BitPackedArray> for BitPackedEncoding {
+    fn between(
+        &self,
+        array: &BitPackedArray,
+        lower: &Array,
+        upper: &Array,
+        options: &BetweenOptions,
+    ) -> VortexResult<Option<Array>> {
+        if !lower.is_constant() || !upper.is_constant() {
+            return Ok(None);
+        };
+
+        between(array.clone().into_canonical()?, lower, upper, options).map(Some)
     }
 }

@@ -22,6 +22,21 @@ pub enum Operator {
     Lte,
 }
 
+pub trait OperatorImpl<T> {
+    const FN_: fn(T, T) -> bool;
+}
+
+pub struct Lt;
+pub struct Lte;
+
+impl<T: PartialOrd> OperatorImpl<T> for Lt {
+    const FN_: fn(T, T) -> bool = |lhs, rhs| lhs < rhs;
+}
+
+impl<T: PartialOrd> OperatorImpl<T> for Lte {
+    const FN_: fn(T, T) -> bool = |lhs, rhs| lhs <= rhs;
+}
+
 impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let display = match &self {
@@ -57,17 +72,6 @@ impl Operator {
             Operator::Gte => Operator::Lte,
             Operator::Lt => Operator::Gt,
             Operator::Lte => Operator::Gte,
-        }
-    }
-
-    pub const fn to_fn<T: PartialEq + PartialOrd>(&self) -> fn(T, T) -> bool {
-        match self {
-            Operator::Eq => |l, r| l == r,
-            Operator::NotEq => |l, r| l != r,
-            Operator::Gt => |l, r| l > r,
-            Operator::Gte => |l, r| l >= r,
-            Operator::Lt => |l, r| l < r,
-            Operator::Lte => |l, r| l <= r,
         }
     }
 }
