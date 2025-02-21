@@ -73,12 +73,12 @@ chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
 crossterm = "0.28"
-datafusion = { version = "45", default-features = false, git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
-datafusion-common = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
-datafusion-execution = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
-datafusion-expr = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
-datafusion-physical-expr = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
-datafusion-physical-plan = {version = "45", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/14754/head" }
+datafusion = { version = "45", default-features = false, git = "https://github.com/apache/datafusion.git", branch = "main" }
+datafusion-common = {version = "45", git = "https://github.com/apache/datafusion.git", branch = "main" }
+datafusion-execution = {version = "45", git = "https://github.com/apache/datafusion.git", branch = "main" }
+datafusion-expr = {version = "45", git = "https://github.com/apache/datafusion.git", branch = "main" }
+datafusion-physical-expr = {version = "45", git = "https://github.com/apache/datafusion.git", branch = "main" }
+datafusion-physical-plan = {version = "45", git = "https://github.com/apache/datafusion.git", branch = "main" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
@@ -156,7 +156,7 @@ tracing-chrome = "0.7.2"
 tracing-futures = "0.2.5"
 tracing-subscriber = "0.3.19"
 url = "2.5.4"
-uuid = "1.8.0"
+uuid = "1.13"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 

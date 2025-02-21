@@ -165,16 +165,6 @@ impl FileSource for VortexSource {
         VORTEX_FILE_EXTENSION
     }
 
-    fn supports_repartition(&self, config: &FileScanConfig) -> bool {
-        let total_file_count = config
-            .file_groups
-            .iter()
-            .map(|group| group.len())
-            .sum::<usize>();
-        // Vortex doesn't support repartitioning if there's only one file
-        total_file_count > 1
-    }
-
     fn repartitioned(
         &self,
         target_partitions: usize,
