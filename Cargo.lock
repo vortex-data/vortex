@@ -5149,7 +5149,6 @@ dependencies = [
  "num_enum 0.7.3",
  "paste",
  "pin-project",
- "rand 0.9.0",
  "rkyv",
  "rstest",
  "serde",

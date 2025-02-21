@@ -44,7 +44,6 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
-rand = { workspace = true }
 rkyv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
