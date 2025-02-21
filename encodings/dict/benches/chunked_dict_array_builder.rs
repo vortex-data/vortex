@@ -29,13 +29,11 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
-    bencher
-        .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| {
-            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-            chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
-            builder.finish()
-        })
+    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
+        builder.finish()
+    })
 }
 
 #[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
@@ -49,7 +47,7 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
 
     bencher
         .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| chunk.into_canonical().vortex_unwrap())
+        .bench_values(|chunk| chunk.into_canonical().vortex_unwrap())
 }
 
 fn make_dict_fsst_chunks<T: NativePType>(
@@ -70,13 +68,11 @@ fn chunked_dict_fsst_canonical_into(
 ) {
     let chunk = make_dict_fsst_chunks::<u16>(len, unique_values, chunk_count);
 
-    bencher
-        .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| {
-            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-            chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
-            builder.finish()
-        })
+    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
+        builder.finish()
+    })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -88,5 +84,5 @@ fn chunked_dict_fsst_into_canonical(
 
     bencher
         .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| chunk.into_canonical().vortex_unwrap())
+        .bench_values(|chunk| chunk.into_canonical().vortex_unwrap())
 }

@@ -22,29 +22,25 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
 
-    bencher
-        .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| {
-            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-            chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
-            builder.finish()
-        })
+    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
+        builder.finish()
+    })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
-    bencher
-        .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| {
-            let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-            chunk
-                .clone()
-                .canonicalize_into(builder.as_mut())
-                .vortex_unwrap();
-            builder.finish()
-        })
+    bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk
+            .clone()
+            .canonicalize_into(builder.as_mut())
+            .vortex_unwrap();
+        builder.finish()
+    })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -53,7 +49,7 @@ fn chunked_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usi
 
     bencher
         .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| chunk.into_canonical())
+        .bench_values(|chunk| chunk.into_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -62,7 +58,7 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
 
     bencher
         .with_inputs(|| chunk.clone())
-        .bench_local_values(|chunk| chunk.into_canonical())
+        .bench_values(|chunk| chunk.into_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -71,7 +67,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
 
     bencher
         .with_inputs(|| chunks.clone())
-        .bench_local_values(|chunk| {
+        .bench_values(|chunk| {
             let mut builder = VarBinViewBuilder::with_capacity(
                 DType::Utf8(chunk.dtype().nullability()),
                 len * chunk_count,
@@ -87,7 +83,7 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
 
     bencher
         .with_inputs(|| chunks.clone())
-        .bench_local_values(|chunk| chunk.into_canonical())
+        .bench_values(|chunk| chunk.into_canonical())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -96,7 +92,7 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
 
     bencher
         .with_inputs(|| chunks.clone())
-        .bench_local_values(|chunk| {
+        .bench_values(|chunk| {
             let mut builder = VarBinViewBuilder::with_capacity(
                 DType::Utf8(chunk.dtype().nullability()),
                 len * chunk_count,
@@ -112,7 +108,7 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
 
     bencher
         .with_inputs(|| chunks.clone())
-        .bench_local_values(|chunk| chunk.into_canonical())
+        .bench_values(|chunk| chunk.into_canonical())
 }
 
 fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
