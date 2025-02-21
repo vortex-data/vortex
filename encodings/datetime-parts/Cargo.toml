@@ -17,6 +17,7 @@ readme = { workspace = true }
 workspace = true
 
 [dependencies]
+getrandom_v02 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

@@ -23,6 +23,8 @@ futures-executor = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future", "quanta"] }
+# Needed to pickup the "js" feature for wasm targets from the workspace configuration
+uuid = { workspace = true }
 oneshot = { workspace = true, features = ["async"] }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }

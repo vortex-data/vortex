@@ -31,6 +31,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, optional = true }
 vortex-proto = { workspace = true, optional = true }
+getrandom_v02 = { workspace = true }
 
 [dev-dependencies]
 flexbuffers = { workspace = true }

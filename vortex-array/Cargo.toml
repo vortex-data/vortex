@@ -70,10 +70,6 @@ arbitrary = [
 test-harness = ["dep:goldenfile"]
 canonical_counter = []
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# Enable the JS feature of getrandom (via rand) to supprt wasm32 target
-getrandom = { workspace = true, features = ["js"] }
-
 [dev-dependencies]
 divan = { workspace = true }
 rstest = { workspace = true }

@@ -16,10 +16,7 @@ categories = { workspace = true }
 [dependencies]
 vortex-error = { workspace = true }
 witchcraft-metrics = { workspace = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# Enable the JS feature of getrandom (via rand) to supprt wasm32 target
-getrandom = { workspace = true, features = ["js"] }
+getrandom_v02 = { workspace = true }
 
 [lints]
 workspace = true
