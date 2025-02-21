@@ -343,7 +343,7 @@ impl ArrayCanonicalImpl for PrimitiveArray {
     }
 
     fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(&self.to_array())
+        builder.extend_from_array(self)
     }
 }
 

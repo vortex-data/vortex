@@ -107,12 +107,12 @@ impl ArrayImpl for BoolArray {
 impl ArrayCanonicalImpl for BoolArray {
     #[inline]
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
+        Ok(Canonical::Bool(self.clone()))
     }
 
     #[inline]
-    fn _append_to_builder(&self, _builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        todo!()
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        builder.extend_from_array(self)
     }
 }
 
