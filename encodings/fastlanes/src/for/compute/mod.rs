@@ -9,7 +9,7 @@ use vortex_array::compute::{
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -45,15 +45,21 @@ impl ComputeVTable for FoREncoding {
 
 impl TakeFn<&FoRArray> for FoREncoding {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        FoRArray::try_new(take(array.encoded(), indices)?, array.reference_scalar())
-            .map(|a| a.into_array())
+        FoRArray::try_new(
+            take(array.encoded(), indices)?,
+            array.reference_scalar().clone(),
+        )
+        .map(|a| a.into_array())
     }
 }
 
 impl FilterFn<&FoRArray> for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        FoRArray::try_new(filter(&array.encoded(), mask)?, array.reference_scalar())
-            .map(|a| a.into_array())
+        FoRArray::try_new(
+            filter(array.encoded(), mask)?,
+            array.reference_scalar().clone(),
+        )
+        .map(|a| a.into_array())
     }
 }
 
@@ -82,7 +88,7 @@ impl SliceFn<&FoRArray> for FoREncoding {
     fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             slice(array.encoded(), start, stop)?,
-            array.reference_scalar(),
+            array.reference_scalar().clone(),
         )
         .map(|a| a.into_array())
     }
@@ -134,14 +140,13 @@ where
     let target_scalar = Scalar::primitive(target, value.dtype().nullability())
         .reinterpret_cast(array.ptype().to_unsigned());
 
-    search_sorted(&array.encoded(), target_scalar, side)
+    search_sorted(array.encoded(), target_scalar, side)
 }
 
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
-    use vortex_array::IntoArray;
 
     use crate::for_compress;
 
@@ -156,9 +161,7 @@ mod test {
 
     #[test]
     fn for_search() {
-        let for_arr = for_compress(PrimitiveArray::from_iter([1100, 1500, 1900]))
-            .unwrap()
-            .into_array();
+        let for_arr = for_compress(PrimitiveArray::from_iter([1100, 1500, 1900])).unwrap();
         assert_eq!(
             search_sorted(&for_arr, 1500, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(1)
@@ -175,9 +178,7 @@ mod test {
 
     #[test]
     fn search_with_shift_notfound() {
-        let for_arr = for_compress(PrimitiveArray::from_iter([62, 114]))
-            .unwrap()
-            .into_array();
+        let for_arr = for_compress(PrimitiveArray::from_iter([62, 114])).unwrap();
         assert_eq!(
             search_sorted(&for_arr, 63, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(1)
@@ -204,8 +205,7 @@ mod test {
             Some(-8739),
             Some(-29),
         ]))
-        .unwrap()
-        .into_array();
+        .unwrap();
         assert_eq!(
             search_sorted(&for_arr, -22360, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(2)

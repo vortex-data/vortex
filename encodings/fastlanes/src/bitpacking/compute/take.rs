@@ -3,7 +3,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -22,7 +22,7 @@ impl TakeFn<&BitPackedArray> for BitPackedEncoding {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.to_primitive()?, indices);
+            return take(&array.to_primitive()?, indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -129,7 +129,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{buffer, Buffer};
 
     use crate::bitpacking::compute::take::take_primitive;
@@ -141,12 +141,9 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
+        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
 
-        let primitive_result = take(bitpacked.as_ref(), &indices)
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let primitive_result = take(&bitpacked, &indices).unwrap().to_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -154,14 +151,11 @@ mod test {
     #[test]
     fn take_with_patches() {
         let unpacked = Buffer::from_iter(0u32..1024).into_array();
-        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 2).unwrap();
+        let bitpacked = BitPackedArray::encode(&unpacked, 2).unwrap();
 
         let indices = PrimitiveArray::from_iter([0, 2, 4, 6]);
 
-        let primitive_result = take(bitpacked.as_ref(), &indices)
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let primitive_result = take(&bitpacked, &indices).unwrap().to_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u32>();
         assert_eq!(res_bytes, &[0, 2, 4, 6]);
     }
@@ -172,10 +166,10 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
+        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
+        let sliced = slice(&bitpacked, 128, 2050).unwrap();
 
-        let primitive_result = take(&sliced, &indices).unwrap().into_primitive().unwrap();
+        let primitive_result = take(&sliced, &indices).unwrap().to_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
@@ -186,14 +180,14 @@ mod test {
         let num_patches: usize = 128;
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let packed = BitPackedArray::encode(uncompressed.as_ref(), 16).unwrap();
+        let packed = BitPackedArray::encode(&uncompressed, 16).unwrap();
         assert!(packed.patches().is_some());
 
         let rng = thread_rng();
         let range = Uniform::new(0, values.len());
         let random_indices =
             PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
-        let taken = take(packed.as_ref(), random_indices.as_ref()).unwrap();
+        let taken = take(&packed, &random_indices).unwrap();
 
         // sanity check
         random_indices
@@ -202,8 +196,7 @@ mod test {
             .enumerate()
             .for_each(|(ti, i)| {
                 assert_eq!(
-                    u32::try_from(scalar_at(packed.as_ref(), *i as usize).unwrap().as_ref())
-                        .unwrap(),
+                    u32::try_from(scalar_at(&packed, *i as usize).unwrap().as_ref()).unwrap(),
                     values[*i as usize]
                 );
                 assert_eq!(
@@ -235,10 +228,10 @@ mod test {
 
         let taken_primitive = take(
             &start,
-            PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]),
+            &PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]),
         )
         .unwrap()
-        .into_primitive()
+        .to_primitive()
         .unwrap();
         assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
         assert_eq!(taken_primitive.invalid_count().unwrap(), 1);

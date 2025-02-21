@@ -48,8 +48,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
-    pub fn patch(&mut self, patches: Patches, starting_at: usize) -> VortexResult<()> {
-        let (array_len, indices_offset, indices, values) = patches.into_parts();
+    pub fn patch(&mut self, patches: &Patches, starting_at: usize) -> VortexResult<()> {
+        let (array_len, indices_offset, indices, values) = patches.clone().into_parts();
         assert!(starting_at + array_len == self.len());
         let indices = indices.to_primitive()?;
         let values = values.to_primitive()?;

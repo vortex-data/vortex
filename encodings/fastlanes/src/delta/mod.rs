@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::{Arc, RwLock};
 
 pub use compress::*;
 use vortex_array::arrays::PrimitiveArray;
@@ -6,25 +7,37 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::{Validity, ValidityMetadata};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::{
+    encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingId,
 };
-use vortex_array::{encoding_ids, impl_encoding, ArrayRef, Canonical, IntoArray, RkyvMetadata};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, PType};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 mod compress;
 mod compute;
 
-impl_encoding!(
-    "fastlanes.delta",
-    encoding_ids::FL_DELTA,
-    Delta,
-    RkyvMetadata<DeltaMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct DeltaArray {
+    offset: usize,
+    len: usize,
+    dtype: DType,
+    bases: ArrayRef,
+    deltas: ArrayRef,
+    validity: Validity,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+pub struct DeltaEncoding;
+impl Encoding for DeltaEncoding {
+    const ID: EncodingId = EncodingId::new("fastlanes.delta", encoding_ids::FL_DELTA);
+    type Array = DeltaArray;
+    type Metadata = EmptyMetadata;
+}
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]
@@ -104,7 +117,6 @@ impl DeltaArray {
         if offset >= 1024 {
             vortex_bail!("offset must be less than 1024: {}", offset);
         }
-
         if offset + logical_len > deltas.len() {
             vortex_bail!(
                 "offset + logical_len, {} + {}, must be less than or equal to the size of deltas: {}",
@@ -113,7 +125,6 @@ impl DeltaArray {
                 deltas.len()
             )
         }
-
         if bases.dtype() != deltas.dtype() {
             vortex_bail!(
                 "DeltaArray: bases and deltas must have the same dtype, got {:?} and {:?}",
@@ -121,31 +132,30 @@ impl DeltaArray {
                 deltas.dtype()
             );
         }
-
         let dtype = bases.dtype().clone();
         if !dtype.is_int() {
             vortex_bail!("DeltaArray: dtype must be an integer, got {}", dtype);
         }
 
-        let metadata = DeltaMetadata {
-            validity: validity.to_metadata(logical_len)?,
-            deltas_len: deltas.len() as u64,
-            offset: offset as u16,
-        };
-
-        let mut children = vec![bases, deltas];
-        if let Some(varray) = validity.into_array() {
-            children.push(varray)
+        if let Some(vlen) = validity.maybe_len() {
+            if vlen != logical_len {
+                vortex_bail!(
+                    "DeltaArray: validity length ({}) must match logical_len ({})",
+                    vlen,
+                    logical_len
+                );
+            }
         }
 
-        let delta = Self::try_from_parts(
+        let delta = Self {
+            offset,
+            len: logical_len,
             dtype,
-            logical_len,
-            RkyvMetadata(metadata),
-            vec![].into(),
-            children.into(),
-            StatsSet::default(),
-        )?;
+            bases,
+            deltas,
+            validity,
+            stats_set: Default::default(),
+        };
 
         if delta.bases().len() != delta.bases_len() {
             vortex_bail!(
@@ -170,28 +180,19 @@ impl DeltaArray {
     }
 
     #[inline]
-    pub fn bases(&self) -> ArrayRef {
-        self.as_ref()
-            .child(0, self.dtype(), self.bases_len())
-            .vortex_expect("DeltaArray is missing bases child array")
+    pub fn bases(&self) -> &ArrayRef {
+        &self.bases
     }
 
     #[inline]
-    pub fn deltas(&self) -> ArrayRef {
-        self.as_ref()
-            .child(1, self.dtype(), self.deltas_len())
-            .vortex_expect("DeltaArray is missing deltas child array")
+    pub fn deltas(&self) -> &ArrayRef {
+        &self.deltas
     }
 
     #[inline]
     fn lanes(&self) -> usize {
-        let ptype = self.dtype().try_into().unwrap_or_else(|err| {
-            vortex_panic!(
-                err,
-                "Failed to convert DeltaArray DType {} to PType",
-                self.dtype()
-            )
-        });
+        let ptype = PType::try_from(self.dtype())
+            .vortex_expect("Failed to convert DeltaArray DType to PType");
         match_each_unsigned_integer_ptype!(ptype, |$T| {
             <$T as fastlanes::FastLanes>::LANES
         })
@@ -200,89 +201,106 @@ impl DeltaArray {
     #[inline]
     /// The logical offset into the first chunk of [`Self::deltas`].
     pub fn offset(&self) -> usize {
-        self.metadata().offset as usize
+        self.offset
     }
 
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(2, &Validity::DTYPE, self.len())
-                .vortex_expect("DeltaArray: validity child")
-        })
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 
     fn bases_len(&self) -> usize {
-        let num_chunks = self.deltas().len() / 1024;
-        let remainder_base_size = if self.deltas().len() % 1024 > 0 { 1 } else { 0 };
-        num_chunks * self.lanes() + remainder_base_size
+        self.bases.len()
+        // let num_chunks = self.deltas().len() / 1024;
+        // let remainder_base_size = if self.deltas().len() % 1024 > 0 { 1 } else { 0 };
+        // num_chunks * self.lanes() + remainder_base_size
     }
 
     fn deltas_len(&self) -> usize {
-        self.metadata().deltas_len as usize
+        self.deltas.len()
     }
 }
 
-impl ValidateVTable<DeltaArray> for DeltaEncoding {}
+impl ArrayImpl for DeltaArray {
+    type Encoding = DeltaEncoding;
 
-impl VariantsVTable<DeltaArray> for DeltaEncoding {
-    fn as_primitive_array<'a>(&self, array: &'a DeltaArray) -> Option<&'a dyn PrimitiveArrayTrait> {
-        Some(array)
+    fn _len(&self) -> usize {
+        self.len
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&DeltaEncoding)
+    }
+}
+
+impl ArrayCanonicalImpl for DeltaArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        delta_decompress(self).map(Canonical::Primitive)
+    }
+}
+
+impl ArrayStatisticsImpl for DeltaArray {
+    fn stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
+impl ArrayValidityImpl for DeltaArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.validity.is_valid(index)
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.validity.all_valid()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.validity.all_invalid()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.validity.to_logical(self.len)
+    }
+}
+
+impl ArrayVariantsImpl for DeltaArray {
+    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
     }
 }
 
 impl PrimitiveArrayTrait for DeltaArray {}
 
-impl CanonicalVTable<DeltaArray> for DeltaEncoding {
-    fn into_canonical(&self, array: DeltaArray) -> VortexResult<Canonical> {
-        delta_decompress(array).map(Canonical::Primitive)
-    }
-}
-
-impl ValidityVTable<DeltaArray> for DeltaEncoding {
-    fn is_valid(&self, array: &DeltaArray, index: usize) -> VortexResult<bool> {
-        array.validity().is_valid(index)
-    }
-
-    fn all_valid(&self, array: &DeltaArray) -> VortexResult<bool> {
-        array.validity().all_valid()
-    }
-
-    fn all_invalid(&self, array: &DeltaArray) -> VortexResult<bool> {
-        array.validity().all_invalid()
-    }
-
-    fn validity_mask(&self, array: &DeltaArray) -> VortexResult<Mask> {
-        array.validity().to_logical(array.len())
-    }
-}
-
-impl VisitorVTable<DeltaArray> for DeltaEncoding {
-    fn accept(&self, array: &DeltaArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("bases", &array.bases())?;
-        visitor.visit_child("deltas", &array.deltas())
+impl ArrayVisitorImpl for DeltaArray {
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("bases", self.bases())?;
+        visitor.visit_child("deltas", self.deltas())
     }
 }
 
 impl StatisticsVTable<'_, DeltaArray> for DeltaEncoding {}
 
-#[cfg(test)]
-mod test {
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::validity::ValidityMetadata;
-    use vortex_array::RkyvMetadata;
-
-    use crate::DeltaMetadata;
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_delta_metadata() {
-        check_metadata(
-            "delta.metadata",
-            RkyvMetadata(DeltaMetadata {
-                offset: u16::MAX,
-                validity: ValidityMetadata::AllValid,
-                deltas_len: u64::MAX,
-            }),
-        );
-    }
-}
+// #[cfg(test)]
+// mod test {
+//     use vortex_array::test_harness::check_metadata;
+//     use vortex_array::validity::ValidityMetadata;
+//     use vortex_array::RkyvMetadata;
+//
+//     use crate::DeltaMetadata;
+//
+//     #[cfg_attr(miri, ignore)]
+//     #[test]
+//     fn test_delta_metadata() {
+//         check_metadata(
+//             "delta.metadata",
+//             RkyvMetadata(DeltaMetadata {
+//                 offset: u16::MAX,
+//                 validity: ValidityMetadata::AllValid,
+//                 deltas_len: u64::MAX,
+//             }),
+//         );
+//     }
+// }

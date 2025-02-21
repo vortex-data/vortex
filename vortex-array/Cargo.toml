@@ -23,7 +23,6 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-arcstr = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
@@ -32,7 +31,6 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
-backtrace = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }

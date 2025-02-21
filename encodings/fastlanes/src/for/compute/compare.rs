@@ -3,7 +3,7 @@ use std::ops::Shr;
 use num_traits::WrappingSub;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
@@ -57,12 +57,7 @@ where
     // unsigned integer type).
     let rhs = Scalar::from(rhs).reinterpret_cast(T::PTYPE.to_unsigned());
 
-    compare(
-        lhs.encoded(),
-        ConstantArray::new(rhs, lhs.len()).into_array(),
-        operator,
-    )
-    .map(Some)
+    compare(lhs.encoded(), &ConstantArray::new(rhs, lhs.len()), operator).map(Some)
 }
 
 #[cfg(test)]
@@ -143,6 +138,6 @@ mod tests {
         expected: T,
     ) {
         let result = result.unwrap().unwrap().to_bool().unwrap();
-        assert_eq!(result.boolean_buffer(), BooleanBuffer::from_iter(expected));
+        assert_eq!(result.boolean_buffer(), &BooleanBuffer::from_iter(expected));
     }
 }

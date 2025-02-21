@@ -1,6 +1,6 @@
 use vortex_array::compute::{FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn};
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::ArrayRef;
+use vortex_array::Array;
 
 use crate::BitPackedEncoding;
 
