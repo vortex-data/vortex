@@ -364,13 +364,13 @@ struct CoalescingMetrics {
 
 impl From<VortexMetrics> for CoalescingMetrics {
     fn from(metrics: VortexMetrics) -> Self {
-        let bytes = "vortex.scan.requests.bytes";
-        let count = "vortex.scan.requests.count";
+        const BYTES: &str = "vortex.scan.requests.bytes";
+        const COUNT: &str = "vortex.scan.requests.count";
         Self {
-            bytes_uncoalesced: metrics.counter(format!("{bytes}.uncoalesced")),
-            bytes_coalesced: metrics.counter(format!("{bytes}.coalesced")),
-            request_count_uncoalesced: metrics.counter(format!("{count}.uncoalesced")),
-            request_count_coalesced: metrics.counter(format!("{count}.coalesced")),
+            bytes_uncoalesced: metrics.counter(format!("{BYTES}.uncoalesced")),
+            bytes_coalesced: metrics.counter(format!("{BYTES}.coalesced")),
+            request_count_uncoalesced: metrics.counter(format!("{COUNT}.uncoalesced")),
+            request_count_coalesced: metrics.counter(format!("{COUNT}.coalesced")),
         }
     }
 }
