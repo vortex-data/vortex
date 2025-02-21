@@ -243,7 +243,7 @@ impl ArrayCanonicalImpl for DeltaArray {
 }
 
 impl ArrayStatisticsImpl for DeltaArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

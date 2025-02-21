@@ -91,7 +91,7 @@ impl ArrayValidityImpl for ConstantArray {
 }
 
 impl ArrayStatisticsImpl for ConstantArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

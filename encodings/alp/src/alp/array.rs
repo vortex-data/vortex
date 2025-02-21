@@ -107,7 +107,7 @@ impl ArrayCanonicalImpl for ALPArray {
 }
 
 impl ArrayStatisticsImpl for ALPArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

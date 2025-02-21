@@ -36,33 +36,33 @@ impl<A: Array + 'static> ArrayStatistics for A {
 }
 
 pub trait ArrayStatisticsImpl {
-    fn stats_set(&self) -> &RwLock<StatsSet>;
+    fn _stats_set(&self) -> &RwLock<StatsSet>;
 }
 
 impl<A: Array + ArrayImpl> Statistics for A {
     fn get_stat(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self.stats_set()
+        self._stats_set()
             .read()
             .vortex_expect("poisoned lock")
             .get(stat)
     }
 
     fn stats_set(&self) -> StatsSet {
-        self.stats_set()
+        self._stats_set()
             .read()
             .vortex_expect("poisoned lock")
             .clone()
     }
 
     fn set_stat(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.stats_set()
+        self._stats_set()
             .write()
             .vortex_expect("poisoned lock")
             .set(stat, value);
     }
 
     fn clear_stat(&self, stat: Stat) {
-        self.stats_set()
+        self._stats_set()
             .write()
             .vortex_expect("poisoned lock")
             .clear(stat);
@@ -110,7 +110,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
 
         {
             // Update the stats set with all the computed stats.
-            let mut w = self.stats_set().write().vortex_expect("poisoned lock");
+            let mut w = self._stats_set().write().vortex_expect("poisoned lock");
             for (stat, value) in stats_set.into_iter() {
                 w.set(stat, value);
             }
@@ -120,7 +120,7 @@ impl<A: Array + ArrayImpl> Statistics for A {
     }
 
     fn retain_only(&self, stats: &[Stat]) {
-        self.stats_set()
+        self._stats_set()
             .write()
             .vortex_expect("poisoned lock")
             .retain_only(stats)

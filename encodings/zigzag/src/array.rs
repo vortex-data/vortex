@@ -85,7 +85,7 @@ impl ArrayCanonicalImpl for ZigZagArray {
 }
 
 impl ArrayStatisticsImpl for ZigZagArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

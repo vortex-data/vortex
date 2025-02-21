@@ -24,8 +24,9 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata, TryFromArrayRef,
+    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    TryFromArrayRef,
 };
 
 mod accessor;
@@ -236,6 +237,8 @@ pub struct VarBinViewArray {
     validity: Validity,
     stats_set: Arc<RwLock<StatsSet>>,
 }
+
+try_from_array_ref!(VarBinViewArray);
 
 pub struct VarBinViewEncoding;
 impl Encoding for VarBinViewEncoding {
@@ -460,7 +463,7 @@ impl ArrayImpl for VarBinViewArray {
 }
 
 impl ArrayStatisticsImpl for VarBinViewArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

@@ -6,7 +6,7 @@ use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_mask::Mask;
@@ -42,8 +42,8 @@ impl SliceFn<&FSSTArray> for FSSTEncoding {
         // only slicing the `codes` array.
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
-            array.symbols(),
-            array.symbol_lengths(),
+            array.symbols().clone(),
+            array.symbol_lengths().clone(),
             slice(array.codes(), start, stop)?,
             slice(array.uncompressed_lengths(), start, stop)?,
         )?
@@ -56,8 +56,8 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
     fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
-            array.symbols(),
-            array.symbol_lengths(),
+            array.symbols().clone(),
+            array.symbol_lengths().clone(),
             take(array.codes(), indices)?,
             take(array.uncompressed_lengths(), indices)?,
         )?
@@ -70,7 +70,7 @@ impl TakeFn<&FSSTArray> for FSSTEncoding {
         indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        builder.extend_from_array(take(array, indices)?)
+        builder.extend_from_array(&take(array, indices)?)
     }
 }
 
@@ -94,10 +94,10 @@ impl FilterFn<&FSSTArray> for FSSTEncoding {
     fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
-            array.symbols(),
-            array.symbol_lengths(),
-            filter(&array.codes(), mask)?,
-            filter(&array.uncompressed_lengths(), mask)?,
+            array.symbols().clone(),
+            array.symbol_lengths().clone(),
+            filter(array.codes(), mask)?,
+            filter(array.uncompressed_lengths(), mask)?,
         )?
         .into_array())
     }

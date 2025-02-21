@@ -4,7 +4,7 @@ use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
@@ -21,14 +21,14 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
     let dtype = strings.dtype().clone();
 
     // Compress VarBinArray
-    if let Ok(varbin) = VarBinArray::try_from(strings.clone()) {
+    if let Ok(varbin) = VarBinArray::try_from(strings.to_array()) {
         return varbin
             .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
             .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"));
     }
 
     // Compress VarBinViewArray
-    if let Ok(varbin_view) = VarBinViewArray::try_from(strings.clone()) {
+    if let Ok(varbin_view) = VarBinViewArray::try_from(strings.to_array()) {
         return varbin_view
             .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
             .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"));

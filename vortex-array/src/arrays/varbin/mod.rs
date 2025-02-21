@@ -25,8 +25,8 @@ use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
 use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
 };
 
 mod accessor;
@@ -44,6 +44,8 @@ pub struct VarBinArray {
     validity: Validity,
     stats_set: Arc<RwLock<StatsSet>>,
 }
+
+try_from_array_ref!(VarBinArray);
 
 pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
@@ -245,7 +247,7 @@ impl ArrayImpl for VarBinArray {
 }
 
 impl ArrayStatisticsImpl for VarBinArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

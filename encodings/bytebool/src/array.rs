@@ -108,7 +108,7 @@ impl ArrayCanonicalImpl for ByteBoolArray {
 }
 
 impl ArrayStatisticsImpl for ByteBoolArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

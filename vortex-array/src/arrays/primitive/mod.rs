@@ -282,7 +282,7 @@ impl ArrayImpl for PrimitiveArray {
 }
 
 impl ArrayStatisticsImpl for PrimitiveArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

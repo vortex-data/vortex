@@ -73,7 +73,7 @@ impl ArrayImpl for ExtensionArray {
 }
 
 impl ArrayStatisticsImpl for ExtensionArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

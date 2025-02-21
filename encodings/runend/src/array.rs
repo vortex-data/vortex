@@ -240,7 +240,7 @@ impl ArrayVisitorImpl for RunEndArray {
 }
 
 impl ArrayStatisticsImpl for RunEndArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }

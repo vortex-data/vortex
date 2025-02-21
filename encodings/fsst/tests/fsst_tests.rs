@@ -2,7 +2,7 @@
 
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, scalar_at, slice, take};
-use vortex_array::{ArrayRef, Encoding, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, Encoding, IntoArray, ToCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};
@@ -22,12 +22,9 @@ fn build_fsst_array() -> ArrayRef {
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
     input_array.append_value(b"Nothing in present history can contradict them");
-    let input_array = input_array
-        .finish(DType::Utf8(Nullability::NonNullable))
-        .into_array();
+    let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
 
     let compressor = fsst_train_compressor(&input_array).unwrap();
-
     fsst_compress(&input_array, &compressor)
         .unwrap()
         .into_array()

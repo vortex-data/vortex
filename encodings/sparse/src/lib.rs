@@ -146,7 +146,7 @@ impl ArrayImpl for SparseArray {
 }
 
 impl ArrayStatisticsImpl for SparseArray {
-    fn stats_set(&self) -> &RwLock<StatsSet> {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
     }
 }
