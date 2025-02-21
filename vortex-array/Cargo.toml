@@ -74,21 +74,17 @@ vortex-array = { path = ".", features = ["test-harness"] }
 name = "search_sorted"
 harness = false
 
-
 [[bench]]
 name = "scalar_subtract"
 harness = false
-
 
 [[bench]]
 name = "compare"
 harness = false
 
-
 [[bench]]
 name = "take_strings"
 harness = false
-
 
 [[bench]]
 name = "take_patches"

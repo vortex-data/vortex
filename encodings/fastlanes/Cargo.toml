@@ -45,11 +45,9 @@ test-harness = ["dep:rand"]
 name = "bitpacking_take"
 harness = false
 
-
 [[bench]]
 name = "bitpacking_decompress_selection"
 harness = false
-
 
 [[bench]]
 name = "canonicalize_bench"

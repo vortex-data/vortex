@@ -44,4 +44,3 @@ harness = false
 [[bench]]
 name = "run_end_compress"
 harness = false
-

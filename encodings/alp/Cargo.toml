@@ -38,4 +38,3 @@ vortex-array = { workspace = true, features = ["test-harness"] }
 [[bench]]
 name = "alp_compress"
 harness = false
-
