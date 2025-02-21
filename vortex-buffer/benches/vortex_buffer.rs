@@ -80,14 +80,14 @@ impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
 fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
     bencher
         .with_inputs(|| B::from_iter((0..n).map(|i| i % i32::MAX)))
-        .bench_local_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
+        .bench_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
 }
 
 #[divan::bench(args = [100, 1_000, 10_000, 100_000, 1_000_000])]
 fn push_vortex_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| BufferMut::<i32>::with_capacity(length as usize))
-        .bench_local_refs(|buffer| {
+        .bench_refs(|buffer| {
             for idx in 0..length {
                 buffer.push(divan::black_box(idx));
             }
@@ -102,7 +102,7 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
                 length as usize * size_of::<i32>(),
             ))
         })
-        .bench_local_refs(|buffer| {
+        .bench_refs(|buffer| {
             for idx in 0..length {
                 buffer.0.push(divan::black_box(idx));
             }

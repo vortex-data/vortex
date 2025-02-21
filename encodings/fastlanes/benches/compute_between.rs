@@ -73,16 +73,14 @@ where
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_primitive_array::<T>(&mut rng, len);
 
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            binary_boolean(
-                &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-                &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-                BinaryOperator::And,
-            )
-            .vortex_expect("")
-        })
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        binary_boolean(
+            &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
+            &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+            BinaryOperator::And,
+        )
+        .vortex_expect("")
+    })
 }
 
 #[divan::bench(
@@ -99,20 +97,18 @@ where
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_primitive_array::<T>(&mut rng, len);
 
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            between(
-                &arr,
-                ConstantArray::new(min, arr.len()),
-                ConstantArray::new(max, arr.len()),
-                &BetweenOptions {
-                    lower_strict: NonStrict,
-                    upper_strict: NonStrict,
-                },
-            )
-            .vortex_expect("")
-        })
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        between(
+            &arr,
+            ConstantArray::new(min, arr.len()),
+            ConstantArray::new(max, arr.len()),
+            &BetweenOptions {
+                lower_strict: NonStrict,
+                upper_strict: NonStrict,
+            },
+        )
+        .vortex_expect("")
+    })
 }
 
 #[divan::bench(
@@ -129,15 +125,13 @@ where
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            binary_boolean(
-                &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-                &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-                BinaryOperator::And,
-            )
-        })
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        binary_boolean(
+            &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
+            &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+            BinaryOperator::And,
+        )
+    })
 }
 
 #[divan::bench(
@@ -154,19 +148,17 @@ where
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            between(
-                &arr,
-                ConstantArray::new(min, arr.len()),
-                ConstantArray::new(max, arr.len()),
-                &BetweenOptions {
-                    lower_strict: NonStrict,
-                    upper_strict: NonStrict,
-                },
-            )
-        })
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        between(
+            &arr,
+            ConstantArray::new(min, arr.len()),
+            ConstantArray::new(max, arr.len()),
+            &BetweenOptions {
+                lower_strict: NonStrict,
+                upper_strict: NonStrict,
+            },
+        )
+    })
 }
 
 #[divan::bench(
@@ -183,15 +175,13 @@ where
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            binary_boolean(
-                &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-                &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
-                BinaryOperator::And,
-            )
-        })
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        binary_boolean(
+            &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
+            &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+            BinaryOperator::And,
+        )
+    })
 }
 
 #[divan::bench(
@@ -208,17 +198,15 @@ where
     let mut rng = StdRng::seed_from_u64(0);
     let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_local_values(|arr| {
-            between(
-                &arr,
-                ConstantArray::new(min, arr.len()),
-                ConstantArray::new(max, arr.len()),
-                &BetweenOptions {
-                    lower_strict: NonStrict,
-                    upper_strict: NonStrict,
-                },
-            )
-        })
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        between(
+            &arr,
+            ConstantArray::new(min, arr.len()),
+            ConstantArray::new(max, arr.len()),
+            &BetweenOptions {
+                lower_strict: NonStrict,
+                upper_strict: NonStrict,
+            },
+        )
+    })
 }

@@ -1,22 +1,23 @@
 use std::any::Any;
+use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut};
 
-use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant as _, IntoCanonical};
+use crate::{Array, IntoArray, IntoCanonical};
 
-pub struct PrimitiveBuilder<T: NativePType> {
-    pub values: BufferMut<T>,
-    pub nulls: LazyNullBufferBuilder,
+/// Builder for [`PrimitiveArray`].
+pub struct PrimitiveBuilder<T> {
+    values: BufferMut<T>,
+    nulls: LazyNullBufferBuilder,
     dtype: DType,
 }
 
@@ -31,6 +32,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
+    }
+
+    /// Append a `Mask` to the null buffer.
+    pub fn append_mask(&mut self, mask: Mask) {
+        self.nulls.append_validity_mask(mask);
     }
 
     pub fn append_value(&mut self, value: T) {
@@ -48,60 +54,59 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
-    pub fn patch(&mut self, patches: Patches, starting_at: usize) -> VortexResult<()> {
-        let (array_len, indices_offset, indices, values) = patches.into_parts();
-        assert!(starting_at + array_len == self.len());
-        let indices = indices.into_primitive()?;
-        let values = values.into_primitive()?;
-        let validity = values.validity();
-        let values = values.as_slice::<T>();
-        match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
-            self.insert_values_and_validity_at_indices::<$P>(indices, values, validity, starting_at, indices_offset)
-        })
-    }
+    /// Create a new handle to the next `len` uninitialized values in the builder.
+    ///
+    /// All reads/writes through the handle to the values buffer or the validity buffer will operate
+    /// on indices relative to the start of the range.
+    ///
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use std::mem::MaybeUninit;
+    /// use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+    /// use vortex_dtype::Nullability;
+    ///
+    /// // Create a new builder.
+    /// let mut builder: PrimitiveBuilder<i32> = PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
+    ///
+    /// // Populate the values in reverse order.
+    /// let mut range = builder.uninit_range(5);
+    /// for i in [4, 3, 2, 1, 0] {
+    ///     range[i] = MaybeUninit::new(i as i32);
+    /// }
+    /// range.finish();
+    ///
+    /// let built = builder.finish_into_primitive();
+    ///
+    /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
+    /// ```
+    pub fn uninit_range(&mut self, len: usize) -> UninitRange<T> {
+        let offset = self.values.len();
+        assert!(
+            offset + len <= self.values.capacity(),
+            "uninit_range of len {len} exceeds builder capacity"
+        );
 
-    fn insert_values_and_validity_at_indices<IndexT: NativePType + AsPrimitive<usize>>(
-        &mut self,
-        indices: PrimitiveArray,
-        values: &[T],
-        validity: Validity,
-        starting_at: usize,
-        indices_offset: usize,
-    ) -> VortexResult<()> {
-        match validity {
-            Validity::NonNullable => {
-                for (compressed_index, decompressed_index) in
-                    indices.as_slice::<IndexT>().iter().enumerate()
-                {
-                    let decompressed_index = decompressed_index.as_();
-                    let out_index = starting_at + decompressed_index - indices_offset;
-                    self.values[out_index] = values[compressed_index];
-                }
-            }
-            _ => {
-                let validity = validity.to_logical(indices.len())?;
-                for (compressed_index, decompressed_index) in
-                    indices.as_slice::<IndexT>().iter().enumerate()
-                {
-                    let decompressed_index = decompressed_index.as_();
-                    let out_index = starting_at + decompressed_index - indices_offset;
-                    self.values[out_index] = values[compressed_index];
-                    self.nulls.set_bit(out_index, validity.value(out_index));
-                }
-            }
+        UninitRange {
+            offset,
+            len,
+            builder: self,
         }
-
-        Ok(())
     }
 
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
-        assert_eq!(
-            self.nulls.len(),
-            self.values.len(),
-            "null count must equal value count"
-        );
+        let nulls = self.nulls.finish();
 
-        let validity = match (self.nulls.finish(), self.dtype().nullability()) {
+        if let Some(null_buf) = nulls.as_ref() {
+            assert_eq!(
+                null_buf.len(),
+                self.values.len(),
+                "null buffer length must equal value buffer length"
+            );
+        }
+
+        let validity = match (nulls, self.dtype().nullability()) {
             (None, Nullability::NonNullable) => Validity::NonNullable,
             (Some(_), Nullability::NonNullable) => {
                 vortex_panic!("Non-nullable builder has null values")
@@ -171,5 +176,61 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
     fn finish(&mut self) -> Array {
         self.finish_into_primitive().into_array()
+    }
+}
+
+pub struct UninitRange<'a, T> {
+    offset: usize,
+    len: usize,
+    builder: &'a mut PrimitiveBuilder<T>,
+}
+
+impl<T> Deref for UninitRange<'_, T> {
+    type Target = [MaybeUninit<T>];
+
+    fn deref(&self) -> &[MaybeUninit<T>] {
+        let start = self.builder.values.as_ptr();
+        unsafe {
+            // SAFETY: start + len is checked on construction to be in range.
+            let dst = std::slice::from_raw_parts(start, self.len);
+
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
+            let dst: &[MaybeUninit<T>] = std::mem::transmute(dst);
+
+            dst
+        }
+    }
+}
+
+impl<T> DerefMut for UninitRange<'_, T> {
+    fn deref_mut(&mut self) -> &mut [MaybeUninit<T>] {
+        &mut self.builder.values.spare_capacity_mut()[..self.len]
+    }
+}
+
+impl<T> UninitRange<'_, T> {
+    /// Set a validity bit at the given index. The index is relative to the start of this range
+    /// of the builder.
+    pub fn set_bit(&mut self, index: usize, v: bool) {
+        self.builder.nulls.set_bit(self.offset + index, v);
+    }
+
+    /// Set values from an initialized range.
+    pub fn copy_from_init(&mut self, offset: usize, len: usize, src: &[T])
+    where
+        T: Copy,
+    {
+        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
+        let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
+
+        let dst = &mut self[offset..][..len];
+        dst.copy_from_slice(uninit_src);
+    }
+
+    /// Finish building this range, marking it as initialized and advancing the length of the
+    /// underlying values buffer.
+    pub fn finish(self) {
+        // SAFETY: constructor enforces that offset + len does not exceed the capacity of the array.
+        unsafe { self.builder.values.set_len(self.offset + self.len) };
     }
 }

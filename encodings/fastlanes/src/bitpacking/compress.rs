@@ -1,13 +1,14 @@
-use std::ops::DerefMut as _;
+use std::mem::MaybeUninit;
 
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
+use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder};
+use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArray;
+use vortex_array::{IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_integer_ptype_with_unsigned_type,
@@ -239,30 +240,85 @@ where
     F: Fn(&[UnsignedT]) -> &[T],
     G: Fn(&mut [T]) -> &mut [UnsignedT],
 {
-    let my_offset_in_builder = builder.len();
-
-    builder
-        .nulls
-        .append_validity(array.validity(), array.len())?;
+    // Append a dense null Mask.
+    builder.append_mask(array.validity_mask()?);
 
     let packed = array.packed_slice::<UnsignedT>();
     let bit_width = array.bit_width() as usize;
     let length = array.len();
     let offset = array.offset() as usize;
 
+    let mut uninit = builder.uninit_range(length);
+
     unpack_values_into(
         packed,
         bit_width,
-        length,
         offset,
-        builder,
+        // Ask the builder for the next `length` values in the buffer as a [MaybeUninit<T>]
+        &mut uninit,
         transmute,
         transmute_mut,
     )?;
 
     if let Some(patches) = array.patches() {
-        builder.patch(patches, my_offset_in_builder)?;
+        apply_patches(&mut uninit, patches)?;
     };
+
+    uninit.finish();
+
+    Ok(())
+}
+
+fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: Patches) -> VortexResult<()> {
+    let (array_len, indices_offset, indices, values) = patches.into_parts();
+    assert_eq!(array_len, dst.len());
+
+    let indices = indices.into_primitive()?;
+    let values = values.into_primitive()?;
+    let validity = values.validity();
+    let values = values.as_slice::<T>();
+    match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
+        insert_values_and_validity_at_indices::<T, $P>(
+            dst,
+            indices,
+            values,
+            validity,
+            indices_offset,
+        )
+    })
+}
+
+fn insert_values_and_validity_at_indices<
+    T: NativePType,
+    IndexT: NativePType + AsPrimitive<usize>,
+>(
+    dst: &mut UninitRange<T>,
+    indices: PrimitiveArray,
+    values: &[T],
+    validity: Validity,
+    indices_offset: usize,
+) -> VortexResult<()> {
+    match validity {
+        Validity::NonNullable => {
+            for (compressed_index, decompressed_index) in
+                indices.as_slice::<IndexT>().iter().enumerate()
+            {
+                dst[decompressed_index.as_() - indices_offset] =
+                    MaybeUninit::new(values[compressed_index]);
+            }
+        }
+        _ => {
+            let validity = validity.to_logical(indices.len())?;
+            for (compressed_index, decompressed_index) in
+                indices.as_slice::<IndexT>().iter().enumerate()
+            {
+                let out_index = decompressed_index.as_() - indices_offset;
+                dst[decompressed_index.as_() - indices_offset] =
+                    MaybeUninit::new(values[compressed_index]);
+                dst.set_bit(out_index, validity.value(out_index));
+            }
+        }
+    }
 
     Ok(())
 }
@@ -270,10 +326,9 @@ where
 fn unpack_values_into<T: NativePType, UnsignedT: NativePType + BitPacking, F, G>(
     packed: &[UnsignedT],
     bit_width: usize,
-    length: usize,
     offset: usize,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
-    builder: &mut PrimitiveBuilder<T>,
+    uninit: &mut UninitRange<T>,
     transmute: F,
     transmute_mut: G,
 ) -> VortexResult<()>
@@ -281,22 +336,20 @@ where
     F: Fn(&[UnsignedT]) -> &[T],
     G: Fn(&mut [T]) -> &mut [UnsignedT],
 {
-    let my_offset_in_builder = builder.len();
-    let last_chunk_length = match (offset + length) % 1024 {
-        0 => 1024,
-        last_chunk_length => last_chunk_length,
+    let last_chunk_length = if (offset + uninit.len()) % 1024 == 0 {
+        1024
+    } else {
+        (offset + uninit.len()) % 1024
     };
 
     if bit_width == 0 {
-        builder.values.push_n(T::zero(), length);
+        uninit.fill(MaybeUninit::new(T::zero()));
         return Ok(());
     }
 
-    builder.values.reserve(length);
-
     // How many fastlanes vectors we will process.
     // Packed array might not start at 0 when the array is sliced. Offset is guaranteed to be < 1024.
-    let num_chunks = (offset + length).div_ceil(1024);
+    let num_chunks = (offset + uninit.len()).div_ceil(1024);
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     assert_eq!(
         packed.len(),
@@ -313,9 +366,12 @@ where
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        builder
-            .values
-            .extend_from_slice(transmute(&decoded[offset..][..length]));
+        uninit.copy_from_init(
+            0,
+            uninit.len(),
+            transmute(&decoded[offset..][..uninit.len()]),
+        );
+
         return Ok(());
     }
 
@@ -324,46 +380,42 @@ where
     let full_chunks_range =
         (first_chunk_is_sliced as usize)..(num_chunks - last_chunk_is_sliced as usize);
 
+    // Index into the builder's uninit values buffer.
+    const CHUNK_SIZE: usize = 1024;
+    let mut out_idx = 0;
     if first_chunk_is_sliced {
         let chunk = &packed[..elems_per_chunk];
-        let mut decoded = [UnsignedT::zero(); 1024];
+        let mut decoded = [UnsignedT::zero(); CHUNK_SIZE];
         // SAFETY:
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        builder
-            .values
-            .extend_from_slice(transmute(&decoded[offset..]));
+        uninit.copy_from_init(out_idx, CHUNK_SIZE - offset, transmute(&decoded[offset..]));
+        out_idx += CHUNK_SIZE - offset;
     }
     for i in full_chunks_range {
         let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
 
-        // SAFETY:
-        //
-        // 1. unchecked_unpack only writes into the output and when it is finished, all the outputs
-        // have been written to.
-        //
-        // 2. The output buffer is exactly size 1024.
         unsafe {
-            builder.values.set_len(builder.values.len() + 1024);
-            BitPacking::unchecked_unpack(
-                bit_width,
-                chunk,
-                &mut transmute_mut(builder.values.deref_mut())
-                    [my_offset_in_builder + i * 1024 - offset..][..1024],
-            );
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
+            let dst: &mut [T] = std::mem::transmute(&mut uninit[out_idx..][..1024]);
+            let dst: &mut [UnsignedT] = transmute_mut(dst);
+            BitPacking::unchecked_unpack(bit_width, chunk, dst);
         }
+        out_idx += CHUNK_SIZE;
     }
     if last_chunk_is_sliced {
         let chunk = &packed[(num_chunks - 1) * elems_per_chunk..][..elems_per_chunk];
-        let mut decoded = [UnsignedT::zero(); 1024];
+        let mut decoded = [UnsignedT::zero(); CHUNK_SIZE];
         // SAFETY:
         // 1. chunk is elems_per_chunk.
         // 2. decoded is exactly 1024.
         unsafe { BitPacking::unchecked_unpack(bit_width, chunk, &mut decoded) };
-        builder
-            .values
-            .extend_from_slice(transmute(&decoded[..last_chunk_length]));
+        uninit.copy_from_init(
+            out_idx,
+            last_chunk_length,
+            transmute(&decoded[..last_chunk_length]),
+        );
     }
 
     Ok(())
@@ -717,7 +769,7 @@ mod test {
         let mut rng = StdRng::seed_from_u64(0);
 
         let chunks = (0..10)
-            .map(|_| make_array(&mut rng, 100, 0.0, 0.0).unwrap())
+            .map(|_| make_array(&mut rng, 100, 0.25, 0.25).unwrap())
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
