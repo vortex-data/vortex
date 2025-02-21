@@ -1,18 +1,18 @@
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 use crate::arrays::ConstantArray;
 use crate::compute::{binary_boolean, compare, BinaryOperator, Operator};
-use crate::{Array, Canonical, Encoding, IntoArray};
+use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
 
 pub trait BetweenFn<A> {
     fn between(
         &self,
-        arr: &A,
-        lower: &Array,
-        upper: &Array,
+        arr: A,
+        lower: &dyn Array,
+        upper: &dyn Array,
         options: &BetweenOptions,
-    ) -> VortexResult<Option<Array>>;
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -36,20 +36,27 @@ impl StrictComparison {
     }
 }
 
-impl<E: Encoding> BetweenFn<Array> for E
+impl<E: Encoding> BetweenFn<&dyn Array> for E
 where
-    E: BetweenFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> BetweenFn<&'a E::Array>,
 {
     fn between(
         &self,
-        arr: &Array,
-        lower: &Array,
-        upper: &Array,
+        arr: &dyn Array,
+        lower: &dyn Array,
+        upper: &dyn Array,
         options: &BetweenOptions,
-    ) -> VortexResult<Option<Array>> {
-        let (arr_ref, encoding) = arr.try_downcast_ref::<E>()?;
-        BetweenFn::between(encoding, arr_ref, lower, upper, options)
+    ) -> VortexResult<Option<ArrayRef>> {
+        let array_ref = arr
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = arr.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        BetweenFn::between(encoding, array_ref, lower, upper, options)
     }
 }
 
@@ -58,19 +65,19 @@ where
 ///
 /// This semantics is equivalent to:
 /// ```
-/// use vortex_array::Array;
+/// use vortex_array::{Array, ArrayRef};
 /// use vortex_array::compute::{binary_boolean, compare, BetweenOptions, BinaryOperator, Operator};///
 /// use vortex_error::VortexResult;
 ///
 /// fn between(
-///    arr: impl AsRef<Array>,
-///    lower: impl AsRef<Array>,
-///    upper: impl AsRef<Array>,
+///    arr: &dyn Array,
+///    lower: &dyn Array,
+///    upper: &dyn Array,
 ///    options: &BetweenOptions
-/// ) -> VortexResult<Array> {
+/// ) -> VortexResult<ArrayRef> {
 ///     binary_boolean(
-///         &compare(lower, &arr, options.lower_strict.to_operator())?,
-///         &compare(&arr, upper,  options.upper_strict.to_operator())?,
+///         &compare(lower, arr, options.lower_strict.to_operator())?,
+///         &compare(arr, upper,  options.upper_strict.to_operator())?,
 ///         BinaryOperator::And
 ///     )
 /// }
@@ -80,15 +87,11 @@ where
 /// value is < (strict) or <= (non-strict).
 ///
 pub fn between(
-    arr: impl AsRef<Array>,
-    lower: impl AsRef<Array>,
-    upper: impl AsRef<Array>,
+    arr: &dyn Array,
+    lower: &dyn Array,
+    upper: &dyn Array,
     options: &BetweenOptions,
-) -> VortexResult<Array> {
-    let arr = arr.as_ref();
-    let lower = lower.as_ref();
-    let upper = upper.as_ref();
-
+) -> VortexResult<ArrayRef> {
     debug_assert!(arr.dtype().eq_ignore_nullability(lower.dtype()));
     debug_assert!(arr.dtype().eq_ignore_nullability(upper.dtype()));
     debug_assert_eq!(arr.len(), lower.len());
@@ -108,17 +111,13 @@ pub fn between(
 }
 
 fn between_impl(
-    arr: impl AsRef<Array>,
-    lower: impl AsRef<Array>,
-    upper: impl AsRef<Array>,
+    arr: &dyn Array,
+    lower: &dyn Array,
+    upper: &dyn Array,
     options: &BetweenOptions,
-) -> VortexResult<Array> {
-    let arr = arr.as_ref();
-    let lower = lower.as_ref();
-    let upper = upper.as_ref();
-
-    if ConstantArray::maybe_from(lower).is_some_and(|v| v.scalar().is_null())
-        || ConstantArray::maybe_from(upper).is_some_and(|v| v.scalar().is_null())
+) -> VortexResult<ArrayRef> {
+    if lower.as_constant().is_some_and(|v| v.is_null())
+        || upper.as_constant().is_some_and(|v| v.is_null())
     {
         return Ok(
             Canonical::empty(&arr.dtype().with_nullability(Nullability::Nullable)).into_array(),

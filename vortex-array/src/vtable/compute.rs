@@ -37,7 +37,7 @@ pub trait ComputeVTable {
         None
     }
 
-    fn between_fn(&self) -> Option<&dyn BetweenFn<Array>> {
+    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         None
     }
 

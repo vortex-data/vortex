@@ -1,5 +1,7 @@
 //! Utilities to traverse array trees using the visitor pattern.
 
+use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
