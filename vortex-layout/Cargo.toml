@@ -29,16 +29,19 @@ pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
-vortex-error = { workspace = true, features = ["tokio"] }
+vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["sync"], optional = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
+
+[features]
+tokio = ["dep:tokio", "vortex-error/tokio"]
 
 [lints]
 workspace = true

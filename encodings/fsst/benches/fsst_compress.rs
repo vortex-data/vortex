@@ -36,7 +36,7 @@ fn compress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
     let (string_count, avg_len, unique_chars) = args;
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array).unwrap();
-    bencher.bench_local(|| fsst_compress(&array, &compressor).unwrap())
+    bencher.bench(|| fsst_compress(&array, &compressor).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -48,14 +48,14 @@ fn decompress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
 
     bencher
         .with_inputs(|| encoded.clone())
-        .bench_local_values(|encoded| encoded.into_canonical().unwrap())
+        .bench_values(|encoded| encoded.into_canonical().unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn train_compressor(bencher: Bencher, args: (usize, usize, u8)) {
     let (string_count, avg_len, unique_chars) = args;
     let array = generate_test_data(string_count, avg_len, unique_chars);
-    bencher.bench_local(|| fsst_train_compressor(&array).unwrap())
+    bencher.bench(|| fsst_train_compressor(&array).unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -64,7 +64,7 @@ fn pushdown_compare(bencher: Bencher, args: (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
 
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
-    bencher.bench_local(|| compare(&array, &constant, Operator::Eq).unwrap());
+    bencher.bench(|| compare(&array, &constant, Operator::Eq).unwrap());
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -73,11 +73,9 @@ fn canonicalize_compare(bencher: Bencher, args: (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
 
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
-    bencher
-        .with_inputs(|| array.clone())
-        .bench_local_values(|array| {
-            compare(array.into_canonical().unwrap(), &constant, Operator::Eq).unwrap()
-        });
+    bencher.with_inputs(|| array.clone()).bench_values(|array| {
+        compare(array.into_canonical().unwrap(), &constant, Operator::Eq).unwrap()
+    });
 }
 
 // [(chunk_size, string_count, avg_len, unique_chars)]
@@ -100,16 +98,12 @@ fn chunked_canonicalize_into(
 ) {
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
-    bencher
-        .with_inputs(|| array.clone())
-        .bench_local_values(|array| {
-            let mut builder = VarBinViewBuilder::with_capacity(
-                DType::Binary(Nullability::NonNullable),
-                array.len(),
-            );
-            array.canonicalize_into(&mut builder).unwrap();
-            builder.finish()
-        });
+    bencher.with_inputs(|| array.clone()).bench_values(|array| {
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
+        array.canonicalize_into(&mut builder).unwrap();
+        builder.finish()
+    });
 }
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
@@ -121,7 +115,7 @@ fn chunked_into_canonical(
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_local_values(|array| array.into_canonical().unwrap());
+        .bench_values(|array| array.into_canonical().unwrap());
 }
 
 // Helper function to generate random string data.

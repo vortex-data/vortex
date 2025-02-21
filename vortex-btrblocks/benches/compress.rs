@@ -39,7 +39,7 @@ mod benchmarks {
             .with_inputs(|| make_clickbench_window_name().into_primitive().unwrap())
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_local_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());
+            .bench_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());
     }
 
     #[divan::bench]
@@ -49,7 +49,7 @@ mod benchmarks {
             .with_inputs(make_clickbench_window_name)
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_local_values(|array| compressor.compress(&array, None).unwrap());
+            .bench_values(|array| compressor.compress(&array, None).unwrap());
     }
 }
 

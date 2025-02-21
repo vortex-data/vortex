@@ -1,7 +1,7 @@
 use crate::compute::{
-    BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn, FilterFn,
-    InvertFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn, SliceFn,
-    TakeFn, ToArrowFn,
+    BetweenFn, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, FillForwardFn, FillNullFn,
+    FilterFn, InvertFn, LikeFn, MaskFn, MinMaxFn, ScalarAtFn, SearchSortedFn, SearchSortedUsizeFn,
+    SliceFn, TakeFn, ToArrowFn,
 };
 use crate::Array;
 
@@ -32,6 +32,10 @@ pub trait ComputeVTable {
     ///
     ///See: [CompareFn].
     fn compare_fn(&self) -> Option<&dyn CompareFn<Array>> {
+        None
+    }
+
+    fn between_fn(&self) -> Option<&dyn BetweenFn<Array>> {
         None
     }
 

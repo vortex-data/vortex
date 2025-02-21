@@ -72,9 +72,6 @@ cfg-if = "1"
 chrono = "0.4.38"
 clap = "4"
 compio = { version = "0.13", features = ["io-uring"], default-features = false }
-criterion = { package = "codspeed-criterion-compat", features = [
-    "html_reports",
-], version = "2.7.2" }
 crossterm = "0.28"
 datafusion = { version = "45", default-features = false }
 datafusion-common = "45"

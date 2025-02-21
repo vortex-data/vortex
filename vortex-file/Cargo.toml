@@ -24,7 +24,6 @@ itertools = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future", "quanta"] }
 oneshot = { workspace = true, features = ["async"] }
-rayon = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
