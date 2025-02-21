@@ -201,7 +201,7 @@ features = ["wasm_js"]
 
 [workspace.dependencies.getrandom_v02]
 package = "getrandom"
-version = "0.2.15"
+version = "0.3.0"
 features = ["js"]
 
 [workspace.lints.rust]
