@@ -232,8 +232,8 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                let val_bb = val.to_canonical()?.into_bool()?.boolean_buffer();
-                BufferMut::<R>::from_iter(buf_iter.zip(val_bb).map(f))
+                let val = val.to_canonical()?.into_bool()?;
+                BufferMut::<R>::from_iter(buf_iter.zip(val.boolean_buffer()).map(f))
             }
         };
         Ok(PrimitiveArray::new_with_validity(

@@ -482,7 +482,7 @@ impl ArrayCanonicalImpl for VarBinViewArray {
 }
 
 pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrowArrayRef {
-    let views = var_bin_view.views();
+    let views = var_bin_view.views().clone();
 
     let nulls = var_bin_view
         .validity_mask()
@@ -494,7 +494,7 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrowArrayR
         .collect::<Vec<_>>();
 
     let data = data
-        .iter()
+        .into_iter()
         .map(|p| p.clone().into_arrow_buffer())
         .collect::<Vec<_>>();
 

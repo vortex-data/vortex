@@ -61,7 +61,7 @@ impl StructArray {
 
     pub fn try_new(
         names: FieldNames,
-        mut fields: Vec<ArrayRef>,
+        fields: Vec<ArrayRef>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
