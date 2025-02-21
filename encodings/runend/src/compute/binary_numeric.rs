@@ -6,7 +6,7 @@ use vortex_scalar::BinaryNumericOperator;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
+impl BinaryNumericFn<&RunEndArray> for RunEndEncoding {
     fn binary_numeric(
         &self,
         array: &RunEndArray,

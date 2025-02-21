@@ -5,7 +5,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::CastFn;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl CastFn<ConstantArray> for ConstantEncoding {
+impl CastFn<&ConstantArray> for ConstantEncoding {
     fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(array.scalar().cast(dtype)?, array.len()).into_array())
     }

@@ -15,7 +15,7 @@ use vortex_scalar::Scalar;
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
-impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
+impl SearchSortedFn<&BitPackedArray> for BitPackedEncoding {
     fn search_sorted(
         &self,
         array: &BitPackedArray,
@@ -50,7 +50,7 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
     }
 }
 
-impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
+impl SearchSortedUsizeFn<&BitPackedArray> for BitPackedEncoding {
     fn search_sorted_usize(
         &self,
         array: &BitPackedArray,

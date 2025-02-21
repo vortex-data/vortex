@@ -11,7 +11,7 @@ use crate::compute::{
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-impl TakeFn<ChunkedArray> for ChunkedEncoding {
+impl TakeFn<&ChunkedArray> for ChunkedEncoding {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Fast path for strict sorted indices.
         if indices

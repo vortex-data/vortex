@@ -15,7 +15,7 @@ use crate::compute::ToArrowFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::Array;
 
-impl ToArrowFn<PrimitiveArray> for PrimitiveEncoding {
+impl ToArrowFn<&PrimitiveArray> for PrimitiveEncoding {
     fn to_arrow(
         &self,
         primitive_array: &PrimitiveArray,

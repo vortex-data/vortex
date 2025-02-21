@@ -7,7 +7,7 @@ use crate::compute::SliceFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl SliceFn<PrimitiveArray> for PrimitiveEncoding {
+impl SliceFn<&PrimitiveArray> for PrimitiveEncoding {
     fn slice(&self, array: &PrimitiveArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         match_each_native_ptype!(array.ptype(), |$T| {
             Ok(PrimitiveArray::new_with_validity(

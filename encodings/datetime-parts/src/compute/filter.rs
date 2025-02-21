@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
-impl FilterFn<DateTimePartsArray> for DateTimePartsEncoding {
+impl FilterFn<&DateTimePartsArray> for DateTimePartsEncoding {
     fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),

@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseEncoding};
 
-impl TakeFn<SparseArray> for SparseEncoding {
+impl TakeFn<&SparseArray> for SparseEncoding {
     fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
         let Some(new_patches) = array.patches().take(take_indices)? else {
             let result_nullability =

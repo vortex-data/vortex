@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl FillNullFn<RunEndArray> for RunEndEncoding {
+impl FillNullFn<&RunEndArray> for RunEndEncoding {
     fn fill_null(&self, array: &RunEndArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
         Ok(RunEndArray::with_offset_and_length(
             array.ends(),

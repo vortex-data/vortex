@@ -8,10 +8,10 @@ use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
 
 /// Trait for Arrow conversion compute function.
-pub trait ToArrowFn<A: ?Sized> {
+pub trait ToArrowFn<A> {
     /// Return the preferred Arrow [`DataType`] of the encoding, or None of the canonical
     /// [`DataType`] for the array's Vortex [`vortex_dtype::DType`] should be used.
-    fn preferred_arrow_data_type(&self, _array: &A) -> VortexResult<Option<DataType>> {
+    fn preferred_arrow_data_type(&self, _array: A) -> VortexResult<Option<DataType>> {
         Ok(None)
     }
 
@@ -19,12 +19,12 @@ pub trait ToArrowFn<A: ?Sized> {
     ///
     /// Implementation can return None if the conversion cannot be specialized by this encoding.
     /// In this case, the default conversion via `into_canonical` will be used.
-    fn to_arrow(&self, array: &A, data_type: &DataType) -> VortexResult<Option<ArrowArrayRef>>;
+    fn to_arrow(&self, array: A, data_type: &DataType) -> VortexResult<Option<ArrowArrayRef>>;
 }
 
-impl<E: Encoding> ToArrowFn<dyn Array> for E
+impl<E: Encoding> ToArrowFn<&dyn Array> for E
 where
-    E: ToArrowFn<E::Array>,
+    E: for<'a> ToArrowFn<&'a E::Array>,
 {
     fn preferred_arrow_data_type(&self, array: &dyn Array) -> VortexResult<Option<DataType>> {
         let array_ref = array

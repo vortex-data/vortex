@@ -9,7 +9,7 @@ use crate::compute::FillForwardFn;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl FillForwardFn<BoolArray> for BoolEncoding {
+impl FillForwardFn<&BoolArray> for BoolEncoding {
     fn fill_forward(&self, array: &BoolArray) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
 

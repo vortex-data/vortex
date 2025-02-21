@@ -6,7 +6,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::CastFn;
 use crate::IntoArray;
 
-impl CastFn<BoolArray> for BoolEncoding {
+impl CastFn<&BoolArray> for BoolEncoding {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !matches!(dtype, DType::Bool(_)) {
             vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);

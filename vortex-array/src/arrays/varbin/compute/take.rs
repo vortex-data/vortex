@@ -11,7 +11,7 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-impl TakeFn<VarBinArray> for VarBinEncoding {
+impl TakeFn<&VarBinArray> for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();

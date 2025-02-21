@@ -4,7 +4,7 @@ use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{compare, CompareFn, Operator};
 use crate::{Array, ArrayRef};
 
-impl CompareFn<ExtensionArray> for ExtensionEncoding {
+impl CompareFn<&ExtensionArray> for ExtensionEncoding {
     fn compare(
         &self,
         lhs: &ExtensionArray,

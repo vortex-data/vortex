@@ -11,7 +11,7 @@ use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
+impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;

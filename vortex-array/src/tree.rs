@@ -51,7 +51,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             "{}{}: {} nbytes={} ({:.2}%)",
             self.indent,
             name,
-            array,
+            array.to_array(),
             format_size(nbytes, DECIMAL),
             100f64 * nbytes as f64 / total_size as f64
         )?;

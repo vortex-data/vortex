@@ -11,17 +11,17 @@ use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
 
-pub trait FilterFn<A: ?Sized> {
+pub trait FilterFn<A> {
     /// Filter an array by the provided predicate.
     ///
     /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
     /// leaving only `Mask::Values` to be handled by this function.
-    fn filter(&self, array: &A, mask: &Mask) -> VortexResult<ArrayRef>;
+    fn filter(&self, array: A, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FilterFn<dyn Array> for E
+impl<E: Encoding> FilterFn<&dyn Array> for E
 where
-    E: FilterFn<E::Array>,
+    E: for<'a> FilterFn<&'a E::Array>,
 {
     fn filter(&self, array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         let array_ref = array

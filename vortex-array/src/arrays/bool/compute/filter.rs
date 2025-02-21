@@ -9,7 +9,7 @@ use crate::{Array, ArrayRef, IntoArray};
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterFn<BoolArray> for BoolEncoding {
+impl FilterFn<&BoolArray> for BoolEncoding {
     fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 

@@ -5,7 +5,7 @@ use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{binary_numeric, slice, BinaryNumericFn};
 use crate::{Array, ArrayRef, IntoArray};
 
-impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
+impl BinaryNumericFn<&ChunkedArray> for ChunkedEncoding {
     fn binary_numeric(
         &self,
         array: &ChunkedArray,

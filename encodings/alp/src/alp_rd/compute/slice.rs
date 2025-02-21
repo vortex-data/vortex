@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
-impl SliceFn<ALPRDArray> for ALPRDEncoding {
+impl SliceFn<&ALPRDArray> for ALPRDEncoding {
     fn slice(&self, array: &ALPRDArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let left_parts_exceptions = array
             .left_parts_patches()

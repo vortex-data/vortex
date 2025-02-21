@@ -17,40 +17,40 @@ mod slice;
 mod take;
 
 impl ComputeVTable for SparseEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<dyn Array>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn invert_fn(&self) -> Option<&dyn InvertFn<dyn Array>> {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<dyn Array>> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
     }
 
-    fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<dyn Array>> {
+    fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<SparseArray> for SparseEncoding {
+impl ScalarAtFn<&SparseArray> for SparseEncoding {
     fn scalar_at(&self, array: &SparseArray, index: usize) -> VortexResult<Scalar> {
         Ok(array
             .patches()
@@ -60,7 +60,7 @@ impl ScalarAtFn<SparseArray> for SparseEncoding {
 }
 
 // FIXME(ngates): these are broken in a way that works for array patches, this will be fixed soon.
-impl SearchSortedFn<SparseArray> for SparseEncoding {
+impl SearchSortedFn<&SparseArray> for SparseEncoding {
     fn search_sorted(
         &self,
         array: &SparseArray,
@@ -72,7 +72,7 @@ impl SearchSortedFn<SparseArray> for SparseEncoding {
 }
 
 // FIXME(ngates): these are broken in a way that works for array patches, this will be fixed soon.
-impl SearchSortedUsizeFn<SparseArray> for SparseEncoding {
+impl SearchSortedUsizeFn<&SparseArray> for SparseEncoding {
     fn search_sorted_usize(
         &self,
         array: &SparseArray,
@@ -87,7 +87,7 @@ impl SearchSortedUsizeFn<SparseArray> for SparseEncoding {
     }
 }
 
-impl FilterFn<SparseArray> for SparseEncoding {
+impl FilterFn<&SparseArray> for SparseEncoding {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
 

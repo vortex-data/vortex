@@ -7,7 +7,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{SearchResult, SearchSortedFn, SearchSortedSide};
 use crate::Array;
 
-impl SearchSortedFn<ConstantArray> for ConstantEncoding {
+impl SearchSortedFn<&ConstantArray> for ConstantEncoding {
     fn search_sorted(
         &self,
         array: &ConstantArray,

@@ -7,18 +7,18 @@ use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray as _};
 
-pub trait BinaryNumericFn<A: ?Sized> {
+pub trait BinaryNumericFn<A> {
     fn binary_numeric(
         &self,
-        array: &A,
+        array: A,
         other: &dyn Array,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryNumericFn<dyn Array> for E
+impl<E: Encoding> BinaryNumericFn<&dyn Array> for E
 where
-    E: BinaryNumericFn<E::Array>,
+    E: for<'a> BinaryNumericFn<&'a E::Array>,
 {
     fn binary_numeric(
         &self,

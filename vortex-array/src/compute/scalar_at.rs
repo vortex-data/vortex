@@ -7,13 +7,13 @@ use crate::{Array, ArrayRef};
 /// Implementation of scalar_at for an encoding.
 ///
 /// SAFETY: the index is guaranteed to be within the bounds of the [ArrayRef].
-pub trait ScalarAtFn<A: ?Sized> {
-    fn scalar_at(&self, array: &A, index: usize) -> VortexResult<Scalar>;
+pub trait ScalarAtFn<A> {
+    fn scalar_at(&self, array: A, index: usize) -> VortexResult<Scalar>;
 }
 
-impl<E: Encoding> ScalarAtFn<dyn Array> for E
+impl<E: Encoding> ScalarAtFn<&dyn Array> for E
 where
-    E: ScalarAtFn<E::Array>,
+    E: for<'a> ScalarAtFn<&'a E::Array>,
 {
     fn scalar_at(&self, array: &dyn Array, index: usize) -> VortexResult<Scalar> {
         let array_ref = array

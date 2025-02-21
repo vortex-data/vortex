@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl SliceFn<RunEndArray> for RunEndEncoding {
+impl SliceFn<&RunEndArray> for RunEndEncoding {
     fn slice(&self, array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let new_length = stop - start;
 

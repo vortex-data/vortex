@@ -10,7 +10,7 @@ use crate::compute::{to_arrow, ToArrowFn};
 use crate::variants::StructArrayTrait;
 use crate::Array;
 
-impl ToArrowFn<StructArray> for StructEncoding {
+impl ToArrowFn<&StructArray> for StructEncoding {
     fn to_arrow(
         &self,
         array: &StructArray,

@@ -15,42 +15,42 @@ use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, IntoArray};
 
 impl ComputeVTable for VarBinViewEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<dyn Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<dyn Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<dyn Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
+impl ScalarAtFn<&VarBinViewArray> for VarBinViewEncoding {
     fn scalar_at(&self, array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
         Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
     }
 }
 
-impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
+impl SliceFn<&VarBinViewArray> for VarBinViewEncoding {
     fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let views = array.views().slice(start..stop);
 
@@ -64,7 +64,7 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
     }
 }
 
-impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
+impl MaskFn<&VarBinViewArray> for VarBinViewEncoding {
     fn mask(&self, array: &VarBinViewArray, mask: Mask) -> VortexResult<ArrayRef> {
         Ok(VarBinViewArray::try_new(
             array.views().clone(),

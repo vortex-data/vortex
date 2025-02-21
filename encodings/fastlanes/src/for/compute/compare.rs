@@ -10,7 +10,7 @@ use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
 
-impl CompareFn<FoRArray> for FoREncoding {
+impl CompareFn<&FoRArray> for FoREncoding {
     fn compare(
         &self,
         lhs: &FoRArray,

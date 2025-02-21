@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedEncoding};
 
-impl SliceFn<BitPackedArray> for BitPackedEncoding {
+impl SliceFn<&BitPackedArray> for BitPackedEncoding {
     fn slice(&self, array: &BitPackedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let offset_start = start + array.offset() as usize;
         let offset_stop = stop + array.offset() as usize;

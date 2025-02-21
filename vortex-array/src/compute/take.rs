@@ -7,14 +7,14 @@ use crate::encoding::Encoding;
 use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
 
-pub trait TakeFn<A: ?Sized> {
+pub trait TakeFn<A> {
     /// Create a new array by taking the values from the `array` at the
     /// given `indices`.
     ///
     /// # Panics
     ///
     /// Using `indices` that are invalid for the given `array` will cause a panic.
-    fn take(&self, array: &A, indices: &dyn Array) -> VortexResult<ArrayRef>;
+    fn take(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef>;
 
     /// Create a new array by taking the values from the `array` at the
     /// given `indices`.
@@ -24,7 +24,7 @@ pub trait TakeFn<A: ?Sized> {
     /// This take variant will not perform bounds checking on indices, so it is the caller's
     /// responsibility to ensure that the `indices` are all valid for the provided `array`.
     /// Failure to do so could result in out of bounds memory access or UB.
-    unsafe fn take_unchecked(&self, array: &A, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    unsafe fn take_unchecked(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef> {
         self.take(array, indices)
     }
 
@@ -32,7 +32,7 @@ pub trait TakeFn<A: ?Sized> {
     /// builder.
     fn take_into(
         &self,
-        array: &A,
+        array: A,
         indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
@@ -40,9 +40,9 @@ pub trait TakeFn<A: ?Sized> {
     }
 }
 
-impl<E: Encoding> TakeFn<dyn Array> for E
+impl<E: Encoding> TakeFn<&dyn Array> for E
 where
-    E: TakeFn<E::Array>,
+    E: for<'a> TakeFn<&'a E::Array>,
 {
     fn take(&self, array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let array_ref = array
@@ -224,8 +224,8 @@ fn take_impl(
     // Otherwise, flatten and try again.
     log::debug!("No take implementation found for {}", array.encoding());
     let canonical = array.to_canonical()?.into_array();
-    let canonical_take_fn = canonical
-        .vtable()
+    let vtable = canonical.vtable();
+    let canonical_take_fn = vtable
         .take_fn()
         .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 
@@ -259,8 +259,8 @@ fn take_into_impl(
     // Otherwise, flatten and try again.
     log::debug!("No take_into implementation found for {}", array.encoding());
     let canonical = array.to_canonical()?.into_array();
-    let canonical_take_fn = canonical
-        .vtable()
+    let vtable = canonical.vtable();
+    let canonical_take_fn = vtable
         .take_fn()
         .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 

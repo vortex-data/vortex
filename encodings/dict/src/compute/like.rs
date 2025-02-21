@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::{DictArray, DictEncoding};
 
-impl LikeFn<DictArray> for DictEncoding {
+impl LikeFn<&DictArray> for DictEncoding {
     fn like(
         &self,
         array: DictArray,

@@ -4,14 +4,14 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-pub trait InvertFn<A: ?Sized> {
+pub trait InvertFn<A> {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
-    fn invert(&self, array: &A) -> VortexResult<ArrayRef>;
+    fn invert(&self, array: A) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> InvertFn<dyn Array> for E
+impl<E: Encoding> InvertFn<&dyn Array> for E
 where
-    E: InvertFn<E::Array>,
+    E: for<'a> InvertFn<&'a E::Array>,
 {
     fn invert(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         let array_ref = array

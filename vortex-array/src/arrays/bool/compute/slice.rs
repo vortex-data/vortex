@@ -4,7 +4,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::SliceFn;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl SliceFn<BoolArray> for BoolEncoding {
+impl SliceFn<&BoolArray> for BoolEncoding {
     fn slice(&self, array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(BoolArray::new_with_validity(
             array.boolean_buffer().slice(start, stop - start),

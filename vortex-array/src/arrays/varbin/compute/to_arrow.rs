@@ -9,7 +9,7 @@ use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::{try_cast, ToArrowFn};
 use crate::{Array, ToCanonical};
 
-impl ToArrowFn<VarBinArray> for VarBinEncoding {
+impl ToArrowFn<&VarBinArray> for VarBinEncoding {
     fn preferred_arrow_data_type(&self, array: &VarBinArray) -> VortexResult<Option<DataType>> {
         let offsets_ptype = PType::try_from(array.offsets().dtype())?;
         Ok(Some(match array.dtype() {

@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::{unpack_single, BitPackedArray, BitPackedEncoding};
 
-impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
+impl ScalarAtFn<&BitPackedArray> for BitPackedEncoding {
     fn scalar_at(&self, array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
         if let Some(patches) = array.patches() {
             if let Some(patch) = patches.get_patched(index)? {

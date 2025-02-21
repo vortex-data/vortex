@@ -6,7 +6,7 @@ use vortex_scalar::BinaryNumericOperator;
 
 use crate::{DictArray, DictEncoding};
 
-impl BinaryNumericFn<DictArray> for DictEncoding {
+impl BinaryNumericFn<&DictArray> for DictEncoding {
     fn binary_numeric(
         &self,
         array: &DictArray,

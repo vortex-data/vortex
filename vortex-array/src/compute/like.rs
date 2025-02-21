@@ -5,18 +5,18 @@ use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
 
-pub trait LikeFn<A: ?Sized> {
+pub trait LikeFn<A> {
     fn like(
         &self,
-        array: &A,
+        array: A,
         pattern: &dyn Array,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> LikeFn<dyn Array> for E
+impl<E: Encoding> LikeFn<&dyn Array> for E
 where
-    E: LikeFn<E::Array>,
+    E: for<'a> LikeFn<&'a E::Array>,
 {
     fn like(
         &self,

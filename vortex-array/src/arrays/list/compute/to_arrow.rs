@@ -11,7 +11,7 @@ use crate::compute::{try_cast, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 
-impl ToArrowFn<ListArray> for ListEncoding {
+impl ToArrowFn<&ListArray> for ListEncoding {
     fn to_arrow(&self, array: &ListArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
         let (cast_ptype, element_dtype) = match data_type {
             DataType::List(field) => (PType::I32, field.data_type()),

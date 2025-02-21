@@ -18,46 +18,46 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ComputeVTable for FoREncoding {
-    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<dyn Array>> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl TakeFn<FoRArray> for FoREncoding {
+impl TakeFn<&FoRArray> for FoREncoding {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         FoRArray::try_new(take(array.encoded(), indices)?, array.reference_scalar())
             .map(|a| a.into_array())
     }
 }
 
-impl FilterFn<FoRArray> for FoREncoding {
+impl FilterFn<&FoRArray> for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(filter(&array.encoded(), mask)?, array.reference_scalar())
             .map(|a| a.into_array())
     }
 }
 
-impl ScalarAtFn<FoRArray> for FoREncoding {
+impl ScalarAtFn<&FoRArray> for FoREncoding {
     fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {
         let encoded_pvalue = scalar_at(array.encoded(), index)?.reinterpret_cast(array.ptype());
         let encoded_pvalue = encoded_pvalue.as_primitive();
@@ -78,7 +78,7 @@ impl ScalarAtFn<FoRArray> for FoREncoding {
     }
 }
 
-impl SliceFn<FoRArray> for FoREncoding {
+impl SliceFn<&FoRArray> for FoREncoding {
     fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             slice(array.encoded(), start, stop)?,
@@ -88,7 +88,7 @@ impl SliceFn<FoRArray> for FoREncoding {
     }
 }
 
-impl SearchSortedFn<FoRArray> for FoREncoding {
+impl SearchSortedFn<&FoRArray> for FoREncoding {
     fn search_sorted(
         &self,
         array: &FoRArray,

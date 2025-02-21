@@ -12,13 +12,13 @@ pub struct MinMaxResult {
 
 /// Computes the min and max of an array, returning the (min, max) values
 /// If the array is empty or has only nulls, the result is `None`.
-pub trait MinMaxFn<A: ?Sized> {
-    fn min_max(&self, array: &A) -> VortexResult<Option<MinMaxResult>>;
+pub trait MinMaxFn<A> {
+    fn min_max(&self, array: A) -> VortexResult<Option<MinMaxResult>>;
 }
 
-impl<E: Encoding> MinMaxFn<dyn Array> for E
+impl<E: Encoding> MinMaxFn<&dyn Array> for E
 where
-    E: MinMaxFn<E::Array>,
+    E: for<'a> MinMaxFn<&'a E::Array>,
 {
     fn min_max(&self, array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
         let array_ref = array

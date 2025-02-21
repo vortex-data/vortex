@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use crate::array::{DateTimePartsArray, DateTimePartsEncoding};
 use crate::timestamp;
 
-impl CompareFn<DateTimePartsArray> for DateTimePartsEncoding {
+impl CompareFn<&DateTimePartsArray> for DateTimePartsEncoding {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported.
     fn compare(

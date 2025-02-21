@@ -6,7 +6,7 @@ use vortex_scalar::BinaryNumericOperator;
 
 use crate::{SparseArray, SparseEncoding};
 
-impl BinaryNumericFn<SparseArray> for SparseEncoding {
+impl BinaryNumericFn<&SparseArray> for SparseEncoding {
     fn binary_numeric(
         &self,
         array: &SparseArray,

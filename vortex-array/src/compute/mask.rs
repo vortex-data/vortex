@@ -9,14 +9,14 @@ use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};
 
-pub trait MaskFn<A: ?Sized> {
+pub trait MaskFn<A> {
     /// Replace masked values with null in array.
-    fn mask(&self, array: &A, mask: Mask) -> VortexResult<ArrayRef>;
+    fn mask(&self, array: A, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> MaskFn<dyn Array> for E
+impl<E: Encoding> MaskFn<&dyn Array> for E
 where
-    E: MaskFn<E::Array>,
+    E: for<'a> MaskFn<&'a E::Array>,
 {
     fn mask(&self, array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
         let array_ref = array

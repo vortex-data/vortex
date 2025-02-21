@@ -6,7 +6,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::InvertFn;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl InvertFn<BoolArray> for BoolEncoding {
+impl InvertFn<&BoolArray> for BoolEncoding {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {
         Ok(
             BoolArray::new_with_validity(array.boolean_buffer().not(), array.validity().clone())

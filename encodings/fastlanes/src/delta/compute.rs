@@ -9,23 +9,23 @@ use vortex_scalar::Scalar;
 use crate::{DeltaArray, DeltaEncoding};
 
 impl ComputeVTable for DeltaEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<DeltaArray> for DeltaEncoding {
+impl ScalarAtFn<&DeltaArray> for DeltaEncoding {
     fn scalar_at(&self, array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
         let decompressed = slice(array, index, index + 1)?.into_primitive()?;
         scalar_at(decompressed, 0)
     }
 }
 
-impl SliceFn<DeltaArray> for DeltaEncoding {
+impl SliceFn<&DeltaArray> for DeltaEncoding {
     fn slice(&self, array: &DeltaArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let physical_start = start + array.offset();
         let physical_stop = stop + array.offset();

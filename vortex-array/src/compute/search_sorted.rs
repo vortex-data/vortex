@@ -110,10 +110,10 @@ impl Display for SearchResult {
 /// Searches for value assuming the array is sorted.
 ///
 /// For nullable arrays we assume that the nulls are sorted last, i.e. they're the greatest value
-pub trait SearchSortedFn<A: ?Sized> {
+pub trait SearchSortedFn<A: Copy> {
     fn search_sorted(
         &self,
-        array: &A,
+        array: A,
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult>;
@@ -121,7 +121,7 @@ pub trait SearchSortedFn<A: ?Sized> {
     /// Bulk search for many values.
     fn search_sorted_many(
         &self,
-        array: &A,
+        array: A,
         values: &[Scalar],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
@@ -132,17 +132,17 @@ pub trait SearchSortedFn<A: ?Sized> {
     }
 }
 
-pub trait SearchSortedUsizeFn<A: ?Sized> {
+pub trait SearchSortedUsizeFn<A: Copy> {
     fn search_sorted_usize(
         &self,
-        array: &A,
+        array: A,
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult>;
 
     fn search_sorted_usize_many(
         &self,
-        array: &A,
+        array: A,
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
@@ -153,9 +153,9 @@ pub trait SearchSortedUsizeFn<A: ?Sized> {
     }
 }
 
-impl<E: Encoding> SearchSortedFn<dyn Array> for E
+impl<E: Encoding> SearchSortedFn<&dyn Array> for E
 where
-    E: SearchSortedFn<E::Array>,
+    E: for<'a> SearchSortedFn<&'a E::Array>,
 {
     fn search_sorted(
         &self,
@@ -194,9 +194,9 @@ where
     }
 }
 
-impl<E: Encoding> SearchSortedUsizeFn<dyn Array> for E
+impl<E: Encoding> SearchSortedUsizeFn<&dyn Array> for E
 where
-    E: SearchSortedUsizeFn<E::Array>,
+    E: for<'a> SearchSortedUsizeFn<&'a E::Array>,
 {
     fn search_sorted_usize(
         &self,

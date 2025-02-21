@@ -15,43 +15,43 @@ use vortex_scalar::Scalar;
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<dyn Array>> {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<&dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn like_fn(&self) -> Option<&dyn LikeFn<dyn Array>> {
+    fn like_fn(&self) -> Option<&dyn LikeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<DictArray> for DictEncoding {
+impl ScalarAtFn<&DictArray> for DictEncoding {
     fn scalar_at(&self, array: &DictArray, index: usize) -> VortexResult<Scalar> {
         let dict_index: usize = scalar_at(array.codes(), index)?.as_ref().try_into()?;
         scalar_at(array.values(), dict_index)
     }
 }
 
-impl TakeFn<DictArray> for DictEncoding {
+impl TakeFn<&DictArray> for DictEncoding {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Dict
         //   codes: 0 0 1
@@ -61,14 +61,14 @@ impl TakeFn<DictArray> for DictEncoding {
     }
 }
 
-impl FilterFn<DictArray> for DictEncoding {
+impl FilterFn<&DictArray> for DictEncoding {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(&array.codes(), mask)?;
         DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
 }
 
-impl SliceFn<DictArray> for DictEncoding {
+impl SliceFn<&DictArray> for DictEncoding {
     // TODO(robert): Add function to trim the dictionary
     fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         DictArray::try_new(slice(array.codes(), start, stop)?, array.values())

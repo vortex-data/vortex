@@ -7,13 +7,13 @@ use crate::{Array, ArrayRef, IntoArray};
 /// Implementation of fill_null for an encoding.
 ///
 /// SAFETY: the fill value is guaranteed to be non-null.
-pub trait FillNullFn<A: ?Sized> {
-    fn fill_null(&self, array: &A, fill_value: Scalar) -> VortexResult<ArrayRef>;
+pub trait FillNullFn<A> {
+    fn fill_null(&self, array: A, fill_value: Scalar) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> FillNullFn<dyn Array> for E
+impl<E: Encoding> FillNullFn<&dyn Array> for E
 where
-    E: FillNullFn<E::Array>,
+    E: for<'a> FillNullFn<&'a E::Array>,
 {
     fn fill_null(&self, array: &dyn Array, fill_value: Scalar) -> VortexResult<ArrayRef> {
         let array_ref = array

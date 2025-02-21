@@ -10,7 +10,7 @@ use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 // TODO(joe): add fuzzing.
 
-impl CompareFn<ALPArray> for ALPEncoding {
+impl CompareFn<&ALPArray> for ALPEncoding {
     fn compare(
         &self,
         lhs: &ALPArray,

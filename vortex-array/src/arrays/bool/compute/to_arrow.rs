@@ -8,7 +8,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ToArrowFn;
 use crate::Array;
 
-impl ToArrowFn<BoolArray> for BoolEncoding {
+impl ToArrowFn<&BoolArray> for BoolEncoding {
     fn to_arrow(&self, array: &BoolArray, data_type: &DataType) -> VortexResult<Option<ArrayRef>> {
         if data_type != &DataType::Boolean {
             vortex_bail!("Unsupported data type: {data_type}");

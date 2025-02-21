@@ -4,13 +4,13 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef, IntoArray};
 
-pub trait CastFn<A: ?Sized> {
-    fn cast(&self, array: &A, dtype: &DType) -> VortexResult<ArrayRef>;
+pub trait CastFn<A> {
+    fn cast(&self, array: A, dtype: &DType) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> CastFn<dyn Array> for E
+impl<E: Encoding> CastFn<&dyn Array> for E
 where
-    E: CastFn<E::Array>,
+    E: for<'a> CastFn<&'a E::Array>,
 {
     fn cast(&self, array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
         let array_ref = array

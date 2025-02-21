@@ -5,7 +5,7 @@ use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{binary_boolean, slice, BinaryBooleanFn, BinaryOperator};
 use crate::{Array, ArrayRef, IntoArray};
 
-impl BinaryBooleanFn<ChunkedArray> for ChunkedEncoding {
+impl BinaryBooleanFn<&ChunkedArray> for ChunkedEncoding {
     fn binary_boolean(
         &self,
         lhs: &ChunkedArray,

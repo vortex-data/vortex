@@ -15,28 +15,28 @@ use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, IntoArray};
 
 impl ComputeVTable for ListEncoding {
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<dyn Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<dyn Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn<ListArray> for ListEncoding {
+impl ScalarAtFn<&ListArray> for ListEncoding {
     fn scalar_at(&self, array: &ListArray, index: usize) -> VortexResult<Scalar> {
         let elem = array.elements_at(index)?;
         let scalars: Vec<Scalar> = (0..elem.len()).map(|i| scalar_at(&elem, i)).try_collect()?;
@@ -49,7 +49,7 @@ impl ScalarAtFn<ListArray> for ListEncoding {
     }
 }
 
-impl SliceFn<ListArray> for ListEncoding {
+impl SliceFn<&ListArray> for ListEncoding {
     fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ListArray::try_new(
             array.elements().clone(),
@@ -60,7 +60,7 @@ impl SliceFn<ListArray> for ListEncoding {
     }
 }
 
-impl MaskFn<ListArray> for ListEncoding {
+impl MaskFn<&ListArray> for ListEncoding {
     fn mask(&self, array: &ListArray, mask: Mask) -> VortexResult<ArrayRef> {
         ListArray::try_new(
             array.elements().clone(),
@@ -71,7 +71,7 @@ impl MaskFn<ListArray> for ListEncoding {
     }
 }
 
-impl MinMaxFn<ListArray> for ListEncoding {
+impl MinMaxFn<&ListArray> for ListEncoding {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement list min max
         Ok(None)

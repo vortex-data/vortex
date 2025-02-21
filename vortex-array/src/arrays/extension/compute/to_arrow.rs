@@ -15,7 +15,7 @@ use crate::canonical::ToCanonical;
 use crate::compute::{to_arrow, try_cast, ToArrowFn};
 use crate::{Array, IntoArray};
 
-impl ToArrowFn<ExtensionArray> for ExtensionEncoding {
+impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
     fn to_arrow(
         &self,
         array: &ExtensionArray,

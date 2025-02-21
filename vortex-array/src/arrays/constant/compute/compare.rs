@@ -4,7 +4,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{scalar_cmp, CompareFn, Operator};
 use crate::{Array, ArrayRef, IntoArray};
 
-impl CompareFn<ConstantArray> for ConstantEncoding {
+impl CompareFn<&ConstantArray> for ConstantEncoding {
     fn compare(
         &self,
         lhs: &ConstantArray,

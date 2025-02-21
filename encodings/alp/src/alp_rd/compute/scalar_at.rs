@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 use crate::alp_rd::array::ALPRDArray;
 use crate::ALPRDEncoding;
 
-impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
+impl ScalarAtFn<&ALPRDArray> for ALPRDEncoding {
     fn scalar_at(&self, array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.

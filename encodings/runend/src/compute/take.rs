@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl TakeFn<RunEndArray> for RunEndEncoding {
+impl TakeFn<&RunEndArray> for RunEndEncoding {
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive()?;
 

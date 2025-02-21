@@ -15,7 +15,7 @@ use crate::compute::{
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 
-impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
+impl SearchSortedFn<&PrimitiveArray> for PrimitiveEncoding {
     fn search_sorted(
         &self,
         array: &PrimitiveArray,
@@ -38,7 +38,7 @@ impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
-impl SearchSortedUsizeFn<PrimitiveArray> for PrimitiveEncoding {
+impl SearchSortedUsizeFn<&PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn search_sorted_usize(
         &self,

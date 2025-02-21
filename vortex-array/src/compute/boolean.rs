@@ -21,18 +21,18 @@ pub enum BinaryOperator {
     // Xor,
 }
 
-pub trait BinaryBooleanFn<A: ?Sized> {
+pub trait BinaryBooleanFn<A> {
     fn binary_boolean(
         &self,
-        array: &A,
+        array: A,
         other: &dyn Array,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryBooleanFn<dyn Array> for E
+impl<E: Encoding> BinaryBooleanFn<&dyn Array> for E
 where
-    E: BinaryBooleanFn<E::Array>,
+    E: for<'a> BinaryBooleanFn<&'a E::Array>,
 {
     fn binary_boolean(
         &self,

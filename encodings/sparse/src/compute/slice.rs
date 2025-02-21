@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use crate::compute::SliceFn;
 use crate::{ArrayRef, IntoArray, SparseArray, SparseEncoding};
 
-impl SliceFn<SparseArray> for SparseEncoding {
+impl SliceFn<&SparseArray> for SparseEncoding {
     fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let new_patches = array.patches().slice(start, stop)?;
 

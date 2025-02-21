@@ -6,7 +6,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
 use crate::{Array, ArrayRef, IntoArray};
 
-impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
+impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
     fn binary_boolean(
         &self,
         lhs: &ConstantArray,

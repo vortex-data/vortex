@@ -12,7 +12,7 @@ use crate::compute::{fill_null, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-impl TakeFn<BoolArray> for BoolEncoding {
+impl TakeFn<&BoolArray> for BoolEncoding {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),

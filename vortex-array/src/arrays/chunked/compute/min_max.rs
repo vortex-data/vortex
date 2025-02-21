@@ -5,7 +5,7 @@ use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{min_max, MinMaxFn, MinMaxResult};
 use crate::{partial_max, partial_min};
 
-impl MinMaxFn<ChunkedArray> for ChunkedEncoding {
+impl MinMaxFn<&ChunkedArray> for ChunkedEncoding {
     fn min_max(&self, array: &ChunkedArray) -> VortexResult<Option<MinMaxResult>> {
         let mut min_max_all_null = true;
         let res = array

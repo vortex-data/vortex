@@ -273,9 +273,9 @@ impl Validity {
                 }
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
-                    let is_valid = is_valid.to_bool()?.boolean_buffer();
+                    let is_valid = is_valid.to_bool()?;
                     let keep_valid = make_invalid.not();
-                    Validity::from(is_valid.bitand(&keep_valid))
+                    Validity::from(is_valid.boolean_buffer().bitand(&keep_valid))
                 }
             }),
         }
@@ -450,15 +450,13 @@ impl PartialEq for Validity {
             (Self::AllValid, Self::AllValid) => true,
             (Self::AllInvalid, Self::AllInvalid) => true,
             (Self::Array(a), Self::Array(b)) => {
-                let a_buffer = a
+                let a = a
                     .to_bool()
-                    .vortex_expect("Failed to get Validity Array as BoolArray")
-                    .boolean_buffer();
-                let b_buffer = b
+                    .vortex_expect("Failed to get Validity Array as BoolArray");
+                let b = b
                     .to_bool()
-                    .vortex_expect("Failed to get Validity Array as BoolArray")
-                    .boolean_buffer();
-                a_buffer == b_buffer
+                    .vortex_expect("Failed to get Validity Array as BoolArray");
+                a.boolean_buffer() == b.boolean_buffer()
             }
             _ => false,
         }

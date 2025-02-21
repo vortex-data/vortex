@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseEncoding};
 
-impl InvertFn<SparseArray> for SparseEncoding {
+impl InvertFn<&SparseArray> for SparseEncoding {
     fn invert(&self, array: &SparseArray) -> VortexResult<ArrayRef> {
         let inverted_fill = array.fill_scalar().as_bool().invert().into_scalar();
         let inverted_patches = array.patches().map_values(|values| invert(&values))?;

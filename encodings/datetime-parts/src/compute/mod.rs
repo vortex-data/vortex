@@ -18,32 +18,32 @@ use crate::timestamp::{self, TimestampParts};
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<dyn Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn compare_fn(&self) -> Option<&dyn CompareFn<dyn Array>> {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
+impl SliceFn<&DateTimePartsArray> for DateTimePartsEncoding {
     fn slice(
         &self,
         array: &DateTimePartsArray,
@@ -60,7 +60,7 @@ impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
     }
 }
 
-impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
+impl ScalarAtFn<&DateTimePartsArray> for DateTimePartsEncoding {
     fn scalar_at(&self, array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_bail!(

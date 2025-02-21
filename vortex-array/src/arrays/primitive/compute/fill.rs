@@ -11,7 +11,7 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
+impl FillForwardFn<&PrimitiveArray> for PrimitiveEncoding {
     fn fill_forward(&self, array: &PrimitiveArray) -> VortexResult<ArrayRef> {
         if array.dtype().nullability() == Nullability::NonNullable {
             return Ok(array.to_array().into_array());

@@ -5,7 +5,7 @@ use crate::builders::{ArrayBuilder, BoolBuilder};
 use crate::compute::{compare, slice, CompareFn, Operator};
 use crate::{Array, ArrayRef};
 
-impl CompareFn<ChunkedArray> for ChunkedEncoding {
+impl CompareFn<&ChunkedArray> for ChunkedEncoding {
     fn compare(
         &self,
         lhs: &ChunkedArray,

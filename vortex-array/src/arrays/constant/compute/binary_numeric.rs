@@ -5,7 +5,7 @@ use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::BinaryNumericFn;
 use crate::{Array, ArrayRef, IntoArray as _};
 
-impl BinaryNumericFn<ConstantArray> for ConstantEncoding {
+impl BinaryNumericFn<&ConstantArray> for ConstantEncoding {
     fn binary_numeric(
         &self,
         array: &ConstantArray,

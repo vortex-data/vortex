@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::compute::{scalar_at, ScalarAtFn};
 
-impl ScalarAtFn<ChunkedArray> for ChunkedEncoding {
+impl ScalarAtFn<&ChunkedArray> for ChunkedEncoding {
     fn scalar_at(&self, array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
         scalar_at(array.chunk(chunk_index)?, chunk_offset)

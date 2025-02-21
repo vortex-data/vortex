@@ -12,7 +12,7 @@ use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, ArrayRef, IntoArray};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
-impl CompareFn<VarBinArray> for VarBinEncoding {
+impl CompareFn<&VarBinArray> for VarBinEncoding {
     fn compare(
         &self,
         lhs: &VarBinArray,

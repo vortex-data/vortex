@@ -8,7 +8,7 @@ use crate::Array;
 /// Encoding VTable for computing array statistics.
 pub trait StatisticsVTable<Array: ?Sized> {
     /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&'static self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
         Ok(StatsSet::default())
     }
 }
@@ -31,7 +31,7 @@ where
     }
 }
 
-impl Array {
+impl dyn Array + '_ {
     /// Computes ths statistics for the given array and stat. This will update the stats of the array
     /// and return this [`StatsSet`].
     ///
@@ -41,14 +41,14 @@ impl Array {
             return Ok(StatsSet::empty_array());
         }
 
-        if let Some(stat) = self.get_stat(stat) {
+        if let Some(stat) = self.statistics().get_stat(stat) {
             if stat.is_exact() {
-                return Ok(self.stats_set());
+                return Ok(self.statistics().stats_set());
             }
         }
 
         let stats_set = if matches!(stat, Stat::Min | Stat::Max) {
-            let mut stats_set = self.stats_set();
+            let mut stats_set = self.statistics().stats_set();
             if let Some(MinMaxResult { min, max }) = min_max(self)? {
                 if min == max
                     && stats_set.get_as::<u64>(Stat::NullCount) == Some(Precision::exact(0u64))
@@ -72,7 +72,7 @@ impl Array {
 
         // TODO(joe): infer more stats from other stat combinations.
         if let Some(stat_val) = stats_set.get(stat) {
-            self.set_stat(stat, stat_val);
+            self.statistics().set_stat(stat, stat_val);
         }
 
         Ok(stats_set)

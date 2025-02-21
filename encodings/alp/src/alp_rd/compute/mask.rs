@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
-impl MaskFn<ALPRDArray> for ALPRDEncoding {
+impl MaskFn<&ALPRDArray> for ALPRDEncoding {
     fn mask(&self, array: &ALPRDArray, filter_mask: Mask) -> VortexResult<ArrayRef> {
         Ok(ALPRDArray::try_new(
             array.dtype().as_nullable(),

@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl ScalarAtFn<RunEndArray> for RunEndEncoding {
+impl ScalarAtFn<&RunEndArray> for RunEndEncoding {
     fn scalar_at(&self, array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
         scalar_at(array.values(), array.find_physical_index(index)?)
     }

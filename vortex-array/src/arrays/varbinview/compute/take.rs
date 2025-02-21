@@ -13,7 +13,7 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
-impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
+impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
     fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Compute the new validity
 

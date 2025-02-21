@@ -13,50 +13,50 @@ use crate::vtable::ComputeVTable;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 impl ComputeVTable for NullEncoding {
-    fn mask_fn(&self) -> Option<&dyn MaskFn<dyn Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<dyn Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<dyn Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl MaskFn<NullArray> for NullEncoding {
+impl MaskFn<&NullArray> for NullEncoding {
     fn mask(&self, array: &NullArray, _mask: Mask) -> VortexResult<ArrayRef> {
         Ok(array.to_array().into_array())
     }
 }
 
-impl SliceFn<NullArray> for NullEncoding {
+impl SliceFn<&NullArray> for NullEncoding {
     fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
 
-impl ScalarAtFn<NullArray> for NullEncoding {
+impl ScalarAtFn<&NullArray> for NullEncoding {
     fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }
 
-impl TakeFn<NullArray> for NullEncoding {
+impl TakeFn<&NullArray> for NullEncoding {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
@@ -81,7 +81,7 @@ impl TakeFn<NullArray> for NullEncoding {
     }
 }
 
-impl ToArrowFn<NullArray> for NullEncoding {
+impl ToArrowFn<&NullArray> for NullEncoding {
     fn to_arrow(
         &self,
         array: &NullArray,
@@ -94,7 +94,7 @@ impl ToArrowFn<NullArray> for NullEncoding {
     }
 }
 
-impl MinMaxFn<NullArray> for NullEncoding {
+impl MinMaxFn<&NullArray> for NullEncoding {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(None)
     }

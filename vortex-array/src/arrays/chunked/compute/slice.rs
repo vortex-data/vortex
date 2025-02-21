@@ -5,7 +5,7 @@ use crate::arrays::ChunkedEncoding;
 use crate::compute::{slice, SliceFn};
 use crate::{Array, ArrayRef, IntoArray};
 
-impl SliceFn<ChunkedArray> for ChunkedEncoding {
+impl SliceFn<&ChunkedArray> for ChunkedEncoding {
     fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
         let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);

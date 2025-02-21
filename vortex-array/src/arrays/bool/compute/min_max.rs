@@ -8,7 +8,7 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::{MinMaxFn, MinMaxResult};
 use crate::Array;
 
-impl MinMaxFn<BoolArray> for BoolEncoding {
+impl MinMaxFn<&BoolArray> for BoolEncoding {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
         let x = match array.validity_mask()? {
             Mask::AllTrue(_) => array.boolean_buffer().clone(),

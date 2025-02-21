@@ -13,31 +13,31 @@ use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 use crate::{ZigZagArray, ZigZagEncoding};
 
 impl ComputeVTable for ZigZagEncoding {
-    fn filter_fn(&self) -> Option<&dyn FilterFn<dyn Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<dyn Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<dyn Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<dyn Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl FilterFn<ZigZagArray> for ZigZagEncoding {
+impl FilterFn<&ZigZagArray> for ZigZagEncoding {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let encoded = filter(&array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
 
-impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
+impl ScalarAtFn<&ZigZagArray> for ZigZagEncoding {
     fn scalar_at(&self, array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = scalar_at(array.encoded(), index)?;
         if scalar.is_null() {
@@ -60,13 +60,13 @@ impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
     }
 }
 
-impl SliceFn<ZigZagArray> for ZigZagEncoding {
+impl SliceFn<&ZigZagArray> for ZigZagEncoding {
     fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ZigZagArray::try_new(slice(array.encoded(), start, stop)?)?.into_array())
     }
 }
 
-impl TakeFn<ZigZagArray> for ZigZagEncoding {
+impl TakeFn<&ZigZagArray> for ZigZagEncoding {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())

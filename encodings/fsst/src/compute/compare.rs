@@ -9,7 +9,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl CompareFn<FSSTArray> for FSSTEncoding {
+impl CompareFn<&FSSTArray> for FSSTEncoding {
     fn compare(
         &self,
         lhs: &FSSTArray,

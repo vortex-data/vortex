@@ -6,7 +6,7 @@ use crate::arrays::VarBinEncoding;
 use crate::compute::MaskFn;
 use crate::{Array, ArrayRef, IntoArray};
 
-impl MaskFn<VarBinArray> for VarBinEncoding {
+impl MaskFn<&VarBinArray> for VarBinEncoding {
     fn mask(&self, array: &VarBinArray, mask: Mask) -> VortexResult<ArrayRef> {
         Ok(VarBinArray::try_new(
             array.offsets().clone(),

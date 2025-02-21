@@ -10,7 +10,7 @@ use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
 use crate::compute::{mask, try_cast, MaskFn};
 use crate::{Array, ArrayRef, IntoArray as _};
 
-impl MaskFn<ChunkedArray> for ChunkedEncoding {
+impl MaskFn<&ChunkedArray> for ChunkedEncoding {
     fn mask(&self, array: &ChunkedArray, mask: Mask) -> VortexResult<ArrayRef> {
         let new_dtype = array.dtype().as_nullable();
         let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {

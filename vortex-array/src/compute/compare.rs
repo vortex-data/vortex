@@ -72,20 +72,20 @@ impl Operator {
     }
 }
 
-pub trait CompareFn<A: ?Sized> {
+pub trait CompareFn<A> {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported for these arrays.
     fn compare(
         &self,
-        lhs: &A,
+        lhs: A,
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> CompareFn<dyn Array> for E
+impl<E: Encoding> CompareFn<&dyn Array> for E
 where
-    E: CompareFn<E::Array>,
+    E: for<'a> CompareFn<&'a E::Array>,
 {
     fn compare(
         &self,

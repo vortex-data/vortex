@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDEncoding};
 
-impl FilterFn<ALPRDArray> for ALPRDEncoding {
+impl FilterFn<&ALPRDArray> for ALPRDEncoding {
     fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let left_parts_exceptions = array
             .left_parts_patches()

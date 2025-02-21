@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
-impl CompareFn<DictArray> for DictEncoding {
+impl CompareFn<&DictArray> for DictEncoding {
     fn compare(
         &self,
         lhs: &DictArray,
