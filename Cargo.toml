@@ -28,12 +28,10 @@ exclude = ["wasm-test"]
 resolver = "2"
 
 [workspace.package]
-version = "0.25.2"
-homepage = "https://github.com/spiraldb/vortex"
-repository = "https://github.com/spiraldb/vortex"
 authors = ["Vortex Authors <hello@vortex.dev>"]
-license = "Apache-2.0"
-keywords = ["vortex"]
+categories = ["database-implementations", "data-structures", "compression"]
+edition = "2024"
+homepage = "https://github.com/spiraldb/vortex"
 include = [
     "benches/*.rs",
     "build.rs",
@@ -43,10 +41,12 @@ include = [
     "flatbuffers/**/*.fbs",
     "README.md",
 ]
-edition = "2024"
-rust-version = "1.86"
+keywords = ["vortex"]
+license = "Apache-2.0"
 readme = "README.md"
-categories = ["database-implementations", "data-structures", "compression"]
+repository = "https://github.com/spiraldb/vortex"
+rust-version = "1.86"
+version = "0.25.2"
 
 [workspace.dependencies]
 anyhow = "1.0.95"
@@ -92,6 +92,7 @@ futures-executor = "0.3.31"
 futures-util = "0.3.31"
 getrandom = "0.3"
 goldenfile = "1"
+governor = "0.8"
 half = { version = "2.2.1", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
 homedir = "0.3.3"
@@ -103,7 +104,6 @@ libfuzzer-sys = "0.4"
 log = { version = "0.4.21" }
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
-governor = "0.8"
 num-traits = "0.2.19"
 num_enum = "0.7.2"
 object_store = "0.11.0"
@@ -150,8 +150,8 @@ static_assertions = "1.1"
 tabled = { version = "0.18.0", default-features = false }
 tar = "0.4"
 tempfile = "3"
-tikv-jemallocator = "0.6"
 thiserror = "2.0.3"
+tikv-jemallocator = "0.6"
 tokio = "1.36"
 tracing = { version = "0.1.41" }
 tracing-chrome = "0.7.2"
@@ -196,14 +196,14 @@ xshell = "0.2.6"
 zigzag = "0.1.0"
 
 [workspace.dependencies.getrandom_v03]
+features = ["wasm_js"]
 package = "getrandom"
 version = "0.3.1"
-features = ["wasm_js"]
 
 [workspace.dependencies.getrandom_v02]
+features = ["js"]
 package = "getrandom"
 version = "0.2.15"
-features = ["js"]
 
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"
@@ -219,15 +219,15 @@ as_ptr_cast_mut = "deny"
 borrow_as_ptr = "deny"
 cargo = { level = "deny", priority = -1 }
 cast_possible_truncation = "deny"
-collection_is_never_read = "deny"
 cognitive_complexity = "deny"
+collection_is_never_read = "deny"
 dbg_macro = "deny"
 debug_assert_with_mut_call = "deny"
 derive_partial_eq_without_eq = "deny"
+equatable_if_let = "deny"
 exit = "deny"
 expect_fun_call = "deny"
 expect_used = "deny"
-equatable_if_let = "deny"
 fallible_impl_from = "deny"
 get_unwrap = "deny"
 host_endian_bytes = "deny"
@@ -255,8 +255,8 @@ codegen-units = 1
 lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
 
 [profile.release_debug]
-inherits = "release"
 debug = "full"
+inherits = "release"
 
 [profile.bench]
 codegen-units = 16
@@ -264,5 +264,5 @@ debug = "full"
 lto = false
 
 [profile.bench_assert]
-inherits = "bench"
 debug-assertions = true
+inherits = "bench"

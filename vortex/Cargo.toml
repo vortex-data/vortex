@@ -1,22 +1,22 @@
 [package]
-name = "vortex"
-description = "Vortex file format with all builtin codecs and a sampling compressor."
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex file format with all builtin codecs and a sampling compressor."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+name = "vortex"
 readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lib]
+bench = false
 name = "vortex"
 path = "src/lib.rs"
-bench = false
 
 [lints]
 workspace = true
@@ -49,7 +49,7 @@ vortex-zigzag = { workspace = true }
 [features]
 default = ["files"]
 files = ["dep:vortex-file", "dep:vortex-io"]
-tokio = ["vortex-io/tokio", "vortex-file/tokio"]
 object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
+tokio = ["vortex-io/tokio", "vortex-file/tokio"]

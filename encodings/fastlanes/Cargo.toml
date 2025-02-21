@@ -1,17 +1,17 @@
 [package]
-name = "vortex-fastlanes"
-version = { workspace = true }
-description = "Vortex fastlanes arrays"
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex fastlanes arrays"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+name = "vortex-fastlanes"
 readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lints]
 workspace = true
@@ -42,19 +42,19 @@ vortex-fastlanes = { path = ".", features = ["test-harness"] }
 test-harness = ["dep:rand"]
 
 [[bench]]
+harness = false
 name = "bitpacking_take"
-harness = false
 
 [[bench]]
+harness = false
 name = "bitpacking_decompress_selection"
-harness = false
 
 [[bench]]
-name = "canonicalize_bench"
 harness = false
+name = "canonicalize_bench"
 required-features = ["test-harness"]
 
 [[bench]]
-name = "compute_between"
 harness = false
+name = "compute_between"
 required-features = ["test-harness"]

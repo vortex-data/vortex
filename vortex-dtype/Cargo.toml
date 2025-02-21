@@ -1,22 +1,22 @@
 [package]
-name = "vortex-dtype"
-version = { workspace = true }
-description = "Vortex's core type system"
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex's core type system"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+name = "vortex-dtype"
 readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lib]
+bench = false
 name = "vortex_dtype"
 path = "src/lib.rs"
-bench = false
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }

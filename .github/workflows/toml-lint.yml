@@ -1,0 +1,16 @@
+name: TOML lint
+
+on:
+  pull_request: {}
+
+jobs:
+  lint_toml_files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          cargo install taplo-cli --locked
+      - name: Lint!
+        run: |
+          taplo fmt --check

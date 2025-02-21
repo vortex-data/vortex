@@ -1,22 +1,22 @@
 [package]
-name = "vortex-array"
-description = "Vortex in memory columnar data format"
-version = { workspace = true }
-homepage = { workspace = true }
-repository = { workspace = true }
 authors = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
-include = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
 categories = { workspace = true }
+description = "Vortex in memory columnar data format"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+name = "vortex-array"
 readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
 
 [lib]
+bench = false
 name = "vortex_array"
 path = "src/lib.rs"
-bench = false
 
 [lints]
 workspace = true
@@ -67,8 +67,8 @@ arbitrary = [
     "vortex-dtype/arbitrary",
     "vortex-scalar/arbitrary",
 ]
-test-harness = ["dep:goldenfile"]
 canonical_counter = []
+test-harness = ["dep:goldenfile"]
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -76,25 +76,25 @@ rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
 
 [[bench]]
+harness = false
 name = "search_sorted"
-harness = false
 
 [[bench]]
+harness = false
 name = "scalar_subtract"
-harness = false
 
 [[bench]]
+harness = false
 name = "compare"
-harness = false
 
 [[bench]]
+harness = false
 name = "take_strings"
-harness = false
 
 [[bench]]
+harness = false
 name = "take_patches"
-harness = false
 
 [[bench]]
-name = "chunk_array_builder"
 harness = false
+name = "chunk_array_builder"
