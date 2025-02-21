@@ -7,7 +7,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -165,13 +165,13 @@ mod test {
     #[test]
     fn encode_primitive() {
         let arr = PrimitiveArray::from_iter([1, 1, 3, 3, 3]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().into_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
             &[0, 0, 1, 1, 1]
         );
         assert_eq!(
-            dict.values().into_primitive().unwrap().as_slice::<i32>(),
+            dict.values().to_primitive().unwrap().as_slice::<i32>(),
             &[1, 3]
         );
     }
@@ -188,18 +188,18 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr).unwrap();
         assert_eq!(
-            dict.codes().into_primitive().unwrap().as_slice::<u64>(),
+            dict.codes().to_primitive().unwrap().as_slice::<u64>(),
             &[0, 0, 0, 1, 1, 0, 1, 0]
         );
         let dict_values = dict.values();
         assert_eq!(
-            scalar_at(&dict_values, 0).unwrap(),
+            scalar_at(dict_values, 0).unwrap(),
             Scalar::primitive(1, Nullable)
         );
         assert_eq!(
-            scalar_at(&dict_values, 1).unwrap(),
+            scalar_at(dict_values, 1).unwrap(),
             Scalar::primitive(3, Nullable)
         );
     }

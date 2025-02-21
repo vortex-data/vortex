@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, take, try_cast, CompareFn, Operator};
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -18,7 +18,7 @@ impl CompareFn<&DictArray> for DictEncoding {
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(
                 lhs.values(),
-                ConstantArray::new(rhs, lhs.values().len()),
+                &ConstantArray::new(rhs, lhs.values().len()),
                 operator,
             )?;
 
@@ -36,9 +36,9 @@ impl CompareFn<&DictArray> for DictEncoding {
                 // We found a single matching value so we can compare the codes directly.
                 // Note: the codes include nullability so we can just compare the codes directly, to the found code.
                 (Some(code), None) => try_cast(
-                    compare(
+                    &compare(
                         lhs.codes(),
-                        try_cast(ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
+                        &try_cast(&ConstantArray::new(code, lhs.len()), lhs.codes().dtype())?,
                         operator,
                     )?,
                     &DType::Bool(lhs.dtype().nullability()),
@@ -59,7 +59,7 @@ impl CompareFn<&DictArray> for DictEncoding {
 mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::{compare, Operator};
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
@@ -75,7 +75,7 @@ mod tests {
 
         let res = compare(
             &dict,
-            ConstantArray::new(Scalar::from(1i32), 3),
+            &ConstantArray::new(Scalar::from(1i32), 3),
             Operator::Eq,
         )
         .unwrap();

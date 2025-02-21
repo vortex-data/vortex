@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{binary_numeric, BinaryNumericFn};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::BinaryNumericOperator;
 
@@ -18,12 +18,13 @@ impl BinaryNumericFn<&DictArray> for DictEncoding {
         };
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
-        DictArray::try_new(
-            array.codes(),
-            binary_numeric(&array.values(), &rhs_const_array, op)?,
-        )
-        .map(IntoArray::into_array)
-        .map(Some)
+        Ok(Some(
+            DictArray::try_new(
+                array.codes().clone(),
+                binary_numeric(array.values(), &rhs_const_array, op)?,
+            )?
+            .into_array(),
+        ))
     }
 }
 
@@ -45,8 +46,8 @@ mod tests {
             Some(1),
             Some(5),
         ]);
-        let dict = dict_encode(reference.as_ref()).unwrap();
-        slice(dict, 1, 4).unwrap()
+        let dict = dict_encode(&reference).unwrap();
+        slice(&dict, 1, 4).unwrap()
     }
 
     #[test]
