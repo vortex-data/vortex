@@ -1,19 +1,20 @@
 [package]
 name = "vortex-btrblocks"
 description = "BtrBlocks style compressor"
-version.workspace = true
-homepage.workspace = true
-repository.workspace = true
-authors.workspace = true
-license.workspace = true
-keywords.workspace = true
-include.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-readme.workspace = true
-categories.workspace = true
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+readme = { workspace = true }
+categories = { workspace = true }
 
 [dependencies]
+getrandom_v02 = { workspace = true }
 arrow-buffer = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
