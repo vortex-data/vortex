@@ -21,7 +21,6 @@ futures = { workspace = true, features = ["std"] }
 # TODO(ngates): remove these in favor of futures
 futures-executor = { workspace = true }
 itertools = { workspace = true }
-uuid = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future", "quanta"] }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
