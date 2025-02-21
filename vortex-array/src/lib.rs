@@ -39,7 +39,7 @@ mod metadata;
 mod nbytes;
 mod partial_ord;
 pub mod patches;
-// pub mod serde;
+pub mod serde;
 pub mod stats;
 pub mod stream;
 #[cfg(feature = "test-harness")]

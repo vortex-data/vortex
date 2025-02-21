@@ -8,33 +8,31 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::stream;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{BoolEncoding, ConstantArray};
-use crate::compute::{scalar_at, search_sorted_usize, SearchSorted, SearchSortedSide};
-use crate::encoding::encoding_ids;
+use crate::arrays::ConstantArray;
+use crate::compute::{SearchSorted, SearchSortedSide};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
+    encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId, IntoArray,
 };
 
 mod canonical;
 mod compute;
-mod encoding;
+mod serde;
 mod stats;
 mod variants;
 
@@ -48,7 +46,6 @@ pub struct ChunkedArray {
 }
 
 pub struct ChunkedEncoding;
-
 impl Encoding for ChunkedEncoding {
     const ID: EncodingId = EncodingId::new("vortex.chunked", encoding_ids::CHUNKED);
     type Array = ChunkedArray;
@@ -286,7 +283,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
-    use crate::{array, assert_arrays_eq, ArrayExt, IntoArray, ToCanonical};
+    use crate::{assert_arrays_eq, ArrayExt, IntoArray, ToCanonical};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

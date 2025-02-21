@@ -1,11 +1,11 @@
 use std::fmt::{Debug, Formatter};
 use std::iter;
 
-use flatbuffers::{root, FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{root, root_unchecked, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
@@ -216,10 +216,13 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
 /// vtable, and it doesn't store any [`DType`] information.
 ///
 /// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
+#[derive(Clone)]
 pub struct ArrayParts {
     // Typed as fb::Array
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
+    // The location of the current fb::ArrayNode
+    flatbuffer_root_loc: usize,
     buffers: Vec<ByteBuffer>,
 }
 
@@ -228,6 +231,7 @@ impl Debug for ArrayParts {
         f.debug_struct("ArrayParts")
             .field("flatbuffer", &self.flatbuffer.len())
             .field("flatbuffer_loc", &self.flatbuffer_loc)
+            .field("flatbuffer_root_loc", &self.flatbuffer_root_loc)
             .field("buffers", &self.buffers.len())
             .finish()
     }
@@ -235,16 +239,74 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
-        ArrayRef::try_new_viewed(
-            ctx,
-            dtype,
-            len,
-            self.flatbuffer,
-            // SAFETY: ArrayComponents guarantees the buffers are valid.
-            |buf| unsafe { Ok(fba::ArrayNode::follow(buf, self.flatbuffer_loc)) },
-            self.buffers,
-        )
+    pub fn decode(&self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+        let encoding_id = self.flatbuffer_root().encoding();
+        let vtable = ctx
+            .lookup_encoding(encoding_id)
+            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
+        vtable.decode(self, ctx, dtype, len)
+    }
+
+    /// Returns the array metadata bytes.
+    pub fn metadata(&self) -> Option<&[u8]> {
+        self.flatbuffer_root()
+            .metadata()
+            .map(|metadata| metadata.bytes())
+    }
+
+    /// Returns the number of children.
+    pub fn nchildren(&self) -> usize {
+        self.flatbuffer_root()
+            .children()
+            .map_or(0, |children| children.len())
+    }
+
+    /// Iterate the children of this array.
+    pub fn children(&self) -> impl Iterator<Item = ArrayParts> + '_ {
+        self.flatbuffer_root()
+            .children()
+            .iter()
+            .flat_map(|children| children.iter())
+            .map(move |child| self.with_root(child))
+    }
+
+    /// Returns the number of buffers.
+    pub fn nbuffers(&self) -> usize {
+        self.flatbuffer_root()
+            .buffers()
+            .children()
+            .map_or(0, |buffers| buffers.len())
+    }
+
+    /// Returns the number of buffers.
+    pub fn buffers(&self) -> impl Iterator<Item = Option<&ByteBuffer>> + '_ {
+        self.flatbuffer_root()
+            .buffers()
+            .iter()
+            .flat_map(|b| b.iter())
+            // TODO(ngates): we should validate this at some point?
+            .map(|buffer_id| {
+                self.buffers
+                    .get(buffer_id)
+                    .ok_or_else(|| vortex_err!("Invalid buffer ID {}", buffer_id))
+            })
+    }
+
+    /// Returns the array flatbuffer.
+    fn flatbuffer(&self) -> fba::Array {
+        unsafe { fba::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
+    }
+
+    /// Returns the root ArrayNode flatbuffer.
+    fn flatbuffer_root(&self) -> fba::ArrayNode {
+        unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_root_loc) }
+    }
+
+    /// Returns a new [`ArrayParts`] with the given node as the root
+    fn with_root(&self, root: fba::ArrayNode) -> Self {
+        let mut this = self.clone();
+        this.flatbuffer_root_loc = root._tab.loc();
+        this
     }
 }
 

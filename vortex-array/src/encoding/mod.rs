@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
-use crate::{DeserializeMetadata, SerializeMetadata};
+use crate::{Array, DeserializeMetadata, SerializeMetadata};
 
 // TODO(robert): Outline how you create a well known encoding id
 
@@ -56,7 +56,7 @@ impl AsRef<str> for EncodingId {
 pub trait Encoding: 'static + Send + Sync + EncodingVTable {
     const ID: EncodingId;
 
-    type Array;
+    type Array: Array;
     type Metadata: SerializeMetadata + DeserializeMetadata;
 
     fn vtable(&'static self) -> VTableRef
