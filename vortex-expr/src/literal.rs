@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;

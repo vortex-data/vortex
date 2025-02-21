@@ -8,7 +8,7 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
-use vortex_array::ArrayRef;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
@@ -133,7 +133,7 @@ impl PruningPredicate {
     pub fn evaluate(&self, metadata: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let known_stats = HashSet::from_iter(
             metadata
-                .as_struct_array()
+                .as_struct_typed()
                 .vortex_expect("metadata must be struct array")
                 .names()
                 .iter()

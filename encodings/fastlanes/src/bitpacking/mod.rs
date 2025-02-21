@@ -12,13 +12,13 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
-    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef,
+    encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl,
     ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
     EmptyMetadata, Encoding, EncodingId,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 mod compress;

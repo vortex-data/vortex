@@ -36,7 +36,7 @@ pub use operators::*;
 pub use pack::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::ArrayRef;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
 

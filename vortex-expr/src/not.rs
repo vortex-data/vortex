@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::invert;
-use vortex_array::ArrayRef;
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -82,7 +82,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(bools.as_ref())
+                .evaluate(&bools)
                 .unwrap()
                 .to_bool()
                 .unwrap()
