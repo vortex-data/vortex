@@ -6,17 +6,16 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::arrays::ChunkedEncoding;
+use crate::nbytes::NBytes;
 use crate::visitor::ArrayVisitor;
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef};
 
-pub trait ArrayTreeDisplay: Array {
-    fn tree_display(&self) -> TreeDisplayWrapper {
+impl dyn Array + '_ {
+    pub fn tree_display(&self) -> TreeDisplayWrapper {
         TreeDisplayWrapper(self)
     }
 }
-
-impl<A: Array + ?Sized> ArrayTreeDisplay for A {}
 
 pub struct TreeDisplayWrapper<'a>(&'a dyn Array);
 impl<'a> TreeDisplayWrapper<'a> {

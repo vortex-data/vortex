@@ -10,6 +10,7 @@ use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::stats::Statistics;
+use crate::visitor::ArrayVisitorExt;
 use crate::{Array, ArrayRef, ContextRef};
 
 /// Options for serializing an array.
@@ -22,7 +23,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-pub trait ArraySerde {
+impl dyn Array + '_ {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///

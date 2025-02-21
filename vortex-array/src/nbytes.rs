@@ -10,11 +10,12 @@ pub trait NBytes: Array {
         let mut visitor = NBytesVisitor::default();
         self.accept(&mut visitor)
             .vortex_expect("Failed to get nbytes from Array");
-        visitor.0 + self.metadata_bytes().map_or(0, |b| b.len())
+        // visitor.0 + self.metadata_bytes().map_or(0, |b| b.len())
+        visitor.0
     }
 }
 
-impl<T: Array> NBytes for T {}
+impl<T: Array + ?Sized> NBytes for T {}
 
 #[derive(Default)]
 struct NBytesVisitor(usize);

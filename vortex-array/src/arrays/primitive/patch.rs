@@ -46,7 +46,7 @@ impl PrimitiveArray {
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_usize() - patch_indices_offset] = *value;
         }
-        Ok(Self::new_with_validity(own_values.into(), patched_validity))
+        Ok(Self::new_with_validity(own_values, patched_validity))
     }
 }
 

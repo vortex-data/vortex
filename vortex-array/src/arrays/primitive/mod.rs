@@ -71,7 +71,11 @@ impl PrimitiveArray {
         }
     }
 
-    pub fn new_with_validity<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+    pub fn new_with_validity<T: NativePType>(
+        buffer: impl Into<Buffer<T>>,
+        validity: Validity,
+    ) -> Self {
+        let buffer = buffer.into();
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
                 vortex_panic!(

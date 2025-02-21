@@ -11,7 +11,7 @@ use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedS
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 #[pin_project]
 pub struct TakeRows<R: ArrayStream> {
@@ -91,7 +91,7 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
             //  onto a worker pool.
             let indices_for_batch = slice(this.indices, left, right)?.to_primitive()?;
             let shifted_arr = match_each_integer_ptype!(indices_for_batch.ptype(), |$T| {
-                sub_scalar(&indices_for_batch.into_array(), Scalar::from(curr_offset as $T))?
+                sub_scalar(&indices_for_batch.to_array(), Scalar::from(curr_offset as $T))?
             });
             return Poll::Ready(take(&batch, &shifted_arr).map(Some).transpose());
         }

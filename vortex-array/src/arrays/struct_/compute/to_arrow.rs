@@ -7,7 +7,6 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{StructArray, StructEncoding};
 use crate::compute::{to_arrow, ToArrowFn};
-use crate::tree::ArrayTreeDisplay;
 use crate::variants::StructArrayTrait;
 use crate::Array;
 
