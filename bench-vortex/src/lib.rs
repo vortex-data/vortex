@@ -210,6 +210,7 @@ pub async fn execute_query(
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok((
         result,
+        // TODO(os): return physical plan, get spans and metrics downstream
         VortexMetricsFinder::find_all(physical_plan.as_ref()),
     ))
 }
