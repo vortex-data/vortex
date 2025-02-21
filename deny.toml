@@ -11,7 +11,8 @@ feature-depth = 1
 
 
 [advisories]
-ignore = []
+# ring is unmaintained: https://github.com/briansmith/ring/discussions/2414
+ignore = ["RUSTSEC-2025-0007"]
 
 [licenses]
 # List of explicitly allowed licenses
