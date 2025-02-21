@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use rand::distributions::{Alphanumeric, Distribution, Standard};
-use rand::prelude::{SliceRandom, StdRng};
+use rand::distr::{Alphanumeric, Distribution, StandardUniform};
+use rand::prelude::{IndexedRandom, StdRng};
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
 use vortex_array::validity::Validity;
@@ -15,11 +15,11 @@ use crate::DictArray;
 
 pub fn gen_primitive_for_dict<T: NativePType>(len: usize, unique_count: usize) -> PrimitiveArray
 where
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..unique_count)
-        .map(|_| rng.gen::<T>())
+        .map(|_| rng.random::<T>())
         .collect::<Vec<T>>();
     let data = (0..len)
         .map(|_| *values.choose(&mut rng).unwrap())
@@ -32,15 +32,15 @@ pub fn gen_primitive_dict<V: NativePType, C: NativePType>(
     unique_count: usize,
 ) -> VortexResult<DictArray>
 where
-    Standard: Distribution<V>,
+    StandardUniform: Distribution<V>,
 {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..unique_count)
-        .map(|_| rng.gen::<V>())
+        .map(|_| rng.random::<V>())
         .collect::<PrimitiveArray>();
 
     let codes = (0..len)
-        .map(|_| C::from(rng.gen_range(0..unique_count)).unwrap())
+        .map(|_| C::from(rng.random_range(0..unique_count)).unwrap())
         .collect::<PrimitiveArray>();
 
     DictArray::try_new(codes.into_array(), values.into_array())
@@ -69,10 +69,10 @@ pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> A
     for _ in 0..len {
         // Generate a random string with length around `avg_len`. The number of possible
         // characters within the random string is defined by `unique_chars`.
-        let len = avg_str_len * rng.gen_range(50..=150) / 100;
+        let len = avg_str_len * rng.random_range(50..=150) / 100;
         strings.push(Some(
             (0..len)
-                .map(|_| rng.gen_range(b'a'..(b'a' + unique_chars)))
+                .map(|_| rng.random_range(b'a'..(b'a' + unique_chars)))
                 .collect::<Vec<u8>>(),
         ));
     }
@@ -99,7 +99,7 @@ pub fn gen_dict_fsst_test_data<T: NativePType>(
     let values = gen_fsst_test_data(len, str_len, unique_char_count);
     let mut rng = StdRng::seed_from_u64(0);
     let codes = (0..len)
-        .map(|_| T::from(rng.gen_range(0..unique_values)).unwrap())
+        .map(|_| T::from(rng.random_range(0..unique_values)).unwrap())
         .collect::<PrimitiveArray>();
     DictArray::try_new(codes.into_array(), values).vortex_unwrap()
 }
@@ -110,7 +110,7 @@ pub fn gen_dict_primitive_chunks<T: NativePType, O: NativePType>(
     chunk_count: usize,
 ) -> ArrayRef
 where
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     (0..chunk_count)
         .map(|_| {

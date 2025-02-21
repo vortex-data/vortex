@@ -1,8 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
-use rand::distributions::Standard;
-use rand::prelude::Distribution;
+use rand::distr::{Distribution, StandardUniform};
 use vortex_array::arrays::{VarBinArray, VarBinViewArray};
 use vortex_array::Array;
 use vortex_dict::builders::dict_encode;
@@ -33,7 +32,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 fn encode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
 where
     T: NativePType,
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     let primitive_arr = gen_primitive_for_dict::<T>(len, unique_values);
 
@@ -64,7 +63,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
 fn decode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
 where
     T: NativePType,
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     let primitive_arr = gen_primitive_for_dict::<T>(len, unique_values);
     let dict = dict_encode(&primitive_arr).unwrap();

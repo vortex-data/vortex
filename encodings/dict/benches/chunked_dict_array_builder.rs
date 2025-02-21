@@ -1,5 +1,5 @@
 use divan::Bencher;
-use rand::distributions::{Distribution, Standard};
+use rand::distr::{Distribution, StandardUniform};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::{Array, ArrayRef};
@@ -25,7 +25,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
 ) where
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
@@ -41,7 +41,7 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
 ) where
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
