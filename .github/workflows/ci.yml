@@ -247,7 +247,7 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v3
         with:
-          run: cargo codspeed run
+          run: DIVAN_THREADS=4 cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
 
   license-check-and-audit-check:
