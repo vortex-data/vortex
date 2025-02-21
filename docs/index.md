@@ -43,15 +43,15 @@ Vortex is designed to be incredibly extensible. Almost all reader and writer log
 by providing various implementations of Rust traits, and encodings and layouts are extensible at runtime with
 dynamically loaded libraries or WebAssembly kernels.
 
+This makes Vortex suitable for both general-purpose columnar data processing and for niche use-cases where
+specific encodings and performance characteristics are required.
+
 Please reach out to us if you'd like to extend Vortex with your own encodings, layouts, or other functionality.
 
 ## Concepts
 
-Almost everything in Vortex is extensible, enabling it to be used for both general-purpose columnar data processing
-and for niche use-cases where specific encodings and performance characteristics are required. In some sense,
-Vortex is really an ecosystem of building blocks (albeit with batteries-included sane defaults).
-
-This section of the documentation covers the core concepts of Vortex and how they piece together.
+It's useful to think of Vortex as an ecosystem of building blocks, with a thin layer of "sane defaults" on top.
+This section of the documentation covers the core concepts of Vortex and how they fit together.
 
 ```{toctree}
 ---
