@@ -93,7 +93,7 @@ fsst-rs = "0.5.0"
 futures = { version = "0.3.31", default-features = false }
 futures-executor = "0.3.31"
 futures-util = "0.3.31"
-getrandom = "0.3.0"
+getrandom = "0.3"
 goldenfile = "1"
 half = { version = "2.2.1", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
@@ -155,7 +155,7 @@ thiserror = "2.0.3"
 tokio = "1.36"
 tracing = "0.1.37"
 url = "2.5.4"
-uuid = "1.8.0"
+uuid = { version = "1.14", features = ["js"]}
 wasm-bindgen-futures = "0.4.39"
 
 # BEGIN crates published by this project
@@ -191,6 +191,16 @@ vortex-zigzag = { version = "0.24.0", path = "./encodings/zigzag" }
 worker = "0.5.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
+
+[workspace.dependencies.getrandom_v03]
+package = "getrandom"
+version = "0.3.1"
+features = ["wasm-js"]
+
+[workspace.dependencies.getrandom_v02]
+package = "getrandom"
+version = "0.2"
+features = ["js"]
 
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"

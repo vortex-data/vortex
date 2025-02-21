@@ -22,6 +22,7 @@ futures = { workspace = true, features = ["std"] }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
+uuid = { workspace = true }
 log = { workspace = true }
 moka = { workspace = true, features = ["future", "quanta"] }
 oneshot = { workspace = true, features = ["async"] }

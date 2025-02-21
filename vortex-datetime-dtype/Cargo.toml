@@ -20,6 +20,7 @@ num_enum = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 vortex-dtype = { workspace = true, features = ["serde"] }
 vortex-error = { workspace = true }
+getrandom_v02 = { workspace = true }
 
 [features]
 default = ["arrow"]
