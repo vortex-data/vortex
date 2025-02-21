@@ -1,6 +1,6 @@
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::vtable::StatisticsVTable;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{Array, ToCanonical};
 use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
@@ -12,7 +12,7 @@ impl StatisticsVTable<'_, ByteBoolArray> for ByteBoolEncoding {
         }
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future
-        let bools = array.as_ref().to_bool()?;
+        let bools = array.to_bool()?;
         Ok(bools
             .statistics()
             .compute_stat(stat)

@@ -288,13 +288,16 @@ impl Display for dyn Array {
 #[macro_export]
 macro_rules! try_from_array_ref {
     ($Array:ty) => {
-        impl TryFrom<ArrayRef> for $Array {
-            type Error = VortexError;
+        impl TryFrom<$crate::ArrayRef> for $Array {
+            type Error = vortex_error::VortexError;
 
-            fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
+            fn try_from(value: $crate::ArrayRef) -> Result<Self, Self::Error> {
                 Ok(Arc::unwrap_or_clone(
                     value.as_any_arc().downcast::<Self>().map_err(|_| {
-                        vortex_err!("Cannot downcast to {}", std::any::type_name::<Self>())
+                        vortex_error::vortex_err!(
+                            "Cannot downcast to {}",
+                            std::any::type_name::<Self>()
+                        )
                     })?,
                 ))
             }
