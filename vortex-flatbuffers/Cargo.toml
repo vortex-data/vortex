@@ -23,6 +23,7 @@ file = ["ipc"]
 
 [dependencies]
 flatbuffers = { workspace = true }
+getrandom_v03 = { workspace = true }
 vortex-buffer = { workspace = true }
 
 [lints]

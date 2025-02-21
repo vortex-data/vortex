@@ -10,8 +10,9 @@ use object_store::{
     GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMultipartOpts,
     PutOptions, PutPayload, PutResult, Result as OSResult,
 };
+use rand::distr::Distribution;
 use rand::rng;
-use rand_distr::{Distribution, LogNormal};
+use rand_distr::LogNormal;
 use reqwest::Url;
 
 #[derive(Debug)]
