@@ -5425,7 +5425,6 @@ name = "vortex-flatbuffers"
 version = "0.24.0"
 dependencies = [
  "flatbuffers 25.2.10",
- "getrandom 0.3.1",
  "vortex-buffer",
 ]
 
