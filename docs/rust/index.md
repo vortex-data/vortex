@@ -10,6 +10,5 @@ maxdepth: 1
 includehidden:
 ---
 
-quickstart
 writing-an-encoding
 ```
