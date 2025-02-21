@@ -69,7 +69,13 @@ impl<A: Array + ArrayImpl> Statistics for A {
     }
 
     fn compute_stat(&self, stat: Stat) -> Option<ScalarValue> {
-        todo!()
+        let vtable = self.vtable();
+        vtable
+            .compute_statistics(self, stat)
+            // TODO(ngates): hmmm, then why does it return a result?
+            .vortex_expect("compute_statistics must not fail")
+            .get(stat)?
+            .some_exact()
     }
 
     fn retain_only(&self, stats: &[Stat]) {

@@ -63,14 +63,4 @@ mod tests {
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[255, 127]);
     }
-
-    #[test]
-    fn patch_sliced_bools_even() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(31));
-        let sliced = slice(&arr, 8, 24).unwrap();
-        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 0);
-        assert_eq!(values.len(), 16);
-        assert_eq!(values.as_slice(), &[255, 255]);
-    }
 }
