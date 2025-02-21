@@ -37,5 +37,5 @@ arrow-buffer = { workspace = true }
 divan = { workspace = true }
 
 [[bench]]
-harness = false
 name = "vortex_buffer"
+harness = false

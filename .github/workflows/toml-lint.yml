@@ -11,6 +11,8 @@ jobs:
       - name: Install tools
         run: |
           cargo install taplo-cli --locked
+          cargo install cargo-sort --locked
       - name: Lint!
         run: |
           taplo fmt --check
+          cargo sort -wc

@@ -2,5 +2,4 @@ include = ["**/Cargo.toml", "deny.toml"]
 
 [formatting]
 allowed_blank_lines = 1
-reorder_keys = true
 indent_string = "    "

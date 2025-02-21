@@ -34,13 +34,14 @@ rand = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
-harness = false
 name = "run_end_filter"
+harness = false
 
 [[bench]]
-harness = false
 name = "run_end_null_count"
+harness = false
 
 [[bench]]
-harness = false
 name = "run_end_compress"
+harness = false
+

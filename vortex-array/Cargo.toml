@@ -76,25 +76,29 @@ rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
 
 [[bench]]
-harness = false
 name = "search_sorted"
+harness = false
+
 
 [[bench]]
-harness = false
 name = "scalar_subtract"
+harness = false
+
 
 [[bench]]
-harness = false
 name = "compare"
+harness = false
+
 
 [[bench]]
-harness = false
 name = "take_strings"
+harness = false
+
 
 [[bench]]
-harness = false
 name = "take_patches"
+harness = false
 
 [[bench]]
-harness = false
 name = "chunk_array_builder"
+harness = false

@@ -34,5 +34,6 @@ rand = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
-harness = false
 name = "fsst_compress"
+harness = false
+
