@@ -60,11 +60,7 @@ fn compare_fsst_constant(
         };
 
         return Ok(Some(
-            BoolArray::new(
-                buffer,
-                Validity::from_mask(left.validity_mask()?, left.dtype().nullability()),
-            )
-            .into_array(),
+            BoolArray::new(buffer, Validity::copy_from_array(left)?).into_array(),
         ));
     }
 

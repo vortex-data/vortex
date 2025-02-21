@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{and, compare, or, try_cast, CompareFn, Operator};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -58,15 +58,15 @@ fn compare_eq(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
 ) -> VortexResult<Option<ArrayRef>> {
-    let mut comparison = compare_dtp(&lhs.days(), ts_parts.days, Operator::Eq)?;
+    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, Operator::Eq)?;
     if comparison.statistics().compute_max::<bool>() == Some(false) {
         // All values are different.
         return Ok(Some(comparison));
     }
 
     comparison = and(
-        compare_dtp(&lhs.seconds(), ts_parts.seconds, Operator::Eq)?,
-        comparison,
+        &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::Eq)?,
+        &comparison,
     )?;
 
     if comparison.statistics().compute_max::<bool>() == Some(false) {
@@ -75,8 +75,8 @@ fn compare_eq(
     }
 
     comparison = and(
-        compare_dtp(&lhs.subseconds(), ts_parts.subseconds, Operator::Eq)?,
-        comparison,
+        &compare_dtp(lhs.subseconds(), ts_parts.subseconds, Operator::Eq)?,
+        &comparison,
     )?;
 
     Ok(Some(comparison))
@@ -86,15 +86,15 @@ fn compare_ne(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
 ) -> VortexResult<Option<ArrayRef>> {
-    let mut comparison = compare_dtp(&lhs.days(), ts_parts.days, Operator::NotEq)?;
+    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, Operator::NotEq)?;
     if comparison.statistics().compute_min::<bool>() == Some(true) {
         // All values are different.
         return Ok(Some(comparison));
     }
 
     comparison = or(
-        compare_dtp(&lhs.seconds(), ts_parts.seconds, Operator::NotEq)?,
-        comparison,
+        &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::NotEq)?,
+        &comparison,
     )?;
 
     if comparison.statistics().compute_min::<bool>() == Some(true) {
@@ -103,8 +103,8 @@ fn compare_ne(
     }
 
     comparison = or(
-        compare_dtp(&lhs.subseconds(), ts_parts.subseconds, Operator::NotEq)?,
-        comparison,
+        &compare_dtp(lhs.subseconds(), ts_parts.subseconds, Operator::NotEq)?,
+        &comparison,
     )?;
 
     Ok(Some(comparison))
@@ -114,7 +114,7 @@ fn compare_lt(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
 ) -> VortexResult<Option<ArrayRef>> {
-    let days_lt = compare_dtp(&lhs.days(), ts_parts.days, Operator::Lt)?;
+    let days_lt = compare_dtp(lhs.days(), ts_parts.days, Operator::Lt)?;
     if days_lt.statistics().compute_min::<bool>() == Some(true) {
         // All values on the lhs are smaller.
         return Ok(Some(days_lt));
@@ -127,7 +127,7 @@ fn compare_gt(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
 ) -> VortexResult<Option<ArrayRef>> {
-    let days_gt = compare_dtp(&lhs.days(), ts_parts.days, Operator::Gt)?;
+    let days_gt = compare_dtp(lhs.days(), ts_parts.days, Operator::Gt)?;
     if days_gt.statistics().compute_min::<bool>() == Some(true) {
         // All values on the lhs are larger.
         return Ok(Some(days_gt));
@@ -137,8 +137,8 @@ fn compare_gt(
 }
 
 fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
-    match try_cast(ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
-        Ok(casted) => compare(lhs, casted, operator),
+    match try_cast(&ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
+        Ok(casted) => compare(lhs, &casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
             let constant_value = match operator {
@@ -155,7 +155,6 @@ mod test {
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::NativePType;

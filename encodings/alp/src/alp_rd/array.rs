@@ -178,7 +178,7 @@ impl ArrayCanonicalImpl for ALPRDArray {
                     right_parts.into_buffer_mut::<u32>(),
                     self.left_parts_patches(),
                 )?,
-                Validity::from_mask(self.validity_mask()?, self.dtype().nullability()),
+                Validity::copy_from_array(self)?,
             )
         } else {
             PrimitiveArray::new(
@@ -189,7 +189,7 @@ impl ArrayCanonicalImpl for ALPRDArray {
                     right_parts.into_buffer_mut::<u64>(),
                     self.left_parts_patches(),
                 )?,
-                Validity::from_mask(self.validity_mask()?, self.dtype().nullability()),
+                Validity::copy_from_array(self)?,
             )
         };
 

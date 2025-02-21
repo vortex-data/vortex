@@ -18,7 +18,7 @@ use crate::{Array, ArrayRef, ArrayVariants, Canonical, IntoArray, ToCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let validity = Validity::from_mask(self.validity_mask()?, self.dtype().nullability());
+        let validity = Validity::copy_from_array(self)?;
         try_canonicalize_chunks(self.chunks(), validity, self.dtype())
     }
 

@@ -1,5 +1,5 @@
 use vortex_array::compute::{try_cast, CastFn};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -17,8 +17,8 @@ impl CastFn<&DateTimePartsArray> for DateTimePartsEncoding {
                 array.days().as_ref(),
                 &array.days().dtype().with_nullability(dtype.nullability()),
             )?,
-            array.seconds(),
-            array.subseconds(),
+            array.seconds().clone(),
+            array.subseconds().clone(),
         )?
         .into_array())
     }
@@ -30,7 +30,7 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::try_cast;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray as _};
+    use vortex_array::{Array, ArrayRef};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::{DType, Nullability};

@@ -1,5 +1,5 @@
 use vortex_array::compute::{take, TakeFn};
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexResult;
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};

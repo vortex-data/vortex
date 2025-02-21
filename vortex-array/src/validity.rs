@@ -420,6 +420,14 @@ impl Validity {
         }
     }
 
+    /// Create Validity by copying the given array's validity.
+    pub fn copy_from_array(array: &dyn Array) -> VortexResult<Self> {
+        Ok(Validity::from_mask(
+            array.validity_mask()?,
+            array.dtype().nullability(),
+        ))
+    }
+
     /// Create Validity from boolean array with given nullability of the array.
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself

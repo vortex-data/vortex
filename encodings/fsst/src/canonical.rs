@@ -99,10 +99,7 @@ fn fsst_into_varbin_view(
         views,
         vec![uncompressed_bytes_array],
         fsst_array.dtype().clone(),
-        Validity::from_mask(
-            fsst_array.validity_mask()?,
-            fsst_array.dtype().nullability(),
-        ),
+        Validity::copy_from_array(fsst_array)?,
     )
 }
 

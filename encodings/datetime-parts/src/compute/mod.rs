@@ -7,7 +7,7 @@ use vortex_array::compute::{
     scalar_at, slice, CastFn, CompareFn, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::vtable::ComputeVTable;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
