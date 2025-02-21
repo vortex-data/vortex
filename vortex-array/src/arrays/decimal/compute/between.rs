@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
+use vortex_buffer::BitBuffer;
 use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
@@ -96,8 +96,8 @@ fn between_impl<T: NativeDecimalType>(
     upper_op: impl Fn(T, T) -> bool,
 ) -> ArrayRef {
     let buffer = arr.buffer::<T>();
-    BoolArray::from_bool_buffer(
-        BooleanBuffer::collect_bool(buffer.len(), |idx| {
+    BoolArray::from_bit_buffer(
+        BitBuffer::collect_bool(buffer.len(), |idx| {
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
@@ -168,6 +168,6 @@ mod tests {
     }
 
     fn bool_to_vec(array: &dyn Array) -> Vec<bool> {
-        array.to_bool().boolean_buffer().iter().collect()
+        array.to_bool().bit_buffer().iter().collect()
     }
 }

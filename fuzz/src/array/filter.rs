@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{
-    BoolArray, BooleanBuffer, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,
-};
+use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
@@ -16,7 +14,7 @@ use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity_mask().to_boolean_buffer();
+        let validity_buff = array.validity_mask().to_bit_buffer();
         Validity::from_iter(
             filter
                 .iter()
@@ -31,14 +29,13 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            Ok(BoolArray::from_bool_buffer(
-                BooleanBuffer::from_iter(
-                    filter
-                        .iter()
-                        .zip(bool_array.boolean_buffer().iter())
-                        .filter(|(f, _)| **f)
-                        .map(|(_, v)| v),
-                ),
+            Ok(BoolArray::from_bit_buffer(
+                filter
+                    .iter()
+                    .zip(bool_array.bit_buffer().iter())
+                    .filter(|(f, _)| **f)
+                    .map(|(_, v)| v)
+                    .collect(),
                 validity,
             )
             .into_array())

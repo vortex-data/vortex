@@ -299,10 +299,10 @@ impl<T> Buffer<T> {
         let end_byte = end * size_of::<T>();
 
         if !begin_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range start must be aligned to {:?}", alignment);
+            vortex_panic!("range start must be aligned to {alignment:?}");
         }
         if !end_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range end must be aligned to {:?}", alignment);
+            vortex_panic!("range end must be aligned to {alignment:?}");
         }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Slice alignment must at least align to type T")

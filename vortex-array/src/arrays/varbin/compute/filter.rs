@@ -67,7 +67,7 @@ where
     usize: AsPrimitive<O>,
 {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
-    match logical_validity.boolean_buffer() {
+    match logical_validity.bit_buffer() {
         AllOr::All => {
             mask_slices.iter().for_each(|(start, end)| {
                 update_non_nullable_slice(data, offsets, &mut builder, *start, *end)
@@ -78,8 +78,8 @@ where
         }
         AllOr::Some(validity) => {
             for (start, end) in mask_slices.iter().copied() {
-                let null_sl = validity.slice(start, end - start);
-                if null_sl.count_set_bits() == null_sl.len() {
+                let null_sl = validity.slice(start..end);
+                if null_sl.true_count() == null_sl.len() {
                     update_non_nullable_slice(data, offsets, &mut builder, start, end)
                 } else {
                     for (idx, valid) in null_sl.iter().enumerate() {

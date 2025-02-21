@@ -3,12 +3,12 @@
 
 use std::ops::Not;
 
-use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::compute::{Operator, cast, compare, mask, take};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
@@ -46,8 +46,8 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
 
     let bool_values = values.to_bool();
     let result_validity = bool_values.validity_mask();
-    let bool_buffer = bool_values.boolean_buffer();
-    let (first_match, second_match) = match result_validity.boolean_buffer() {
+    let bool_buffer = bool_values.bit_buffer();
+    let (first_match, second_match) = match result_validity.bit_buffer() {
         AllOr::All => {
             let mut indices_iter = bool_buffer.set_indices();
             (indices_iter.next(), indices_iter.next())
@@ -62,8 +62,8 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
     Ok(match (first_match, second_match) {
         // Couldn't find a value match, so the result is all false
         (None, _) => match result_validity {
-            Mask::AllTrue(_) => BoolArray::from_bool_buffer(
-                BooleanBuffer::new_unset(codes.len()),
+            Mask::AllTrue(_) => BoolArray::from_bit_buffer(
+                BitBuffer::new_unset(codes.len()),
                 Validity::copy_from_array(codes).union_nullability(result_nullability),
             )
             .to_canonical(),
@@ -72,8 +72,8 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
                 codes.len(),
             )
             .to_canonical(),
-            Mask::Values(_) => BoolArray::from_bool_buffer(
-                BooleanBuffer::new_unset(codes.len()),
+            Mask::Values(_) => BoolArray::from_bit_buffer(
+                BitBuffer::new_unset(codes.len()),
                 Validity::from_mask(result_validity, result_nullability).take(codes)?,
             )
             .to_canonical(),
@@ -107,9 +107,9 @@ fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
                     Operator::Eq,
                 )?,
                 &Mask::from_buffer(
-                    take(BoolArray::from(rv.boolean_buffer().clone()).as_ref(), codes)?
+                    take(BoolArray::from(rv.bit_buffer().clone()).as_ref(), codes)?
                         .to_bool()
-                        .boolean_buffer()
+                        .bit_buffer()
                         .not(),
                 ),
             )?

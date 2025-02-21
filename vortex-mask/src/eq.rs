@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{AllOr, Mask};
+use crate::Mask;
 
 impl PartialEq for Mask {
     #[inline]
@@ -13,15 +13,8 @@ impl PartialEq for Mask {
             return false;
         }
 
-        match (self.boolean_buffer(), other.boolean_buffer()) {
-            (AllOr::All, AllOr::All) => true,
-            (AllOr::None, AllOr::None) => true,
-            (AllOr::Some(a), AllOr::Some(b)) => {
-                // Short-circuit if they are the same actual buffer with the same offset
-                (a.offset() == b.offset() && a.inner().as_ptr() == b.inner().as_ptr()) || a.eq(b)
-            }
-            _ => false,
-        }
+        // TODO(ngates): we could compare by indices if density is low enough
+        self.bit_buffer() == other.bit_buffer()
     }
 }
 
@@ -29,19 +22,16 @@ impl Eq for Mask {}
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBuffer;
+    use vortex_buffer::BitBuffer;
 
     use crate::Mask;
 
     #[test]
     fn filter_mask_eq() {
-        assert_eq!(
-            Mask::new_true(5),
-            Mask::from_buffer(BooleanBuffer::new_set(5))
-        );
+        assert_eq!(Mask::new_true(5), Mask::from_buffer(BitBuffer::new_set(5)));
         assert_eq!(
             Mask::new_false(5),
-            Mask::from_buffer(BooleanBuffer::new_unset(5))
+            Mask::from_buffer(BitBuffer::new_unset(5))
         );
         assert_eq!(
             Mask::from_indices(5, vec![0, 2, 3]),
@@ -49,7 +39,7 @@ mod test {
         );
         assert_eq!(
             Mask::from_indices(5, vec![0, 2, 3]),
-            Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]))
+            Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false]))
         );
     }
 
@@ -62,15 +52,15 @@ mod test {
 
     #[test]
     fn test_mask_eq_different_true_counts() {
-        let mask1 = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false]));
-        let mask2 = Mask::from_buffer(BooleanBuffer::from_iter([true, false, false]));
+        let mask1 = Mask::from_buffer(BitBuffer::from_iter([true, true, false]));
+        let mask2 = Mask::from_buffer(BitBuffer::from_iter([true, false, false]));
         assert_ne!(mask1, mask2);
     }
 
     #[test]
     fn test_mask_eq_same_count_different_positions() {
-        let mask1 = Mask::from_buffer(BooleanBuffer::from_iter([true, false, false]));
-        let mask2 = Mask::from_buffer(BooleanBuffer::from_iter([false, true, false]));
+        let mask1 = Mask::from_buffer(BitBuffer::from_iter([true, false, false]));
+        let mask2 = Mask::from_buffer(BitBuffer::from_iter([false, true, false]));
         assert_ne!(mask1, mask2);
     }
 
@@ -90,23 +80,23 @@ mod test {
         assert_ne!(all_true1, all_false1);
 
         // Test Values == Values
-        let values1 = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true]));
-        let values2 = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true]));
+        let values1 = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
+        let values2 = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
         assert_eq!(values1, values2);
 
         // Test AllTrue != Values (even if all values are true)
-        let all_true_values = Mask::from_buffer(BooleanBuffer::new_set(5));
+        let all_true_values = Mask::from_buffer(BitBuffer::new_set(5));
         assert_eq!(all_true1, all_true_values); // They should be equal
 
         // Test AllFalse != Values (even if all values are false)
-        let all_false_values = Mask::from_buffer(BooleanBuffer::new_unset(5));
+        let all_false_values = Mask::from_buffer(BitBuffer::new_unset(5));
         assert_eq!(all_false1, all_false_values); // They should be equal
     }
 
     #[test]
     fn test_mask_eq_reflexive() {
         // Test that a mask equals itself
-        let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
         assert_eq!(mask, mask);
     }
 
@@ -124,7 +114,7 @@ mod test {
         // Test that if a == b and b == c then a == c
         let mask1 = Mask::from_indices(5, vec![1, 3]);
         let mask2 = Mask::from_slices(5, vec![(1, 2), (3, 4)]);
-        let mask3 = Mask::from_buffer(BooleanBuffer::from_iter([false, true, false, true, false]));
+        let mask3 = Mask::from_buffer(BitBuffer::from_iter([false, true, false, true, false]));
 
         assert_eq!(mask1, mask2);
         assert_eq!(mask2, mask3);
@@ -136,8 +126,8 @@ mod test {
         // All empty masks become AllFalse regardless of input type
         let empty1 = Mask::new_true(0);
         let empty2 = Mask::new_false(0);
-        let empty3 = Mask::from_buffer(BooleanBuffer::new_set(0));
-        let empty4 = Mask::from_buffer(BooleanBuffer::new_unset(0));
+        let empty3 = Mask::from_buffer(BitBuffer::new_set(0));
+        let empty4 = Mask::from_buffer(BitBuffer::new_unset(0));
 
         // All should be AllFalse(0) when created from buffer
         assert!(matches!(empty3, Mask::AllFalse(0)));
@@ -153,7 +143,7 @@ mod test {
         // Test that masks with the same logical values but different internal representations are equal
         let indices = vec![0, 1, 2, 5, 6, 9];
         let slices = vec![(0, 3), (5, 7), (9, 10)];
-        let buffer = BooleanBuffer::from_iter([
+        let buffer = BitBuffer::from_iter([
             true, true, true, false, false, true, true, false, false, true,
         ]);
 

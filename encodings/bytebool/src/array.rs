@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
-use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -13,7 +12,7 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{BitBuffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
@@ -114,9 +113,9 @@ impl ArrayVTable<ByteBoolVTable> for ByteBoolVTable {
 
 impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
     fn canonicalize(array: &ByteBoolArray) -> Canonical {
-        let boolean_buffer = BooleanBuffer::from(array.as_slice());
+        let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Canonical::Bool(BoolArray::from_bool_buffer(boolean_buffer, validity))
+        Canonical::Bool(BoolArray::from_bit_buffer(boolean_buffer, validity))
     }
 }
 

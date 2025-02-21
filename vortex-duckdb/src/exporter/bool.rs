@@ -41,8 +41,8 @@ impl ColumnExporter for BoolExporter {
         unsafe { vector.as_slice_mut(len) }.copy_from_slice(
             &self
                 .array
-                .boolean_buffer()
-                .slice(offset, len)
+                .bit_buffer()
+                .slice(offset..(offset + len))
                 .iter()
                 .collect_vec(),
         );

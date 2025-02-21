@@ -275,7 +275,7 @@ fn test_vortex_scan_booleans() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
         let flags = vec![true, false, true, true, false];
-        let flags_array = BoolArray::from_bool_buffer(flags.into(), Validity::NonNullable);
+        let flags_array = BoolArray::from_bit_buffer(flags.into(), Validity::NonNullable);
         write_single_column_vortex_file("flag", flags_array).await
     });
     let true_count: i64 = scan_vortex_file_single_row::<i64, _>(
@@ -290,7 +290,7 @@ fn test_vortex_scan_booleans() {
 fn test_vortex_multi_column() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let file = runtime.block_on(async {
-        let f1 = BoolArray::from_bool_buffer(
+        let f1 = BoolArray::from_bit_buffer(
             vec![true, false, true, true, false].into(),
             Validity::NonNullable,
         )

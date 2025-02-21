@@ -4,12 +4,12 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use arrow_buffer::BooleanBuffer;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
@@ -20,8 +20,8 @@ pub fn compare_canonical_array(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     if value.is_null() {
-        return Ok(BoolArray::from_bool_buffer(
-            BooleanBuffer::new_unset(array.len()),
+        return Ok(BoolArray::from_bit_buffer(
+            BitBuffer::new_unset(array.len()),
             Validity::AllInvalid,
         )
         .into_array());
@@ -36,9 +36,9 @@ pub fn compare_canonical_array(
             Ok(compare_to(
                 array
                     .to_bool()
-                    .boolean_buffer()
+                    .bit_buffer()
                     .iter()
-                    .zip(array.validity_mask().to_boolean_buffer().iter())
+                    .zip(array.validity_mask().to_bit_buffer().iter())
                     .map(|(b, v)| v.then_some(b)),
                 bool,
                 operator,
@@ -56,7 +56,7 @@ pub fn compare_canonical_array(
                         .as_slice::<P>()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask().to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_bit_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     pval,
                     operator,
@@ -77,7 +77,7 @@ pub fn compare_canonical_array(
                     buf.as_slice()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask().to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_bit_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     dval,
                     operator,

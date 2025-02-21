@@ -6,10 +6,10 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
-use vortex_buffer::Buffer;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
+use num_traits::AsPrimitive;
+use vortex_buffer::{BitBuffer, Buffer};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
@@ -271,7 +271,7 @@ fn list_contains_scalar(
     match_each_integer_ptype!(ends.ptype(), |T| {
         Ok(reduce_with_ends(
             ends.as_slice::<T>(),
-            matches.boolean_buffer(),
+            matches.bit_buffer(),
             list_array.validity().clone().union_nullability(nullability),
         ))
     })
@@ -302,9 +302,9 @@ fn list_false_or_null(list_array: &ListArray, nullability: Nullability) -> Vorte
         }
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
-            let buffer = BooleanBuffer::new_unset(list_array.len());
+            let buffer = BitBuffer::new_unset(list_array.len());
             Ok(
-                BoolArray::from_bool_buffer(buffer, Validity::Array(validity_array.clone()))
+                BoolArray::from_bit_buffer(buffer, Validity::Array(validity_array.clone()))
                     .into_array(),
             )
         }
@@ -329,7 +329,7 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::from_bool_buffer(
+    Ok(BoolArray::from_bit_buffer(
         buffer,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -338,21 +338,22 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
 
 /// Reduces each boolean values into a Mask that indicates which elements in the
 /// ListArray contain the matching value.
-fn reduce_with_ends<T: IntegerPType>(
+fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
     ends: &[T],
-    matches: &BooleanBuffer,
+    matches: &BitBuffer,
     validity: Validity,
 ) -> ArrayRef {
-    let mask: BooleanBuffer = ends
+    let mask: BitBuffer = ends
         .windows(2)
         .map(|window| {
             let len = window[1].as_() - window[0].as_();
-            let mut set_bits = BitIndexIterator::new(matches.values(), window[0].as_(), len);
+            let mut set_bits =
+                BitIndexIterator::new(matches.inner().as_slice(), window[0].as_(), len);
             set_bits.next().is_some()
         })
         .collect();
 
-    BoolArray::from_bool_buffer(mask, validity).into_array()
+    BoolArray::from_bit_buffer(mask, validity).into_array()
 }
 
 /// Returns a new array of `u64` representing the length of each list element.
@@ -397,15 +398,15 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
     Ok(lens_array)
 }
 
-fn element_lens<T: IntegerPType>(values: &[T]) -> Buffer<T> {
+fn element_lens<T: NativePType>(values: &[T]) -> Buffer<T> {
     values
         .windows(2)
         .map(|window| window[1] - window[0])
         .collect()
 }
 
-fn element_is_not_empty<T: IntegerPType>(values: &[T]) -> BooleanBuffer {
-    BooleanBuffer::from_iter(values.windows(2).map(|window| window[1] != window[0]))
+fn element_is_not_empty<T: NativePType>(values: &[T]) -> BitBuffer {
+    BitBuffer::from_iter(values.windows(2).map(|window| window[1] != window[0]))
 }
 
 #[cfg(test)]
@@ -453,7 +454,7 @@ mod tests {
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
-        BoolArray::from_bool_buffer(values.into_iter().collect(), validity)
+        BoolArray::from_bit_buffer(values.into_iter().collect(), validity)
     }
 
     #[rstest]
@@ -521,10 +522,7 @@ mod tests {
         let elem = ConstantArray::new(scalar, list_array.len());
         let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
         let bool_result = result.to_bool();
-        assert_eq!(
-            bool_result.opt_bool_vec().unwrap(),
-            expected.opt_bool_vec().unwrap()
-        );
+        assert_eq!(bool_result.opt_bool_vec(), expected.opt_bool_vec());
         assert_eq!(bool_result.validity(), expected.validity());
     }
 
@@ -547,7 +545,7 @@ mod tests {
         .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
         assert_eq!(
-            contains.to_bool().boolean_buffer().iter().collect_vec(),
+            contains.to_bool().bit_buffer().iter().collect_vec(),
             vec![true, true],
         );
     }
@@ -590,7 +588,7 @@ mod tests {
 
         assert_eq!(contains.len(), 7);
         assert_eq!(
-            contains.to_bool().opt_bool_vec().unwrap(),
+            contains.to_bool().opt_bool_vec(),
             vec![
                 Some(false),
                 Some(true),

@@ -322,7 +322,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             vec![true, true, true],
-            result.to_boolean_buffer().iter().collect_vec()
+            result.to_bit_buffer().iter().collect_vec()
         );
     }
 
@@ -340,7 +340,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             vec![true, false, false],
-            result.to_bool().boolean_buffer().iter().collect::<Vec<_>>()
+            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
         );
     }
 
@@ -365,7 +365,7 @@ mod tests {
 
         assert_eq!(
             vec![true, false],
-            result.to_bool().boolean_buffer().iter().collect::<Vec<_>>()
+            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
         );
     }
 

@@ -28,7 +28,7 @@ use crate::{BitBuffer, BufferMut, ByteBuffer, ByteBufferMut, buffer_mut};
 /// let bools = bools.freeze();
 /// ```
 ///
-/// See also: [`crate::BitBuffer`].
+/// See also: [`BitBuffer`].
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
     len: usize,
