@@ -80,11 +80,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::DType;
 
     use super::*;
@@ -201,6 +200,6 @@ mod tests {
         expected: T,
     ) {
         let result = result.unwrap().unwrap().to_bool();
-        assert_eq!(result.boolean_buffer(), &BooleanBuffer::from_iter(expected));
+        assert_eq!(result.bit_buffer(), &BitBuffer::from_iter(expected));
     }
 }

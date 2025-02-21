@@ -172,11 +172,11 @@ impl AnalysisExpr for ListContainsExpr {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BoolArray, BooleanBuffer, ListArray};
+    use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray};
     use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
-    use vortex_buffer::buffer;
+    use vortex_buffer::BitBuffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, StructFields};
     use vortex_scalar::Scalar;
@@ -188,8 +188,8 @@ mod tests {
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
-            buffer![1, 1, 2, 2, 2, 2, 2, 3, 3, 3].into_array(),
-            buffer![0, 5, 10].into_array(),
+            PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2, 2, 2, 3, 3, 3]).into_array(),
+            PrimitiveArray::from_iter(vec![0, 5, 10]).into_array(),
             Validity::AllValid,
         )
         .unwrap()
@@ -241,8 +241,8 @@ mod tests {
     #[test]
     pub fn test_empty() {
         let arr = ListArray::try_new(
-            buffer![1, 1, 2, 2, 2].into_array(),
-            buffer![0, 5, 5].into_array(),
+            PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
+            PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::AllValid,
         )
         .unwrap()
@@ -261,9 +261,9 @@ mod tests {
     #[test]
     pub fn test_nullable() {
         let arr = ListArray::try_new(
-            buffer![1, 1, 2, 2, 2].into_array(),
-            buffer![0, 5, 5].into_array(),
-            Validity::Array(BoolArray::from(BooleanBuffer::from(vec![true, false])).into_array()),
+            PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
+            PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
+            Validity::Array(BoolArray::from(BitBuffer::from(vec![true, false])).into_array()),
         )
         .unwrap()
         .into_array();

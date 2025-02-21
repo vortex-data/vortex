@@ -12,7 +12,7 @@ use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask().boolean_buffer() {
+        match indices.validity_mask().bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::new(
                     array

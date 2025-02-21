@@ -213,13 +213,13 @@ impl Vector {
                 true
             }
             Mask::Values(arr) => {
-                let true_count = arr.boolean_buffer().count_set_bits();
+                let true_count = arr.bit_buffer().true_count();
                 if true_count == len {
                     unsafe { self.set_all_true_validity(len) }
                 } else if true_count == 0 {
                     self.set_all_false_validity()
                 } else {
-                    let source = arr.boolean_buffer().inner().as_slice();
+                    let source = arr.bit_buffer().inner().as_slice();
                     copy_from_slice(
                         unsafe { self.ensure_validity_slice(len) },
                         source,
@@ -259,7 +259,7 @@ fn copy_from_slice(target: &mut [u64], source: &[u8], offset: usize, len: usize)
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::buffer::BooleanBuffer;
+    use vortex::buffer::BitBuffer;
     use vortex::mask::Mask;
 
     use crate::cpp::DUCKDB_TYPE;
@@ -300,9 +300,7 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(logical_type, 100);
 
-        let bits = vec![true; 10];
-        let buffer = BooleanBuffer::from(bits.as_slice());
-        let mask = Mask::from(buffer);
+        let mask = Mask::from(BitBuffer::from(vec![true; 10]));
 
         let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
 
@@ -322,8 +320,7 @@ mod tests {
 
         const LEN: usize = 10;
         let bits = vec![false; LEN];
-        let buffer = BooleanBuffer::from(bits.as_slice());
-        let mask = Mask::from(buffer);
+        let mask = Mask::from(BitBuffer::from(bits));
 
         let all_null = unsafe { vector.set_validity(&mask, 0, LEN) };
 
@@ -343,8 +340,7 @@ mod tests {
         let bits = vec![
             true, false, true, true, false, false, true, true, false, true,
         ];
-        let buffer = BooleanBuffer::from(bits.as_slice());
-        let mask = Mask::from(buffer);
+        let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
         let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
 
@@ -364,8 +360,7 @@ mod tests {
         let bits = vec![
             false, false, true, true, false, true, false, true, true, false, true, true, false,
         ];
-        let buffer = BooleanBuffer::from(bits.as_slice());
-        let mask = Mask::from(buffer);
+        let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
         let all_null = unsafe { vector.set_validity(&mask, 2, 8) };
 
@@ -386,8 +381,7 @@ mod tests {
             true, false, true, true, false, false, true, true, false, true, true, true, false,
             true, false,
         ];
-        let buffer = BooleanBuffer::from(bits.as_slice());
-        let mask = Mask::from(buffer);
+        let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
         let all_null = unsafe { vector.set_validity(&mask, 3, 5) };
 
@@ -405,9 +399,7 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, 100);
 
         let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
-
-        let buffer = BooleanBuffer::from(bits.as_slice());
-        let mask = Mask::from(buffer);
+        let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
         let all_null = unsafe { vector.set_validity(&mask, 5, 60) };
 

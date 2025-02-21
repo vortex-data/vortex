@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use termtree::Tree;
-use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
+use vortex_buffer::{Alignment, BitBuffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::AllOr;
@@ -502,7 +502,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
             try_join_all(self.children.into_iter().map(|exec| exec.execute())).await?;
 
         // Extract the length and possibly row selection mask.
-        let mut mask: Option<BooleanBuffer> = None;
+        let mut mask: Option<BitBuffer> = None;
         let len = match &self.row_selection {
             RowSelectionSource::BatchInputs(batch_ids) => {
                 match batch_ids
@@ -528,7 +528,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
                     .as_ref()
                     .try_to_mask_fill_null_false()?;
 
-                match selection_mask.boolean_buffer() {
+                match selection_mask.bit_buffer() {
                     AllOr::All => selection_mask.len(),
                     AllOr::None => {
                         // TODO(ngates): we should short-circuit execution here.
@@ -583,7 +583,7 @@ impl<O: PipelineOutput> BatchExecution for PipelineExecution<O> {
             }
             Some(mask) => {
                 // Step the pipeline over each chunk of the mask.
-                let mut mask_iter = mask.bit_chunks().iter_padded();
+                let mut mask_iter = mask.chunks().iter();
 
                 let mut selection_words = [0usize; N_WORDS];
                 let mut selection_view_mut = BitViewMut::new(&mut selection_words);

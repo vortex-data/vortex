@@ -4,7 +4,8 @@
 mod cast;
 mod filter;
 mod mask;
-mod zip;
+
+use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
@@ -26,7 +27,7 @@ impl TakeKernel for StructVTable {
         // an out of bounds element
         if array.is_empty() {
             return StructArray::try_new_with_dtype(
-                array.fields(),
+                array.fields().to_vec(),
                 array.struct_fields().clone(),
                 indices.len(),
                 Validity::AllInvalid,
@@ -43,7 +44,7 @@ impl TakeKernel for StructVTable {
                 .fields()
                 .iter()
                 .map(|field| take(field, inner_indices))
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<VortexResult<Arc<[_]>>>()?,
             array.struct_fields().clone(),
             indices.len(),
             array.validity().take(indices)?,
@@ -93,13 +94,13 @@ register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 mod tests {
     use Nullability::{NonNullable, Nullable};
     use rstest::rstest;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{BitBuffer, buffer};
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
+    use crate::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
@@ -145,7 +146,9 @@ mod tests {
 
     #[test]
     fn take_field_struct() {
-        let struct_arr = StructArray::from_fields(&[("a", buffer![0..10].into_array())]).unwrap();
+        let struct_arr =
+            StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
+                .unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
         assert_eq!(taken.len(), 2);
@@ -314,8 +317,8 @@ mod tests {
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
-        let zs = BoolArray::from_bool_buffer(
-            BooleanBuffer::from_iter([true, true, false, false, true]),
+        let zs = BoolArray::from_bit_buffer(
+            BitBuffer::from_iter([true, true, false, false, true]),
             Validity::AllValid,
         );
         let fully_nullable_array = StructArray::try_new(
@@ -485,7 +488,7 @@ mod tests {
     #[test]
     fn test_take_large_struct_conformance() {
         // Test with larger array for additional edge cases
-        let xs = buffer![0i64..100].into_array();
+        let xs = PrimitiveArray::from_iter(0i64..100).into_array();
         let ys = VarBinArray::from_iter(
             (0..100).map(|i| format!("str_{i}")).map(Some),
             DType::Utf8(NonNullable),
@@ -509,7 +512,7 @@ mod tests {
     #[rstest]
     // From test_all_consistency
     #[case::struct_simple({
-        let xs = buffer![1i32, 2, 3, 4, 5].into_array();
+        let xs = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let ys = VarBinArray::from_iter(
             ["a", "b", "c", "d", "e"].map(Some),
             DType::Utf8(NonNullable),
@@ -543,7 +546,7 @@ mod tests {
         StructArray::try_new(["xs"].into(), vec![xs], 1, Validity::NonNullable).unwrap()
     })]
     #[case::large_struct({
-        let xs = buffer![0..100i64].into_array();
+        let xs = PrimitiveArray::from_iter(0..100i64).into_array();
         let ys = VarBinArray::from_iter(
             (0..100).map(|i| format!("value_{i}")).map(Some),
             DType::Utf8(NonNullable),

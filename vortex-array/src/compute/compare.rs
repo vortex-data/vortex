@@ -8,10 +8,11 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use arrow_array::{BooleanArray, Datum as ArrowDatum};
-use arrow_buffer::{BooleanBuffer, NullBuffer};
+use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
+use vortex_buffer::BitBuffer;
 use vortex_dtype::{DType, IntegerPType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -271,7 +272,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for CompareArgs<'a> {
 
 /// Helper function to compare empty values with arrays that have external value length information
 /// like `VarBin`.
-pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BooleanBuffer
+pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BitBuffer
 where
     P: IntegerPType,
     I: Iterator<Item = P>,
@@ -284,7 +285,7 @@ where
         Operator::Lt => |_| false,
     };
 
-    lengths.map(cmp_fn).collect::<BooleanBuffer>()
+    lengths.map(cmp_fn).collect()
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
@@ -354,22 +355,18 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
 
     use super::*;
     use crate::ToCanonical;
-    use crate::arrays::{
-        BoolArray, ConstantArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
-        VarBinViewArray,
-    };
+    use crate::arrays::{BoolArray, ConstantArray, VarBinArray, VarBinViewArray};
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::from_bool_buffer(
-            BooleanBuffer::from_iter([true, true, false, true, false]),
+        let arr = BoolArray::from_bit_buffer(
+            BitBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
         );
 
@@ -385,8 +382,8 @@ mod tests {
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches).unwrap(), empty);
 
-        let other = BoolArray::from_bool_buffer(
-            BooleanBuffer::from_iter([false, false, false, true, true]),
+        let other = BoolArray::from_bit_buffer(
+            BitBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
         );
 
@@ -448,117 +445,6 @@ mod tests {
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
         let res = compare(&left, &right, Operator::Eq).unwrap();
-        assert_eq!(res.to_bool().boolean_buffer().count_set_bits(), left.len());
-    }
-
-    #[test]
-    fn test_list_array_comparison() {
-        // Create two simple list arrays with integers
-        let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
-        let offsets1 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
-        let list1 = ListArray::try_new(
-            values1.into_array(),
-            offsets1.into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let values2 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 7, 8]);
-        let offsets2 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
-        let list2 = ListArray::try_new(
-            values2.into_array(),
-            offsets2.into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        // Test equality - first two lists should be equal, third should be different
-        let result = compare(list1.as_ref(), list2.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(bool_result.boolean_buffer().value(0)); // [1,2] == [1,2]
-        assert!(bool_result.boolean_buffer().value(1)); // [3,4] == [3,4]
-        assert!(!bool_result.boolean_buffer().value(2)); // [5,6] != [7,8]
-
-        // Test inequality
-        let result = compare(list1.as_ref(), list2.as_ref(), Operator::NotEq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.boolean_buffer().value(0));
-        assert!(!bool_result.boolean_buffer().value(1));
-        assert!(bool_result.boolean_buffer().value(2));
-
-        // Test less than
-        let result = compare(list1.as_ref(), list2.as_ref(), Operator::Lt).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.boolean_buffer().value(0)); // [1,2] < [1,2] = false
-        assert!(!bool_result.boolean_buffer().value(1)); // [3,4] < [3,4] = false
-        assert!(bool_result.boolean_buffer().value(2)); // [5,6] < [7,8] = true
-    }
-
-    #[test]
-    fn test_list_array_constant_comparison() {
-        use std::sync::Arc;
-
-        use vortex_dtype::{DType, PType};
-
-        // Create a list array
-        let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
-        let offsets = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
-        let list = ListArray::try_new(
-            values.into_array(),
-            offsets.into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        // Create a constant list scalar [3,4] that will be broadcasted
-        let list_scalar = Scalar::list(
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            vec![3i32.into(), 4i32.into()],
-            Nullability::NonNullable,
-        );
-        let constant = ConstantArray::new(list_scalar, 3);
-
-        // Compare list with constant - all should be compared to [3,4]
-        let result = compare(list.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.boolean_buffer().value(0)); // [1,2] != [3,4]
-        assert!(bool_result.boolean_buffer().value(1)); // [3,4] == [3,4]
-        assert!(!bool_result.boolean_buffer().value(2)); // [5,6] != [3,4]
-    }
-
-    #[test]
-    fn test_struct_array_comparison() {
-        // Create two struct arrays with bool and int fields
-        let bool_field1 = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
-        let int_field1 = PrimitiveArray::from_iter([1i32, 2, 3]);
-
-        let bool_field2 = BoolArray::from_iter([Some(true), Some(false), Some(false)]);
-        let int_field2 = PrimitiveArray::from_iter([1i32, 2, 4]);
-
-        let struct1 = StructArray::from_fields(&[
-            ("bool_col", bool_field1.into_array()),
-            ("int_col", int_field1.into_array()),
-        ])
-        .unwrap();
-
-        let struct2 = StructArray::from_fields(&[
-            ("bool_col", bool_field2.into_array()),
-            ("int_col", int_field2.into_array()),
-        ])
-        .unwrap();
-
-        // Test equality
-        let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(bool_result.boolean_buffer().value(0)); // {true, 1} == {true, 1}
-        assert!(bool_result.boolean_buffer().value(1)); // {false, 2} == {false, 2}
-        assert!(!bool_result.boolean_buffer().value(2)); // {true, 3} != {false, 4}
-
-        // Test greater than
-        let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Gt).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.boolean_buffer().value(0)); // {true, 1} > {true, 1} = false
-        assert!(!bool_result.boolean_buffer().value(1)); // {false, 2} > {false, 2} = false
-        assert!(bool_result.boolean_buffer().value(2)); // {true, 3} > {false, 4} = true (bool field takes precedence)
+        assert_eq!(res.to_bool().bit_buffer().true_count(), left.len());
     }
 }

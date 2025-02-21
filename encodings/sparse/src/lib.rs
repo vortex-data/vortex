@@ -4,15 +4,15 @@
 use std::fmt::Debug;
 
 use itertools::Itertools as _;
-use num_traits::NumCast;
-use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
+use num_traits::AsPrimitive;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::Buffer;
-use vortex_dtype::{DType, IntegerPType, Nullability, match_each_integer_ptype};
+use vortex_buffer::{BitBufferMut, Buffer};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
@@ -218,7 +218,7 @@ impl SparseArray {
                 &Scalar::bool(true, Nullability::NonNullable),
             )?
             .to_bool()
-            .boolean_buffer()
+            .bit_buffer()
             .clone(),
         );
 
@@ -296,9 +296,11 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             return Mask::AllFalse(len);
         }
 
-        // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
-        let mut is_valid_buffer = BooleanBufferBuilder::new(len);
-        is_valid_buffer.append_n(len, fill_is_valid);
+        let mut is_valid_buffer = if fill_is_valid {
+            BitBufferMut::new_set(len)
+        } else {
+            BitBufferMut::new_unset(len)
+        };
 
         let indices = array.patches().indices().to_primitive();
         let index_offset = array.patches().offset();
@@ -308,35 +310,32 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             patch_validity(&mut is_valid_buffer, indices, index_offset, values_validity);
         });
 
-        Mask::from_buffer(is_valid_buffer.finish())
+        Mask::from_buffer(is_valid_buffer.freeze())
     }
 }
 
-fn patch_validity<I: IntegerPType>(
-    is_valid_buffer: &mut BooleanBufferBuilder,
+fn patch_validity<I: NativePType + AsPrimitive<usize>>(
+    is_valid_buffer: &mut BitBufferMut,
     indices: &[I],
     index_offset: usize,
     values_validity: Mask,
 ) {
-    let indices = indices.iter().map(|index| {
-        let index = <usize as NumCast>::from(*index).vortex_expect("Failed to cast to usize");
-        index - index_offset
-    });
+    let indices = indices.iter().map(|index| index.as_() - index_offset);
     match values_validity {
         Mask::AllTrue(_) => {
             for index in indices {
-                is_valid_buffer.set_bit(index, true);
+                is_valid_buffer.set(index);
             }
         }
         Mask::AllFalse(_) => {
             for index in indices {
-                is_valid_buffer.set_bit(index, false);
+                is_valid_buffer.unset(index);
             }
         }
         Mask::Values(mask_values) => {
-            let is_valid = mask_values.boolean_buffer().iter();
+            let is_valid = mask_values.bit_buffer().iter();
             for (index, is_valid) in indices.zip_eq(is_valid) {
-                is_valid_buffer.set_bit(index, is_valid);
+                is_valid_buffer.set_to(index, is_valid);
             }
         }
     }
@@ -459,11 +458,7 @@ mod test {
     pub fn sparse_validity_mask() {
         let array = sparse_array(nullable_fill());
         assert_eq!(
-            array
-                .validity_mask()
-                .to_boolean_buffer()
-                .iter()
-                .collect_vec(),
+            array.validity_mask().to_bit_buffer().iter().collect_vec(),
             [
                 false, false, true, false, false, true, false, false, true, false
             ]

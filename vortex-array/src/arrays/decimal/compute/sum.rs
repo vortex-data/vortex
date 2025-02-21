@@ -22,7 +22,7 @@ macro_rules! sum_decimal {
         use itertools::Itertools;
 
         let mut sum: $ty = <$ty>::default();
-        for (v, valid) in $values.iter().zip_eq($validity.iter()) {
+        for (v, valid) in $values.iter().zip_eq($validity) {
             if valid {
                 sum = num_traits::CheckedAdd::checked_add(&sum, v)
                     .ok_or_else(|| vortex_err!("Overflow when summing decimal {sum:?} + {v:?}"))?
@@ -56,7 +56,7 @@ impl SumKernel for DecimalVTable {
                         DecimalValue::from(sum_decimal!(
                             D,
                             array.buffer::<D>(),
-                            mask_values.boolean_buffer()
+                            mask_values.bit_buffer()
                         )),
                         decimal_dtype,
                         nullability,

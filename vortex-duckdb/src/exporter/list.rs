@@ -91,6 +91,7 @@ mod tests {
     use vortex::IntoArray as _;
     use vortex::arrays::VarBinArray;
     use vortex::buffer::{Buffer, buffer};
+    use vortex::dtype::{DType, Nullability};
     use vortex::error::VortexUnwrap;
     use vortex::validity::Validity;
 
@@ -155,12 +156,10 @@ mod tests {
     #[test]
     fn test_export_non_empty_list_of_strings() {
         let list = ListArray::try_new(
-            <VarBinArray as FromIterator<_>>::from_iter([
-                Some("abc"),
-                Some("def"),
-                None,
-                Some("ghi"),
-            ])
+            VarBinArray::from_iter(
+                [Some("abc"), Some("def"), None, Some("ghi")],
+                DType::Utf8(Nullability::Nullable),
+            )
             .into_array(),
             buffer![0u8, 0, 3, 4, 4].into_array(),
             Validity::from_iter([true, true, false, true]),

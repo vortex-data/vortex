@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBufferBuilder;
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::{IntegerPType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
@@ -13,11 +13,6 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
-/// Take implementation for [`ListArray`].
-///
-/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
-/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
-/// non-contiguous indices would violate this requirement.
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive();
@@ -114,21 +109,12 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
     indices_validity: Mask,
 ) -> VortexResult<ArrayRef> {
     let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
-
-    // This will be the indices we push down to the child array to call `take` with.
-    //
-    // There are 2 things to note here:
-    // - We do not know how many elements we need to take from our child since lists are variable
-    //   size: thus we arbitrarily choose a capacity of `2 * # of indices`.
-    // - The type of the primitive builder needs to fit the largest offset of the (parent)
-    //   `ListArray`, so we make this `PrimitiveBuilder` generic over `O` (instead of `I`).
     let mut elements_to_take =
-        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
+        PrimitiveBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
 
     let mut current_offset = O::zero();
     new_offsets.append_zero();
-
-    let mut new_validity = BooleanBufferBuilder::new(indices.len());
+    let mut new_validity = BitBufferMut::with_capacity(2 * indices.len());
 
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
@@ -168,7 +154,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType>(
     let new_offsets = new_offsets.finish();
     let new_elements = take(array.elements(), elements_to_take.as_ref())?;
 
-    let new_validity: Validity = Validity::from(new_validity.finish());
+    let new_validity: Validity = Validity::from(new_validity.freeze());
     // data are indexes are nullable, so the final result is also nullable.
 
     Ok(ListArray::try_new(new_elements, new_offsets, new_validity)?.to_array())
@@ -179,7 +165,6 @@ mod test {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
@@ -189,13 +174,13 @@ mod test {
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, ToCanonical};
+    use crate::{Array, ToCanonical};
 
     #[test]
     fn nullable_take() {
         let list = ListArray::try_new(
-            buffer![0i32, 5, 3, 4].into_array(),
-            buffer![0, 2, 3, 4, 4].into_array(),
+            PrimitiveArray::from_iter([0i32, 5, 3, 4]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3, 4, 4]).to_array(),
             Validity::Array(BoolArray::from_iter(vec![true, true, false, true]).to_array()),
         )
         .unwrap()
@@ -252,8 +237,8 @@ mod test {
     #[test]
     fn change_validity() {
         let list = ListArray::try_new(
-            buffer![0i32, 5, 3, 4].into_array(),
-            buffer![0, 2, 3].into_array(),
+            PrimitiveArray::from_iter([0i32, 5, 3, 4]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
             Validity::NonNullable,
         )
         .unwrap()
@@ -275,14 +260,14 @@ mod test {
     #[test]
     fn non_nullable_take() {
         let list = ListArray::try_new(
-            buffer![0i32, 5, 3, 4].into_array(),
-            buffer![0, 2, 3, 3, 4].into_array(),
+            PrimitiveArray::from_iter([0i32, 5, 3, 4]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3, 3, 4]).to_array(),
             Validity::NonNullable,
         )
         .unwrap()
         .to_array();
 
-        let idx = buffer![1, 0, 2].into_array();
+        let idx = PrimitiveArray::from_iter([1, 0, 2]).to_array();
 
         let result = take(&list, &idx).unwrap();
 
@@ -330,8 +315,8 @@ mod test {
     #[test]
     fn test_take_empty_array() {
         let list = ListArray::try_new(
-            buffer![0i32, 5, 3, 4].into_array(),
-            buffer![0].into_array(),
+            PrimitiveArray::from_iter([0i32, 5, 3, 4]).to_array(),
+            PrimitiveArray::from_iter([0]).to_array(),
             Validity::NonNullable,
         )
         .unwrap()
@@ -352,27 +337,27 @@ mod test {
 
     #[rstest]
     #[case(ListArray::try_new(
-        buffer![0i32, 1, 2, 3, 4, 5].into_array(),
-        buffer![0, 2, 3, 5, 5, 6].into_array(),
+        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5]).to_array(),
+        PrimitiveArray::from_iter([0, 2, 3, 5, 5, 6]).to_array(),
         Validity::NonNullable,
     ).unwrap())]
     #[case(ListArray::try_new(
-        buffer![10i32, 20, 30, 40, 50].into_array(),
-        buffer![0, 2, 3, 4, 5].into_array(),
+        PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]).to_array(),
+        PrimitiveArray::from_iter([0, 2, 3, 4, 5]).to_array(),
         Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).to_array()),
     ).unwrap())]
     #[case(ListArray::try_new(
-        buffer![1i32, 2, 3].into_array(),
-        buffer![0, 0, 2, 2, 3].into_array(), // First and third are empty
+        PrimitiveArray::from_iter([1i32, 2, 3]).to_array(),
+        PrimitiveArray::from_iter([0, 0, 2, 2, 3]).to_array(), // First and third are empty
         Validity::NonNullable,
     ).unwrap())]
     #[case(ListArray::try_new(
-        buffer![42i32, 43].into_array(),
-        buffer![0, 2].into_array(),
+        PrimitiveArray::from_iter([42i32, 43]).to_array(),
+        PrimitiveArray::from_iter([0, 2]).to_array(),
         Validity::NonNullable,
     ).unwrap())]
     #[case({
-        let elements = buffer![0i32..200].into_array();
+        let elements = PrimitiveArray::from_iter(0i32..200).to_array();
         let mut offsets = vec![0u64];
         for i in 1..=50 {
             offsets.push(offsets[i - 1] + (i as u64 % 5)); // Variable length lists
@@ -385,7 +370,7 @@ mod test {
     })]
     #[case(ListArray::try_new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).to_array(),
-        buffer![0, 2, 3, 5].into_array(),
+        PrimitiveArray::from_iter([0, 2, 3, 5]).to_array(),
         Validity::NonNullable,
     ).unwrap())]
     fn test_take_list_conformance(#[case] list: ListArray) {

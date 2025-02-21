@@ -71,7 +71,7 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
         }
         Mask::Values(mask_values) => {
             let iter = mask_values
-                .boolean_buffer()
+                .bit_buffer()
                 .iter()
                 .zip_eq(array.as_slice::<T>())
                 .map(|(is_valid, value)| is_valid.then_some(ComparablePrimitive::from(value)));

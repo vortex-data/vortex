@@ -83,12 +83,12 @@ where
 
     let cu_mask = mask
         .map(|mask| {
-            let buffer = mask.to_boolean_buffer();
+            let buffer = mask.to_bit_buffer();
             assert_eq!(buffer.offset(), 0);
             assert_eq!(buffer.len() % 1024, 0);
-            assert!((buffer.values().as_ptr() as *const u32).is_aligned());
+            assert!((buffer.inner().as_ptr() as *const u32).is_aligned());
             // SAFETY: we've checked alignment and the layout is the same.
-            let slice: &[u32] = unsafe { transmute(buffer.values()) };
+            let slice: &[u32] = unsafe { transmute(buffer.inner().as_slice()) };
             stream
                 .memcpy_stod(slice)
                 .map_err(|e| vortex_err!("Failed to copy to device: {e}"))

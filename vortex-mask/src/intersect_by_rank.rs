@@ -52,17 +52,15 @@ impl Mask {
 
 #[cfg(test)]
 mod test {
-    use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
+    use vortex_buffer::BitBuffer;
 
     use crate::Mask;
 
     #[test]
     fn mask_bitand_all_as_bit_and() {
-        let this = Mask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true, true, true]));
-        let mask = Mask::from_buffer(BooleanBuffer::from_iter(vec![
-            false, true, false, true, true,
-        ]));
+        let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, true, true, true, true]));
+        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![false, true, false, true, true]));
         assert_eq!(
             this.intersect_by_rank(&mask),
             Mask::from_indices(5, vec![1, 3, 4])
@@ -71,10 +69,8 @@ mod test {
 
     #[test]
     fn mask_bitand_all_true() {
-        let this = Mask::from_buffer(BooleanBuffer::from_iter(vec![
-            false, false, true, true, true,
-        ]));
-        let mask = Mask::from_buffer(BooleanBuffer::from_iter(vec![true, true, true]));
+        let this = Mask::from_buffer(BitBuffer::from_iter(vec![false, false, true, true, true]));
+        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![true, true, true]));
         assert_eq!(
             this.intersect_by_rank(&mask),
             Mask::from_indices(5, vec![2, 3, 4])
@@ -83,10 +79,8 @@ mod test {
 
     #[test]
     fn mask_bitand_true() {
-        let this = Mask::from_buffer(BooleanBuffer::from_iter(vec![
-            true, false, false, true, true,
-        ]));
-        let mask = Mask::from_buffer(BooleanBuffer::from_iter(vec![true, false, true]));
+        let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, false, true, true]));
+        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, true]));
         assert_eq!(
             this.intersect_by_rank(&mask),
             Mask::from_indices(5, vec![0, 4])
@@ -95,10 +89,8 @@ mod test {
 
     #[test]
     fn mask_bitand_false() {
-        let this = Mask::from_buffer(BooleanBuffer::from_iter(vec![
-            true, false, false, true, true,
-        ]));
-        let mask = Mask::from_buffer(BooleanBuffer::from_iter(vec![false, false, false]));
+        let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, false, true, true]));
+        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![false, false, false]));
         assert_eq!(this.intersect_by_rank(&mask), Mask::from_indices(5, vec![]));
     }
 

@@ -148,7 +148,7 @@ mod tests {
     {
         alp_scalar_compare(alp, value, operator)
             .unwrap()
-            .map(|a| a.to_bool().boolean_buffer().iter().collect())
+            .map(|a| a.to_bool().bit_buffer().iter().collect())
     }
 
     #[test]
@@ -166,7 +166,7 @@ mod tests {
             .unwrap()
             .to_bool();
 
-        for v in r.boolean_buffer().iter() {
+        for v in r.bit_buffer().iter() {
             assert!(!v);
         }
 
@@ -175,7 +175,7 @@ mod tests {
             .unwrap()
             .to_bool();
 
-        for v in r.boolean_buffer().iter() {
+        for v in r.bit_buffer().iter() {
             assert!(v);
         }
     }
@@ -196,7 +196,7 @@ mod tests {
             .unwrap()
             .to_bool();
 
-        assert!(r_eq.boolean_buffer().iter().all(|v| !v));
+        assert!(r_eq.bit_buffer().iter().all(|v| !v));
 
         #[allow(clippy::excessive_precision)]
         let r_neq = alp_scalar_compare(&encoded, 1.234444f32, Operator::NotEq)
@@ -204,7 +204,7 @@ mod tests {
             .unwrap()
             .to_bool();
 
-        assert!(r_neq.boolean_buffer().iter().all(|v| v));
+        assert!(r_neq.bit_buffer().iter().all(|v| v));
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
             .to_bool();
 
         // !(0.0605_f32 >= 0.06051_f32);
-        assert!(r_gte.boolean_buffer().iter().all(|v| !v));
+        assert!(r_gte.bit_buffer().iter().all(|v| !v));
 
         let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gt)
             .unwrap()
@@ -231,7 +231,7 @@ mod tests {
             .to_bool();
 
         // (0.0605_f32 > 0.06051_f32);
-        assert!(r_gt.boolean_buffer().iter().all(|v| !v));
+        assert!(r_gt.bit_buffer().iter().all(|v| !v));
 
         let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lte)
             .unwrap()
@@ -239,7 +239,7 @@ mod tests {
             .to_bool();
 
         // 0.0605_f32 <= 0.06051_f32;
-        assert!(r_lte.boolean_buffer().iter().all(|v| v));
+        assert!(r_lte.bit_buffer().iter().all(|v| v));
 
         let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lt)
             .unwrap()
@@ -247,7 +247,7 @@ mod tests {
             .to_bool();
 
         //0.0605_f32 < 0.06051_f32;
-        assert!(r_lt.boolean_buffer().iter().all(|v| v));
+        assert!(r_lt.bit_buffer().iter().all(|v| v));
     }
 
     #[test]
@@ -311,7 +311,7 @@ mod tests {
             .unwrap()
             .to_bool();
 
-        for v in r.boolean_buffer().iter() {
+        for v in r.bit_buffer().iter() {
             assert!(!v);
         }
     }

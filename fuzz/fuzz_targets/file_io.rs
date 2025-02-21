@@ -4,7 +4,6 @@
 #![no_main]
 #![allow(clippy::result_large_err)]
 
-use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
 use itertools::Itertools;
@@ -13,7 +12,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare, filter};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
-use vortex_buffer::ByteBufferMut;
+use vortex_buffer::{BitBuffer, ByteBufferMut};
 use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
@@ -96,7 +95,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         let bool_result = compare(&expected_array, &output_array, Operator::Eq)
             .vortex_unwrap()
             .to_bool();
-        let true_count = bool_result.boolean_buffer().count_set_bits();
+        let true_count = bool_result.bit_buffer().true_count();
         if true_count != expected_array.len()
             && (bool_result.all_valid() || expected_array.all_valid())
         {
@@ -119,10 +118,10 @@ fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
         make_comparator(&arrow_expected, &arrow_actual, SortOptions::default()).vortex_unwrap();
 
     let comparison_result =
-        BooleanBuffer::collect_bool(arrow_expected.len(), |idx| cmp_fn(idx, idx).is_eq());
+        BitBuffer::collect_bool(arrow_expected.len(), |idx| cmp_fn(idx, idx).is_eq());
 
     assert_eq!(
-        comparison_result.count_set_bits(),
+        comparison_result.true_count(),
         arrow_expected.len(),
         "\nEXPECTED: {}ACTUAL: {}",
         expected.display_tree(),

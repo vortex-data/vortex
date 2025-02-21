@@ -94,7 +94,7 @@ pub fn main() {
 //         .to_primitive();
 //
 //     let mut mask_data = [0usize; N_WORDS];
-//     for (i, chunk) in mask.to_boolean_buffer().bit_chunks().iter().enumerate() {
+//     for (i, chunk) in mask.to_bit_buffer().chunks().iter().enumerate() {
 //         if i < N_WORDS {
 //             mask_data[i] = usize::try_from(chunk).unwrap();
 //         }

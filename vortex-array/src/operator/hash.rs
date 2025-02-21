@@ -120,7 +120,7 @@ impl OperatorHash for Mask {
                 len.hash(state);
             }
             Mask::Values(values) => {
-                let buffer = values.boolean_buffer();
+                let buffer = values.bit_buffer();
                 buffer.offset().hash(state);
                 buffer.len().hash(state);
                 buffer.inner().as_ptr().hash(state);
@@ -134,8 +134,8 @@ impl OperatorEq for Mask {
             (Mask::AllTrue(len1), Mask::AllTrue(len2)) => len1 == len2,
             (Mask::AllFalse(len1), Mask::AllFalse(len2)) => len1 == len2,
             (Mask::Values(buf1), Mask::Values(buf2)) => {
-                let b1 = buf1.boolean_buffer();
-                let b2 = buf2.boolean_buffer();
+                let b1 = buf1.bit_buffer();
+                let b2 = buf2.bit_buffer();
                 b1.offset() == b2.offset()
                     && b1.len() == b2.len()
                     && b1.inner().as_ptr() == b2.inner().as_ptr()
