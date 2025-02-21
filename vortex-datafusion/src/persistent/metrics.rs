@@ -14,7 +14,7 @@ use super::execution::VortexExec;
 
 pub(crate) static PARTITION_LABEL: &str = "partition";
 
-/// Extracts datafusion metrics from all [`VortexExec`] instances in
+/// Extracts datafusion metrics from all VortexExec instances in
 /// a given physical plan.
 #[derive(Default)]
 pub struct VortexMetricsFinder(Vec<MetricsSet>);
