@@ -1,9 +1,9 @@
 # Vortex
 
 Vortex is an extensible, state-of-the-art format for columnar data. It includes
-specifications & tools for manipulating (possibly compressed) arrays in-memory,
-on-disk (i.e., file format), and over-the-wire (i.e., IPC format),
-and is built around the latest research from the database community.
+specifications & tools for manipulating possibly-compressed arrays in-memory,
+on-disk (file format), and over-the-wire (IPC format). Vortex is built around the
+latest research from the database community.
 
 ## In-memory
 
@@ -68,9 +68,7 @@ Compute <concepts/compute>
 
 ## Quickstarts
 
-Vortex is currently available for both Python and Rust. If you want to get started right away, feel free to
-jump right in with the language-specific quickstarts. For more detailed information, see the
-[User Guides](#user-guides) instead.
+Vortex is currently available for both Python and Rust. To get started, we recommend the language-specific quickstarts.
 
 ```{toctree}
 ---
@@ -100,7 +98,9 @@ Rust API <https://docs.rs/vortex>
 
 ## User Guides
 
-The user guides for each language provide a comprehensive overview of the Vortex API and how to use it.
+These user guides provide end-to-end overviews of how to use or extend Vortex
+in your own projects. We intend to extend this collection of guides to cover more
+use-cases in the future.
 
 ```{toctree}
 ---
