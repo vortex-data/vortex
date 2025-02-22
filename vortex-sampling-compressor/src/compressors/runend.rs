@@ -40,7 +40,7 @@ impl EncodingCompressor for RunEndCompressor {
             / array
                 .statistics()
                 .compute_run_count()
-                .unwrap_or(array.len()) as f32;
+                .unwrap_or_else(|| array.len()) as f32;
         if avg_run_length < self.ree_threshold {
             return None;
         }

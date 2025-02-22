@@ -174,7 +174,7 @@ mod tests {
 
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), chunked_arr.len());
-        chunked_arr.clone().append_to_builder(&mut builder).unwrap();
+        chunked_arr.append_to_builder(&mut builder).unwrap();
 
         {
             let arr = builder.finish().to_varbinview().unwrap();

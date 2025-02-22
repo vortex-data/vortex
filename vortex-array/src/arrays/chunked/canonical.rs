@@ -315,7 +315,7 @@ mod tests {
         let dtype = struct_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
-                ChunkedArray::try_new(vec![struct_array.clone().to_array()], dtype.clone())
+                ChunkedArray::try_new(vec![struct_array.to_array()], dtype.clone())
                     .unwrap()
                     .into_array(),
             ],

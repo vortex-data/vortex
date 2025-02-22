@@ -4,7 +4,7 @@ use divan::Bencher;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use vortex_array::arrays::{VarBinArray, VarBinViewArray};
-use vortex_array::{Array, IntoCanonical};
+use vortex_array::Array;
 use vortex_dict::builders::dict_encode;
 use vortex_dict::test::{gen_primitive_for_dict, gen_varbin_words};
 use vortex_dtype::NativePType;
@@ -39,7 +39,7 @@ where
 
     bencher
         .with_inputs(|| primitive_arr.clone())
-        .bench_refs(|arr| dict_encode(&arr));
+        .bench_refs(|arr| dict_encode(arr));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -48,7 +48,7 @@ fn encode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
 
     bencher
         .with_inputs(|| varbin_arr.clone())
-        .bench_refs(|arr| dict_encode(&arr));
+        .bench_refs(|arr| dict_encode(arr));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -57,7 +57,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
 
     bencher
         .with_inputs(|| varbinview_arr.clone())
-        .bench_refs(|arr| dict_encode(&arr));
+        .bench_refs(|arr| dict_encode(arr));
 }
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]

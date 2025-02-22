@@ -56,8 +56,8 @@ impl RowSelectorExec {
 
         Ok(Self {
             filter_expr,
-            chunked_array,
             cached_plan_props,
+            chunked_array,
         })
     }
 }
