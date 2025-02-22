@@ -60,7 +60,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
             Some(msg) => match msg {
                 Ok(DecoderMessage::Array((array_parts, row_count))) => Poll::Ready(Some(
                     array_parts
-                        .decode(&this.ctx, this.dtype.clone(), row_count)
+                        .decode(this.ctx, this.dtype.clone(), row_count)
                         .and_then(|array| {
                             if array.dtype() != this.dtype {
                                 Err(vortex_err!(

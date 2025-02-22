@@ -20,7 +20,7 @@ use vortex_scalar::Scalar;
 use crate::BitPackedArray;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
-    let best_bit_width = find_best_bit_width(&array)?;
+    let best_bit_width = find_best_bit_width(array)?;
     bitpack_encode(array, best_bit_width)
 }
 
@@ -51,9 +51,9 @@ pub fn bitpack_encode(array: &PrimitiveArray, bit_width: u8) -> VortexResult<Bit
     }
 
     // SAFETY: we check that array only contains non-negative values.
-    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
+    let packed = unsafe { bitpack_unchecked(array, bit_width)? };
     let patches = (num_exceptions > 0)
-        .then(|| gather_patches(&array, bit_width, num_exceptions))
+        .then(|| gather_patches(array, bit_width, num_exceptions))
         .flatten();
 
     // SAFETY: values already checked to be non-negative.

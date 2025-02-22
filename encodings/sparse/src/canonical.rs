@@ -17,7 +17,7 @@ impl ArrayCanonicalImpl for SparseArray {
         }
 
         if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(&resolved_patches, &self.fill_scalar())
+            canonicalize_sparse_bools(&resolved_patches, self.fill_scalar())
         } else {
             let ptype = PType::try_from(resolved_patches.values().dtype())?;
             match_each_native_ptype!(ptype, |$P| {
