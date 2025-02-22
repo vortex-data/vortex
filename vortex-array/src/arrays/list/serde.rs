@@ -21,8 +21,8 @@ pub struct ListMetadata {
 
 impl ArrayVisitorImpl<RkyvMetadata<ListMetadata>> for ListArray {
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("offsets", self.offsets());
         visitor.visit_child("elements", self.elements());
+        visitor.visit_child("offsets", self.offsets());
         visitor.visit_validity(self.validity(), self.len());
     }
 
@@ -54,13 +54,13 @@ impl SerdeVTable<&ListArray> for ListEncoding {
             vortex_bail!("Expected 2 or 3 children, got {}", parts.nchildren());
         };
 
-        let offsets = parts.child(0).decode(
+        let elements = parts.child(0).decode(ctx, dtype, metadata.elements_len)?;
+
+        let offsets = parts.child(1).decode(
             ctx,
             DType::Primitive(metadata.offset_ptype, Nullability::NonNullable),
             len + 1,
         )?;
-
-        let elements = parts.child(1).decode(ctx, dtype, metadata.elements_len)?;
 
         Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
     }
