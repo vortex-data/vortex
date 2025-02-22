@@ -31,15 +31,8 @@ impl Encoding for FSSTEncoding {
     type Metadata = EmptyMetadata;
 }
 
-static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
-static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FSSTMetadata {
-    symbols_len: usize,
-    codes_nullability: Nullability,
-    uncompressed_lengths_ptype: PType,
-}
+pub(crate) static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
+pub(crate) static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
@@ -70,7 +63,6 @@ impl FSSTArray {
         if symbols.len() > 255 {
             vortex_bail!(InvalidArgument: "symbols array must have length <= 255");
         }
-
         if symbols.len() != symbol_lengths.len() {
             vortex_bail!(InvalidArgument: "symbols and symbol_lengths arrays must have same length");
         }
@@ -199,15 +191,6 @@ impl ArrayValidityImpl for FSSTArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.codes().validity_mask()
-    }
-}
-
-impl ArrayVisitorImpl for FSSTArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("symbols", self.symbols())?;
-        visitor.visit_child("symbol_lengths", self.symbol_lengths())?;
-        visitor.visit_child("codes", self.codes())?;
-        visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths())
     }
 }
 
