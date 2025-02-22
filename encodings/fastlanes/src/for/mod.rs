@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
+use ::serde::{Deserialize, Serialize};
 pub use compress::*;
-use serde::{Deserialize, Serialize};
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::ArrayVisitor;
@@ -19,6 +19,7 @@ use vortex_scalar::{PValue, Scalar};
 
 mod compress;
 mod compute;
+mod serde;
 
 #[derive(Clone, Debug)]
 pub struct FoRArray {

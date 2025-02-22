@@ -23,6 +23,7 @@ use vortex_mask::Mask;
 
 mod compress;
 mod compute;
+mod serde;
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {

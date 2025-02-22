@@ -19,6 +19,7 @@ use vortex_scalar::Scalar;
 
 mod canonical;
 mod compute;
+mod serde;
 mod variants;
 
 #[derive(Clone, Debug)]
@@ -40,8 +41,8 @@ impl Encoding for SparseEncoding {
 #[derive(
     Debug,
     Clone,
-    serde::Serialize,
-    serde::Deserialize,
+    ::serde::Serialize,
+    ::serde::Deserialize,
     rkyv::Archive,
     rkyv::Serialize,
     rkyv::Deserialize,

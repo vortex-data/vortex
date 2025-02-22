@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 mod array;
 mod compress;
 mod compute;
+mod serde;
 
 pub use array::*;
 pub use compress::*;
