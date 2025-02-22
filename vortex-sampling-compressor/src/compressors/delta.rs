@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, Encoding, EncodingId};
 use vortex_error::VortexResult;
 use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
 

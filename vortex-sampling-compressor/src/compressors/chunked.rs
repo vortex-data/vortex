@@ -4,7 +4,7 @@ use std::sync::Arc;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use super::EncoderMetadata;

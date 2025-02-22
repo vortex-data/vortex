@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
+use ::serde::{Deserialize, Serialize};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatsSet;

@@ -13,7 +13,7 @@ use vortex_array::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ListEncoding, NullEncoding, PrimitiveEncoding,
     StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::{Context, ContextRef};
+use vortex_array::{Context, ContextRef, Encoding};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;

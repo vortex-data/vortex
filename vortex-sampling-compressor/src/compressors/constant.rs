@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ConstantArray, ConstantEncoding};
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, Encoding, EncodingId};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};

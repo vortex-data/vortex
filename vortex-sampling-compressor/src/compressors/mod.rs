@@ -299,7 +299,7 @@ impl<'a> CompressedArray<'a> {
 }
 
 impl AsRef<dyn Array> for CompressedArray<'_> {
-    fn as_ref(&self) -> &ArrayRef {
+    fn as_ref(&self) -> &(dyn Array + 'static) {
         &self.array
     }
 }

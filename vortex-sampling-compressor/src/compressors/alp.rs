@@ -2,7 +2,7 @@ use vortex_alp::{alp_encode_components, ALPArray, ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
+use vortex_array::{Array, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPackedEncoding;

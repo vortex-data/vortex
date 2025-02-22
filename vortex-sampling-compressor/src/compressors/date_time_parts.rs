@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, Encoding, EncodingId};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
     split_temporal, DateTimePartsArray, DateTimePartsEncoding, TemporalParts,

@@ -2,7 +2,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray, ToCanonical};
+use vortex_array::{Array, Encoding, EncodingId, IntoArray, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
