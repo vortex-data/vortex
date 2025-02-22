@@ -3,7 +3,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
@@ -24,7 +24,7 @@ pub fn slice_canonical_array(
         DType::Bool(_) => {
             let bool_array = array.to_bool()?;
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
-            BoolArray::try_new(sliced_bools, validity).map(|a| a.into_array())
+            Ok(BoolArray::new(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
@@ -46,7 +46,8 @@ pub fn slice_canonical_array(
             let struct_array = array.to_struct()?;
             let sliced_children = struct_array
                 .fields()
-                .map(|c| slice_canonical_array(&c, start, stop))
+                .iter()
+                .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new(
                 struct_array.names().clone(),
@@ -57,12 +58,12 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let list_array = array.to_array().into_list()?;
+            let list_array = array.to_list()?;
             let offsets =
-                slice_canonical_array(&list_array.offsets(), start, stop + 1)?.into_primitive()?;
+                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive()?;
 
             let elements = slice_canonical_array(
-                &list_array.elements(),
+                list_array.elements(),
                 offsets.get_as_cast::<u64>(0) as usize,
                 offsets.get_as_cast::<u64>(offsets.len() - 1) as usize,
             )?;

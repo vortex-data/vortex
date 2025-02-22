@@ -14,7 +14,8 @@ pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
-use vortex_array::{ArrayRef, Encoding, EncodingId, IntoArray};
+use vortex_array::visitor::ArrayVisitorExt;
+use vortex_array::{Array, ArrayRef, Encoding, EncodingId, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::SamplingCompressor;
@@ -186,7 +187,7 @@ fn actions_for_encoding(encoding_id: EncodingId) -> HashSet<usize> {
     }
 }
 
-fn actions_for_array(array&dyn Array) -> Vec<usize> {
+fn actions_for_array(array: &dyn Array) -> Vec<usize> {
     array
         .depth_first_traversal()
         .map(|child| actions_for_encoding(child.encoding()))

@@ -15,7 +15,7 @@ use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexError, VortexExpect};
 use vortex::mask::Mask;
-use vortex::{ArrayRef, Encoding};
+use vortex::Encoding;
 
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,

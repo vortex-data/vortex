@@ -4,7 +4,7 @@ use vortex_array::arrays::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexResult;
@@ -13,15 +13,11 @@ use crate::take::take_canonical_array;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array
-            .validity_mask()?
-            .into_array()
-            .to_bool()?
-            .boolean_buffer();
+        let validity_buff = array.validity_mask()?.into_array().to_bool()?;
         Validity::from_iter(
             filter
                 .iter()
-                .zip(validity_buff.iter())
+                .zip(validity_buff.boolean_buffer())
                 .filter(|(f, _)| **f)
                 .map(|(_, v)| v),
         )
@@ -32,7 +28,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool()?;
-            BoolArray::try_new(
+            Ok(BoolArray::new(
                 BooleanBuffer::from_iter(
                     filter
                         .iter()
@@ -42,7 +38,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
                 ),
                 validity,
             )
-            .map(|a| a.into_array())
+            .into_array())
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.to_primitive()?;
@@ -71,7 +67,8 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             let struct_array = array.to_struct()?;
             let filtered_children = struct_array
                 .fields()
-                .map(|c| filter_canonical_array(&c, filter))
+                .iter()
+                .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(

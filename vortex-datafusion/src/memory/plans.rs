@@ -21,7 +21,6 @@ use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
-use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};
@@ -46,7 +45,7 @@ static ROW_SELECTOR_SCHEMA_REF: LazyLock<SchemaRef> = LazyLock::new(|| {
 });
 
 impl RowSelectorExec {
-    pub(crate) fn try_new(filter_expr: ExprRef, chunked_array: &ChunkedArray) -> DFResult<Self> {
+    pub(crate) fn try_new(filter_expr: ExprRef, chunked_array: ChunkedArray) -> DFResult<Self> {
         let cached_plan_props = PlanProperties::new(
             EquivalenceProperties::new(ROW_SELECTOR_SCHEMA_REF.clone()),
             Partitioning::UnknownPartitioning(1),
@@ -56,7 +55,7 @@ impl RowSelectorExec {
 
         Ok(Self {
             filter_expr,
-            chunked_array: chunked_array.to_array(),
+            chunked_array,
             cached_plan_props,
         })
     }

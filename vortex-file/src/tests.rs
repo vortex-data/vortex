@@ -12,7 +12,7 @@ use vortex_array::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray,
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
