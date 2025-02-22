@@ -31,10 +31,13 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
     }
 
     fn _metadata(&self) -> SerdeMetadata<ALPRDMetadata> {
+        let mut dict = [0u16; 8];
+        dict[0..self.left_parts_dictionary().len()].copy_from_slice(self.left_parts_dictionary());
+
         SerdeMetadata(ALPRDMetadata {
             right_bit_width: self.right_bit_width(),
             dict_len: self.left_parts_dictionary().len() as u8,
-            dict: self.left_parts_dictionary().as_slice().try_into().unwrap(),
+            dict,
             left_parts_ptype: PType::try_from(self.left_parts().dtype())
                 .vortex_expect("Must be a valid PType"),
             patches: self
