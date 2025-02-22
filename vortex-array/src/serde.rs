@@ -154,7 +154,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let encoding = self.array.encoding().code();
         let vtable = self.array.vtable();
         let metadata = vtable
-            .encode(self.array)
+            .metadata(self.array)
             .map(|bytes| fbb.create_vector(bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.
