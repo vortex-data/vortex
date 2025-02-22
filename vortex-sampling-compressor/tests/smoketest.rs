@@ -12,6 +12,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 mod tests {
     use jiff::Span;
     use vortex_array::arrays::BooleanBuffer;
+    use vortex_array::Array;
     use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
@@ -42,11 +43,14 @@ mod tests {
         );
 
         // Create new struct array
-        let to_compress = StructArray::try_new(field_names, fields, 65536, Validity::NonNullable)
-            .unwrap()
-            .into_array();
+        let to_compress =
+            StructArray::try_new(field_names, fields, 65536, Validity::NonNullable).unwrap();
 
-        println!("uncompressed: {}", to_compress.tree_display());
+        println!(
+            "uncompressed: {}",
+            // TODO(ngates): should we as_ref()?
+            (&to_compress as &dyn Array).tree_display()
+        );
         let compressed = compressor
             .compress(&to_compress, None)
             .unwrap()
@@ -63,7 +67,7 @@ mod tests {
     fn make_bool_column(count: usize) -> ArrayRef {
         BoolArray::new(
             BooleanBuffer::from_iter((0..count).map(|_| rand::random::<bool>())),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         )
         .into_array()
     }

@@ -16,7 +16,9 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
     if array.is_empty() {
         return Ok(array);
     }
-    let array = PrimitiveArray::maybe_from(array).vortex_expect("Checked earlier");
+    let array = array
+        .maybe_as::<PrimitiveArray>()
+        .vortex_expect("Checked earlier");
 
     let min = array.compute_stat(Stat::Min);
     let max = array.compute_stat(Stat::Max);

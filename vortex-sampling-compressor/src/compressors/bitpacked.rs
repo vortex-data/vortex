@@ -2,7 +2,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
@@ -54,7 +54,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
     fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array)?;
+        let parray = array.maybe_as::<PrimitiveArray>()?;
 
         // Only integer arrays can be bit-packed
         if !parray.ptype().is_int() {
@@ -120,7 +120,7 @@ impl EncodingCompressor for BitPackedCompressor {
             return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
-        let validity = ctx.compress_validity(parray.validity())?;
+        let validity = ctx.compress_validity(parray.validity().clone())?;
         // SAFETY: we check that the array only contains non-negative values.
         let packed_buffer = unsafe { bitpack_unchecked(&parray, bit_width)? };
         let patches = (num_exceptions > 0)
@@ -182,7 +182,7 @@ mod tests {
 
         // non-PrimitiveArray
         assert!(BITPACK_NO_PATCHES
-            .can_compress(&ConstantArray::new(3u32, 10).into_array())
+            .can_compress(&ConstantArray::new(3u32, 10))
             .is_none());
     }
 

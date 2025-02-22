@@ -31,12 +31,11 @@ impl EncodingCompressor for SparseCompressor {
         let sparse_array = SparseArray::try_from(array.to_array())?;
         let compressed_patches = ctx
             .auxiliary("patches")
-            .compress_patches(sparse_array.patches())?;
+            .compress_patches(sparse_array.patches().clone())?;
         Ok(CompressedArray::compressed(
             SparseArray::try_new_from_patches(
                 compressed_patches,
-                sparse_array.len(),
-                sparse_array.fill_scalar(),
+                sparse_array.fill_scalar().clone(),
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![])),

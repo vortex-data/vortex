@@ -36,7 +36,7 @@ mod encoding;
 pub mod iter;
 mod macros;
 mod metadata;
-mod nbytes;
+pub mod nbytes;
 mod partial_ord;
 pub mod patches;
 pub mod serde;

@@ -3,7 +3,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{StructArray, StructEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{Array, Encoding, EncodingId};
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -34,37 +34,38 @@ impl EncodingCompressor for StructCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let array = StructArray::try_from(array.to_array())?;
-        let compressed_validity = ctx.compress_validity(array.validity())?;
+        let struct_array = array.as_::<StructArray>();
+        let compressed_validity = ctx.compress_validity(struct_array.validity().clone())?;
 
         let children_trees = match like {
             Some(tree) => tree.children,
-            None => vec![None; array.nfields()],
+            None => vec![None; struct_array.nfields()],
         };
 
-        let (arrays, trees) = array
+        let (arrays, trees) = struct_array
             .fields()
+            .iter()
             .zip_eq(children_trees)
             .map(|(array, like)| {
                 // these are extremely valuable when reading/writing, but are potentially much more expensive
                 // to compute post-compression. That's because not all encodings implement stats, so we would
                 // potentially have to canonicalize during writes just to get stats, which would be silly.
                 // Also, we only really require them for column chunks, not for every array.
-                compute_precompression_stats(&array)?;
-                ctx.compress(&array, like.as_ref())
+                compute_precompression_stats(array)?;
+                ctx.compress(array, like.as_ref())
             })
             .process_results(|iter| iter.map(|x| (x.array, x.path)).unzip())?;
 
         Ok(CompressedArray::compressed(
             StructArray::try_new(
-                array.names().clone(),
+                struct_array.names().clone(),
                 arrays,
-                array.len(),
+                struct_array.len(),
                 compressed_validity,
             )?
             .into_array(),
             Some(CompressionTree::new(self, trees)),
-            array,
+            struct_array,
         ))
     }
 

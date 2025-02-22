@@ -10,6 +10,7 @@ use vortex_array::compress::{
     CompressionStrategy,
 };
 use vortex_array::compute::slice;
+use vortex_array::nbytes::NBytes;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, Encoding, EncodingId};
@@ -134,7 +135,7 @@ impl<'a> SamplingCompressor<'a> {
         like: Option<&CompressionTree<'a>>,
     ) -> VortexResult<CompressedArray<'a>> {
         if arr.is_empty() {
-            return Ok(CompressedArray::uncompressed(arr.clone()));
+            return Ok(CompressedArray::uncompressed(arr.to_array()));
         }
 
         // Attempt to compress using the "like" array, otherwise fall back to sampled compression
@@ -147,7 +148,7 @@ impl<'a> SamplingCompressor<'a> {
                 check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
-                log::debug!("{} cannot compress {} like {}", self, arr, l);
+                log::debug!("{} cannot compress {} like {}", self, arr.to_array(), l);
             }
         }
 
@@ -171,7 +172,7 @@ impl<'a> SamplingCompressor<'a> {
         Ok(Patches::new(
             patches.array_len(),
             patches.offset(),
-            self.compress(&downscale_integer_array(patches.indices().clone())?, None)?
+            self.compress(&downscale_integer_array(patches.indices())?, None)?
                 .into_array(),
             self.compress(patches.values(), None)?.into_array(),
         ))
@@ -220,7 +221,12 @@ impl<'a> SamplingCompressor<'a> {
             );
         }
 
-        log::debug!("{} candidates for {}: {:?}", self, array, candidates);
+        log::debug!(
+            "{} candidates for {}: {:?}",
+            self,
+            array.to_array(),
+            candidates
+        );
 
         if candidates.is_empty() {
             log::debug!(
@@ -261,16 +267,15 @@ impl<'a> SamplingCompressor<'a> {
             .collect::<VortexResult<Vec<ArrayRef>>>()?,
             array.dtype().clone(),
         )?
-        .into_canonical()?
-        .into();
+        .to_canonical()?;
 
-        let best = find_best_compression(candidates, &sample, self)?
+        let best = find_best_compression(candidates, sample.as_ref(), self)?
             .into_path()
             .map(|best_compressor| {
                 log::debug!(
                     "{} Compressing array {} with {}",
                     self,
-                    array,
+                    array.to_array(),
                     best_compressor
                 );
                 best_compressor.compress_unchecked(array, self)
@@ -298,7 +303,7 @@ pub(crate) fn find_best_compression<'a>(
             "{} trying candidate {} for {}",
             ctx,
             compression.id(),
-            sample
+            sample.to_array()
         );
         if compression.can_compress(sample).is_none() {
             continue;
@@ -338,7 +343,7 @@ pub(crate) fn find_best_compression<'a>(
         );
     }
 
-    let best = best.unwrap_or_else(|| CompressedArray::uncompressed(sample.clone()));
+    let best = best.unwrap_or_else(|| CompressedArray::uncompressed(sample.to_array()));
     if best_compression_ratio < best_objective_ratio && best_compression_ratio_sample.is_some() {
         let best_ratio_sample =
             best_compression_ratio_sample.vortex_expect("already checked that this Option is Some");
@@ -373,15 +378,13 @@ pub(crate) fn find_best_compression<'a>(
 mod tests {
     use vortex_alp::ALPRDEncoding;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Encoding, IntoArray};
+    use vortex_array::Encoding;
 
     use crate::SamplingCompressor;
 
     #[test]
     fn test_default() {
-        let array =
-            PrimitiveArray::from_iter((0..4096).map(|x| (x as f64) / 1234567890.0f64)).into_array();
-
+        let array = PrimitiveArray::from_iter((0..4096).map(|x| (x as f64) / 1234567890.0f64));
         let compressed = SamplingCompressor::default()
             .compress(&array, None)
             .unwrap()

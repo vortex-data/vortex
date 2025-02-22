@@ -59,7 +59,7 @@ impl EncodingCompressor for DictCompressor {
             )?,
             ctx.named("values")
                 .excluding(self)
-                .compress(&values, like.as_ref().and_then(|l| l.child(1)))?,
+                .compress(values, like.as_ref().and_then(|l| l.child(1)))?,
         );
 
         Ok(CompressedArray::compressed(

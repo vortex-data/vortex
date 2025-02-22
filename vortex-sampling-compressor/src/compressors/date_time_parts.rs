@@ -48,15 +48,15 @@ impl EncodingCompressor for DateTimePartsCompressor {
         } = split_temporal(TemporalArray::try_from(array.to_array())?)?;
 
         let days = ctx.named("days").compress(
-            &downscale_integer_array(days)?,
+            &downscale_integer_array(&days)?,
             like.as_ref().and_then(|l| l.child(0)),
         )?;
         let seconds = ctx.named("seconds").compress(
-            &downscale_integer_array(seconds)?,
+            &downscale_integer_array(&seconds)?,
             like.as_ref().and_then(|l| l.child(1)),
         )?;
         let subseconds = ctx.named("subseconds").compress(
-            &downscale_integer_array(subseconds)?,
+            &downscale_integer_array(&subseconds)?,
             like.as_ref().and_then(|l| l.child(2)),
         )?;
         Ok(CompressedArray::compressed(

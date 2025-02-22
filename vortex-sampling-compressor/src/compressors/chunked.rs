@@ -4,7 +4,8 @@ use std::sync::Arc;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray};
+use vortex_array::nbytes::NBytes;
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use super::EncoderMetadata;
@@ -47,8 +48,8 @@ impl EncodingCompressor for ChunkedCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let chunked_array = ChunkedArray::try_from(array.to_array())?;
-        self.compress_chunked(&chunked_array, like, ctx)
+        let chunked_array = array.as_::<ChunkedArray>();
+        self.compress_chunked(chunked_array, like, ctx)
     }
 
     fn used_encodings(&self) -> HashSet<EncodingId> {
@@ -81,17 +82,17 @@ impl ChunkedCompressor {
         let mut compressed_trees = Vec::with_capacity(array.nchunks() + 1);
         compressed_trees.push(None); // for the chunk offsets
 
-        for (index, chunk) in array.chunks().enumerate() {
+        for (index, chunk) in array.chunks().iter().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive
             // to compute post-compression. That's because not all encodings implement stats, so we would
             // potentially have to canonicalize during writes just to get stats, which would be silly.
             // Also, we only really require them for column chunks, not for every array.
-            compute_precompression_stats(&chunk)?;
+            compute_precompression_stats(chunk)?;
 
             let like = previous.as_ref().map(|(like, _)| like);
             let (compressed_chunk, tree) = ctx
                 .named(&format!("chunk-{}", index))
-                .compress(&chunk, like)?
+                .compress(chunk, like)?
                 .into_parts();
 
             let ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
@@ -102,7 +103,7 @@ impl ChunkedCompressor {
 
             if ratio > 1.0 || exceeded_target_ratio {
                 log::debug!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
-                let (compressed_chunk, tree) = ctx.compress_array(&chunk)?.into_parts();
+                let (compressed_chunk, tree) = ctx.compress_array(chunk)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
 
                 compressed_chunks.push(compressed_chunk);
