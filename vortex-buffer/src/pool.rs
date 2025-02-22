@@ -33,8 +33,8 @@ impl InnerPool {
         }
     }
 
-    fn default_buffer(&self) -> ByteBufferMut {
-        ByteBufferMut::with_capacity(self.default_capacity)
+    fn default_buffer_aligned(&self, alignment: Alignment) -> ByteBufferMut {
+        ByteBufferMut::with_capacity_aligned(self.default_capacity, alignment)
     }
 }
 
@@ -68,13 +68,13 @@ impl BufferPool {
                 let mut pool = match buffer_list.try_lock() {
                     Some(pool) => pool,
                     None => {
-                        return self.inner.default_buffer();
+                        return self.inner.default_buffer_aligned(alignment);
                     }
                 };
 
                 match pool.pop_front() {
                     Some(buffer) => buffer,
-                    None => self.inner.default_buffer(),
+                    None => self.inner.default_buffer_aligned(alignment),
                 }
             }
         }
