@@ -63,15 +63,15 @@ fn decompress(bencher: Bencher, (compressor, ptype): (CompressorRef, PType)) {
 
     bencher
         .with_inputs(|| compressed.clone())
-        .bench_values(|compressed| compressed.into_canonical().unwrap())
+        .bench_values(|compressed| compressed.to_canonical().unwrap())
 }
 
 fn fixture(ptype: PType) -> ArrayRef {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     let uint_array =
         Buffer::from_iter((0..u16::MAX as u64).map(|_| rng.gen_range(0u32..256))).into_array();
-    let int_array = try_cast(uint_array.to_array(), PType::I32.into()).unwrap();
-    let float_array = try_cast(uint_array.to_array(), PType::F32.into()).unwrap();
+    let int_array = try_cast(&uint_array, PType::I32.into()).unwrap();
+    let float_array = try_cast(&uint_array, PType::F32.into()).unwrap();
 
     match ptype {
         PType::F32 => float_array,
@@ -86,6 +86,8 @@ mod varbinview {
     use rand::distributions::Alphanumeric;
     use rand::seq::SliceRandom;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::nbytes::NBytes;
+    use vortex_array::Array;
     use vortex_dict::builders::dict_encode;
     use vortex_fsst::{fsst_compress, fsst_train_compressor};
 
@@ -94,14 +96,14 @@ mod varbinview {
     #[divan::bench]
     fn dict_decode_varbinview(bencher: Bencher) {
         let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
-        let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
+        let dict = dict_encode(&varbinview_arr).unwrap();
 
         bencher
             .with_inputs(|| dict.clone())
             .counter(divan::counter::BytesCount::new(
-                varbinview_arr.into_array().nbytes() as u64,
+                varbinview_arr.nbytes() as u64
             ))
-            .bench_values(|dict| dict.into_canonical().unwrap())
+            .bench_values(|dict| dict.to_canonical().unwrap())
     }
 
     #[divan::bench]
@@ -116,7 +118,7 @@ mod varbinview {
             .counter(divan::counter::BytesCount::new(
                 varbinview_arr.into_array().nbytes(),
             ))
-            .bench_values(|fsst_array| fsst_array.into_canonical().unwrap())
+            .bench_values(|fsst_array| fsst_array.to_canonical().unwrap())
     }
 
     fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {

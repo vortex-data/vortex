@@ -6,7 +6,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::IntoArray;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -25,7 +25,7 @@ fn compare_bool(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&arr1, &arr2))
-        .bench_refs(|(arr1, arr2)| compare(arr1, arr2, Operator::Gte).unwrap());
+        .bench_refs(|(arr1, arr2)| compare(*arr1, *arr2, Operator::Gte).unwrap());
 }
 
 #[divan::bench]
@@ -45,5 +45,5 @@ fn compare_int(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&arr1, &arr2))
-        .bench_refs(|(arr1, arr2)| compare(arr1, arr2, Operator::Gte).unwrap());
+        .bench_refs(|(arr1, arr2)| compare(*arr1, *arr2, Operator::Gte).unwrap());
 }

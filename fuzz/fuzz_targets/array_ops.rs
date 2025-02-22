@@ -9,7 +9,7 @@ use vortex_array::arrays::{
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
-use vortex_array::{ArrayRef, Encoding};
+use vortex_array::{Array, ArrayRef, Encoding};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
@@ -20,7 +20,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress(c) => {
-                match fuzz_compress(&current_array.into_canonical().unwrap().into(), &c) {
+                match fuzz_compress(current_array.to_canonical().unwrap().as_ref(), &c) {
                     Some(compressed_array) => {
                         assert_array_eq(&expected.array(), &compressed_array, i);
                         current_array = compressed_array;

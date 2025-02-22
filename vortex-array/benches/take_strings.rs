@@ -18,17 +18,17 @@ fn varbin(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&array, &indices))
-        .bench_refs(|(array, indices)| take(array, indices).unwrap());
+        .bench_refs(|(array, indices)| take(*array, *indices).unwrap());
 }
 
 #[divan::bench]
 fn varbinview(bencher: Bencher) {
-    let array = fixture(65_535).into_varbinview().unwrap();
+    let array = fixture(65_535).to_varbinview().unwrap();
     let indices = indices(1024);
 
     bencher
         .with_inputs(|| (&array, &indices))
-        .bench_refs(|(array, indices)| take(array, indices).unwrap());
+        .bench_refs(|(array, indices)| take(*array, *indices).unwrap());
 }
 
 fn fixture(len: usize) -> VarBinArray {

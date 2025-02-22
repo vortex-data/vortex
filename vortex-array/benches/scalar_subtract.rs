@@ -5,7 +5,7 @@ use rand::distributions::Uniform;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::IntoArray;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -32,7 +32,7 @@ fn scalar_subtract(bencher: Bencher) {
     let chunked = ChunkedArray::from_iter([data1, data2]).into_array();
 
     bencher.with_inputs(|| &chunked).bench_refs(|chunked| {
-        let array = vortex_array::compute::sub_scalar(chunked, to_subtract.into()).unwrap();
+        let array = vortex_array::compute::sub_scalar(*chunked, to_subtract.into()).unwrap();
         divan::black_box(array);
     });
 }

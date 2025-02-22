@@ -24,8 +24,8 @@ fn take_10_stratified(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -37,8 +37,8 @@ fn take_10_contiguous(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter(0..10);
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -53,8 +53,8 @@ fn take_10k_random(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -66,8 +66,8 @@ fn take_10k_contiguous(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter(0..10_000);
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -79,8 +79,8 @@ fn take_200k_dispersed(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -92,8 +92,8 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 fn fixture(len: usize, bits: usize) -> Buffer<u32> {
@@ -134,8 +134,8 @@ fn patched_take_10_stratified(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -154,8 +154,8 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter(0..10);
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -170,8 +170,8 @@ fn patched_take_10k_random(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -183,8 +183,8 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0u32..NUM_EXCEPTIONS).cycle().take(10000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -204,8 +204,8 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
         PrimitiveArray::from_iter((BIG_BASE2..BIG_BASE2 + NUM_EXCEPTIONS).cycle().take(10000));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -217,8 +217,8 @@ fn patched_take_200k_dispersed(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -230,8 +230,8 @@ fn patched_take_200k_first_chunk_only(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }
 
 #[divan::bench]
@@ -250,6 +250,6 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
     );
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| take(&packed, &indices).unwrap())
+        .with_inputs(|| (packed.clone(), indices.clone()))
+        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
 }

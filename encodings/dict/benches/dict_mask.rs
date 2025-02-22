@@ -5,7 +5,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::mask;
-use vortex_array::IntoArray;
+use vortex_array::Array;
 use vortex_dict::DictArray;
 use vortex_mask::Mask;
 

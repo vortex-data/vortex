@@ -31,7 +31,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 
     bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
+        chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
         builder.finish()
     })
 }
@@ -70,7 +70,7 @@ fn chunked_dict_fsst_canonical_into(
 
     bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.canonicalize_into(builder.as_mut()).vortex_unwrap();
+        chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
         builder.finish()
     })
 }

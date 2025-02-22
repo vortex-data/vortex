@@ -17,6 +17,7 @@ use crate::validity::Validity;
 use crate::{builders, Array, ArrayRef, IntoArray as _, ToCanonical};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
+#[derive(Clone, Debug)]
 pub struct ArbitraryArray(pub ArrayRef);
 
 impl<'a> Arbitrary<'a> for ArbitraryArray {
