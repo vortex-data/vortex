@@ -121,7 +121,7 @@ impl ArrayVisitorImpl for ExtensionArray {
     }
 }
 
-impl StatisticsVTable<'_, ExtensionArray> for ExtensionEncoding {
+impl StatisticsVTable<&ExtensionArray> for ExtensionEncoding {
     fn compute_statistics(&self, array: &'_ ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
         array.storage().statistics().compute_all(&[stat])
     }

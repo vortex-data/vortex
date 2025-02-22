@@ -14,7 +14,7 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::Array;
 
-impl StatisticsVTable<'_, BoolArray> for BoolEncoding {
+impl StatisticsVTable<&BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
@@ -41,7 +41,7 @@ impl StatisticsVTable<'_, BoolArray> for BoolEncoding {
 
 struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
-impl StatisticsVTable<'_, NullableBools<'_>> for BoolEncoding {
+impl StatisticsVTable<&NullableBools<'_>> for BoolEncoding {
     fn compute_statistics(&self, array: &NullableBools<'_>, stat: Stat) -> VortexResult<StatsSet> {
         // Fast-path if we just want the true-count
         if matches!(
@@ -83,7 +83,7 @@ impl StatisticsVTable<'_, NullableBools<'_>> for BoolEncoding {
     }
 }
 
-impl StatisticsVTable<'_, BooleanBuffer> for BoolEncoding {
+impl StatisticsVTable<&BooleanBuffer> for BoolEncoding {
     fn compute_statistics(&self, buffer: &BooleanBuffer, stat: Stat) -> VortexResult<StatsSet> {
         // Fast-path if we just want the true-count
         if matches!(

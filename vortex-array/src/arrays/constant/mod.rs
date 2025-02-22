@@ -104,4 +104,4 @@ impl ArrayVisitorImpl for ConstantArray {
     }
 }
 
-impl StatisticsVTable<'_, ConstantArray> for ConstantEncoding {}
+impl StatisticsVTable<&ConstantArray> for ConstantEncoding {}

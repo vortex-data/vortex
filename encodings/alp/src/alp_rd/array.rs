@@ -233,7 +233,7 @@ impl ArrayVisitorImpl for ALPRDArray {
     }
 }
 
-impl StatisticsVTable<'_, ALPRDArray> for ALPRDEncoding {}
+impl StatisticsVTable<&ALPRDArray> for ALPRDEncoding {}
 
 #[cfg(test)]
 mod test {

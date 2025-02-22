@@ -226,7 +226,7 @@ impl Utf8ArrayTrait for FSSTArray {}
 
 impl BinaryArrayTrait for FSSTArray {}
 
-impl StatisticsVTable<'_, FSSTArray> for FSSTEncoding {}
+impl StatisticsVTable<&FSSTArray> for FSSTEncoding {}
 
 #[cfg(test)]
 mod test {

@@ -66,7 +66,7 @@ pub trait EncodingVTable:
     + Send
     + ComputeVTable
     + for<'a> SerdeVTable<&'a dyn Array>
-    + for<'a> StatisticsVTable<'a, dyn Array>
+    + for<'a> StatisticsVTable<&'a dyn Array>
 {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
@@ -99,7 +99,7 @@ impl<
         E: Encoding
             + ComputeVTable
             + for<'a> SerdeVTable<&'a dyn Array>
-            + for<'a> StatisticsVTable<'a, dyn Array>,
+            + for<'a> StatisticsVTable<&'a dyn Array>,
     > EncodingVTable for E
 {
     fn id(&self) -> EncodingId {

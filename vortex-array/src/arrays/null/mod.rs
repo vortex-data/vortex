@@ -88,7 +88,7 @@ impl ArrayValidityImpl for NullArray {
     }
 }
 
-impl StatisticsVTable<'_, NullArray> for NullEncoding {
+impl StatisticsVTable<&NullArray> for NullEncoding {
     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));

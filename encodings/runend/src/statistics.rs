@@ -13,7 +13,7 @@ use vortex_scalar::ScalarValue;
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl StatisticsVTable<'_, RunEndArray> for RunEndEncoding {
+impl StatisticsVTable<&RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
             Stat::Min | Stat::Max => array.values().statistics().compute_stat(stat),

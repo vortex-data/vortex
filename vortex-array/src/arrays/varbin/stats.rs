@@ -12,7 +12,7 @@ use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::StatisticsVTable;
 use crate::{Array, ArrayRef};
 
-impl StatisticsVTable<'_, VarBinArray> for VarBinEncoding {
+impl StatisticsVTable<&VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
         compute_varbin_statistics(array, stat)
     }

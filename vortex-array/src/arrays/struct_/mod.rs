@@ -219,7 +219,7 @@ impl ArrayVisitorImpl for StructArray {
     }
 }
 
-impl StatisticsVTable<'_, StructArray> for StructEncoding {
+impl StatisticsVTable<&StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
             Stat::UncompressedSizeInBytes => array

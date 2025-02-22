@@ -156,7 +156,7 @@ impl ArrayVisitorImpl for ALPArray {
     }
 }
 
-impl StatisticsVTable<'_, ALPArray> for ALPEncoding {}
+impl StatisticsVTable<&ALPArray> for ALPEncoding {}
 
 #[cfg(test)]
 mod tests {

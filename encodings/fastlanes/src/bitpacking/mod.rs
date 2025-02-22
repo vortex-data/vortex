@@ -311,7 +311,7 @@ impl ArrayVisitorImpl for BitPackedArray {
     }
 }
 
-impl StatisticsVTable<'_, BitPackedArray> for BitPackedEncoding {}
+impl StatisticsVTable<&BitPackedArray> for BitPackedEncoding {}
 
 impl PrimitiveArrayTrait for BitPackedArray {}
 

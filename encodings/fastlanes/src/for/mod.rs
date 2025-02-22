@@ -126,7 +126,7 @@ impl ArrayVisitorImpl for FoRArray {
     }
 }
 
-impl StatisticsVTable<'_, FoRArray> for FoREncoding {}
+impl StatisticsVTable<&FoRArray> for FoREncoding {}
 
 impl PrimitiveArrayTrait for FoRArray {}
 

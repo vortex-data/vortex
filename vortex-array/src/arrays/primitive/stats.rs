@@ -32,7 +32,7 @@ impl<T> PStatsType for T where
 {
 }
 
-impl StatisticsVTable<'_, PrimitiveArray> for PrimitiveEncoding {
+impl StatisticsVTable<&PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
@@ -67,7 +67,7 @@ impl PrimitiveEncoding {
     }
 }
 
-impl<T: PStatsType + PartialEq> StatisticsVTable<'_, [T]> for PrimitiveEncoding {
+impl<T: PStatsType + PartialEq> StatisticsVTable<&[T]> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &[T], stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
@@ -96,7 +96,7 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<'_, [T]> for PrimitiveEncoding 
 
 struct NullableValues<'a, T: PStatsType>(&'a [T], &'a BooleanBuffer);
 
-impl<T: PStatsType> StatisticsVTable<'_, NullableValues<'_, T>> for PrimitiveEncoding {
+impl<T: PStatsType> StatisticsVTable<&NullableValues<'_, T>> for PrimitiveEncoding {
     fn compute_statistics(
         &self,
         nulls: &NullableValues<'_, T>,

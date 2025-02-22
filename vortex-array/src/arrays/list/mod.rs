@@ -211,7 +211,7 @@ impl ArrayValidityImpl for ListArray {
     }
 }
 
-impl StatisticsVTable<'_, ListArray> for ListEncoding {}
+impl StatisticsVTable<&ListArray> for ListEncoding {}
 
 #[cfg(feature = "test-harness")]
 impl ListArray {
