@@ -17,7 +17,7 @@ fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
 
 fn vortex_to_arrow(result: VortexResult<ArrayRef>) -> Result<RecordBatch, ArrowError> {
     result
-        .and_then(RecordBatch::try_from)
+        .and_then(|a| RecordBatch::try_from(a.as_ref()))
         .map_err(vortex_to_arrow_error)
 }
 

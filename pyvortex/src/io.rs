@@ -5,6 +5,7 @@ use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
+use vortex::stream::ArrayStreamArrayExt;
 
 use crate::arrays::PyArray;
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
@@ -215,7 +216,7 @@ pub fn write_path(array: PyArray, path: &str) -> PyResult<()> {
 
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
-            .write(File::create(path).await?, array.into_array_stream())
+            .write(File::create(path).await?, array.to_array_stream())
             .await
     })?;
 

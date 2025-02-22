@@ -15,7 +15,7 @@ use vortex::expr::{ident, ExprRef, Select};
 use vortex::file::{FileType, GenericVortexFile, VortexFile, VortexOpenOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile};
 use vortex::stream::ArrayStream;
-use vortex::{ArrayRef, IntoArray, ToCanonical};
+use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::PyArray;
 use crate::expr::PyExpr;
@@ -47,7 +47,7 @@ pub async fn read_array_from_reader<F: FileType>(
     }
 
     if let Some(indices) = indices {
-        let indices = indices.into_primitive()?.into_buffer();
+        let indices = indices.to_primitive()?.into_buffer();
         scan = scan.with_row_indices(indices);
     }
 
@@ -134,7 +134,7 @@ impl TokioFileDataset {
             .with_some_filter(filter_from_python(row_filter));
 
         if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
-            let indices = indices.into_primitive()?.into_buffer();
+            let indices = indices.to_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 
@@ -224,7 +224,7 @@ impl ObjectStoreUrlDataset {
             .with_some_filter(filter_from_python(filter));
 
         if let Some(indices) = indices.cloned().map(PyArray::into_inner) {
-            let indices = indices.into_primitive()?.into_buffer();
+            let indices = indices.to_primitive()?.into_buffer();
             scan = scan.with_row_indices(indices);
         }
 

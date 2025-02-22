@@ -3,7 +3,7 @@ mod typed;
 
 use std::ops::Deref;
 
-use arrow::array::{Array as ArrowArray, ArrayRef};
+use arrow::array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -13,9 +13,10 @@ use vortex::arrays::ChunkedArray;
 use vortex::arrow::{infer_data_type, IntoArrowArray};
 use vortex::compute::{compare, fill_forward, scalar_at, slice, take, Operator};
 use vortex::dtype::{DType, PType};
-use vortex::error::{VortexError, VortexExpect};
+use vortex::error::VortexExpect;
 use vortex::mask::Mask;
-use vortex::Encoding;
+use vortex::nbytes::NBytes;
+use vortex::{Array, ArrayExt, ArrayRef, Encoding};
 
 use crate::arrays::typed::{
     PyBinaryTypeArray, PyBoolTypeArray, PyExtensionTypeArray, PyFloat16TypeArray,
@@ -245,15 +246,16 @@ impl PyArray {
         let py = self_.py();
         let vortex = &self_.0;
 
-        if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
+        if let Some(chunked_array) = vortex.maybe_as::<ChunkedArray>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let arrow_dtype = infer_data_type(chunked_array.dtype())?;
 
             let chunks = chunked_array
                 .chunks()
-                .map(|chunk| PyResult::Ok(chunk.into_arrow(&arrow_dtype)?))
-                .collect::<PyResult<Vec<ArrayRef>>>()?;
+                .iter()
+                .map(|chunk| PyResult::Ok(chunk.clone().into_arrow(&arrow_dtype)?))
+                .collect::<PyResult<Vec<ArrowArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
             }
@@ -402,7 +404,7 @@ impl PyArray {
     ///     ]
     fn filter(&self, mask: &Bound<PyArray>) -> PyResult<PyArray> {
         let mask = mask.borrow();
-        let inner = vortex::compute::filter(&self.0, &Mask::try_from(mask.0.clone())?)?;
+        let inner = vortex::compute::filter(&self.0, &Mask::try_from(mask.0.as_ref())?)?;
         Ok(PyArray(inner))
     }
 
@@ -662,12 +664,12 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A>
-where
-    for<'a> &'a <A::Encoding as Encoding>::Array: TryFrom<&dyn Array, Error = VortexError>,
-{
+impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A> {
     fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
-        <&<A::Encoding as Encoding>::Array>::try_from(self.as_super().inner())
+        self.as_super()
+            .inner()
+            .as_any()
+            .downcast_ref::<<A::Encoding as Encoding>::Array>()
             .vortex_expect("Failed to downcast array")
     }
 }

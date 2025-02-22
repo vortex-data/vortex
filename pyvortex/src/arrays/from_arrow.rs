@@ -9,7 +9,7 @@ use vortex::arrays::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::{ArrayRef, IntoArray};
+use vortex::{Array, ArrayRef, TryIntoArray};
 
 use crate::arrays::PyArray;
 
@@ -49,7 +49,7 @@ pub(super) fn from_arrow<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Py
         let chunks = array_stream
             .into_iter()
             .map(|b| b.map_err(VortexError::ArrowError))
-            .map(|b| b.and_then(ArrayRef::try_from))
+            .map(|b| b.and_then(|b| b.try_into_array()))
             .collect::<VortexResult<Vec<_>>>()?;
         PyArray::init(obj.py(), ChunkedArray::try_new(chunks, dtype)?.into_array())
     } else {
