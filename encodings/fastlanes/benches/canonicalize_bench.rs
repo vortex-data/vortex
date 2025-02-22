@@ -26,7 +26,7 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
-fn into_canonical_non_nullable(
+fn to_canonical_non_nullable(
     bencher: Bencher,
     (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
 ) {
@@ -83,7 +83,7 @@ const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = &[
 ];
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
-fn into_canonical_nullable(
+fn to_canonical_nullable(
     bencher: Bencher,
     (chunk_len, chunk_count, fraction_patched): (usize, usize, f64),
 ) {

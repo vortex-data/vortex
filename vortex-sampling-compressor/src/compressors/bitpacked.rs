@@ -72,7 +72,7 @@ impl EncodingCompressor for BitPackedCompressor {
             }
         }
 
-        let bit_width = self.find_bit_width(&parray).ok()?;
+        let bit_width = self.find_bit_width(parray).ok()?;
 
         // Check that the bit width is less than the type's bit width
         if bit_width == parray.ptype().bit_width() as u8 {

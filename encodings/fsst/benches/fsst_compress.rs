@@ -112,7 +112,7 @@ fn chunked_append_to_builder(
 }
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
-fn chunked_into_canonical(
+fn chunked_to_canonical(
     bencher: Bencher,
     (chunk_size, string_count, avg_len, unique_chars): (usize, usize, usize, u8),
 ) {

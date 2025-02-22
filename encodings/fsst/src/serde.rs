@@ -6,7 +6,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::array::{SYMBOLS_DTYPE, SYMBOL_LENS_DTYPE};
 use crate::{FSSTArray, FSSTEncoding};
@@ -31,7 +31,7 @@ impl ArrayVisitorImpl<SerdeMetadata<FSSTMetadata>> for FSSTArray {
             symbols_len: self.symbols().len(),
             codes_nullability: self.codes().dtype().nullability(),
             uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
-                .expect("Must be a valid PType"),
+                .vortex_expect("Must be a valid PType"),
         })
     }
 }

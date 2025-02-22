@@ -18,7 +18,7 @@ pub trait ToArrowFn<A> {
     /// Convert the array to an Arrow array of the given type.
     ///
     /// Implementation can return None if the conversion cannot be specialized by this encoding.
-    /// In this case, the default conversion via `into_canonical` will be used.
+    /// In this case, the default conversion via `to_canonical` will be used.
     fn to_arrow(&self, array: A, data_type: &DataType) -> VortexResult<Option<ArrowArrayRef>>;
 }
 

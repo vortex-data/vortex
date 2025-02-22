@@ -92,7 +92,7 @@ fn test_fsst_array_ops() {
         "They said it existed and that whoever dared to exceed it was mercilessly struck down"
     );
 
-    // test into_canonical
+    // test to_canonical
     let canonical_array = fsst_array.to_varbinview().unwrap().into_array();
 
     assert_eq!(canonical_array.len(), fsst_array.len());

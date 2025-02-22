@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn test_into_canonical() {
+    fn test_to_canonical() {
         let (chunked_arr, data) = make_data_chunked();
 
         let mut builder =

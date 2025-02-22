@@ -6,7 +6,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{RunEndArray, RunEndEncoding};
 
@@ -25,7 +25,7 @@ impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
 
     fn _metadata(&self) -> SerdeMetadata<RunEndMetadata> {
         SerdeMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(self.ends().dtype()).expect("Must be a valid PType"),
+            ends_ptype: PType::try_from(self.ends().dtype()).vortex_expect("Must be a valid PType"),
             num_runs: self.ends().len(),
             offset: self.offset(),
         })

@@ -1,4 +1,3 @@
-use rkyv;
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{

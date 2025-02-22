@@ -5,7 +5,7 @@ use rand::prelude::{SliceRandom, StdRng};
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
