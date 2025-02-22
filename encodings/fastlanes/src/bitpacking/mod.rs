@@ -13,7 +13,7 @@ use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl,
     ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId,
+    EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
@@ -42,16 +42,7 @@ pub struct BitPackedEncoding;
 impl Encoding for BitPackedEncoding {
     const ID: EncodingId = EncodingId::new("fastlanes.bitpacked", encoding_ids::FL_BITPACKED);
     type Array = BitPackedArray;
-    type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[repr(C)]
-pub struct BitPackedMetadata {
-    validity: ValidityMetadata,
-    bit_width: u8,
-    offset: u16, // must be <1024
-    patches: Option<PatchesMetadata>,
+    type Metadata = RkyvMetadata<BitPackedMetadata>;
 }
 
 /// NB: All non-null values in the patches array are considered patches
@@ -292,16 +283,6 @@ impl ArrayValidityImpl for BitPackedArray {
 impl ArrayVariantsImpl for BitPackedArray {
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         Some(self)
-    }
-}
-
-impl ArrayVisitorImpl for BitPackedArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(self.packed())?;
-        if let Some(patches) = self.patches() {
-            visitor.visit_patches(patches)?;
-        }
-        visitor.visit_validity(self.validity())
     }
 }
 

@@ -59,3 +59,24 @@ impl SerdeVTable<&DictArray> for DictEncoding {
         Ok(DictArray::try_new(codes, values)?.into_array())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_harness::check_metadata;
+    use vortex_array::RkyvMetadata;
+    use vortex_dtype::PType;
+
+    use crate::serde::DictMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_dict_metadata() {
+        check_metadata(
+            "dict.metadata",
+            RkyvMetadata(DictMetadata {
+                codes_ptype: PType::U64,
+                values_len: usize::MAX,
+            }),
+        );
+    }
+}

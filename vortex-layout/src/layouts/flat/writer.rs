@@ -1,6 +1,5 @@
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Stat, STATS_TO_WRITE};
-use vortex_array::visitor::ArrayVisitorExt;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};

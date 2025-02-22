@@ -9,11 +9,13 @@ use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, EmptyMetadata, Encoding, EncodingId,
+    ArrayVariantsImpl, Encoding, EncodingId, RkyvMetadata,
 };
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
+
+use crate::serde::DateTimePartsMetadata;
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsArray {
@@ -28,7 +30,7 @@ pub struct DateTimePartsEncoding;
 impl Encoding for DateTimePartsEncoding {
     const ID: EncodingId = EncodingId::new("vortex.datetimeparts", encoding_ids::DATE_TIME_PARTS);
     type Array = DateTimePartsArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = RkyvMetadata<DateTimePartsMetadata>;
 }
 
 impl DateTimePartsArray {

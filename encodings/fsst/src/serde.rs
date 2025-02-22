@@ -73,3 +73,25 @@ impl SerdeVTable<&FSSTArray> for FSSTEncoding {
         )
     }
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
+    use vortex_dtype::{Nullability, PType};
+
+    use crate::serde::FSSTMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_fsst_metadata() {
+        check_metadata(
+            "fsst.metadata",
+            SerdeMetadata(FSSTMetadata {
+                symbols_len: usize::MAX,
+                codes_nullability: Nullability::Nullable,
+                uncompressed_lengths_ptype: PType::U64,
+            }),
+        );
+    }
+}

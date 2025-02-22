@@ -225,26 +225,15 @@ mod test {
     use vortex_array::builders::builder_with_capacity;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, SerdeMetadata, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, RkyvMetadata, SerdeMetadata, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};
     use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
     use vortex_mask::AllOr;
 
-    use crate::{DictArray, DictMetadata};
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_dict_metadata() {
-        check_metadata(
-            "dict.metadata",
-            SerdeMetadata(DictMetadata {
-                codes_ptype: PType::U64,
-                values_len: usize::MAX,
-            }),
-        );
-    }
+    use crate::serde::DictMetadata;
+    use crate::DictArray;
 
     #[test]
     fn nullable_codes_validity() {
