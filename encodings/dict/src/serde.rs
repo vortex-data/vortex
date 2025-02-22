@@ -1,10 +1,9 @@
 use rkyv;
-use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
-    RkyvMetadata, SerdeMetadata,
+    RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};

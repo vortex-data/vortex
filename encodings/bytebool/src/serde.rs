@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
-use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::validity::Validity;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,

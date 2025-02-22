@@ -2,16 +2,14 @@ use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 use arrow_buffer::BooleanBuffer;
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::BoolArray;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::validity::Validity;
 use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;

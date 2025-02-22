@@ -9,8 +9,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
-    ToCanonical,
+    ArrayValidityImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, ToCanonical,
 };
 use vortex_dtype::{
     match_each_integer_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,

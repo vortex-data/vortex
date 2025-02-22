@@ -1,4 +1,3 @@
-use rand::distributions::weighted::alias_method;
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;

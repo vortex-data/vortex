@@ -6,7 +6,6 @@ use vortex_array::compute::{scalar_at, sub_scalar};
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
@@ -36,20 +35,6 @@ impl Encoding for SparseEncoding {
     const ID: EncodingId = EncodingId::new("vortex.sparse", encoding_ids::SPARSE);
     type Array = SparseArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(
-    Debug,
-    Clone,
-    ::serde::Serialize,
-    ::serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-#[repr(C)]
-pub struct SparseMetadata {
-    patches: PatchesMetadata,
 }
 
 impl SparseArray {
@@ -208,14 +193,6 @@ impl ArrayValidityImpl for SparseArray {
         });
 
         Ok(Mask::from_buffer(buffer.finish()))
-    }
-}
-
-impl ArrayVisitorImpl for SparseArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        let fill_value_buffer = self.fill_value.value().to_flexbytes().into_inner();
-        visitor.visit_buffer(&fill_value_buffer)?;
-        visitor.visit_patches(self.patches())
     }
 }
 

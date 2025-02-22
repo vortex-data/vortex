@@ -6,8 +6,8 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, ToCanonical,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingId, ToCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};

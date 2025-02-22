@@ -8,7 +8,6 @@ use vortex_array::compute::{
 };
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
@@ -16,7 +15,7 @@ use vortex_array::{
     EmptyMetadata, Encoding, EncodingId, IntoArray, ToCanonical,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
@@ -38,13 +37,6 @@ impl Encoding for RunEndEncoding {
     const ID: EncodingId = EncodingId::new("vortex.runend", encoding_ids::RUN_END);
     type Array = RunEndArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunEndMetadata {
-    ends_ptype: PType,
-    num_runs: usize,
-    offset: usize,
 }
 
 impl RunEndArray {
@@ -229,13 +221,6 @@ impl ArrayCanonicalImpl for RunEndArray {
             }
             _ => vortex_bail!("Only Primitive and Bool values are supported"),
         }
-    }
-}
-
-impl ArrayVisitorImpl for RunEndArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("ends", self.ends())?;
-        visitor.visit_child("values", self.values())
     }
 }
 

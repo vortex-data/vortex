@@ -1,14 +1,13 @@
 use std::sync::{Arc, RwLock};
 
 use fsst::{Decompressor, Symbol};
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::VarBinEncoding;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId, ToCanonical,
+    ArrayVariantsImpl, EmptyMetadata, Encoding, EncodingId, ToCanonical,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};

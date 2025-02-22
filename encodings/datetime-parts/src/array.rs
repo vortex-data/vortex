@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::stats::StatsSet;
@@ -10,9 +9,9 @@ use vortex_array::variants::ExtensionArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
+    ArrayVariantsImpl, EmptyMetadata, Encoding, EncodingId,
 };
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 

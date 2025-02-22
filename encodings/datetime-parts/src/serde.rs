@@ -1,9 +1,11 @@
-use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
-use vortex_array::{ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, RkyvMetadata};
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_array::{
+    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
+    RkyvMetadata,
+};
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
@@ -43,7 +45,31 @@ impl SerdeVTable<&DateTimePartsArray> for DateTimePartsEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        todo!()
+        if parts.nchildren() != 3 {
+            vortex_bail!(
+                "Expected 3 children for datetime-parts encoding, found {}",
+                parts.nchildren()
+            )
+        }
+
+        let metadata = RkyvMetadata::<DateTimePartsMetadata>::deserialize(parts.metadata())?;
+        let days = parts.child(0).decode(
+            ctx,
+            DType::Primitive(metadata.days_ptype, dtype.nullability()),
+            len,
+        )?;
+        let seconds = parts.child(1).decode(
+            ctx,
+            DType::Primitive(metadata.seconds_ptype, Nullability::NonNullable),
+            len,
+        )?;
+        let subseconds = parts.child(2).decode(
+            ctx,
+            DType::Primitive(metadata.subseconds_ptype, Nullability::NonNullable),
+            len,
+        )?;
+
+        Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
     }
 }
 
