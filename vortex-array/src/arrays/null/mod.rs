@@ -10,7 +10,6 @@ use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,

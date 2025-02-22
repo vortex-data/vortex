@@ -1,7 +1,6 @@
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::visitor::ArrayVisitor;
 use crate::{Array, ArrayRef};
 
 pub trait NBytes: Array {

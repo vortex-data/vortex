@@ -47,7 +47,6 @@ pub mod test_harness;
 mod tree;
 pub mod validity;
 pub mod variants;
-pub mod visitor;
 pub mod vtable;
 
 pub mod flatbuffers {

@@ -12,7 +12,6 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical};
 

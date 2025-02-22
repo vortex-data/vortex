@@ -12,7 +12,6 @@ use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,

@@ -19,7 +19,6 @@ use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::VTableRef;
 use crate::{
     try_from_array_ref, validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,

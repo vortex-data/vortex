@@ -7,7 +7,6 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::arrays::ChunkedEncoding;
 use crate::nbytes::NBytes;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef};
 

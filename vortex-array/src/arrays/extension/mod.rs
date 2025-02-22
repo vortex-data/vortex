@@ -9,7 +9,6 @@ use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::variants::ExtensionArrayTrait;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,

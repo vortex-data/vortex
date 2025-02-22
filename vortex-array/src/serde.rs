@@ -10,7 +10,6 @@ use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::stats::Statistics;
-use crate::visitor::ArrayVisitorExt;
 use crate::{Array, ArrayRef, Context, ContextRef};
 
 /// Options for serializing an array.

@@ -20,7 +20,6 @@ use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::visitor::ArrayVisitor;
 use crate::{Array, ArrayRef, ArrayStatistics, ArrayVariants, EncodingId, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to

@@ -3,7 +3,6 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::serde::ArrayParts;
-use crate::visitor::ArrayVisitor;
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef, ContextRef, Encoding};
 
