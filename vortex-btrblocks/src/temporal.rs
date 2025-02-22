@@ -1,7 +1,7 @@
 //! Specialized compressor for DateTimeParts metadata.
 
 use vortex_array::arrays::TemporalArray;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_datetime_parts::{split_temporal, DateTimePartsArray, TemporalParts};
 use vortex_error::VortexResult;
 
@@ -19,19 +19,19 @@ pub fn compress_temporal(array: TemporalArray) -> VortexResult<ArrayRef> {
     } = split_temporal(array)?;
 
     let days = IntCompressor::compress(
-        &downscale_integer_array(days)?.into_primitive()?,
+        &downscale_integer_array(days)?.to_primitive()?,
         false,
         MAX_CASCADE - 1,
         &[],
     )?;
     let seconds = IntCompressor::compress(
-        &downscale_integer_array(seconds)?.into_primitive()?,
+        &downscale_integer_array(seconds)?.to_primitive()?,
         false,
         MAX_CASCADE - 1,
         &[],
     )?;
     let subseconds = IntCompressor::compress(
-        &downscale_integer_array(subseconds)?.into_primitive()?,
+        &downscale_integer_array(subseconds)?.to_primitive()?,
         false,
         MAX_CASCADE - 1,
         &[],

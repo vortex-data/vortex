@@ -3,14 +3,14 @@ mod stats;
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Deref;
 
 use num_traits::PrimInt;
 pub use stats::IntegerStats;
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray, PrimitiveArray};
 use vortex_array::compute::filter;
+use vortex_array::nbytes::NBytes;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::match_each_integer_ptype;
@@ -79,7 +79,7 @@ impl IntCompressor {
             Ok(output)
         } else {
             log::debug!("resulting tree too large: {}", output.tree_display());
-            Ok(array.deref().clone())
+            Ok(array.to_array())
         }
     }
 }
@@ -269,7 +269,7 @@ impl Scheme for FORScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = for_compress(stats.src.clone())?;
-        let biased = for_array.encoded().into_primitive()?;
+        let biased = for_array.encoded().to_primitive()?;
         let biased_stats = IntegerStats::generate_opts(
             &biased,
             GenerateStatsOptions {
@@ -283,7 +283,7 @@ impl Scheme for FORScheme {
         //  as well.
         let compressed = BitPackingScheme.compress(&biased_stats, is_sample, 0, excludes)?;
 
-        Ok(FoRArray::try_new(compressed, for_array.reference_scalar())?.into_array())
+        Ok(FoRArray::try_new(compressed, for_array.reference_scalar().clone())?.into_array())
     }
 }
 
@@ -336,7 +336,7 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
-        let encoded = zag.encoded().into_primitive()?;
+        let encoded = zag.encoded().to_primitive()?;
 
         // ZigZag should be after Dict, RunEnd or Sparse.
         // We should only do these "container" style compressors once.
@@ -405,7 +405,7 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let packed = bitpack_encode(stats.source().clone(), bw)?;
+        let packed = bitpack_encode(stats.source(), bw)?;
         Ok(packed.into_array())
     }
 }
@@ -491,7 +491,7 @@ impl Scheme for SparseScheme {
             value_indices(top_value, buffer.as_ref(), &mask)
         });
 
-        let non_top_values = filter(stats.src.as_ref(), &non_top_mask)?.into_primitive()?;
+        let non_top_values = filter(&stats.src, &non_top_mask)?.to_primitive()?;
 
         // Compress the values
         let mut new_excludes = vec![SparseScheme.code()];
@@ -517,7 +517,7 @@ impl Scheme for SparseScheme {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        let indices = downscale_integer_array(indices.into_array())?.into_primitive()?;
+        let indices = downscale_integer_array(indices.into_array())?.to_primitive()?;
 
         let compressed_indices = IntCompressor::compress_no_dict(
             &indices,
@@ -621,13 +621,13 @@ impl Scheme for DictScheme {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().into_primitive()?,
+            &dict.codes().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, dict.values())?.into_array())
+        Ok(DictArray::try_new(compressed_codes, dict.values().clone())?.into_array())
     }
 }
 
@@ -696,7 +696,7 @@ impl Scheme for RunEndScheme {
             ends_scheme.compress(&ends_stats, is_sample, allowed_cascading - 1, &new_excludes)?;
 
         let compressed_values = IntCompressor::compress_no_dict(
-            &values.into_primitive()?,
+            &values.to_primitive()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
@@ -740,7 +740,7 @@ mod tests {
             }
         }
 
-        let primitive = codes.freeze().into_array().into_primitive().unwrap();
+        let primitive = codes.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
         log::info!("compressed values: {}", compressed.tree_display());
     }
@@ -766,7 +766,7 @@ mod tests {
             values[random] = 5 * (rng.next_u64() % 100) as i32;
         }
 
-        let array = values.freeze().into_array().into_primitive().unwrap();
+        let array = values.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
         log::info!("WindowName compressed: {}", compressed.tree_display());
     }

@@ -4,7 +4,7 @@ mod stats;
 use vortex_alp::{alp_encode, ALPArray, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
@@ -102,7 +102,7 @@ impl Scheme for UncompressedScheme {
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().clone().into_array())
+        Ok(stats.source().to_array())
     }
 }
 
@@ -209,7 +209,7 @@ impl Scheme for ALPScheme {
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
         let alp = alp_encode(stats.source())?;
-        let alp_ints = alp.encoded().into_primitive()?;
+        let alp_ints = alp.encoded().to_primitive()?;
 
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
@@ -225,7 +225,10 @@ impl Scheme for ALPScheme {
         let compressed_alp_ints =
             IntCompressor::compress(&alp_ints, is_sample, allowed_cascading - 1, &int_excludes)?;
 
-        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches())?.into_array())
+        Ok(
+            ALPArray::try_new(compressed_alp_ints, alp.exponents(), alp.patches().cloned())?
+                .into_array(),
+        )
     }
 }
 
@@ -319,7 +322,7 @@ impl Scheme for DictScheme {
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
-            &dict_array.codes().into_primitive()?,
+            &dict_array.codes().to_primitive()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -338,7 +341,7 @@ impl Scheme for DictScheme {
         )?;
 
         let compressed_values = FloatCompressor::compress(
-            &dict_array.values().into_primitive()?,
+            &dict_array.values().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
             &[DICT_SCHEME],
@@ -419,7 +422,7 @@ mod tests {
             values[i] = (i % 50) as f32;
         }
 
-        let floats = values.into_array().into_primitive().unwrap();
+        let floats = values.into_array().to_primitive().unwrap();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
         println!("compressed: {}", compressed.tree_display())
     }

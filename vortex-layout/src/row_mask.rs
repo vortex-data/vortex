@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::RangeBounds;
 
 use vortex_array::compute::{filter, slice, try_cast};
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};

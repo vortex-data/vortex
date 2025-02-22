@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Deref;
 
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
+use vortex_array::nbytes::NBytes;
 use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
@@ -38,7 +38,7 @@ impl Default for GenerateStatsOptions {
 
 /// Stats for the compressor.
 pub trait CompressorStats: Clone {
-    type ArrayType: Deref<Target = ArrayRef>;
+    type ArrayType: Array;
 
     // Generate with options.
     fn generate(input: &Self::ArrayType) -> Self {
@@ -145,7 +145,7 @@ const MAX_CASCADE: usize = 3;
 ///
 /// Compressors expose a `compress` function.
 pub trait Compressor {
-    type ArrayType: Deref<Target = ArrayRef>;
+    type ArrayType: Array;
     type SchemeType: Scheme<StatsType = Self::StatsType> + ?Sized;
 
     // Stats type instead?
@@ -182,7 +182,7 @@ pub trait Compressor {
             Ok(output)
         } else {
             log::debug!("resulting tree too large: {}", output.tree_display());
-            Ok(array.deref().clone())
+            Ok(array.to_array())
         }
     }
 
@@ -235,7 +235,7 @@ pub struct BtrBlocksCompressor;
 impl BtrBlocksCompressor {
     #[allow(clippy::only_used_in_recursion)]
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        match array.into_canonical()? {
+        match array.to_canonical()? {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
@@ -252,7 +252,7 @@ impl BtrBlocksCompressor {
                     let field = struct_array
                         .maybe_null_field_by_idx(idx)
                         .vortex_expect("field access");
-                    let compressed = self.compress(field)?;
+                    let compressed = self.compress(&field)?;
                     fields.push(compressed);
                 }
 
@@ -260,7 +260,7 @@ impl BtrBlocksCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity(),
+                    struct_array.validity().clone(),
                 )?
                 .into_array())
             }
@@ -269,14 +269,12 @@ impl BtrBlocksCompressor {
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = self.compress(list_array.offsets())?;
 
-                Ok(
-                    ListArray::try_new(
-                        compressed_elems,
-                        compressed_offsets,
-                        list_array.validity(),
-                    )?
-                    .into_array(),
-                )
+                Ok(ListArray::try_new(
+                    compressed_elems,
+                    compressed_offsets,
+                    list_array.validity().clone(),
+                )?
+                .into_array())
             }
             Canonical::VarBinView(strings) => {
                 if strings

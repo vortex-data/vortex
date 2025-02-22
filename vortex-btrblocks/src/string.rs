@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::builders::dict_encode;
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult};
@@ -72,7 +72,7 @@ impl CompressorStats for StringStats {
 
     fn sample_opts(&self, sample_size: u16, sample_count: u16, opts: GenerateStatsOptions) -> Self {
         let sampled = sample(self.src.clone(), sample_size, sample_count)
-            .into_varbinview()
+            .to_varbinview()
             .vortex_expect("varbinview");
 
         Self::generate_opts(&sampled, opts)
@@ -197,7 +197,7 @@ impl Scheme for DictScheme {
         }
 
         // Find best compressor for codes and values separately
-        let downscaled_codes = downscale_integer_array(dict.codes())?.into_primitive()?;
+        let downscaled_codes = downscale_integer_array(dict.codes().to_array())?.to_primitive()?;
         let compressed_codes = IntCompressor::compress(
             &downscaled_codes,
             is_sample,
@@ -208,7 +208,7 @@ impl Scheme for DictScheme {
         // Attempt to compress the values with non-Dict compression.
         // Currently this will only be FSST.
         let compressed_values = StringCompressor::compress(
-            &dict.values().into_varbinview()?,
+            &dict.values().to_varbinview()?,
             is_sample,
             allowed_cascading - 1,
             &[DictScheme.code()],
@@ -243,6 +243,7 @@ impl Scheme for FSSTScheme {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::Array;
     use vortex_dtype::{DType, Nullability};
 
     use crate::string::StringCompressor;
@@ -259,7 +260,10 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        println!("original array: {}", strings.tree_display());
+        println!(
+            "original array: {}",
+            (&strings as &dyn Array).tree_display()
+        );
 
         let compressed = StringCompressor::compress(&strings, false, 3, &[]).unwrap();
 
