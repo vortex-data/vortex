@@ -42,27 +42,27 @@ is an overview:
 * `into_canonical`: decodes the array into a canonical encoding.
 * `into_arrow`: decodes the array into an Arrow array.
 * `metadata`
-    * `validate`: validates the array's metadata buffer.
-    * `display`: returns a human-readable representation of the array metadata.
+  * `validate`: validates the array's metadata buffer.
+  * `display`: returns a human-readable representation of the array metadata.
 * `validity`
-    * `is_valid`: returns whether the element at a given row is valid.
-    * `all_valid`: returns whether all elements are valid.
-    * `invalid_count` returns the number of invalid elements.
-    * `validity_mask`: returns the validity bit-mask for an array, indicating which values are non-null.
+  * `is_valid`: returns whether the element at a given row is valid.
+  * `all_valid`: returns whether all elements are valid.
+  * `invalid_count` returns the number of invalid elements.
+  * `validity_mask`: returns the validity bit-mask for an array, indicating which values are non-null.
 * `compute`: a collection of compute functions vtables.
-    * `filter`: a function for filtering the array using a given selection mask.
-    * ...
+  * `filter`: a function for filtering the array using a given selection mask.
+  * ...
 * `statistics`: a function for computing a statistic for the array data, for example `min`.
 * `variants`: a collection of optional DType-specific functions for operation over the array.
-    * `struct`: functions for operating over arrays with a `StructDType`.
-        * `get_field`: returns the array for a given field of the struct.
-        * ...
+  * `struct`: functions for operating over arrays with a `StructDType`.
+    * `get_field`: returns the array for a given field of the struct.
     * ...
+  * ...
 
 Encoding vtables can even be constructed from non-static sources, such as _WebAssembly_ modules, which enables the
 [forward compatibility](/specs/file-format.md#forward-compatibility) feature of the Vortex File Format.
 
-See the [Writing an Encoding](/rust/writing-an-encoding) guide for more information.
+See the [Writing an Encoding](/guides/writing-an-encoding) guide for more information.
 
 ### Canonical Encodings
 
@@ -132,13 +132,12 @@ alignment sufficient for SIMD unpacking operations.
 Arrays carry their own statistics with them, allowing many compute functions to short-circuit or optimise their
 implementations. Currently, the available statistics are:
 
-- `null_count`: The number of null values in the array.
-- `true_count`: The number of `true` values in a boolean array.
-- `run_count`: The number of consecutive runs in an array.
-- `is_constant`: Whether the array only holds a single unique value
-- `is_sorted`: Whether the array values are sorted.
-- `is_strict_sorted`: Whether the array values are sorted and unique.
-- `min`: The minimum value in the array.
-- `max`: The maximum value in the array.
-- `uncompressed_size`: The size of the array in memory before any compression.
-
+* `null_count`: The number of null values in the array.
+* `true_count`: The number of `true` values in a boolean array.
+* `run_count`: The number of consecutive runs in an array.
+* `is_constant`: Whether the array only holds a single unique value
+* `is_sorted`: Whether the array values are sorted.
+* `is_strict_sorted`: Whether the array values are sorted and unique.
+* `min`: The minimum value in the array.
+* `max`: The maximum value in the array.
+* `uncompressed_size`: The size of the array in memory before any compression.
