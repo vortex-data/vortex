@@ -25,7 +25,7 @@ use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
-use vortex::{ArrayRef, IntoArray};
+use vortex::{Array, ArrayRef, TryIntoArray};
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
@@ -328,7 +328,7 @@ async fn register_vortex_file(
                 record_batches.map(|batch| {
                     batch
                         .map_err(VortexError::from)
-                        .and_then(ArrayRef::try_from)
+                        .and_then(|b| b.try_into_array())
                 }),
             );
 
@@ -418,7 +418,7 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
 
     let chunks = record_batches
         .into_iter()
-        .map(|batch| Array::try_from(batch).unwrap());
+        .map(|batch| batch.try_into_array().unwrap());
 
     ChunkedArray::from_iter(chunks).into_array()
 }

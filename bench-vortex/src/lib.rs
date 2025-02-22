@@ -28,7 +28,7 @@ use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::validity::Validity;
-use vortex::{ContextRef, IntoArray};
+use vortex::{Array, ContextRef, Encoding};
 use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
 
 pub mod bench_run;

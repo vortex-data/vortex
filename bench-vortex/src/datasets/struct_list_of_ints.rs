@@ -4,7 +4,7 @@ use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::validity::Validity;
-use vortex::{Array, IntoArray};
+use vortex::{Array, ArrayRef};
 
 use crate::datasets::BenchmarkDataset;
 
@@ -34,7 +34,7 @@ impl BenchmarkDataset for StructListOfInts {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> Array {
+    async fn to_vortex_array(&self) -> ArrayRef {
         let names: FieldNames = (0..self.num_columns)
             .map(|col_idx| (col_idx.to_string().into()))
             .collect();

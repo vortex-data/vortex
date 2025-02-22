@@ -14,12 +14,15 @@ use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, Str
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{builders, ArrayRef, IntoArray as _, ToCanonical};
+use crate::{builders, Array, ArrayRef, IntoArray as _, ToCanonical};
 
-impl<'a> Arbitrary<'a> for ArrayRef {
+/// A wrapper type to implement `Arbitrary` for `ArrayRef`.
+pub struct ArbitraryArray(pub ArrayRef);
+
+impl<'a> Arbitrary<'a> for ArbitraryArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let dtype = u.arbitrary()?;
-        random_array(u, &dtype, None)
+        random_array(u, &dtype, None).map(ArbitraryArray)
     }
 }
 
@@ -55,7 +58,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     PType::I32 => random_primitive::<i32>(u, *n, chunk_len),
                     PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
                     PType::F16 => Ok(random_primitive::<u16>(u, *n, chunk_len)?
-                        .into_primitive()
+                        .to_primitive()
                         .vortex_unwrap()
                         .reinterpret_cast(PType::F16)
                         .into_array()),
@@ -228,9 +231,7 @@ fn random_bool(
 ) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
-    Ok(BoolArray::try_new(BooleanBuffer::from(v), validity)
-        .vortex_expect("Validity length cannot mismatch")
-        .into_array())
+    Ok(BoolArray::new(BooleanBuffer::from(v), validity).into_array())
 }
 
 fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {

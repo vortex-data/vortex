@@ -18,7 +18,7 @@ use vortex::arrays::ChunkedArray;
 use vortex::error::{vortex_err, VortexExpect, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::TokioFile;
-use vortex::{Array, IntoArray};
+use vortex::{Array, ArrayRef};
 
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
 use crate::datasets::public_bi_data::PBIDataset::*;
@@ -549,7 +549,7 @@ impl BenchmarkDataset for PBIDataset {
         self.dataset_name()
     }
 
-    async fn to_vortex_array(&self) -> Array {
+    async fn to_vortex_array(&self) -> ArrayRef {
         self.write_as_vortex().await;
 
         let arrays = stream::iter(self.list_files(FileType::Vortex))

@@ -12,6 +12,7 @@ use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::aliases::hash_set::HashSet;
+use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::ListEncoding;
 use vortex_array::compute::{scalar_at, SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, ArrayVisitorExt, Encoding, EncodingId, IntoArray};
@@ -65,7 +66,7 @@ pub enum Action {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        let array = ArrayRef::arbitrary(u)?;
+        let array = ArbitraryArray::arbitrary(u)?.0;
         let mut current_array = array.to_array();
 
         let valid_actions = actions_for_array(&current_array);
