@@ -22,7 +22,7 @@ pub trait SerdeVTable<Array> {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: ContextRef,
+        ctx: &ContextRef,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
@@ -52,7 +52,7 @@ where
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: ContextRef,
+        ctx: &ContextRef,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

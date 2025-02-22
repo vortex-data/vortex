@@ -153,7 +153,7 @@ impl Stream for RowIndicesStream {
         // Since this is a one-shot, we only want to poll the inner future once, to create the
         // initial batch for us to process.
         let vortex_struct = next_chunk
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("Not a struct array"))?
             .project(&this.filter_projection)?;
 

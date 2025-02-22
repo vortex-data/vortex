@@ -237,7 +237,7 @@ async fn unequal_batches() {
         item_count += array.len();
 
         let numbers = array
-            .as_struct_array()
+            .as_struct_typed()
             .unwrap()
             .maybe_null_field_by_name("numbers");
 
@@ -334,7 +334,7 @@ async fn filter_string() {
 
     assert_eq!(result.len(), 1);
     let names = result[0]
-        .as_struct_array()
+        .as_struct_typed()
         .unwrap()
         .maybe_null_field_by_idx(0)
         .unwrap();
@@ -350,7 +350,7 @@ async fn filter_string() {
         vec!["Joseph".to_string()]
     );
     let ages = result[0]
-        .as_struct_array()
+        .as_struct_typed()
         .unwrap()
         .maybe_null_field_by_idx(1)
         .unwrap();
@@ -399,7 +399,7 @@ async fn filter_or() {
 
     assert_eq!(result.len(), 1);
     let names = result[0]
-        .as_struct_array()
+        .as_struct_typed()
         .unwrap()
         .maybe_null_field_by_idx(0)
         .unwrap();
@@ -415,7 +415,7 @@ async fn filter_or() {
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
     let ages = result[0]
-        .as_struct_array()
+        .as_struct_typed()
         .unwrap()
         .maybe_null_field_by_idx(1)
         .unwrap();
@@ -467,7 +467,7 @@ async fn filter_and() {
 
     assert_eq!(result.len(), 1);
     let names = result[0]
-        .as_struct_array()
+        .as_struct_typed()
         .unwrap()
         .maybe_null_field_by_idx(0)
         .unwrap();
@@ -482,7 +482,7 @@ async fn filter_and() {
         vec![Some("Joseph".to_string()), None]
     );
     let ages = result[0]
-        .as_struct_array()
+        .as_struct_typed()
         .unwrap()
         .maybe_null_field_by_idx(1)
         .unwrap();

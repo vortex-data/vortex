@@ -24,7 +24,7 @@ impl ExprEvaluator for FlatReader {
 
         // Slice the array based on the row mask.
         if begin > 0 || (begin + row_mask.len()) < array.len() {
-            array = slice(array, begin, begin + row_mask.len())?;
+            array = slice(&array, begin, begin + row_mask.len())?;
         }
 
         // Filter the array based on the row mask.
@@ -54,7 +54,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
 
@@ -81,7 +81,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
@@ -108,7 +108,7 @@ mod test {
                 .unwrap();
 
             assert_eq!(
-                BooleanBuffer::from_iter([false, false, false, true, true]),
+                &BooleanBuffer::from_iter([false, false, false, true, true]),
                 result.boolean_buffer()
             );
         })
@@ -129,7 +129,7 @@ mod test {
                 .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(result.as_slice::<i32>(), &[3, 4],);

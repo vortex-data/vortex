@@ -22,7 +22,7 @@ impl BenchmarkDataset for TPCHLCommentChunked {
         let lineitem_chunked = ChunkedArray::maybe_from(lineitem_vortex).unwrap();
         let comment_chunks = lineitem_chunked.chunks().map(|chunk| {
             chunk
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .project(&[FieldName::from("l_comment")])
                 .unwrap()

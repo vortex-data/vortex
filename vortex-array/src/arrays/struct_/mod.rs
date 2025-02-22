@@ -208,12 +208,12 @@ impl ArrayValidityImpl for StructArray {
 
 impl ArrayVisitorImpl for StructArray {
     fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_validity(self.validity())?;
+
         for (idx, name) in self.names().iter().enumerate() {
             let child = self.maybe_null_field_by_idx(idx)?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
-
-        visitor.visit_validity(self.validity())?;
 
         Ok(())
     }

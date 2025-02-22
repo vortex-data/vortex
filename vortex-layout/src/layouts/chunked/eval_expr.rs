@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
@@ -73,7 +73,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
@@ -119,7 +119,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(result.len(), 9);

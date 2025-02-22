@@ -6,7 +6,7 @@ use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_array::{ArrayRef, ContextRef};
+use vortex_array::{Array, ArrayRef, ContextRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath};
 use vortex_error::{vortex_err, ResultExt, VortexExpect, VortexResult};
@@ -279,7 +279,7 @@ impl<D: ScanDriver> Scan<D> {
                         let mut array = reader.evaluate_expr(row_mask, projection).await?;
                         if self.canonicalize {
                             let mut builder = builder_with_capacity(array.dtype(), array.len());
-                            array.canonicalize_into(builder.as_mut())?;
+                            array.append_to_builder(builder.as_mut())?;
                             array = builder.finish();
                         }
                         VortexResult::Ok(Some(array))

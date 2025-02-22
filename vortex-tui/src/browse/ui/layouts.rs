@@ -128,7 +128,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
-        let struct_array = array.as_struct_array().vortex_expect("stats table");
+        let struct_array = array.as_struct_typed().vortex_expect("stats table");
         // add 1 for the chunk column
         let field_count = struct_array.nfields() + 1;
         let header = std::iter::once("chunk")

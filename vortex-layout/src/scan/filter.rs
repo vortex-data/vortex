@@ -114,7 +114,11 @@ impl FilterExpr {
     ///
     /// If we already have fields for a certain conjunct, we choose to evaluate it. Otherwise,
     /// we pick the first conjunct that we prefer based on our ordering.
-    fn next_conjunct(&self, remaining: &BitVec, fetched_fields: &[Option<ArrayRef>]) -> Option<usize> {
+    fn next_conjunct(
+        &self,
+        remaining: &BitVec,
+        fetched_fields: &[Option<ArrayRef>],
+    ) -> Option<usize> {
         let read = self.ordering.read().vortex_expect("poisoned lock");
 
         // First try to find a conjunct that we've already fetched fields for.
@@ -289,7 +293,8 @@ impl FilterEvaluation {
                     .evaluate_expr(RowMask::new(self.mask.clone(), self.row_offset), conjunct)
                     .await?;
                 // Use a rank-intersection to explode the result into the full mask.
-                self.mask.intersect_by_rank(&Mask::try_from(result)?)
+                self.mask
+                    .intersect_by_rank(&Mask::try_from(result.as_ref())?)
             } else {
                 let result = evaluator
                     .evaluate_expr(
@@ -297,7 +302,7 @@ impl FilterEvaluation {
                         conjunct.clone(),
                     )
                     .await?;
-                let conjunct_mask = Mask::try_from(result)?;
+                let conjunct_mask = Mask::try_from(result.as_ref())?;
 
                 log::debug!(
                     "Reporting selectivity {} for {}..{} {}",

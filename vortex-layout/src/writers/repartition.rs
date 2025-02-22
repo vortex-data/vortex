@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::nbytes::NBytes;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -82,7 +83,7 @@ impl RepartitionWriter {
             // Combine the chunks to and flush them to the layout.
             assert!(!chunks.is_empty());
             let chunk = ChunkedArray::new_unchecked(chunks, self.dtype.clone())
-                .into_canonical()?
+                .to_canonical()?
                 .into_array();
 
             self.writer.push_chunk(segments, chunk)?;
@@ -99,7 +100,7 @@ impl LayoutWriter for RepartitionWriter {
         chunk: ArrayRef,
     ) -> VortexResult<()> {
         // We make sure the chunks are canonical so our nbytes measurement is accurate.
-        let chunk = chunk.into_canonical()?.into_array();
+        let chunk = chunk.to_canonical()?.into_array();
 
         // Split chunks into 8192 blocks to make sure we don't over-size them.
         let mut offset = 0;
@@ -120,7 +121,7 @@ impl LayoutWriter for RepartitionWriter {
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let chunk =
             ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
-                .into_canonical()?
+                .to_canonical()?
                 .into_array();
         self.writer.push_chunk(segments, chunk)?;
         self.writer.finish(segments)

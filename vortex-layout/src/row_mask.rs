@@ -89,7 +89,7 @@ impl RowMask {
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
 
         let indices =
-            try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
+            try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.to_primitive()?;
 
         let mask = Mask::from_indices(
             length,
@@ -198,7 +198,7 @@ impl RowMask {
         };
 
         if true_count == sliced.len() {
-            return Ok(Some(sliced.clone()));
+            return Ok(Some(sliced.to_array()));
         }
 
         filter(sliced, &self.mask).map(Some)
@@ -227,7 +227,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::IntoArray;
     use vortex_buffer::{buffer, Buffer};
     use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
@@ -290,9 +290,9 @@ mod tests {
             0,
         );
         let array = Buffer::from_iter(0..20).into_array();
-        let filtered = mask.filter_array(array).unwrap().unwrap();
+        let filtered = mask.filter_array(&array).unwrap().unwrap();
         assert_eq!(
-            filtered.into_primitive().unwrap().as_slice::<i32>(),
+            filtered.to_primitive().unwrap().as_slice::<i32>(),
             (5..10).collect::<Vec<_>>()
         );
     }

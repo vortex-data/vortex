@@ -13,7 +13,7 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: ContextRef,
+        ctx: &ContextRef,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
@@ -27,7 +27,7 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
         // The first child contains the row offsets of the chunks
         let chunk_offsets = children[0]
             .decode(
-                ctx.clone(),
+                ctx,
                 DType::Primitive(PType::U64, Nullability::NonNullable),
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
@@ -43,7 +43,7 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
             .map(|(idx, (start, end))| {
                 let chunk_len =
                     usize::try_from(end - start).vortex_expect("chunk length exceeds usize");
-                children[idx + 1].decode(ctx.clone(), dtype.clone(), chunk_len)
+                children[idx + 1].decode(ctx, dtype.clone(), chunk_len)
             })
             .try_collect()?;
 

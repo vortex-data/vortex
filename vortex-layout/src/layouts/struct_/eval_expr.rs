@@ -3,7 +3,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
@@ -81,7 +81,7 @@ mod tests {
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructDType};
@@ -116,7 +116,7 @@ mod tests {
         )
         .push_all(
             &mut segments,
-            [StructArray::from_fields(
+            [Ok(StructArray::from_fields(
                 [
                     ("a", buffer![7, 2, 3].into_array()),
                     ("b", buffer![4, 5, 6].into_array()),
@@ -124,7 +124,8 @@ mod tests {
                 ]
                 .as_slice(),
             )
-            .map(IntoArray::into_array)],
+            .unwrap()
+            .into_array())],
         )
         .unwrap();
         (Arc::new(segments), layout)
@@ -192,11 +193,11 @@ mod tests {
 
         assert_eq!(
             result
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .maybe_null_field_by_name("a")
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap()
                 .as_slice::<i32>(),
             [7, 2].as_slice()
@@ -204,11 +205,11 @@ mod tests {
 
         assert_eq!(
             result
-                .as_struct_array()
+                .as_struct_typed()
                 .unwrap()
                 .maybe_null_field_by_name("b")
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5].as_slice()

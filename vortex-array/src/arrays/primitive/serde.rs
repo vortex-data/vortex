@@ -12,7 +12,7 @@ impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: ContextRef,
+        ctx: &ContextRef,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

@@ -11,7 +11,7 @@ use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuff
 
 use crate::stats::Statistics;
 use crate::visitor::ArrayVisitorExt;
-use crate::{Array, ArrayRef, ContextRef};
+use crate::{Array, ArrayRef, Context, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -125,16 +125,6 @@ impl dyn Array + '_ {
 
         buffers
     }
-
-    /// Deserialize an array from a [`ByteBuffer`].
-    fn deserialize(
-        bytes: ByteBuffer,
-        ctx: ContextRef,
-        dtype: DType,
-        length: usize,
-    ) -> VortexResult<ArrayRef> {
-        ArrayParts::try_from(bytes)?.decode(ctx, dtype, length)
-    }
 }
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
@@ -236,7 +226,7 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(&self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+    pub fn decode(&self, ctx: &ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
         let encoding_id = self.flatbuffer_root().encoding();
         let vtable = ctx
             .lookup_encoding(encoding_id)

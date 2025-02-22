@@ -58,8 +58,12 @@ impl FileStatsLayoutWriter {
 }
 
 impl LayoutWriter for FileStatsLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()> {
-        match chunk.as_struct_array() {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
+        match chunk.as_struct_typed() {
             None => {
                 self.stats_accumulators[0].push_chunk(&chunk)?;
             }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_once_cell::OnceCell;
+use vortex_array::serde::ArrayParts;
 use vortex_array::{ArrayRef, ContextRef};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
@@ -36,8 +37,8 @@ impl FlatReader {
         })
     }
 
-    pub(crate) fn ctx(&self) -> ContextRef {
-        self.ctx.clone()
+    pub(crate) fn ctx(&self) -> &ContextRef {
+        &self.ctx
     }
 
     pub(crate) async fn array(&self) -> VortexResult<&ArrayRef> {
@@ -59,7 +60,7 @@ impl FlatReader {
                 let row_count = usize::try_from(self.layout().row_count())
                     .vortex_expect("FlatLayout row count does not fit within usize");
 
-                ArrayRef::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)
+                ArrayParts::try_from(buffer)?.decode(self.ctx(), self.dtype().clone(), row_count)
             })
             .await
     }
