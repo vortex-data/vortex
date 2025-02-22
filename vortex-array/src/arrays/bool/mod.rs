@@ -126,7 +126,7 @@ mod tests {
             PrimitiveArray::new(buffer![4u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
-        let arr = arr.patch(patches).unwrap();
+        let arr = arr.patch(&patches).unwrap();
         let arr_len = arr.len();
         let (values, offset) = arr.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
@@ -165,7 +165,7 @@ mod tests {
             PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
-        let arr = arr.patch(patches).unwrap();
+        let arr = arr.patch(&patches).unwrap();
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
         let (values, _byte_bit_offset) = arr.to_bool().unwrap().into_boolean_builder();

@@ -147,7 +147,7 @@ pub struct ArrayNodeFlatBuffer<'a> {
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(array: &dyn Array) -> Self {
+    pub fn new(array: &'a dyn Array) -> Self {
         Self {
             array,
             buffer_idx: 0,
@@ -196,7 +196,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.stats_set().write_flatbuffer(fbb));
+        let stats = Some(self.array.statistics().stats_set().write_flatbuffer(fbb));
 
         fba::ArrayNode::create(
             fbb,

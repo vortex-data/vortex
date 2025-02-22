@@ -16,6 +16,7 @@ use crate::{
     Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 mod compute;
+mod serde;
 
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {

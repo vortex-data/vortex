@@ -12,8 +12,8 @@ use crate::{
 impl SerdeVTable<ChunkedArray> for ChunkedEncoding {
     fn decode(
         &self,
+        parts: &ArrayParts,
         ctx: ContextRef,
-        parts: ArrayParts,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
@@ -48,6 +48,6 @@ impl SerdeVTable<ChunkedArray> for ChunkedEncoding {
             .try_collect()?;
 
         // Unchecked because we just created each chunk with the same DType.
-        Ok(ChunkedArray::try_new_unchecked(chunks, dtype)?.into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
 }

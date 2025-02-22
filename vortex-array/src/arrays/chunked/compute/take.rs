@@ -54,7 +54,7 @@ impl TakeFn<&ChunkedArray> for ChunkedEncoding {
             chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
         }
 
-        Ok(ChunkedArray::try_new_unchecked(chunks, array.dtype().clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 }
 

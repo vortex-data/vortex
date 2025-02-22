@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display};
 use std::sync::{Arc, RwLock};
 
+use ::serde::{Deserialize, Serialize};
 pub use compute::compute_min_max;
 use num_traits::{AsPrimitive, PrimInt};
-use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
@@ -33,6 +33,7 @@ mod accessor;
 pub mod builder;
 mod canonical;
 mod compute;
+mod serde;
 mod stats;
 mod variants;
 

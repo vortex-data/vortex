@@ -1,11 +1,11 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::serde::ArrayParts;
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef, ContextRef, Encoding};
 
-pub trait SerdeVTable<A> {
+pub trait SerdeVTable<A: ?Sized> {
     /// Encode an array into an [`ArrayParts`],
     fn encode(&self, array: &A) -> VortexResult<ArrayParts> {
         vortex_bail!("Encoding not supported for encoding")
@@ -23,12 +23,18 @@ pub trait SerdeVTable<A> {
     }
 }
 
-impl<'a, E: Encoding> SerdeVTable<&'a dyn Array> for E
+impl<E: Encoding> SerdeVTable<dyn Array> for E
 where
-    E: SerdeVTable<&'a E::Array>,
+    E: SerdeVTable<E::Array>,
 {
-    fn encode(&self, array: &&'a dyn Array) -> VortexResult<ArrayParts> {
-        self.encode(array.downcast_ref::<E::Array>().unwrap())
+    fn encode(&self, array: &dyn Array) -> VortexResult<ArrayParts> {
+        SerdeVTable::encode(
+            self,
+            array
+                .as_any()
+                .downcast_ref::<E::Array>()
+                .vortex_expect("Failed to downcast array"),
+        )
     }
 
     fn decode(
@@ -38,6 +44,6 @@ where
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        self.decode(parts, ctx, dtype, len)
+        <E as SerdeVTable<E::Array>>::decode(self, parts, ctx, dtype, len)
     }
 }

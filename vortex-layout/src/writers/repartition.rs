@@ -81,7 +81,7 @@ impl RepartitionWriter {
 
             // Combine the chunks to and flush them to the layout.
             assert!(!chunks.is_empty());
-            let chunk = ChunkedArray::try_new_unchecked(chunks, self.dtype.clone())
+            let chunk = ChunkedArray::new_unchecked(chunks, self.dtype.clone())
                 .into_canonical()?
                 .into_array();
 
@@ -119,7 +119,7 @@ impl LayoutWriter for RepartitionWriter {
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout> {
         let chunk =
-            ChunkedArray::try_new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
+            ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
                 .into_canonical()?
                 .into_array();
         self.writer.push_chunk(segments, chunk)?;

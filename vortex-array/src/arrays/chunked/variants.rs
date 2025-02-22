@@ -101,7 +101,7 @@ impl StructArrayTrait for ChunkedArray {
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?
             .project(projection)?;
-        Ok(ChunkedArray::try_new_unchecked(
+        Ok(ChunkedArray::new_unchecked(
             chunks,
             DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
         )
@@ -113,7 +113,7 @@ impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
     fn storage_data(&self) -> ArrayRef {
-        ChunkedArray::try_new_unchecked(
+        ChunkedArray::new_unchecked(
             self.chunks()
                 .iter()
                 .map(|chunk| {

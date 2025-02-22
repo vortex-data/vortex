@@ -7,7 +7,7 @@ use crate::{Array, ArrayRef, IntoArray};
 
 impl FillNullFn<&ChunkedArray> for ChunkedEncoding {
     fn fill_null(&self, array: &ChunkedArray, fill_value: Scalar) -> VortexResult<ArrayRef> {
-        Ok(ChunkedArray::try_new_unchecked(
+        Ok(ChunkedArray::new_unchecked(
             array
                 .chunks()
                 .iter()

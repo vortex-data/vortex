@@ -25,7 +25,7 @@ impl FilterFn<&ChunkedArray> for ChunkedEncoding {
             MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
         }?;
 
-        Ok(ChunkedArray::try_new_unchecked(chunks, array.dtype().clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 }
 

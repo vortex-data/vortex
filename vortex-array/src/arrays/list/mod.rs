@@ -1,12 +1,13 @@
 mod compute;
+mod serde;
 
 use std::fmt::Display;
 use std::sync::{Arc, RwLock};
 
+use ::serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};

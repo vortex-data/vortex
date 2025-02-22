@@ -18,6 +18,7 @@ use crate::{
 };
 
 mod compute;
+mod serde;
 
 #[derive(Clone, Debug)]
 pub struct NullArray {

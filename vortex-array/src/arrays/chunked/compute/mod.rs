@@ -79,7 +79,7 @@ impl CastFn<&ChunkedArray> for ChunkedEncoding {
             cast_chunks.push(try_cast(chunk, dtype)?);
         }
 
-        Ok(ChunkedArray::try_new_unchecked(cast_chunks, dtype.clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array())
     }
 }
 

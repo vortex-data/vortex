@@ -31,6 +31,7 @@ use crate::{
 
 mod accessor;
 mod compute;
+mod serde;
 mod stats;
 mod variants;
 

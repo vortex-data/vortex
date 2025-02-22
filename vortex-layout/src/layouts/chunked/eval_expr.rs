@@ -11,7 +11,11 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for ChunkedReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayRef> {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayRef> {
         // Compute the result dtype of the expression.
         let dtype = expr.return_dtype(self.dtype())?;
 
@@ -44,7 +48,7 @@ impl ExprEvaluator for ChunkedReader {
         }
 
         let chunks = try_join_all(chunks).await?;
-        Ok(ChunkedArray::try_new_unchecked(chunks, dtype).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
     }
 
     async fn prune_mask(&self, row_mask: RowMask, _expr: ExprRef) -> VortexResult<RowMask> {

@@ -60,10 +60,10 @@ impl ChunkedArray {
             }
         }
 
-        Ok(Self::try_new_unchecked(chunks, dtype))
+        Ok(Self::new_unchecked(chunks, dtype))
     }
 
-    pub fn try_new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
+    pub fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 
         let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
@@ -152,7 +152,7 @@ impl ChunkedArray {
                 && !chunks_to_combine.is_empty()
             {
                 new_chunks.push(
-                    ChunkedArray::try_new_unchecked(chunks_to_combine, self.dtype().clone())
+                    ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
                         .to_canonical()?
                         .into_array(),
                 );
@@ -173,13 +173,13 @@ impl ChunkedArray {
 
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
-                ChunkedArray::try_new_unchecked(chunks_to_combine, self.dtype().clone())
+                ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
                     .to_canonical()?
                     .into_array(),
             );
         }
 
-        Ok(Self::try_new_unchecked(new_chunks, self.dtype().clone()))
+        Ok(Self::new_unchecked(new_chunks, self.dtype().clone()))
     }
 }
 

@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
+use ::serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
@@ -19,6 +19,7 @@ use crate::{
     Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 mod compute;
+mod serde;
 
 #[derive(Clone, Debug)]
 pub struct StructArray {
