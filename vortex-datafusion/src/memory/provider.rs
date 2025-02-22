@@ -15,7 +15,7 @@ use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::infer_schema;
-use vortex_array::ArrayRef;
+use vortex_array::{ArrayExt, ArrayRef};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::ExprRef;
@@ -44,8 +44,8 @@ impl VortexMemTable {
         let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
-        let array = match ChunkedArray::try_from(array.to_array()) {
-            Ok(a) => a,
+        let array = match array.maybe_as::<ChunkedArray>() {
+            Some(a) => a.clone(),
             _ => {
                 let dtype = array.dtype().clone();
                 ChunkedArray::try_new(vec![array], dtype)
@@ -100,7 +100,7 @@ impl TableProvider for VortexMemTable {
                 make_filter_then_take_plan(
                     self.schema_ref.clone(),
                     filter_expr,
-                    self.array.to_array(),
+                    self.array.clone(),
                     output_projection,
                     state,
                 )
@@ -124,7 +124,7 @@ impl TableProvider for VortexMemTable {
                 );
 
                 Ok(Arc::new(VortexScanExec::try_new(
-                    self.array.to_array(),
+                    self.array.clone(),
                     output_projection,
                     plan_properties,
                 )?))
@@ -163,13 +163,16 @@ fn make_filter_then_take_plan(
     output_projection: Vec<usize>,
     _session_state: &dyn Session,
 ) -> DFResult<Arc<dyn ExecutionPlan>> {
-    let row_selector_op = Arc::new(RowSelectorExec::try_new(filter_expr, &chunked_array)?);
+    let row_selector_op = Arc::new(RowSelectorExec::try_new(
+        filter_expr,
+        chunked_array.clone(),
+    )?);
 
     Ok(Arc::new(TakeRowsExec::new(
         schema,
         &output_projection,
         row_selector_op,
-        &chunked_array,
+        chunked_array,
     )))
 }
 
@@ -183,7 +186,7 @@ mod test {
     use datafusion_common::{Column, TableReference};
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
     use vortex_array::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex_array::{ArrayRef, IntoArray};
+    use vortex_array::{Array, ArrayRef};
 
     use crate::{can_be_pushed_down, SessionContextExt as _};
 

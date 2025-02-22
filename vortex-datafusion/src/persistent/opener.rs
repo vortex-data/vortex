@@ -103,7 +103,7 @@ impl FileOpener for VortexFileOpener {
                 .with_task_executor(executor)
                 .into_array_stream()?
                 .map(move |array| {
-                    let st = array?.into_struct()?;
+                    let st = array?.to_struct()?;
                     Ok(st.into_record_batch_with_schema(projected_arrow_schema.as_ref())?)
                 })
                 .boxed())

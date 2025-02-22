@@ -10,8 +10,9 @@ use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use url::Url;
 use vortex_array::arrays::{ChunkedArray, StructArray, VarBinArray};
+use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::validity::Validity;
-use vortex_array::IntoArray;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::buffer;
 use vortex_datafusion::persistent::VortexFormat;
 use vortex_error::vortex_err;
@@ -49,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     VortexWriteOptions::default()
-        .write(f, st.into_array().into_array_stream())
+        .write(f, st.to_array_stream())
         .await?;
 
     let ctx = SessionContext::new();

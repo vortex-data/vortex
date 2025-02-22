@@ -6,6 +6,7 @@ use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::Array;
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, VortexResult};
 
@@ -107,7 +108,7 @@ impl ExecutionPlan for VortexScanExec {
             schema_ref: self.schema(),
             idx: 0,
             num_chunks: self.array.nchunks(),
-            chunks: self.array.to_array(),
+            chunks: self.array.clone(),
             projection: self.scan_projection.iter().cloned().collect(),
         }))
     }
