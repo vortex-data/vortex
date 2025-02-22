@@ -9,7 +9,9 @@ mod array;
 pub mod compute;
 mod encoding;
 mod patch;
+mod serde;
 mod stats;
+
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};

@@ -17,5 +17,3 @@ impl Encoding for BoolEncoding {
     type Array = BoolArray;
     type Metadata = EmptyMetadata;
 }
-
-impl SerdeVTable<&BoolArray> for BoolEncoding {}

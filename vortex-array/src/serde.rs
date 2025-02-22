@@ -263,6 +263,16 @@ impl ArrayParts {
             .map_or(0, |children| children.len())
     }
 
+    /// Returns the nth child of the array.
+    pub fn child(&self, idx: usize) -> ArrayParts {
+        self.with_root(
+            self.flatbuffer_root()
+                .children()
+                .vortex_expect("Expected array to have children")
+                .get(idx),
+        )
+    }
+
     /// Iterate the children of this array.
     pub fn children(&self) -> Vec<ArrayParts> {
         self.flatbuffer_root()

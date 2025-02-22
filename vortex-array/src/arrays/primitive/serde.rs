@@ -24,9 +24,7 @@ impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
         let validity = if parts.nchildren() == 0 {
             Validity::from(dtype.nullability())
         } else if parts.nchildren() == 1 {
-            let validity = parts.children()[0]
-                .clone()
-                .decode(ctx, Validity::DTYPE, len)?;
+            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
