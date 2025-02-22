@@ -23,7 +23,7 @@ use vortex::encodings::sparse::SparseArray;
 use vortex::encodings::zigzag::ZigZagArray;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
-use vortex::{ArrayRef, IntoArray};
+use vortex::{Array, ArrayRef, IntoArray};
 
 fn fsst_array() -> ArrayRef {
     let input_array = varbin_array();

@@ -215,7 +215,7 @@ fn main() {
                     format!("clickbench_{format}_q{query_idx:02}.short.plan",),
                     format!(
                         "{}",
-                        DisplayableExecutionPlan::with_full_metrics(&plan)
+                        DisplayableExecutionPlan::with_full_metrics(plan.as_ref())
                             .set_show_schema(true)
                             .set_show_statistics(true)
                             .indent(true)
