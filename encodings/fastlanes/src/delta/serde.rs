@@ -6,7 +6,7 @@ use vortex_array::{
     RkyvMetadata,
 };
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::{DeltaArray, DeltaEncoding};
 
@@ -55,30 +55,34 @@ impl SerdeVTable<&DeltaArray> for DeltaEncoding {
             );
         };
 
-        let ptype = PType::try_from(dtype.clone())?;
+        let ptype = PType::try_from(&dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |$T| {
             <$T as fastlanes::FastLanes>::LANES
         });
 
         // Compute the length of the bases array
-        let num_chunks = metadata.deltas_len / 1024;
-        let remainder_base_size = if self.deltas().len() % 1024 > 0 { 1 } else { 0 };
+        let deltas_len = usize::try_from(metadata.deltas_len)
+            .vortex_expect("DeltaArray: deltas_len must be a valid usize");
+        let num_chunks = deltas_len / 1024;
+        let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
         let bases_len = num_chunks * lanes + remainder_base_size;
 
         let bases = parts.child(0).decode(ctx, dtype.clone(), bases_len)?;
-        let deltas = parts.child(1).decode(ctx, dtype, metadata.deltas_len)?;
+        let deltas = parts.child(1).decode(ctx, dtype, deltas_len)?;
 
-        Ok(DeltaArray::try_new(bases, deltas, validity, metadata.offset, len)?.into_array())
+        Ok(
+            DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)?
+                .into_array(),
+        )
     }
 }
 
 #[cfg(test)]
 mod test {
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::validity::ValidityMetadata;
     use vortex_array::RkyvMetadata;
 
-    use crate::DeltaMetadata;
+    use super::DeltaMetadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -87,7 +91,6 @@ mod test {
             "delta.metadata",
             RkyvMetadata(DeltaMetadata {
                 offset: u16::MAX,
-                validity: ValidityMetadata::AllValid,
                 deltas_len: u64::MAX,
             }),
         );

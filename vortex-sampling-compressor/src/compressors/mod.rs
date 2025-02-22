@@ -7,7 +7,6 @@ use std::sync::Arc;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::nbytes::NBytes;
-use vortex_array::visitor::ArrayVisitorExt;
 use vortex_array::{Array, ArrayRef, EncodingId};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 

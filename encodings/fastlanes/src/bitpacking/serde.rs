@@ -4,11 +4,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
-    DeserializeMetadata, EmptyMetadata, RkyvMetadata,
+    DeserializeMetadata, RkyvMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::Mask::Values;
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 use crate::{BitPackedArray, BitPackedEncoding};
 
@@ -64,11 +63,14 @@ impl SerdeVTable<&BitPackedArray> for BitPackedEncoding {
             vortex_bail!("Expected 2 or 3 children, got {}", parts.nchildren());
         };
 
-        let patches = metadata.patches.map(|p| {
-            let indices = parts.child(0).decode(ctx, p.indices_dtype(), p.len())?;
-            let values = parts.child(1).decode(ctx, dtype.clone(), p.len())?;
-            Patches::new(len, p.offset(), indices, values)
-        });
+        let patches = metadata
+            .patches
+            .map(|p| {
+                let indices = parts.child(0).decode(ctx, p.indices_dtype(), p.len())?;
+                let values = parts.child(1).decode(ctx, dtype.clone(), p.len())?;
+                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+            })
+            .transpose()?;
 
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
@@ -78,7 +80,7 @@ impl SerdeVTable<&BitPackedArray> for BitPackedEncoding {
         Ok(unsafe {
             BitPackedArray::new_unchecked(
                 packed,
-                PType::try_from(dtype)?,
+                PType::try_from(&dtype)?,
                 validity,
                 patches,
                 metadata.bit_width,

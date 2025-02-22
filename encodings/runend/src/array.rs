@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{
     scalar_at, search_sorted_usize, search_sorted_usize_many, SearchSortedSide,
@@ -11,8 +10,8 @@ use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, IntoArray, ToCanonical,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+    IntoArray, SerdeMetadata, ToCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -20,6 +19,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
+use crate::serde::RunEndMetadata;
 
 #[derive(Clone, Debug)]
 pub struct RunEndArray {
@@ -36,7 +36,7 @@ pub struct RunEndEncoding;
 impl Encoding for RunEndEncoding {
     const ID: EncodingId = EncodingId::new("vortex.runend", encoding_ids::RUN_END);
     type Array = RunEndArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = SerdeMetadata<RunEndMetadata>;
 }
 
 impl RunEndArray {
@@ -233,25 +233,11 @@ impl ArrayStatisticsImpl for RunEndArray {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::scalar_at;
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::{Array, IntoArray, SerdeMetadata};
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{RunEndArray, RunEndMetadata};
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_runend_metadata() {
-        check_metadata(
-            "runend.metadata",
-            SerdeMetadata(RunEndMetadata {
-                offset: usize::MAX,
-                ends_ptype: PType::U64,
-                num_runs: usize::MAX,
-            }),
-        );
-    }
+    use crate::RunEndArray;
 
     #[test]
     fn test_runend_constructor() {

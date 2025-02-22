@@ -40,7 +40,7 @@ impl SerdeVTable<&FoRArray> for FoREncoding {
             )
         }
 
-        let ptype = PType::try_from(dtype.clone())?;
+        let ptype = PType::try_from(&dtype)?;
         let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
         let encoded = parts.child(0).decode(ctx, encoded_dtype, len)?;
 

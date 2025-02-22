@@ -9,7 +9,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, ToCanonical,
+    ArrayValidityImpl, Canonical, Encoding, EncodingId, IntoArray, RkyvMetadata, ToCanonical,
 };
 use vortex_dtype::{
     match_each_integer_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
@@ -19,6 +19,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask};
 
 use crate::compress::dict_decode_typed_primitive;
+use crate::serde::DictMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DictArray {
@@ -31,7 +32,7 @@ pub struct DictEncoding;
 impl Encoding for DictEncoding {
     const ID: EncodingId = EncodingId::new("vortex.dict", encoding_ids::DICT);
     type Array = DictArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = RkyvMetadata<DictMetadata>;
 }
 
 impl DictArray {
@@ -223,16 +224,14 @@ mod test {
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
     use vortex_array::builders::builder_with_capacity;
-    use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, RkyvMetadata, SerdeMetadata, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};
     use vortex_error::{vortex_panic, VortexExpect, VortexUnwrap};
     use vortex_mask::AllOr;
 
-    use crate::serde::DictMetadata;
     use crate::DictArray;
 
     #[test]

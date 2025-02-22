@@ -1,20 +1,18 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::{PValue, Scalar};
+use vortex_scalar::Scalar;
 
 mod compress;
 mod compute;
@@ -117,23 +115,3 @@ impl ArrayVariantsImpl for FoRArray {
 impl StatisticsVTable<&FoRArray> for FoREncoding {}
 
 impl PrimitiveArrayTrait for FoRArray {}
-
-#[cfg(test)]
-mod test {
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::SerdeMetadata;
-    use vortex_scalar::PValue;
-
-    use crate::FoRMetadata;
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_for_metadata() {
-        check_metadata(
-            "for.metadata",
-            SerdeMetadata(FoRMetadata {
-                reference: PValue::I64(i64::MAX),
-            }),
-        );
-    }
-}

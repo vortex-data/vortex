@@ -1,17 +1,14 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    ToCanonical,
+    ArrayValidityImpl, Canonical, Encoding, EncodingId, SerdeMetadata, ToCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -19,6 +16,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
 use crate::alp_rd::alp_rd_decode;
+use crate::alp_rd::serde::ALPRDMetadata;
 
 #[derive(Clone, Debug)]
 pub struct ALPRDArray {
@@ -35,16 +33,7 @@ pub struct ALPRDEncoding;
 impl Encoding for ALPRDEncoding {
     const ID: EncodingId = EncodingId::new("vortex.alprd", encoding_ids::ALP_RD);
     type Array = ALPRDArray;
-    type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ALPRDMetadata {
-    right_bit_width: u8,
-    dict_len: u8,
-    dict: [u16; 8],
-    left_parts_ptype: PType,
-    patches: Option<PatchesMetadata>,
+    type Metadata = SerdeMetadata<ALPRDMetadata>;
 }
 
 impl ALPRDArray {
@@ -221,45 +210,15 @@ impl ArrayValidityImpl for ALPRDArray {
     }
 }
 
-impl ArrayVisitorImpl for ALPRDArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("left_parts", self.left_parts())?;
-        visitor.visit_child("right_parts", self.right_parts())?;
-        if let Some(patches) = self.left_parts_patches() {
-            visitor.visit_patches(&patches)
-        } else {
-            Ok(())
-        }
-    }
-}
-
 impl StatisticsVTable<&ALPRDArray> for ALPRDEncoding {}
 
 #[cfg(test)]
 mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::patches::PatchesMetadata;
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::{SerdeMetadata, ToCanonical};
-    use vortex_dtype::PType;
+    use vortex_array::ToCanonical;
 
-    use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_alprd_metadata() {
-        check_metadata(
-            "alprd.metadata",
-            SerdeMetadata(ALPRDMetadata {
-                right_bit_width: u8::MAX,
-                patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-                dict: [0u16; 8],
-                left_parts_ptype: PType::U64,
-                dict_len: 8,
-            }),
-        );
-    }
+    use crate::{alp_rd, ALPRDFloat};
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

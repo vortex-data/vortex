@@ -1,24 +1,26 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
+    RkyvMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_integer_ptype_with_unsigned_type, DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
+
+use crate::bitpacking::serde::BitPackedMetadata;
 
 mod compress;
 mod compute;

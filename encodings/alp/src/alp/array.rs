@@ -1,22 +1,20 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use ::serde::{Deserialize, Serialize};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId, SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
+use crate::alp::serde::ALPMetadata;
 use crate::alp::{alp_encode, decompress, Exponents};
 
 #[derive(Clone, Debug)]
@@ -32,13 +30,7 @@ pub struct ALPEncoding;
 impl Encoding for ALPEncoding {
     const ID: EncodingId = EncodingId::new("vortex.alp", encoding_ids::ALP);
     type Array = ALPArray;
-    type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ALPMetadata {
-    pub(crate) exponents: Exponents,
-    pub(crate) patches: Option<PatchesMetadata>,
+    type Metadata = SerdeMetadata<ALPMetadata>;
 }
 
 impl ALPArray {
@@ -146,16 +138,6 @@ impl ArrayVariantsImpl for ALPArray {
 
 impl PrimitiveArrayTrait for ALPArray {}
 
-impl ArrayVisitorImpl for ALPArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", self.encoded())?;
-        if let Some(patches) = self.patches() {
-            visitor.visit_patches(patches)?;
-        }
-        Ok(())
-    }
-}
-
 impl StatisticsVTable<&ALPArray> for ALPEncoding {}
 
 #[cfg(test)]
@@ -165,7 +147,8 @@ mod tests {
     use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
-    use crate::{ALPMetadata, Exponents};
+    use crate::alp::serde::ALPMetadata;
+    use crate::Exponents;
 
     #[cfg_attr(miri, ignore)]
     #[test]

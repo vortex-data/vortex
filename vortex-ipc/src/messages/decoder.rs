@@ -139,8 +139,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::visitor::ArrayVisitorExt;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, ArrayVisitor, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 

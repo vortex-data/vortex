@@ -53,18 +53,16 @@ impl SerdeVTable<&FSSTArray> for FSSTEncoding {
             parts
                 .child(1)
                 .decode(ctx, SYMBOL_LENS_DTYPE.clone(), metadata.symbols_len)?;
-        let codes = parts.child(2).decode(
-            ctx,
-            DType::Binary(metadata.codes_nullability),
-            metadata.symbols_len,
-        )?;
+        let codes = parts
+            .child(2)
+            .decode(ctx, DType::Binary(metadata.codes_nullability), len)?;
         let uncompressed_lengths = parts.child(3).decode(
             ctx,
             DType::Primitive(
                 metadata.uncompressed_lengths_ptype,
                 Nullability::NonNullable,
             ),
-            metadata.symbols_len,
+            len,
         )?;
 
         Ok(

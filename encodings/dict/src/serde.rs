@@ -75,7 +75,7 @@ mod test {
             "dict.metadata",
             RkyvMetadata(DictMetadata {
                 codes_ptype: PType::U64,
-                values_len: usize::MAX,
+                values_len: u32::MAX,
             }),
         );
     }

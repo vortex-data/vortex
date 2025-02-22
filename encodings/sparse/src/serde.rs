@@ -20,7 +20,7 @@ pub struct SparseMetadata {
 impl ArrayVisitorImpl<RkyvMetadata<SparseMetadata>> for SparseArray {
     fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
         let fill_value_buffer = self.fill_value.value().to_flexbytes().into_inner();
-        visitor.visit_buffer(&fill_value_buffer)?;
+        visitor.visit_buffer(&fill_value_buffer);
     }
 
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
@@ -70,8 +70,8 @@ impl SerdeVTable<&SparseArray> for SparseEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffers()?[0])?)?;
+        let fill_value = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffers()?[0])?);
 
-        Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value).into_array())
+        Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
     }
 }

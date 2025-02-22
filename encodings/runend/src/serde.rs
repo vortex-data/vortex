@@ -3,7 +3,7 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
 use vortex_array::{
     Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
-    EmptyMetadata, SerdeMetadata,
+    SerdeMetadata,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexResult;
@@ -23,10 +23,10 @@ impl ArrayVisitorImpl<SerdeMetadata<RunEndMetadata>> for RunEndArray {
         visitor.visit_child("values", self.values());
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
+    fn _metadata(&self) -> SerdeMetadata<RunEndMetadata> {
         SerdeMetadata(RunEndMetadata {
             ends_ptype: PType::try_from(self.ends().dtype()).expect("Must be a valid PType"),
-            num_runs: self.num_runs(),
+            num_runs: self.ends().len(),
             offset: self.offset(),
         })
     }
@@ -48,5 +48,27 @@ impl SerdeVTable<&RunEndArray> for RunEndEncoding {
         let values = parts.child(1).decode(ctx, dtype, len)?;
 
         Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::test_harness::check_metadata;
+    use vortex_array::SerdeMetadata;
+    use vortex_dtype::PType;
+
+    use super::*;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_runend_metadata() {
+        check_metadata(
+            "runend.metadata",
+            SerdeMetadata(RunEndMetadata {
+                offset: usize::MAX,
+                ends_ptype: PType::U64,
+                num_runs: usize::MAX,
+            }),
+        );
     }
 }
