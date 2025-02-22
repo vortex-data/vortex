@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use vortex_array::arrays::VarBinEncoding;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,

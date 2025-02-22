@@ -35,11 +35,6 @@ impl Encoding for ByteBoolEncoding {
     type Metadata = EmptyMetadata;
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ByteBoolMetadata {
-    validity: ValidityMetadata,
-}
-
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {
         let length = buffer.len();
@@ -137,13 +132,6 @@ impl ArrayVariantsImpl for ByteBoolArray {
 }
 
 impl BoolArrayTrait for ByteBoolArray {}
-
-impl ArrayVisitorImpl for ByteBoolArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(self.buffer())?;
-        visitor.visit_validity(self.validity())
-    }
-}
 
 impl From<Vec<bool>> for ByteBoolArray {
     fn from(value: Vec<bool>) -> Self {

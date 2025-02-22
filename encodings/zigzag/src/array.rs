@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef,
@@ -115,12 +114,6 @@ impl ArrayVariantsImpl for ZigZagArray {
 }
 
 impl PrimitiveArrayTrait for ZigZagArray {}
-
-impl ArrayVisitorImpl for ZigZagArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", self.encoded())
-    }
-}
 
 impl StatisticsVTable<&ZigZagArray> for ZigZagEncoding {
     fn compute_statistics(&self, array: &ZigZagArray, stat: Stat) -> VortexResult<StatsSet> {

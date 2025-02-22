@@ -7,7 +7,6 @@ use vortex_array::compute::try_cast;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::variants::ExtensionArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
@@ -31,15 +30,6 @@ impl Encoding for DateTimePartsEncoding {
     const ID: EncodingId = EncodingId::new("vortex.datetimeparts", encoding_ids::DATE_TIME_PARTS);
     type Array = DateTimePartsArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DateTimePartsMetadata {
-    // Validity lives in the days array
-    // TODO(ngates): we should actually model this with a Tuple array when we have one.
-    days_ptype: PType,
-    seconds_ptype: PType,
-    subseconds_ptype: PType,
 }
 
 impl DateTimePartsArray {
@@ -154,35 +144,5 @@ impl ArrayValidityImpl for DateTimePartsArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.days().validity_mask()
-    }
-}
-
-impl ArrayVisitorImpl for DateTimePartsArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("days", self.days())?;
-        visitor.visit_child("seconds", self.seconds())?;
-        visitor.visit_child("subseconds", self.subseconds())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::SerdeMetadata;
-    use vortex_dtype::PType;
-
-    use crate::DateTimePartsMetadata;
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_datetimeparts_metadata() {
-        check_metadata(
-            "datetimeparts.metadata",
-            SerdeMetadata(DateTimePartsMetadata {
-                days_ptype: PType::I64,
-                seconds_ptype: PType::I64,
-                subseconds_ptype: PType::I64,
-            }),
-        );
     }
 }

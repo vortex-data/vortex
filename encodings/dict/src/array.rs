@@ -6,7 +6,6 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
@@ -214,13 +213,6 @@ impl ArrayValidityImpl for DictArray {
 impl ArrayStatisticsImpl for DictArray {
     fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
-    }
-}
-
-impl ArrayVisitorImpl for DictArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("codes", self.codes())?;
-        visitor.visit_child("values", self.values())
     }
 }
 

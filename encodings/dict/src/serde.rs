@@ -1,16 +1,37 @@
+use rkyv;
 use serde::{Deserialize, Serialize};
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::SerdeVTable;
-use vortex_array::{Array, ArrayRef, ContextRef, DeserializeMetadata, SerdeMetadata};
+use vortex_array::{
+    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
+    RkyvMetadata, SerdeMetadata,
+};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::{DictArray, DictEncoding};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[repr(C)]
 pub struct DictMetadata {
     codes_ptype: PType,
     values_len: u32,
+}
+
+impl ArrayVisitorImpl<RkyvMetadata<DictMetadata>> for DictArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("codes", self.codes());
+        visitor.visit_child("values", self.values());
+    }
+
+    fn _metadata(&self) -> RkyvMetadata<DictMetadata> {
+        RkyvMetadata(DictMetadata {
+            codes_ptype: PType::try_from(self.codes().dtype())
+                .vortex_expect("Must be a valid PType"),
+            values_len: u32::try_from(self.values().len())
+                .vortex_expect("Values length cannot exceed u32"),
+        })
+    }
 }
 
 impl SerdeVTable<&DictArray> for DictEncoding {
@@ -27,7 +48,7 @@ impl SerdeVTable<&DictArray> for DictEncoding {
                 parts.nchildren()
             )
         }
-        let metadata = SerdeMetadata::<DictMetadata>::deserialize(parts.metadata())?;
+        let metadata = RkyvMetadata::<DictMetadata>::deserialize(parts.metadata())?;
 
         let codes_dtype = DType::Primitive(metadata.codes_ptype, dtype.nullability());
         let codes = parts.child(0).decode(ctx, codes_dtype, len)?;
