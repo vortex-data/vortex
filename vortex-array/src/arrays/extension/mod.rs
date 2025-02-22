@@ -114,12 +114,6 @@ impl ExtensionArrayTrait for ExtensionArray {
     }
 }
 
-impl ArrayVisitorImpl for ExtensionArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("storage", self.storage())
-    }
-}
-
 impl StatisticsVTable<&ExtensionArray> for ExtensionEncoding {
     fn compute_statistics(&self, array: &'_ ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
         array.storage().statistics().compute_all(&[stat])

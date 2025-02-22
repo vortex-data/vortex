@@ -55,12 +55,6 @@ pub struct BitPackedMetadata {
     patches: Option<PatchesMetadata>,
 }
 
-impl Display for BitPackedMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 /// NB: All non-null values in the patches array are considered patches
 impl BitPackedArray {
     /// Create a new bitpacked array using a buffer of packed data.

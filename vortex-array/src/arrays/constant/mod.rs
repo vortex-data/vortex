@@ -10,8 +10,8 @@ use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    EmptyMetadata, Encoding, EncodingId,
+    Array, ArrayBufferVisitor, ArrayImpl, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
 };
 
 mod canonical;
@@ -93,13 +93,6 @@ impl ArrayValidityImpl for ConstantArray {
 impl ArrayStatisticsImpl for ConstantArray {
     fn _stats_set(&self) -> &RwLock<StatsSet> {
         &self.stats_set
-    }
-}
-
-impl ArrayVisitorImpl for ConstantArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        let buffer = self.scalar.value().to_flexbytes().into_inner();
-        visitor.visit_buffer(&buffer)
     }
 }
 

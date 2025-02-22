@@ -6,7 +6,24 @@ use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayRef, ContextRef};
+use crate::{
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    EmptyMetadata,
+};
+
+impl ArrayVisitorImpl for PrimitiveArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(self.byte_buffer());
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len());
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
     fn decode(

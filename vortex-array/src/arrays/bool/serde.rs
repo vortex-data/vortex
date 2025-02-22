@@ -1,4 +1,5 @@
 use arrow_buffer::BooleanBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -6,7 +7,27 @@ use crate::arrays::{BoolArray, BoolEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayRef, ContextRef};
+use crate::{
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
+    EmptyMetadata,
+};
+
+impl ArrayVisitorImpl for BoolArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
+            self.boolean_buffer().clone().into_inner(),
+            Alignment::none(),
+        ))
+    }
+
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(&self.validity, self.len());
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 impl SerdeVTable<&BoolArray> for BoolEncoding {
     fn decode(

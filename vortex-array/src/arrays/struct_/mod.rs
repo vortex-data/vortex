@@ -14,8 +14,8 @@ use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::StructArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    Array, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
 mod compute;
 mod serde;
@@ -42,12 +42,6 @@ impl Encoding for StructEncoding {
 #[repr(C)]
 pub struct StructMetadata {
     pub(crate) validity: ValidityMetadata,
-}
-
-impl Display for StructMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 impl StructArray {
@@ -202,19 +196,6 @@ impl ArrayValidityImpl for StructArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.validity.to_logical(self.len())
-    }
-}
-
-impl ArrayVisitorImpl for StructArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_validity(self.validity())?;
-
-        for (idx, name) in self.names().iter().enumerate() {
-            let child = self.maybe_null_field_by_idx(idx)?;
-            visitor.visit_child(name.as_ref(), &child)?;
-        }
-
-        Ok(())
     }
 }
 

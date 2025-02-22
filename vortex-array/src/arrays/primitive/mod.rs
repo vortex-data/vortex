@@ -56,12 +56,6 @@ pub struct PrimitiveMetadata {
     pub(crate) validity: ValidityMetadata,
 }
 
-impl Display for PrimitiveMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
@@ -340,13 +334,6 @@ impl ArrayValidityImpl for PrimitiveArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.validity.to_logical(self.len())
-    }
-}
-
-impl ArrayVisitorImpl for PrimitiveArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(self.byte_buffer())?;
-        visitor.visit_validity(self.validity())
     }
 }
 

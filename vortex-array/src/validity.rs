@@ -37,12 +37,6 @@ pub enum ValidityMetadata {
     Array,
 }
 
-impl Display for ValidityMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 impl ValidityMetadata {
     pub fn to_validity<F>(&self, array_fn: F) -> Validity
     where

@@ -128,9 +128,6 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVi
     /// The [`DType`] of the builder must match that of the array.
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
-    /// Accepts a visitor to traverse the array.
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()>;
-
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> &dyn Statistics;
@@ -203,10 +200,6 @@ impl Array for Arc<dyn Array> {
 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
-    }
-
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        self.as_ref().accept(visitor)
     }
 
     fn statistics(&self) -> &dyn Statistics {

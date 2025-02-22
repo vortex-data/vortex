@@ -5,8 +5,25 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use crate::arrays::{StructArray, StructEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
+use crate::variants::StructArrayTrait;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayRef, ContextRef};
+use crate::{Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata};
+
+impl ArrayVisitorImpl for StructArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(self.validity(), self.len());
+        for (idx, name) in self.names().iter().enumerate() {
+            let child = self
+                .maybe_null_field_by_idx(idx)
+                .vortex_expect("no out of bounds");
+            visitor.visit_child(name.as_ref(), &child);
+        }
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 impl SerdeVTable<&StructArray> for StructEncoding {
     fn decode(

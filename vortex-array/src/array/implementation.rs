@@ -28,7 +28,7 @@ pub trait ArrayImpl:
     + ArrayStatisticsImpl
     + ArrayValidityImpl
     + ArrayVariantsImpl
-    + ArrayVisitorImpl
+    + ArrayVisitorImpl<<Self::Encoding as Encoding>::Metadata>
 {
     type Encoding: Encoding;
 
@@ -158,10 +158,6 @@ impl<A: ArrayImpl + 'static> Array for A {
             "Builder length mismatch after writing array"
         );
         Ok(())
-    }
-
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        ArrayVisitorImpl::_accept(self, visitor)
     }
 
     fn statistics(&self) -> &dyn Statistics {

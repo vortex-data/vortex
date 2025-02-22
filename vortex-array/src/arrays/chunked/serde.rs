@@ -2,12 +2,29 @@ use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, PType, TryFromBytes};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::serde::ArrayParts;
+use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
-    encoding_ids, Array, ArrayRef, ContextRef, EmptyMetadata, Encoding, EncodingId, ToCanonical,
+    encoding_ids, Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata,
+    Encoding, EncodingId, ToCanonical,
 };
+
+impl ArrayVisitorImpl for ChunkedArray {
+    fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
+        let chunk_offsets = PrimitiveArray::new(self.chunk_offsets.clone(), Validity::NonNullable);
+        visitor.visit_child("chunk_offsets", &chunk_offsets);
+
+        for (idx, chunk) in self.chunks().iter().enumerate() {
+            visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk);
+        }
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
     fn decode(

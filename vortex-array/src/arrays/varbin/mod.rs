@@ -16,6 +16,7 @@ use vortex_scalar::Scalar;
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::arrays::varbin::serde::VarBinMetadata;
 use crate::arrays::ConstantEncoding;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
@@ -51,22 +52,7 @@ pub struct VarBinEncoding;
 impl Encoding for VarBinEncoding {
     const ID: EncodingId = EncodingId::new("vortex.varbin", encoding_ids::VAR_BIN);
     type Array = VarBinArray;
-    type Metadata = EmptyMetadata;
-}
-
-#[derive(
-    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-pub struct VarBinMetadata {
-    pub(crate) validity: ValidityMetadata,
-    pub(crate) offsets_ptype: PType,
-    pub(crate) bytes_len: usize,
-}
-
-impl Display for VarBinMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
+    type Metadata = RkyvMetadata<VarBinMetadata>;
 }
 
 impl VarBinArray {
@@ -219,14 +205,6 @@ impl ArrayValidityImpl for VarBinArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.validity.to_logical(self.len())
-    }
-}
-
-impl ArrayVisitorImpl for VarBinArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("offsets", self.offsets())?;
-        visitor.visit_buffer(self.bytes())?; // TODO(ngates): sliced bytes?
-        visitor.visit_validity(self.validity())
     }
 }
 

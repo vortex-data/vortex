@@ -52,12 +52,6 @@ pub struct SparseMetadata {
     patches: PatchesMetadata,
 }
 
-impl Display for SparseMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 impl SparseArray {
     pub fn try_new(
         indices: ArrayRef,

@@ -5,7 +5,18 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::serde::ArrayParts;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayRef, ContextRef};
+use crate::{Array, ArrayBufferVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata};
+
+impl ArrayVisitorImpl for ConstantArray {
+    fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        let buffer = self.scalar.value().to_flexbytes().into_inner();
+        visitor.visit_buffer(&buffer);
+    }
+
+    fn _metadata(&self) -> EmptyMetadata {
+        EmptyMetadata
+    }
+}
 
 impl SerdeVTable<&ConstantArray> for ConstantEncoding {
     fn decode(

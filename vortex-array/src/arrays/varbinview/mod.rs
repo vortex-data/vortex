@@ -217,18 +217,6 @@ impl Debug for BinaryView {
     }
 }
 
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct VarBinViewMetadata {
-    // Validity metadata
-    pub(crate) validity: ValidityMetadata,
-}
-
-impl Display for VarBinViewMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
     dtype: DType,
@@ -536,16 +524,6 @@ impl ArrayValidityImpl for VarBinViewArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.validity.to_logical(self.len())
-    }
-}
-
-impl ArrayVisitorImpl for VarBinViewArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        for buffer in self.buffers() {
-            visitor.visit_buffer(buffer)?;
-        }
-
-        visitor.visit_validity(self.validity())
     }
 }
 

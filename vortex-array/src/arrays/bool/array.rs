@@ -13,7 +13,10 @@ use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
-use crate::{ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl, Canonical};
+use crate::{
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl,
+    Canonical,
+};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -146,17 +149,6 @@ impl ArrayValidityImpl for BoolArray {
 impl ArrayVariantsImpl for BoolArray {
     fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
         Some(self)
-    }
-}
-
-impl ArrayVisitorImpl for BoolArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
-            self.buffer.clone().into_inner(),
-            Alignment::none(),
-        ))?;
-        visitor.visit_validity(&self.validity)?;
-        Ok(())
     }
 }
 

@@ -15,6 +15,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::arrays::list::serde::ListMetadata;
 use crate::arrays::{ConstantEncoding, PrimitiveArray};
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
@@ -43,27 +44,12 @@ pub struct ListEncoding;
 impl Encoding for ListEncoding {
     const ID: EncodingId = EncodingId::new("vortex.list", encoding_ids::LIST);
     type Array = ListArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = RkyvMetadata<ListMetadata>;
 }
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
 impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
-
-#[derive(
-    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-pub struct ListMetadata {
-    pub(crate) validity: ValidityMetadata,
-    pub(crate) elements_len: usize,
-    pub(crate) offset_ptype: PType,
-}
-
-impl Display for ListMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ListMetadata")
-    }
-}
 
 // A list is valid if the:
 // - offsets start at a value in elements
@@ -177,14 +163,6 @@ impl ArrayVariantsImpl for ListArray {
 }
 
 impl ListArrayTrait for ListArray {}
-
-impl ArrayVisitorImpl for ListArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("offsets", self.offsets())?;
-        visitor.visit_child("elements", self.elements())?;
-        visitor.visit_validity(self.validity())
-    }
-}
 
 impl ArrayCanonicalImpl for ListArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {

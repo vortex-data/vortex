@@ -57,7 +57,7 @@ pub trait Encoding: 'static + Send + Sync + EncodingVTable {
     const ID: EncodingId;
 
     type Array: Array;
-    type Metadata: SerializeMetadata + DeserializeMetadata;
+    type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 
     fn vtable(&'static self) -> VTableRef
     where

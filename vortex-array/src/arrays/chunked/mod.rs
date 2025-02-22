@@ -215,18 +215,6 @@ impl ArrayStatisticsImpl for ChunkedArray {
     }
 }
 
-impl ArrayVisitorImpl for ChunkedArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        let chunk_offsets = PrimitiveArray::new(self.chunk_offsets.clone(), Validity::NonNullable);
-        visitor.visit_child("chunk_offsets", &chunk_offsets)?;
-
-        for (idx, chunk) in self.chunks().iter().enumerate() {
-            visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk)?;
-        }
-        Ok(())
-    }
-}
-
 impl ArrayValidityImpl for ChunkedArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
         if !self.dtype.is_nullable() {

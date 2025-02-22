@@ -97,13 +97,6 @@ impl StatisticsVTable<&NullArray> for NullEncoding {
     }
 }
 
-impl ArrayVisitorImpl for NullArray {
-    fn _accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        // No children.
-        Ok(())
-    }
-}
-
 impl ArrayVariantsImpl for NullArray {
     fn _as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
         Some(self)
