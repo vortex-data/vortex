@@ -8,6 +8,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_array::ContextRef;
+use vortex_buffer::pool::BufferPool;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_file::{FileLayout, Segment, VortexOpenOptions};
@@ -18,6 +19,7 @@ use vortex_layout::segments::SegmentId;
 pub(crate) struct FileLayoutCache {
     inner: Cache<Key, FileLayout, DefaultHashBuilder>,
     context: ContextRef,
+    buffer_pool: BufferPool,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -57,7 +59,7 @@ fn estimate_layout_size(file_layout: &FileLayout) -> usize {
 }
 
 impl FileLayoutCache {
-    pub fn new(size_mb: usize, context: ContextRef) -> Self {
+    pub fn new(size_mb: usize, context: ContextRef, buffer_pool: BufferPool) -> Self {
         let inner = Cache::builder()
             .max_capacity(size_mb as u64 * (2 << 20))
             .eviction_listener(|k: Arc<Key>, _v: FileLayout, cause| {
@@ -69,7 +71,11 @@ impl FileLayoutCache {
             })
             .build_with_hasher(DefaultHashBuilder::default());
 
-        Self { inner, context }
+        Self {
+            inner,
+            context,
+            buffer_pool,
+        }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
@@ -81,7 +87,8 @@ impl FileLayoutCache {
         self.inner
             .try_get_with(Key::from(object), async {
                 let os_read_at =
-                    ObjectStoreReadAt::new(object_store, object.location.clone(), None);
+                    ObjectStoreReadAt::new(object_store, object.location.clone(), None)
+                        .with_buffer_pool(self.buffer_pool.clone());
                 let vxf = VortexOpenOptions::file(os_read_at)
                     .with_ctx(self.context.clone())
                     .with_file_size(object.size as u64)

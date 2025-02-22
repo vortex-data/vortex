@@ -24,6 +24,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::{infer_schema, FromArrowType};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{stats, ContextRef};
+use vortex_buffer::pool::BufferPool;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_file::{VortexOpenOptions, VORTEX_FILE_EXTENSION};
@@ -41,6 +42,8 @@ pub struct VortexFormat {
     context: ContextRef,
     file_layout_cache: FileLayoutCache,
     opts: VortexFormatOptions,
+    #[allow(dead_code)]
+    buffer_pool: BufferPool,
 }
 
 /// Options to configure the [`VortexFormat`].
@@ -116,10 +119,16 @@ impl VortexFormat {
     /// Create a new instance of the [`VortexFormat`].
     pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
+        let buffer_pool = BufferPool::with_default_capacity(64 * 1024); // 64KB seems like a good size
         Self {
-            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb, context.clone()),
+            file_layout_cache: FileLayoutCache::new(
+                opts.cache_size_mb,
+                context.clone(),
+                buffer_pool.clone(),
+            ),
             context,
             opts,
+            buffer_pool,
         }
     }
 
@@ -303,6 +312,7 @@ impl FileFormat for VortexFormat {
             filters.cloned(),
             self.context.clone(),
             self.file_layout_cache.clone(),
+            self.buffer_pool.clone(),
         )?
         .into_arc();
 

@@ -21,6 +21,7 @@ flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
 object_store = { workspace = true, optional = true }
+parking_lot = { workspace = true }
 pin-project = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }

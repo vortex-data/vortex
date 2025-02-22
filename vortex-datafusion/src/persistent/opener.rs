@@ -7,6 +7,7 @@ use futures::{FutureExt as _, StreamExt};
 use object_store::{ObjectStore, ObjectStoreScheme};
 use tokio::runtime::Handle;
 use vortex_array::{ContextRef, IntoArrayVariant};
+use vortex_buffer::pool::BufferPool;
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, VortexExpr};
 use vortex_file::executor::{TaskExecutor, TokioExecutor};
@@ -27,6 +28,7 @@ pub(crate) struct VortexFileOpener {
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     metrics: VortexMetrics,
+    buffer_pool: BufferPool,
 }
 
 impl VortexFileOpener {
@@ -41,6 +43,7 @@ impl VortexFileOpener {
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
         metrics: VortexMetrics,
+        buffer_pool: BufferPool,
     ) -> VortexResult<Self> {
         Ok(Self {
             ctx,
@@ -52,6 +55,7 @@ impl VortexFileOpener {
             projected_arrow_schema,
             batch_size,
             metrics,
+            buffer_pool,
         })
     }
 }
@@ -66,7 +70,8 @@ impl FileOpener for VortexFileOpener {
                 self.object_store.clone(),
                 file_meta.location().clone(),
                 Some(self.scheme.clone()),
-            ),
+            )
+            .with_buffer_pool(self.buffer_pool.clone()),
             &file_metrics,
         );
 

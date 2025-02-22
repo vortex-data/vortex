@@ -245,10 +245,18 @@ impl<T> Buffer<T> {
         let end_byte = end * size_of::<T>();
 
         if !begin_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range start must be aligned to {:?}", alignment);
+            vortex_panic!(
+                "range start must be aligned to {}, instead got {}",
+                alignment,
+                begin_byte
+            );
         }
         if !end_byte.is_multiple_of(*alignment) {
-            vortex_panic!("range end must be aligned to {:?}", alignment);
+            vortex_panic!(
+                "range end must be aligned to {}, instead got {}",
+                alignment,
+                end_byte
+            );
         }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Slice alignment must at least align to type T")
@@ -377,8 +385,9 @@ impl<T> Buffer<T> {
             {
                 let bt = std::backtrace::Backtrace::capture();
                 log::warn!(
-                    "Buffer is not aligned to requested alignment {}, copying: {}",
+                    "Buffer is not aligned to requested alignment {} but to {}, copying: {}",
                     alignment,
+                    self.alignment,
                     bt
                 )
             }

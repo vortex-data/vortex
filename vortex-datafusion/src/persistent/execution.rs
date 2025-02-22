@@ -13,6 +13,7 @@ use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use object_store::ObjectStoreScheme;
 use vortex_array::ContextRef;
+use vortex_buffer::pool::BufferPool;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{and, VortexExpr};
 
@@ -33,6 +34,7 @@ pub(crate) struct VortexExec {
     initial_read_cache: FileLayoutCache,
     projected_arrow_schema: SchemaRef,
     projection: Arc<dyn VortexExpr>,
+    buffer_pool: BufferPool,
 }
 
 impl VortexExec {
@@ -42,6 +44,7 @@ impl VortexExec {
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: ContextRef,
         initial_read_cache: FileLayoutCache,
+        buffer_pool: BufferPool,
     ) -> DFResult<Self> {
         let ConfigProjection {
             arrow_schema,
@@ -73,6 +76,7 @@ impl VortexExec {
             plan_properties,
             ctx,
             initial_read_cache,
+            buffer_pool,
             projected_statistics: statistics,
             projected_arrow_schema: arrow_schema,
             projection: projection_expr,
@@ -142,6 +146,7 @@ impl ExecutionPlan for VortexExec {
             self.projected_arrow_schema.clone(),
             context.session_config().batch_size(),
             partition_metrics,
+            self.buffer_pool.clone(),
         )?;
         let stream = FileStream::new(
             &self.file_scan_config,

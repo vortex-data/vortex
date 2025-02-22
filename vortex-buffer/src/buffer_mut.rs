@@ -359,6 +359,35 @@ impl<T> BufferMut<T> {
             Self::copy_from_aligned(self, alignment)
         }
     }
+    /// Return a `BufferMut<O>` with the desired type and alignment. Where possible, this will be zero-copy.
+    pub fn cast_empty<O>(mut self) -> BufferMut<O> {
+        let alignment = Alignment::of::<O>();
+        // Safety:
+        // we make sure to clean the underlying buffer before we use it.
+        self.bytes.align_empty(alignment);
+
+        BufferMut {
+            bytes: self.bytes,
+            length: 0,
+            alignment,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Splits the bytes into two at the given index.
+    ///
+    /// self will contain values from [0, at), and the return values will hold [at, original_length).
+    ///
+    /// Panics if `at > capacity`.
+    pub fn split_off(&mut self, at: usize) -> Self {
+        let reminder = self.bytes.split_off(at * size_of::<T>());
+        Self {
+            bytes: reminder,
+            length: self.length.checked_sub(at).unwrap_or_default(),
+            alignment: Alignment::of::<T>(),
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<T> Clone for BufferMut<T> {
@@ -502,7 +531,7 @@ unsafe impl BufMut for ByteBufferMut {
 }
 
 /// Extension trait for [`BytesMut`] that provides functions for aligning the buffer.
-trait AlignedBytesMut {
+pub(crate) trait AlignedBytesMut {
     /// Align an empty `BytesMut` to the specified alignment.
     ///
     /// ## Panics

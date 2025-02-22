@@ -5171,6 +5171,7 @@ dependencies = [
  "codspeed-divan-compat",
  "compio",
  "log",
+ "parking_lot",
  "rkyv",
  "vortex-error",
 ]
@@ -5441,6 +5442,7 @@ dependencies = [
  "futures",
  "futures-util",
  "object_store",
+ "parking_lot",
  "pin-project",
  "tempfile",
  "tokio",

@@ -10,6 +10,7 @@ use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
     PutPayload,
 };
+use vortex_buffer::pool::BufferPool;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -20,6 +21,7 @@ pub struct ObjectStoreReadAt {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
     scheme: Option<ObjectStoreScheme>,
+    buffer_pool: Option<BufferPool>,
 }
 
 impl ObjectStoreReadAt {
@@ -32,7 +34,13 @@ impl ObjectStoreReadAt {
             object_store,
             location,
             scheme,
+            buffer_pool: None,
         }
+    }
+
+    pub fn with_buffer_pool(mut self, buffer_pool: BufferPool) -> Self {
+        self.buffer_pool = Some(buffer_pool);
+        self
     }
 }
 
@@ -52,7 +60,16 @@ impl VortexReadAt for ObjectStoreReadAt {
         // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
         // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
         // into the aligned buffer.
-        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+        let mut buffer = match self.buffer_pool.as_ref() {
+            Some(pool) => {
+                let mut buffer = pool.get();
+                buffer = buffer.aligned(alignment);
+                buffer.reserve(len);
+
+                buffer
+            }
+            None => ByteBufferMut::with_capacity_aligned(len, alignment),
+        };
 
         let response = object_store
             .get_opts(
@@ -64,7 +81,7 @@ impl VortexReadAt for ObjectStoreReadAt {
             )
             .await?;
 
-        let buffer = match response.payload {
+        let mut buffer = match response.payload {
             GetResultPayload::File(file, _) => {
                 unsafe { buffer.set_len(len) };
                 tokio::task::spawn_blocking(move || {
@@ -81,6 +98,12 @@ impl VortexReadAt for ObjectStoreReadAt {
                 buffer
             }
         };
+
+        let reminder = buffer.split_off(len);
+
+        if let Some(pool) = self.buffer_pool.as_ref() {
+            pool.put_back(reminder);
+        }
 
         Ok(buffer.freeze())
     }

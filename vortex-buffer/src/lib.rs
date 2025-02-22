@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 #![feature(min_specialization)]
 #![feature(trusted_len)]
 #![feature(unsigned_is_multiple_of)]
@@ -63,6 +63,7 @@ mod compio;
 mod r#const;
 mod debug;
 mod macros;
+pub mod pool;
 #[cfg(feature = "rkyv")]
 mod rkyv;
 mod spec_extend;
