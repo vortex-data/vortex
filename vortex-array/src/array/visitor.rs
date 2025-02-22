@@ -70,7 +70,7 @@ pub trait ArrayVisitorExt: Array {
     fn nbuffers_recursive(&self) -> usize {
         self.children()
             .iter()
-            .map(|child| ArrayVisitorExt::nbuffers_recursive(child))
+            .map(ArrayVisitorExt::nbuffers_recursive)
             .sum::<usize>()
             + self.nbuffers()
     }
@@ -186,7 +186,7 @@ pub trait ArrayChildVisitor {
     }
 }
 
-impl<A: ArrayImpl + ?Sized> ArrayVisitor for A {
+impl<A: ArrayImpl> ArrayVisitor for A {
     fn children(&self) -> Vec<ArrayRef> {
         struct ChildrenCollector {
             children: Vec<ArrayRef>,

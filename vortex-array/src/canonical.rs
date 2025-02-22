@@ -26,7 +26,7 @@ use crate::{Array, ArrayRef, ArrayStatistics, ArrayVariants, EncodingId, IntoArr
 /// Arrow with zero-copy.
 ///
 /// Note that a canonical form is not recursive, i.e. a StructArray may contain non-canonical
-/// child arrays, which may themselves need to be [canonicalized](IntoCanonical).
+/// child arrays, which may themselves need to be [canonicalized](ToCanonical).
 ///
 /// # Logical vs. Physical encodings
 ///
@@ -151,7 +151,7 @@ impl IntoArray for Canonical {
 ///
 /// # Canonicalization
 ///
-/// This trait has a blanket implementation for all types implementing [IntoCanonical].
+/// This trait has a blanket implementation for all types implementing [ToCanonical].
 pub trait ToCanonical: Array {
     fn to_null(&self) -> VortexResult<NullArray> {
         self.to_canonical()?.into_null()
@@ -200,7 +200,7 @@ impl IntoArrowArray for ArrayRef {
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
 /// owned pointer to the underlying concrete array type.
 ///
-/// This combined with the above [IntoCanonical] impl for [ArrayRef] allows simple two-way conversions
+/// This combined with the above [ToCanonical] impl for [ArrayRef] allows simple two-way conversions
 /// between arbitrary Vortex encodings and canonical Arrow-compatible encodings.
 impl From<Canonical> for ArrayRef {
     fn from(value: Canonical) -> Self {

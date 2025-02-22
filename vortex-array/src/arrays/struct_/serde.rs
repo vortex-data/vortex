@@ -58,7 +58,7 @@ impl SerdeVTable<&StructArray> for StructEncoding {
                 let child_dtype = struct_dtype
                     .field_by_index(i)
                     .vortex_expect("no out of bounds");
-                child_parts.decode(ctx, child_dtype.clone(), len)
+                child_parts.decode(ctx, child_dtype, len)
             })
             .try_collect()?;
 
