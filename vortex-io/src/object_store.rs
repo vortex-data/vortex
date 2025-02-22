@@ -62,8 +62,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         // into the aligned buffer.
         let mut buffer = match self.buffer_pool.as_ref() {
             Some(pool) => {
-                let mut buffer = pool.get();
-                buffer = buffer.aligned(alignment);
+                let mut buffer = pool.get_aligned(alignment);
                 buffer.reserve(len);
 
                 buffer
