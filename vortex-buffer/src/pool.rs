@@ -57,12 +57,8 @@ impl BufferPool {
         };
 
         match pool.pop_front() {
-            Some(buffer) => {
-                return buffer;
-            }
-            None => {
-                return self.inner.default_buffer();
-            }
+            Some(buffer) => buffer,
+            None => self.inner.default_buffer(),
         }
     }
 
