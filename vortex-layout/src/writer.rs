@@ -7,7 +7,8 @@ use crate::Layout;
 /// A strategy for writing chunks of an array into a layout.
 // [layout writer]
 pub trait LayoutWriter: Send {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()>;
+    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef)
+        -> VortexResult<()>;
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<Layout>;
 }
@@ -23,7 +24,11 @@ pub trait LayoutWriterExt: LayoutWriter {
     }
 
     /// Push a single chunk into the layout writer and return the finished [`Layout`].
-    fn push_one(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<Layout> {
+    fn push_one(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<Layout> {
         self.push_chunk(segments, chunk)?;
         self.finish(segments)
     }

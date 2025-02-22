@@ -93,7 +93,11 @@ struct SamplingCompressorWriter {
 }
 
 impl LayoutWriter for SamplingCompressorWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: ArrayRef) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         // Compute the stats for the chunk prior to compression
         chunk.statistics().compute_all(STATS_TO_WRITE)?;
 
