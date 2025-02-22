@@ -42,7 +42,7 @@ impl ArrayVisitorImpl<SerdeMetadata<ALPRDMetadata>> for ALPRDArray {
                 .vortex_expect("Must be a valid PType"),
             patches: self
                 .left_parts_patches()
-                .map(|p| p.to_metadata(self.len(), self.dtype()))
+                .map(|p| p.to_metadata(self.len(), self.left_parts().dtype()))
                 .transpose()
                 .vortex_expect("Failed to create patches metadata"),
         })
@@ -66,18 +66,15 @@ impl SerdeVTable<&ALPRDArray> for ALPRDEncoding {
             );
         }
 
-        let left_parts = parts.child(0).decode(
-            ctx,
-            DType::Primitive(metadata.left_parts_ptype, dtype.nullability()),
-            len,
-        )?;
+        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype, dtype.nullability());
+        let left_parts = parts.child(0).decode(ctx, left_parts_dtype.clone(), len)?;
         let left_parts_dictionary =
             Buffer::copy_from(&metadata.dict.as_slice()[0..metadata.dict_len as usize]);
         let left_parts_patches = metadata
             .patches
             .map(|p| {
                 let indices = parts.child(1).decode(ctx, p.indices_dtype(), p.len())?;
-                let values = parts.child(2).decode(ctx, dtype.clone(), p.len())?;
+                let values = parts.child(2).decode(ctx, left_parts_dtype, p.len())?;
                 Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
             })
             .transpose()?;

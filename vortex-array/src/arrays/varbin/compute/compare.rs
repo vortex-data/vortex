@@ -19,6 +19,7 @@ impl CompareFn<&VarBinArray> for VarBinEncoding {
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
+        println!("RHS: {}", rhs.tree_display());
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
@@ -101,4 +102,40 @@ fn compare_offsets_to_empty<P: NativePType>(
         .tuple_windows()
         .map(|(&s, &e)| e - s);
     compare_lengths_to_empty(lengths_iter, operator)
+}
+
+#[cfg(test)]
+mod test {
+    use arrow_buffer::BooleanBuffer;
+    use vortex_buffer::ByteBuffer;
+    use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
+
+    use crate::arrays::{ConstantArray, VarBinArray};
+    use crate::compute::{compare, Operator};
+    use crate::ToCanonical;
+
+    #[test]
+    fn test_binary_compare() {
+        let array = VarBinArray::from_iter(
+            [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
+            DType::Binary(Nullability::Nullable),
+        );
+        let result = compare(
+            &array,
+            &ConstantArray::new(
+                Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
+                3,
+            ),
+            Operator::Eq,
+        )
+        .unwrap()
+        .to_bool()
+        .unwrap();
+
+        assert_eq!(
+            result.boolean_buffer(),
+            &BooleanBuffer::from_iter([true, false, false])
+        );
+    }
 }
