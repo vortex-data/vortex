@@ -13,6 +13,7 @@ pub trait SerdeVTable<Array> {
     /// therefore this function returns a [`Vec<u8>`] instead of a [`ByteBuffer`].
     ///
     /// Returning `None` indicates that the encoding does not require encoded metadata.
+    // TODO(ngates): we could add metadata to the array visitor?
     fn encode(&self, array: Array) -> Option<Vec<u8>> {
         None
     }

@@ -40,6 +40,13 @@ impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
                 ptype.byte_width()
             );
         }
+        if buffer.len() != ptype.byte_width() * len {
+            vortex_bail!(
+                "Buffer length {} does not match expected length {}",
+                buffer.len(),
+                ptype.byte_width() * len
+            );
+        }
 
         match_each_native_ptype!(ptype, |$P| {
             let buffer = Buffer::<$P>::from_byte_buffer(buffer);

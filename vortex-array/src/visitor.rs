@@ -97,19 +97,19 @@ pub trait ArrayVisitorExt: Array {
     /// Returns the number of buffers of the array.
     fn nbuffers(&self) -> usize {
         struct BufferCollector {
-            nchildren: usize,
+            nbuffers: usize,
         }
 
         impl ArrayVisitor for BufferCollector {
-            fn visit_child(&mut self, _name: &str, _array: &dyn Array) -> VortexResult<()> {
-                self.nchildren += 1;
+            fn visit_buffer(&mut self, _buffer: &ByteBuffer) -> VortexResult<()> {
+                self.nbuffers += 1;
                 Ok(())
             }
         }
 
-        let mut collector = BufferCollector { nchildren: 0 };
+        let mut collector = BufferCollector { nbuffers: 0 };
         self.accept(&mut collector).vortex_expect("infallible");
-        collector.nchildren
+        collector.nbuffers
     }
 
     /// Count the number of buffers encoded by self and all child arrays.

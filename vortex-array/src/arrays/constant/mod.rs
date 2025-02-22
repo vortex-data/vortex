@@ -98,9 +98,9 @@ impl ArrayStatisticsImpl for ConstantArray {
 }
 
 impl ArrayVisitorImpl for ConstantArray {
-    fn _accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        // visitor.visit_buffer(array.byte_buffer(0).vortex_expect("missing scalar buffer"))
-        Ok(())
+    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        let buffer = self.scalar.value().to_flexbytes().into_inner();
+        visitor.visit_buffer(&buffer)
     }
 }
 
