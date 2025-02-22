@@ -10,7 +10,7 @@ use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::stats::Statistics;
-use crate::{Array, ArrayRef, Context, ContextRef};
+use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, Context, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -37,7 +37,7 @@ impl dyn Array + '_ {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
-            for buffer in a.byte_buffers() {
+            for buffer in a.buffers() {
                 array_buffers.push(buffer);
             }
         }
@@ -151,9 +151,9 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let encoding = self.array.encoding().code();
-        let vtable = self.array.vtable();
-        let metadata = vtable
-            .metadata(self.array)
+        let metadata = self
+            .array
+            .metadata()
             .map(|bytes| fbb.create_vector(bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.

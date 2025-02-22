@@ -1,22 +1,21 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{DType, PType};
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::serde::ArrayParts;
-use crate::validity::ValidityMetadata;
+use crate::validity::{Validity, ValidityMetadata};
 use crate::vtable::SerdeVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
-    RkyvMetadata,
+    DeserializeMetadata, RkyvMetadata,
 };
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct VarBinMetadata {
     pub(crate) offsets_ptype: PType,
-    pub(crate) bytes_len: usize,
 }
 
 impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
@@ -25,14 +24,14 @@ impl ArrayVisitorImpl<RkyvMetadata<VarBinMetadata>> for VarBinArray {
     }
 
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("offsets", self.offsets())?;
+        visitor.visit_child("offsets", self.offsets());
         visitor.visit_validity(self.validity(), self.len());
     }
 
     fn _metadata(&self) -> RkyvMetadata<VarBinMetadata> {
         RkyvMetadata(VarBinMetadata {
-            offsets_ptype: self.offsets().dtype().ptype(),
-            bytes_len: self.bytes().len(),
+            offsets_ptype: PType::try_from(self.offsets().dtype())
+                .vortex_expect("Must be a valid PType"),
         })
     }
 }
@@ -45,6 +44,28 @@ impl SerdeVTable<&VarBinArray> for VarBinEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        todo!()
+        let metadata = RkyvMetadata::<VarBinMetadata>::deserialize(parts.metadata())?;
+
+        let validity = if parts.nchildren() == 1 {
+            Validity::from(dtype.nullability())
+        } else if parts.nchildren() == 2 {
+            let validity = parts.child(2).decode(ctx, Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 1 or 2 children, got {}", parts.nchildren());
+        };
+
+        let offsets = parts.child(0).decode(
+            ctx,
+            DType::Primitive(metadata.offsets_ptype, Nullability::NonNullable),
+            len + 1,
+        )?;
+
+        if parts.nbuffers() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        }
+        let bytes = parts.buffers()?[0].clone();
+
+        Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
     }
 }

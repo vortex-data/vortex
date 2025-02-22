@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::validity::ValidityMetadata;
 use crate::vtable::SerdeVTable;
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, EmptyMetadata};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, EmptyMetadata};
 
 impl ArrayVisitorImpl<EmptyMetadata> for VarBinViewArray {
     fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
@@ -15,7 +15,7 @@ impl ArrayVisitorImpl<EmptyMetadata> for VarBinViewArray {
     }
 
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity())
+        visitor.visit_validity(self.validity(), self.len())
     }
 
     fn _metadata(&self) -> EmptyMetadata {

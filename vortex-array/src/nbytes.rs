@@ -1,7 +1,7 @@
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, ArrayVisitorExt};
 
 pub trait NBytes: Array {
     /// Total size of the array in bytes, including all children and buffers.
@@ -12,7 +12,7 @@ pub trait NBytes: Array {
             for buffer in array.buffers() {
                 nbytes += buffer.len();
             }
-            nbytes += array.metadata_bytes().map_or(0, |b| b.len());
+            nbytes += array.metadata().map_or(0, |b| b.len());
         }
         nbytes
     }

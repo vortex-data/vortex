@@ -62,6 +62,6 @@ impl SerdeVTable<&ListArray> for ListEncoding {
 
         let elements = parts.child(1).decode(ctx, dtype, metadata.elements_len)?;
 
-        Ok(ListArray::try_new(elements, offsets, validity).into_array())
+        Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
     }
 }
