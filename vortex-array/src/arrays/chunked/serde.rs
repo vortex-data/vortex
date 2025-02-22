@@ -9,7 +9,7 @@ use crate::{
     encoding_ids, Array, ArrayRef, ContextRef, EmptyMetadata, Encoding, EncodingId, ToCanonical,
 };
 
-impl SerdeVTable<ChunkedArray> for ChunkedEncoding {
+impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,

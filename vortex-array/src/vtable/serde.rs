@@ -1,3 +1,4 @@
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -5,10 +6,15 @@ use crate::serde::ArrayParts;
 use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef, ContextRef, Encoding};
 
-pub trait SerdeVTable<A: ?Sized> {
-    /// Encode an array into an [`ArrayParts`],
-    fn encode(&self, array: &A) -> VortexResult<ArrayParts> {
-        vortex_bail!("Encoding not supported for encoding")
+pub trait SerdeVTable<Array> {
+    /// Encode the metadata of an array.
+    ///
+    /// Note that there are no alignment guarantees for the metadata buffer during deserialization,
+    /// therefore this function returns a [`Vec<u8>`] instead of a [`ByteBuffer`].
+    ///
+    /// Returning `None` indicates that the encoding does not require encoded metadata.
+    fn encode(&self, array: Array) -> Option<Vec<u8>> {
+        None
     }
 
     /// Decode an [`ArrayParts`] into an [`ArrayRef`] of this encoding.
@@ -23,11 +29,11 @@ pub trait SerdeVTable<A: ?Sized> {
     }
 }
 
-impl<E: Encoding> SerdeVTable<dyn Array> for E
+impl<'a, E: Encoding> SerdeVTable<&'a dyn Array> for E
 where
-    E: SerdeVTable<E::Array>,
+    E: SerdeVTable<&'a E::Array>,
 {
-    fn encode(&self, array: &dyn Array) -> VortexResult<ArrayParts> {
+    fn encode(&self, array: &'a dyn Array) -> Option<Vec<u8>> {
         SerdeVTable::encode(
             self,
             array
@@ -44,6 +50,6 @@ where
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        <E as SerdeVTable<E::Array>>::decode(self, parts, ctx, dtype, len)
+        <E as SerdeVTable<&'a E::Array>>::decode(self, parts, ctx, dtype, len)
     }
 }

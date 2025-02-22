@@ -65,7 +65,7 @@ pub trait EncodingVTable:
     + Sync
     + Send
     + ComputeVTable
-    + SerdeVTable<dyn Array>
+    + for<'a> SerdeVTable<&'a dyn Array>
     + for<'a> StatisticsVTable<'a, dyn Array>
 {
     /// Return the ID for this encoding implementation.
@@ -96,7 +96,10 @@ impl Debug for dyn EncodingVTable + '_ {
 }
 
 impl<
-        E: Encoding + ComputeVTable + SerdeVTable<dyn Array> + for<'a> StatisticsVTable<'a, dyn Array>,
+        E: Encoding
+            + ComputeVTable
+            + for<'a> SerdeVTable<&'a dyn Array>
+            + for<'a> StatisticsVTable<'a, dyn Array>,
     > EncodingVTable for E
 {
     fn id(&self) -> EncodingId {

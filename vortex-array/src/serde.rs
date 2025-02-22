@@ -34,7 +34,7 @@ impl dyn Array + '_ {
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    fn serialize(&self, options: &SerializeOptions) -> Vec<ByteBuffer> {
+    pub fn serialize(&self, options: &SerializeOptions) -> Vec<ByteBuffer> {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
@@ -162,11 +162,10 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let encoding = self.array.encoding().code();
-        // let metadata = self
-        //     .array
-        //     .metadata_bytes()
-        //     .map(|bytes| fbb.create_vector(bytes));
-        let metadata = None;
+        let vtable = self.array.vtable();
+        let metadata = vtable
+            .encode(self.array)
+            .map(|bytes| fbb.create_vector(bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
