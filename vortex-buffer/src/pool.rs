@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::{Alignment, BufferMut, ByteBufferMut};
+use crate::{BufferMut, ByteBufferMut};
 
 #[derive(Clone, Default, Debug)]
 pub struct BufferPool {
@@ -14,7 +14,6 @@ pub struct BufferPool {
 struct InnerPool {
     buffers: Mutex<LinkedList<ByteBufferMut>>,
     default_capacity: usize,
-    default_alignment: Alignment,
 }
 
 impl Default for InnerPool {
@@ -22,14 +21,13 @@ impl Default for InnerPool {
         Self {
             buffers: Default::default(),
             default_capacity: Default::default(),
-            default_alignment: Alignment::of::<u64>(),
         }
     }
 }
 
 impl InnerPool {
     fn default_buffer(&self) -> ByteBufferMut {
-        ByteBufferMut::with_capacity_aligned(self.default_capacity, self.default_alignment)
+        ByteBufferMut::with_capacity(self.default_capacity)
     }
 }
 
@@ -41,7 +39,6 @@ impl BufferPool {
     pub fn with_default_capacity(default_capacity: usize) -> Self {
         let inner = Arc::new(InnerPool {
             default_capacity,
-            default_alignment: Alignment::of::<u64>(),
             buffers: Default::default(),
         });
 
