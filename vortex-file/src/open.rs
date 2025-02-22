@@ -282,9 +282,8 @@ impl<F: FileType> VortexOpenOptions<F> {
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let sliced_buffer = FlatBuffer::align_from(
-            initial_read.slice_unaligned(offset..offset + (dtype.length as usize)),
-        );
+        let sliced_buffer =
+            FlatBuffer::align_from(initial_read.slice(offset..offset + (dtype.length as usize)));
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
         DType::try_from_view(fbd_dtype, sliced_buffer.clone())
@@ -360,7 +359,7 @@ impl<F: FileType> VortexOpenOptions<F> {
                     let segment_id = SegmentId::from(u32::try_from(idx)?);
                     let offset = usize::try_from(segment.offset - initial_offset)?;
                     let buffer = initial_read
-                        .slice_unaligned(offset..offset + (segment.length as usize))
+                        .slice(offset..offset + (segment.length as usize))
                         .aligned(segment.alignment);
 
                     self.segment_cache.put(segment_id, buffer).await

@@ -239,7 +239,7 @@ async fn evaluate<R: VortexReadAt>(
         let offset = usize::try_from(segment.offset - request.byte_range.start)?;
 
         let buf = buffer
-            .slice_unaligned(offset..offset + segment.length as usize)
+            .slice(offset..offset + segment.length as usize)
             .aligned(segment.alignment);
 
         // Find any request callbacks and send the buffer
