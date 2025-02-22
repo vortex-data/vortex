@@ -380,10 +380,22 @@ impl<T> BufferMut<T> {
     ///
     /// Panics if `at > capacity`.
     pub fn split_off(&mut self, at: usize) -> Self {
+        if at > self.capacity() {
+            vortex_panic!("split off at {at} greater than capacity");
+        }
+
         let reminder = self.bytes.split_off(at * size_of::<T>());
+        let reminder_len = self.length.checked_sub(at).unwrap_or_default();
+        // Safety:
+        // We verified that its in-bounds for the array
+        unsafe {
+            let new_len = std::cmp::min(self.length, at);
+            self.set_len(new_len);
+        }
+
         Self {
             bytes: reminder,
-            length: self.length.checked_sub(at).unwrap_or_default(),
+            length: reminder_len,
             alignment: Alignment::of::<T>(),
             _marker: std::marker::PhantomData,
         }

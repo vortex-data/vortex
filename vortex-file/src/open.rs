@@ -360,7 +360,7 @@ impl<F: FileType> VortexOpenOptions<F> {
                     let segment_id = SegmentId::from(u32::try_from(idx)?);
                     let offset = usize::try_from(segment.offset - initial_offset)?;
                     let buffer = initial_read
-                        .slice(offset..offset + (segment.length as usize))
+                        .slice_unaligned(offset..offset + (segment.length as usize))
                         .aligned(segment.alignment);
 
                     self.segment_cache.put(segment_id, buffer).await

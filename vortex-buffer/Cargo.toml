@@ -14,7 +14,7 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
-default = ["rkyv"]
+default = ["rkyv", "warn-copy"]
 arrow = ["dep:arrow-buffer"]
 compio = ["dep:compio"]
 rkyv = ["dep:rkyv"]

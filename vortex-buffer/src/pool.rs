@@ -41,7 +41,7 @@ impl BufferPool {
     pub fn with_default_capacity(default_capacity: usize) -> Self {
         let inner = Arc::new(InnerPool {
             default_capacity,
-            default_alignment: Alignment::none(),
+            default_alignment: Alignment::of::<u64>(),
             buffers: Default::default(),
         });
 
@@ -67,13 +67,14 @@ impl BufferPool {
         buffer.cast_empty::<T>()
     }
 
-    pub fn put_back<T>(&self, mut buffer: BufferMut<T>) {
-        // Safety:
-        // This is always a valid state, we just clear the existing data allowing it to be re-used.
-        unsafe {
-            buffer.set_len(0);
-        }
-        let buffer = buffer.cast_empty::<u8>();
+    pub fn put_back<T>(&self, buffer: BufferMut<T>) {
+        // we just erase the type info, keeping the alignment
+        let buffer = ByteBufferMut {
+            bytes: buffer.bytes,
+            length: 0,
+            alignment: buffer.alignment,
+            _marker: std::marker::PhantomData,
+        };
 
         // We optimistically try and return the memory
         if let Some(mut pool) = self.inner.buffers.try_lock() {

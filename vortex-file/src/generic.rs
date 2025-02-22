@@ -224,8 +224,7 @@ async fn evaluate<R: VortexReadAt>(
     );
     let buffer: ByteBuffer = read
         .read_byte_range(request.byte_range.clone(), request.alignment)
-        .await?
-        .aligned(Alignment::none());
+        .await?;
 
     // Figure out the segments covered by the read.
     let start = segment_map.partition_point(|s| s.offset < request.byte_range.start);
@@ -238,8 +237,9 @@ async fn evaluate<R: VortexReadAt>(
     for (i, segment) in segment_map[start..end].iter().enumerate() {
         let segment_id = SegmentId::from(u32::try_from(i + start).vortex_expect("segment id"));
         let offset = usize::try_from(segment.offset - request.byte_range.start)?;
+
         let buf = buffer
-            .slice(offset..offset + segment.length as usize)
+            .slice_unaligned(offset..offset + segment.length as usize)
             .aligned(segment.alignment);
 
         // Find any request callbacks and send the buffer

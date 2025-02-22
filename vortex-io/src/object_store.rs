@@ -105,6 +105,13 @@ impl VortexReadAt for ObjectStoreReadAt {
             pool.put_back(reminder);
         }
 
+        assert!(
+            buffer.as_ptr().align_offset(*alignment) == 0,
+            "buffer is aligned to {} but requested alignment to {}",
+            buffer.alignment(),
+            alignment
+        );
+
         Ok(buffer.freeze())
     }
 
