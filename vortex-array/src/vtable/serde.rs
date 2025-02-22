@@ -25,7 +25,12 @@ pub trait SerdeVTable<Array> {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!("Decoding not supported for encoding")
+        vortex_bail!(
+            "Decoding not supported for encoding {}",
+            ctx.lookup_encoding(parts.encoding_id())
+                .vortex_expect("Encoding already validated")
+                .id()
+        )
     }
 }
 

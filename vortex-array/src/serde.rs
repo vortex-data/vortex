@@ -244,6 +244,11 @@ impl ArrayParts {
         vtable.decode(self, ctx, dtype, len)
     }
 
+    /// Returns the array encoding.
+    pub fn encoding_id(&self) -> u16 {
+        self.flatbuffer_root().encoding()
+    }
+
     /// Returns the array metadata bytes.
     pub fn metadata(&self) -> Option<&[u8]> {
         self.flatbuffer_root()

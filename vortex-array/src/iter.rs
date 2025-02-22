@@ -1,12 +1,15 @@
 //! Iterator over slices of an array, and related utilities.
 
-use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use std::any::Any;
+use std::sync::Arc;
 
-use crate::arrays::ChunkedArray;
+use itertools::{Chunk, Itertools};
+use vortex_dtype::DType;
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
+
+use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 /// Iterator of array with a known [`DType`].
 ///
@@ -57,7 +60,7 @@ pub trait ArrayIteratorExt: ArrayIterator {
     /// Collect the iterator into a single `Array`.
     ///
     /// If the iterator yields multiple chunks, they will be returned as a [`ChunkedArray`].
-    fn into_array_data(self) -> VortexResult<ArrayRef>
+    fn into_array(self) -> VortexResult<ArrayRef>
     where
         Self: Sized,
     {
@@ -72,3 +75,40 @@ pub trait ArrayIteratorExt: ArrayIterator {
 }
 
 impl<I: ArrayIterator> ArrayIteratorExt for I {}
+
+pub trait ArrayIteratorArrayExt: Array {
+    /// Create an [`ArrayIterator`] over the array.
+    fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
+        let dtype = self.dtype().clone();
+        let iter = if let Some(chunked) = self.maybe_as::<ChunkedArray>() {
+            ArrayChunkIterator::Chunked(Arc::new(chunked.clone()), 0)
+        } else {
+            ArrayChunkIterator::Single(Some(self.to_array()))
+        };
+        ArrayIteratorAdapter::new(dtype, iter)
+    }
+}
+
+impl<A: ?Sized + Array> ArrayIteratorArrayExt for A {}
+
+/// We define a single iterator that can handle both chunked and non-chunked arrays.
+/// This avoids the need to create boxed static iterators for the two chunked and non-chunked cases.
+enum ArrayChunkIterator {
+    Single(Option<ArrayRef>),
+    Chunked(Arc<ChunkedArray>, usize),
+}
+
+impl Iterator for ArrayChunkIterator {
+    type Item = VortexResult<ArrayRef>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            ArrayChunkIterator::Single(array) => array.take().map(Ok),
+            ArrayChunkIterator::Chunked(chunked, idx) => (*idx < chunked.nchunks()).then(|| {
+                let chunk = chunked.chunk(*idx).vortex_expect("not out of bounds");
+                *idx += 1;
+                Ok(chunk.clone())
+            }),
+        }
+    }
+}

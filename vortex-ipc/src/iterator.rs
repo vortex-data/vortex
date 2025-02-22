@@ -153,8 +153,8 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::Array;
+    use vortex_array::iter::{ArrayIterator, ArrayIteratorArrayExt, ArrayIteratorExt};
+    use vortex_array::{Array, ToCanonical};
 
     use super::*;
 
@@ -162,9 +162,7 @@ mod test {
     fn test_sync_stream() {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let ipc_buffer = array
-            .clone()
-            .into_array()
-            .into_array_iterator()
+            .to_array_iterator()
             .into_ipc()
             .collect_to_buffer()
             .unwrap();
@@ -172,7 +170,7 @@ mod test {
         let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), Default::default()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.into_array_data().unwrap().into_primitive().unwrap();
+        let result = reader.into_array().unwrap().to_primitive().unwrap();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }
