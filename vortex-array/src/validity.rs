@@ -15,42 +15,6 @@ use crate::compute::{fill_null, filter, scalar_at, slice, take};
 use crate::patches::Patches;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::Portable,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    rkyv::bytecheck::CheckBytes,
-)]
-#[rkyv(as = ValidityMetadata)]
-#[bytecheck(crate = rkyv::bytecheck)]
-#[repr(u8)]
-pub enum ValidityMetadata {
-    NonNullable,
-    AllValid,
-    AllInvalid,
-    Array,
-}
-
-impl ValidityMetadata {
-    pub fn to_validity<F>(&self, array_fn: F) -> Validity
-    where
-        F: FnOnce() -> ArrayRef,
-    {
-        match self {
-            Self::NonNullable => Validity::NonNullable,
-            Self::AllValid => Validity::AllValid,
-            Self::AllInvalid => Validity::AllInvalid,
-            Self::Array => Validity::Array(array_fn()),
-        }
-    }
-}
-
 /// Validity information for an array
 #[derive(Clone, Debug)]
 pub enum Validity {
@@ -67,26 +31,6 @@ pub enum Validity {
 impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
     pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
-
-    pub fn to_metadata(&self, length: usize) -> VortexResult<ValidityMetadata> {
-        match self {
-            Self::NonNullable => Ok(ValidityMetadata::NonNullable),
-            Self::AllValid => Ok(ValidityMetadata::AllValid),
-            Self::AllInvalid => Ok(ValidityMetadata::AllInvalid),
-            Self::Array(a) => {
-                // We force the caller to validate the length here.
-                let validity_len = a.len();
-                if validity_len != length {
-                    vortex_bail!(
-                        "Validity array length {} doesn't match array length {}",
-                        validity_len,
-                        length
-                    )
-                }
-                Ok(ValidityMetadata::Array)
-            }
-        }
-    }
 
     pub fn null_count(&self, length: usize) -> VortexResult<usize> {
         match self {

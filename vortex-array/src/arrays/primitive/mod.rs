@@ -17,7 +17,7 @@ use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
@@ -46,14 +46,6 @@ impl Encoding for PrimitiveEncoding {
     const ID: EncodingId = EncodingId::new("vortex.primitive", encoding_ids::PRIMITIVE);
     type Array = PrimitiveArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-#[repr(C)]
-pub struct PrimitiveMetadata {
-    pub(crate) validity: ValidityMetadata,
 }
 
 impl PrimitiveArray {

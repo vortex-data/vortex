@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display, Formatter};
 use vortex_error::VortexResult;
 
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
-use crate::validity::ValidityMetadata;
 use crate::vtable::SerdeVTable;
 use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayVisitorImpl, EmptyMetadata};
 

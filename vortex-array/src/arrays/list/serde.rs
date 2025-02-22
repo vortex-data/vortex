@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::{ListArray, ListEncoding};
 use crate::serde::ArrayParts;
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,

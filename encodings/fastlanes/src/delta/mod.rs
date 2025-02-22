@@ -4,19 +4,20 @@ use std::sync::{Arc, RwLock};
 pub use compress::*;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{Validity, ValidityMetadata};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, Encoding, EncodingId,
+    RkyvMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
+
+use crate::delta::serde::DeltaMetadata;
 
 mod compress;
 mod compute;
@@ -37,15 +38,7 @@ pub struct DeltaEncoding;
 impl Encoding for DeltaEncoding {
     const ID: EncodingId = EncodingId::new("fastlanes.delta", encoding_ids::FL_DELTA);
     type Array = DeltaArray;
-    type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[repr(C)]
-pub struct DeltaMetadata {
-    validity: ValidityMetadata,
-    deltas_len: u64,
-    offset: u16, // must be <1024
+    type Metadata = RkyvMetadata<DeltaMetadata>;
 }
 
 /// A FastLanes-style delta-encoded array of primitive values.
@@ -211,9 +204,6 @@ impl DeltaArray {
 
     fn bases_len(&self) -> usize {
         self.bases.len()
-        // let num_chunks = self.deltas().len() / 1024;
-        // let remainder_base_size = if self.deltas().len() % 1024 > 0 { 1 } else { 0 };
-        // num_chunks * self.lanes() + remainder_base_size
     }
 
     fn deltas_len(&self) -> usize {
@@ -275,33 +265,4 @@ impl ArrayVariantsImpl for DeltaArray {
 
 impl PrimitiveArrayTrait for DeltaArray {}
 
-impl ArrayVisitorImpl for DeltaArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("bases", self.bases())?;
-        visitor.visit_child("deltas", self.deltas())
-    }
-}
-
 impl StatisticsVTable<&DeltaArray> for DeltaEncoding {}
-
-// #[cfg(test)]
-// mod test {
-//     use vortex_array::test_harness::check_metadata;
-//     use vortex_array::validity::ValidityMetadata;
-//     use vortex_array::RkyvMetadata;
-//
-//     use crate::DeltaMetadata;
-//
-//     #[cfg_attr(miri, ignore)]
-//     #[test]
-//     fn test_delta_metadata() {
-//         check_metadata(
-//             "delta.metadata",
-//             RkyvMetadata(DeltaMetadata {
-//                 offset: u16::MAX,
-//                 validity: ValidityMetadata::AllValid,
-//                 deltas_len: u64::MAX,
-//             }),
-//         );
-//     }
-// }

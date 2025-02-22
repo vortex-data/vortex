@@ -10,7 +10,7 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
@@ -34,14 +34,6 @@ impl Encoding for StructEncoding {
     const ID: EncodingId = EncodingId::new("vortex.struct", encoding_ids::STRUCT);
     type Array = StructArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-#[repr(C)]
-pub struct StructMetadata {
-    pub(crate) validity: ValidityMetadata,
 }
 
 impl StructArray {

@@ -1,20 +1,22 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 use vortex_array::arrays::BooleanBufferBuilder;
 use vortex_array::compute::{scalar_at, sub_scalar};
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId, ToCanonical,
+    ArrayValidityImpl, Encoding, EncodingId, RkyvMetadata, ToCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+
+use crate::serde::SparseMetadata;
 
 mod canonical;
 mod compute;
@@ -34,7 +36,7 @@ pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
     const ID: EncodingId = EncodingId::new("vortex.sparse", encoding_ids::SPARSE);
     type Array = SparseArray;
-    type Metadata = EmptyMetadata;
+    type Metadata = RkyvMetadata<SparseMetadata>;
 }
 
 impl SparseArray {

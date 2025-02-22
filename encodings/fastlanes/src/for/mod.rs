@@ -5,7 +5,6 @@ use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
 use vortex_array::vtable::{StatisticsVTable, VTableRef};
 use vortex_array::{
     encoding_ids, Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
@@ -33,12 +32,6 @@ impl Encoding for FoREncoding {
     const ID: EncodingId = EncodingId::new("fastlanes.for", encoding_ids::FL_FOR);
     type Array = FoRArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[repr(C)]
-pub struct FoRMetadata {
-    reference: PValue,
 }
 
 impl FoRArray {
@@ -118,12 +111,6 @@ impl ArrayValidityImpl for FoRArray {
 impl ArrayVariantsImpl for FoRArray {
     fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
         Some(self)
-    }
-}
-
-impl ArrayVisitorImpl for FoRArray {
-    fn _accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", self.encoded())
     }
 }
 

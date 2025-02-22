@@ -21,7 +21,7 @@ use crate::arrays::ConstantEncoding;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{

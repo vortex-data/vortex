@@ -22,7 +22,7 @@ use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
@@ -68,8 +68,6 @@ impl ListArray {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();
-
-        let validity_metadata = validity.to_metadata(list_len)?;
 
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
             vortex_bail!(
