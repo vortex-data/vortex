@@ -132,10 +132,7 @@ impl dyn Array + '_ {
         ctx: ContextRef,
         dtype: DType,
         length: usize,
-    ) -> VortexResult<Self>
-    where
-        Self: Sized,
-    {
+    ) -> VortexResult<ArrayRef> {
         ArrayParts::try_from(bytes)?.decode(ctx, dtype, length)
     }
 }
@@ -165,10 +162,11 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let encoding = self.array.encoding().code();
-        let metadata = self
-            .array
-            .metadata_bytes()
-            .map(|bytes| fbb.create_vector(bytes));
+        // let metadata = self
+        //     .array
+        //     .metadata_bytes()
+        //     .map(|bytes| fbb.create_vector(bytes));
+        let metadata = None;
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
@@ -186,7 +184,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
                     buffer_idx: *buffer_idx,
                 }
                 .write_flatbuffer(fbb);
-                *buffer_idx = u16::try_from(child.cumulative_nbuffers())
+                *buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
                     .and_then(|nbuffers| nbuffers.checked_add(*buffer_idx))
                     .vortex_expect("Too many buffers (u16) for Array");
@@ -262,34 +260,35 @@ impl ArrayParts {
     }
 
     /// Iterate the children of this array.
-    pub fn children(&self) -> impl Iterator<Item = ArrayParts> + '_ {
+    pub fn children(&self) -> Vec<ArrayParts> {
         self.flatbuffer_root()
             .children()
             .iter()
             .flat_map(|children| children.iter())
             .map(move |child| self.with_root(child))
+            .collect()
     }
 
     /// Returns the number of buffers.
     pub fn nbuffers(&self) -> usize {
         self.flatbuffer_root()
             .buffers()
-            .children()
             .map_or(0, |buffers| buffers.len())
     }
 
-    /// Returns the number of buffers.
-    pub fn buffers(&self) -> impl Iterator<Item = Option<&ByteBuffer>> + '_ {
+    /// Returns the array buffers.
+    pub fn buffers(&self) -> VortexResult<Vec<ByteBuffer>> {
         self.flatbuffer_root()
             .buffers()
             .iter()
             .flat_map(|b| b.iter())
-            // TODO(ngates): we should validate this at some point?
             .map(|buffer_id| {
                 self.buffers
-                    .get(buffer_id)
+                    .get(buffer_id as usize)
+                    .cloned()
                     .ok_or_else(|| vortex_err!("Invalid buffer ID {}", buffer_id))
             })
+            .try_collect()
     }
 
     /// Returns the array flatbuffer.
@@ -353,7 +352,8 @@ impl TryFrom<ByteBuffer> for ArrayParts {
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer.clone(),
-            flatbuffer_loc: fb_root._tab.loc(),
+            flatbuffer_loc: fb_array._tab.loc(),
+            flatbuffer_root_loc: fb_root._tab.loc(),
             buffers,
         })
     }

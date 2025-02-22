@@ -22,7 +22,7 @@ impl SerdeVTable<ChunkedArray> for ChunkedEncoding {
         }
 
         let nchunks = parts.nchildren() - 1;
-        let children = parts.children().collect::<Vec<_>>();
+        let children = parts.children();
 
         // The first child contains the row offsets of the chunks
         let chunk_offsets = children[0]

@@ -112,6 +112,15 @@ pub trait ArrayVisitorExt: Array {
         collector.nchildren
     }
 
+    /// Count the number of buffers encoded by self and all child arrays.
+    fn nbuffers_recursive(&self) -> usize {
+        self.children()
+            .iter()
+            .map(|child| child.nbuffers_recursive())
+            .sum::<usize>()
+            + self.nbuffers()
+    }
+
     /// Returns a vector of [`ByteBuffer`] for the array.
     fn byte_buffers(&self) -> Vec<ByteBuffer> {
         struct BufferCollector {
