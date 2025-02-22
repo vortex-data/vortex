@@ -2,7 +2,6 @@ use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 use arrow_buffer::BooleanBuffer;
-use serde::{Deserialize, Serialize};
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::compute::{scalar_at, take, take_into, try_cast};
 use vortex_array::stats::StatsSet;
@@ -35,12 +34,6 @@ impl Encoding for DictEncoding {
     const ID: EncodingId = EncodingId::new("vortex.dict", encoding_ids::DICT);
     type Array = DictArray;
     type Metadata = EmptyMetadata;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DictMetadata {
-    codes_ptype: PType,
-    values_len: usize, // TODO(ngates): make this a u32
 }
 
 impl DictArray {
