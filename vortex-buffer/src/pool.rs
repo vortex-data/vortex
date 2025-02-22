@@ -1,7 +1,6 @@
 use std::collections::LinkedList;
 use std::sync::Arc;
 
-use hashbrown::HashMap;
 use parking_lot::Mutex;
 use vortex_error::vortex_panic;
 
@@ -14,17 +13,17 @@ pub struct BufferPool {
 
 #[derive(Debug)]
 struct InnerPool {
-    buffers: HashMap<Alignment, Mutex<LinkedList<ByteBufferMut>>>,
+    buffers: Vec<Mutex<LinkedList<ByteBufferMut>>>,
     default_capacity: usize,
 }
 
 impl InnerPool {
     fn new(default_capacity: usize) -> Self {
-        let mut buffers = HashMap::with_capacity(7);
+        let mut buffers = Vec::with_capacity(8);
 
         // preallocate some common alignments
-        for exponent in 0_u8..8 {
-            buffers.insert(Alignment::from_exponent(exponent), Default::default());
+        for _ in 0_u8..8 {
+            buffers.push(Default::default());
         }
 
         Self {
@@ -62,7 +61,7 @@ impl BufferPool {
     }
 
     pub fn get_aligned(&self, alignment: Alignment) -> ByteBufferMut {
-        match self.inner.buffers.get(&alignment) {
+        match self.inner.buffers.get(alignment.exponent() as usize) {
             None => vortex_panic!("oops missing {alignment}"),
             Some(buffer_list) => {
                 let mut pool = match buffer_list.try_lock() {
@@ -81,6 +80,11 @@ impl BufferPool {
     }
 
     pub fn put_back<T>(&self, buffer: BufferMut<T>) {
+        // Probably simpler to just allocate
+        if buffer.bytes.capacity() == 0 {
+            return;
+        }
+
         // we just erase the type info, keeping the alignment
         let buffer = ByteBufferMut {
             bytes: buffer.bytes,
@@ -90,7 +94,11 @@ impl BufferPool {
         };
 
         // We optimistically try and return the memory
-        match self.inner.buffers.get(&buffer.alignment()) {
+        match self
+            .inner
+            .buffers
+            .get(buffer.alignment().exponent() as usize)
+        {
             None => {}
             Some(pool) => {
                 if let Some(mut pool) = pool.try_lock() {

@@ -5170,7 +5170,6 @@ dependencies = [
  "bytes",
  "codspeed-divan-compat",
  "compio",
- "hashbrown 0.15.2",
  "log",
  "parking_lot",
  "rkyv",

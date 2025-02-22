@@ -14,7 +14,7 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
-default = ["rkyv", "warn-copy"]
+default = ["rkyv"]
 arrow = ["dep:arrow-buffer"]
 compio = ["dep:compio"]
 rkyv = ["dep:rkyv"]
@@ -24,7 +24,6 @@ warn-copy = ["dep:log"]
 arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
 compio = { workspace = true, optional = true }
-hashbrown = { workspace = true }
 log = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 rkyv = { workspace = true, optional = true }
