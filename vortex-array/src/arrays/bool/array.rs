@@ -14,8 +14,7 @@ use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    encoding_ids, ArrayImpl, ArrayStatisticsImpl
-    , Canonical, Encoding, EncodingId, RkyvMetadata,
+    encoding_ids, ArrayImpl, ArrayStatisticsImpl, Canonical, Encoding, EncodingId, RkyvMetadata,
 };
 
 #[derive(Clone, Debug)]
