@@ -45,7 +45,7 @@ impl SerdeVTable<&RunEndArray> for RunEndEncoding {
         let ends_dtype = DType::Primitive(metadata.ends_ptype, Nullability::NonNullable);
         let ends = parts.child(0).decode(ctx, ends_dtype, metadata.num_runs)?;
 
-        let values = parts.child(1).decode(ctx, dtype, len)?;
+        let values = parts.child(1).decode(ctx, dtype, metadata.num_runs)?;
 
         Ok(RunEndArray::with_offset_and_length(ends, values, metadata.offset, len)?.into_array())
     }

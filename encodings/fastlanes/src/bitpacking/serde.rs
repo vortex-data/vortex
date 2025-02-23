@@ -54,13 +54,32 @@ impl SerdeVTable<&BitPackedArray> for BitPackedEncoding {
     ) -> VortexResult<ArrayRef> {
         let metadata = RkyvMetadata::<BitPackedMetadata>::deserialize(parts.metadata())?;
 
-        let validity = if parts.nchildren() == 2 {
-            Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 3 {
-            let validity = parts.child(2).decode(ctx, Validity::DTYPE, len)?;
-            Validity::Array(validity)
+        if parts.nbuffers() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        }
+        let packed = parts.buffers()?[0].clone();
+
+        let load_validity = |child_idx: usize| {
+            if parts.nchildren() == child_idx {
+                Ok(Validity::from(dtype.nullability()))
+            } else if parts.nchildren() == child_idx + 1 {
+                let validity = parts.child(child_idx).decode(ctx, Validity::DTYPE, len)?;
+                Ok(Validity::Array(validity))
+            } else {
+                vortex_bail!(
+                    "Expected {} or {} children, got {}",
+                    child_idx,
+                    child_idx + 1,
+                    parts.nchildren()
+                );
+            }
+        };
+
+        // Load validity from the zero'th or second child, depending on whether patches are present.
+        let validity = if metadata.patches.is_some() {
+            load_validity(2)?
         } else {
-            vortex_bail!("Expected 2 or 3 children, got {}", parts.nchildren());
+            load_validity(0)?
         };
 
         let patches = metadata
@@ -72,19 +91,15 @@ impl SerdeVTable<&BitPackedArray> for BitPackedEncoding {
             })
             .transpose()?;
 
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
-        }
-        let packed = parts.buffers()?[0].clone();
-
         Ok(unsafe {
-            BitPackedArray::new_unchecked(
+            BitPackedArray::new_unchecked_with_offset(
                 packed,
                 PType::try_from(&dtype)?,
                 validity,
                 patches,
                 metadata.bit_width,
                 len,
+                metadata.offset,
             )?
             .into_array()
         })

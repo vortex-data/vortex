@@ -57,9 +57,12 @@ impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
         }
         if buffer.len() != ptype.byte_width() * len {
             vortex_bail!(
-                "Buffer length {} does not match expected length {}",
+                "Buffer length {} does not match expected length {} for {}, {} in {:?}",
                 buffer.len(),
-                ptype.byte_width() * len
+                ptype.byte_width() * len,
+                ptype.byte_width(),
+                len,
+                parts,
             );
         }
 

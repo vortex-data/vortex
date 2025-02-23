@@ -215,10 +215,10 @@ pub struct ArrayParts {
 impl Debug for ArrayParts {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayParts")
-            .field("flatbuffer", &self.flatbuffer.len())
-            .field("flatbuffer_loc", &self.flatbuffer_loc)
-            .field("flatbuffer_root_loc", &self.flatbuffer_root_loc)
-            .field("buffers", &self.buffers.len())
+            .field("encoding_id", &self.encoding_id())
+            .field("children", &self.children())
+            .field("buffers", &self.buffers().ok())
+            .field("metadata", &self.metadata())
             .finish()
     }
 }
