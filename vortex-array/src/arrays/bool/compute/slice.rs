@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn test_slice_large() {
-        let arr = BoolArray::from_iter(iter::repeat(Some(true)).take(100));
+        let arr = BoolArray::from_iter(std::iter::repeat_n(Some(true), 100));
         let sliced_arr = slice(&arr, 8, 16).unwrap().to_bool().unwrap();
         assert_eq!(sliced_arr.len(), 8);
         assert_eq!(sliced_arr.boolean_buffer().len(), 8);
