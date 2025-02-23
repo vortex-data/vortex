@@ -16,7 +16,7 @@ categories = { workspace = true }
 [dependencies]
 vortex-error = { workspace = true }
 witchcraft-metrics = { workspace = true }
-getrandom_v02 = { workspace = true }
+getrandom_v03 = { workspace = true }
 
 [lints]
 workspace = true

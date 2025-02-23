@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::{pin_mut, StreamExt, TryStreamExt};
-use futures_executor::block_on;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -19,7 +18,7 @@ use vortex_array::{Array, ArrayVariants, IntoArray, ToCanonical};
 use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
 use crate::{
@@ -964,7 +963,7 @@ async fn test_repeated_projection() {
     );
 }
 
-fn chunked_file() -> VortexFile<InMemoryVortexFile> {
+async fn chunked_file() -> VortexResult<VortexFile<InMemoryVortexFile>> {
     let array = ChunkedArray::from_iter([
         buffer![0, 1, 2].into_array(),
         buffer![3, 4, 5].into_array(),
@@ -972,31 +971,32 @@ fn chunked_file() -> VortexFile<InMemoryVortexFile> {
     ])
     .into_array();
 
-    block_on(async {
-        let buffer: Bytes = VortexWriteOptions::default()
-            .write(vec![], array.to_array_stream())
-            .await?
-            .into();
-        VortexOpenOptions::in_memory(buffer).open().await
-    })
-    .vortex_expect("Failed to create test file")
+    let buffer: Bytes = VortexWriteOptions::default()
+        .write(vec![], array.to_array_stream())
+        .await?
+        .into();
+    VortexOpenOptions::in_memory(buffer).open().await
 }
 
-#[test]
-fn basic_file_roundtrip() -> VortexResult<()> {
-    let vxf = chunked_file();
-    let result = block_on(vxf.scan().into_array())?.to_primitive()?;
+#[tokio::test]
+async fn basic_file_roundtrip() -> VortexResult<()> {
+    let vxf = chunked_file().await?;
+    let result = vxf.scan().into_array().await?.to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
     Ok(())
 }
 
-#[test]
-fn file_take() -> VortexResult<()> {
-    let vxf = chunked_file();
-    let result =
-        block_on(vxf.scan().with_row_indices(buffer![0, 1, 8]).into_array())?.to_primitive()?;
+#[tokio::test]
+async fn file_take() -> VortexResult<()> {
+    let vxf = chunked_file().await?;
+    let result = vxf
+        .scan()
+        .with_row_indices(buffer![0, 1, 8])
+        .into_array()
+        .await?
+        .to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
 

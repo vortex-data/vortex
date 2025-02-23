@@ -5399,7 +5399,7 @@ dependencies = [
  "bytes",
  "flatbuffers 25.2.10",
  "futures",
- "futures-executor",
+ "getrandom 0.3.1",
  "itertools 0.14.0",
  "log",
  "moka",
@@ -5475,6 +5475,7 @@ dependencies = [
  "flume",
  "futures",
  "futures-util",
+ "getrandom 0.3.1",
  "object_store",
  "pin-project",
  "tempfile",
@@ -5516,6 +5517,7 @@ dependencies = [
  "flatbuffers 25.2.10",
  "flume",
  "futures",
+ "getrandom 0.3.1",
  "itertools 0.14.0",
  "log",
  "pin-project-lite",
@@ -5544,7 +5546,7 @@ dependencies = [
 name = "vortex-metrics"
 version = "0.24.0"
 dependencies = [
- "getrandom 0.2.15",
+ "getrandom 0.3.1",
  "vortex-error",
  "witchcraft-metrics",
 ]
