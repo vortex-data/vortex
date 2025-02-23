@@ -643,9 +643,9 @@ impl PyArray {
     ///     root: vortex.primitive(0x03)(i64?, len=4) nbytes=33 B (100.00%)
     ///       metadata: EmptyMetadata
     ///       buffer (align=8): 32 B
-    ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=3 B (8.33%)
-    ///     metadata: BoolMetadata { validity: NonNullable, first_byte_bit_offset: 0 }
-    ///     buffer (align=1): 1 B
+    ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=1 B (3.03%)
+    ///         metadata: EmptyMetadata
+    ///         buffer (align=1): 1 B
     ///     <BLANKLINE>
     ///
     /// Compressed arrays often have more complex, deeply nested encoding trees.
