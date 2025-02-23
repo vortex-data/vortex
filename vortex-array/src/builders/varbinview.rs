@@ -210,7 +210,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::accessor::ArrayAccessor;
-    use crate::array::{Array, ArrayExt};
+    use crate::array::ArrayExt;
     use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
     use crate::ToCanonical;

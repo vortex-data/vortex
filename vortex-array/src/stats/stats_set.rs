@@ -564,7 +564,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::arrays::PrimitiveArray;
-    use crate::stats::{Precision, Stat, Statistics, StatsSet};
+    use crate::stats::{Precision, Stat, StatsSet};
     use crate::Array;
 
     #[test]

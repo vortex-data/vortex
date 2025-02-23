@@ -184,7 +184,6 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
-    use crate::IntoArray;
 
     #[rstest]
     #[case(BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter())

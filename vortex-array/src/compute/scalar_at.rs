@@ -6,7 +6,7 @@ use crate::Array;
 
 /// Implementation of scalar_at for an encoding.
 ///
-/// SAFETY: the index is guaranteed to be within the bounds of the [ArrayRef].
+/// SAFETY: the index is guaranteed to be within the bounds of the [`crate::ArrayRef`].
 pub trait ScalarAtFn<A> {
     fn scalar_at(&self, array: A, index: usize) -> VortexResult<Scalar>;
 }
