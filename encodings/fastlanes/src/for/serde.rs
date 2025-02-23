@@ -47,7 +47,7 @@ impl SerdeVTable<&FoRArray> for FoREncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffers, got {}", parts.nbuffers());
         }
-        let reference = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffers()?[0])?);
+        let reference = Scalar::new(dtype, ScalarValue::from_flexbytes(&parts.buffer(0)?)?);
 
         Ok(FoRArray::try_new(encoded, reference)?.into_array())
     }

@@ -301,6 +301,8 @@ pub trait Statistics {
     fn inherit(&self, parent: &dyn Statistics) {
         for stat in all::<Stat>() {
             if let Some(s) = parent.get_stat(stat) {
+                // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
+                //  so we don't have to take lots of write locks.
                 self.set_stat(stat, s);
             }
         }

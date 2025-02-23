@@ -57,7 +57,7 @@ impl SerdeVTable<&BitPackedArray> for BitPackedEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let packed = parts.buffers()?[0].clone();
+        let packed = parts.buffer(0)?;
 
         let load_validity = |child_idx: usize| {
             if parts.nchildren() == child_idx {

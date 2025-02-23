@@ -64,7 +64,7 @@ impl SerdeVTable<&VarBinArray> for VarBinEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let bytes = parts.buffers()?[0].clone();
+        let bytes = parts.buffer(0)?;
 
         Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
     }

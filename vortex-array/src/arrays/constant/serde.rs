@@ -29,7 +29,7 @@ impl SerdeVTable<&ConstantArray> for ConstantEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let sv = ScalarValue::from_flexbytes(&parts.buffers()?[0])?;
+        let sv = ScalarValue::from_flexbytes(&parts.buffer(0)?)?;
         let scalar = Scalar::new(dtype, sv);
         Ok(ConstantArray::new(scalar, len).into_array())
     }

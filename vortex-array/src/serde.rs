@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::iter;
+use std::sync::Arc;
 
 use flatbuffers::{root, root_unchecked, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
@@ -7,9 +8,11 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::array::Compression;
-use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
+use vortex_flatbuffers::{
+    array as fba, FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer,
+};
 
-use crate::stats::Statistics;
+use crate::stats::{Statistics, StatsSet};
 use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, Context, ContextRef};
 
 /// Options for serializing an array.
@@ -209,15 +212,18 @@ pub struct ArrayParts {
     flatbuffer_loc: usize,
     // The location of the current fb::ArrayNode
     flatbuffer_root_loc: usize,
-    buffers: Vec<ByteBuffer>,
+    buffers: Arc<[ByteBuffer]>,
 }
 
 impl Debug for ArrayParts {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayParts")
             .field("encoding_id", &self.encoding_id())
-            .field("children", &self.children())
-            .field("buffers", &self.buffers().ok())
+            .field("children", &(0..self.nchildren()).map(|i| self.child(i)))
+            .field(
+                "buffers",
+                &(0..self.nbuffers()).map(|i| self.buffer(i).ok()),
+            )
             .field("metadata", &self.metadata())
             .finish()
     }
@@ -246,6 +252,15 @@ impl ArrayParts {
             vtable.id(),
             decoded.encoding(),
         );
+
+        // Populate statistics from the serialized array.
+        if let Some(stats) = self.flatbuffer_root().stats() {
+            let decoded_statistics = decoded.statistics();
+            StatsSet::read_flatbuffer(&stats)?
+                .into_iter()
+                .for_each(|(stat, val)| decoded_statistics.set_stat(stat, val));
+        }
+
         Ok(decoded)
     }
 
@@ -295,19 +310,23 @@ impl ArrayParts {
             .map_or(0, |buffers| buffers.len())
     }
 
-    /// Returns the array buffers.
-    pub fn buffers(&self) -> VortexResult<Vec<ByteBuffer>> {
-        self.flatbuffer_root()
+    /// Returns the nth buffer of the current array.
+    pub fn buffer(&self, idx: usize) -> VortexResult<ByteBuffer> {
+        let buffer_idx = self
+            .flatbuffer_root()
             .buffers()
-            .iter()
-            .flat_map(|b| b.iter())
-            .map(|buffer_id| {
-                self.buffers
-                    .get(buffer_id as usize)
-                    .cloned()
-                    .ok_or_else(|| vortex_err!("Invalid buffer ID {}", buffer_id))
+            .ok_or_else(|| vortex_err!("Array has no buffers"))?
+            .get(idx);
+        self.buffers
+            .get(buffer_idx as usize)
+            .cloned()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Invalid buffer index {} for array with {} buffers",
+                    buffer_idx,
+                    self.nbuffers()
+                )
             })
-            .try_collect()
     }
 
     /// Returns the array flatbuffer.
@@ -321,6 +340,7 @@ impl ArrayParts {
     }
 
     /// Returns a new [`ArrayParts`] with the given node as the root
+    // TODO(ngates): we may want a wrapper that avoids this clone.
     fn with_root(&self, root: fba::ArrayNode) -> Self {
         let mut this = self.clone();
         this.flatbuffer_root_loc = root._tab.loc();
@@ -349,7 +369,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");
 
         let mut offset = 0;
-        let buffers = fb_array
+        let buffers: Arc<[ByteBuffer]> = fb_array
             .buffers()
             .unwrap_or_default()
             .iter()
@@ -367,7 +387,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                 offset += buffer_len;
                 buffer
             })
-            .collect_vec();
+            .collect();
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer.clone(),

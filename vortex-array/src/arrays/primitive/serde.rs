@@ -36,7 +36,7 @@ impl SerdeVTable<&PrimitiveArray> for PrimitiveEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let buffer = parts.buffers()?[0].clone();
+        let buffer = parts.buffer(0)?;
 
         let validity = if parts.nchildren() == 0 {
             Validity::from(dtype.nullability())

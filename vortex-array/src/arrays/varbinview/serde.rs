@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use vortex_buffer::Buffer;
+use itertools::Itertools;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype::Binary;
@@ -39,7 +40,9 @@ impl SerdeVTable<&VarBinViewArray> for VarBinViewEncoding {
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let mut buffers = parts.buffers()?;
+        let mut buffers: Vec<ByteBuffer> = (0..parts.nbuffers())
+            .map(|i| parts.buffer(i))
+            .try_collect()?;
         let views = Buffer::<BinaryView>::from_byte_buffer(
             buffers.pop().vortex_expect("Missing views buffer"),
         );

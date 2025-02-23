@@ -54,7 +54,7 @@ impl SerdeVTable<&BoolArray> for BoolEncoding {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
         let buffer = BooleanBuffer::new(
-            parts.buffers()?[0].clone().into_arrow_buffer(),
+            parts.buffer(0)?.into_arrow_buffer(),
             metadata.offset as usize,
             len,
         );

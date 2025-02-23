@@ -44,7 +44,7 @@ impl SerdeVTable<&ByteBoolArray> for ByteBoolEncoding {
         if parts.nbuffers() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
         }
-        let buffer = parts.buffers()?[0].clone();
+        let buffer = parts.buffer(0)?;
 
         Ok(ByteBoolArray::new(buffer, validity).into_array())
     }
