@@ -230,7 +230,23 @@ impl ArrayParts {
         let vtable = ctx
             .lookup_encoding(encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
-        vtable.decode(self, ctx, dtype, len)
+        let decoded = vtable.decode(self, ctx, dtype, len)?;
+        assert_eq!(
+            decoded.len(),
+            len,
+            "Array decoded from {} has incorrect length {}, expected {}",
+            vtable.id(),
+            decoded.len(),
+            len
+        );
+        assert_eq!(
+            decoded.encoding(),
+            vtable.id(),
+            "Array decoded from {} has incorrect encoding {}",
+            vtable.id(),
+            decoded.encoding(),
+        );
+        Ok(decoded)
     }
 
     /// Returns the array encoding.

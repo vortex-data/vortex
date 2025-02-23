@@ -116,6 +116,7 @@ impl ExtensionArrayTrait for ExtensionArray {
 
 impl StatisticsVTable<&ExtensionArray> for ExtensionEncoding {
     fn compute_statistics(&self, array: &'_ ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
+        // No need to cast the storage statistics since we return untyped ScalarValue.
         array.storage().statistics().compute_all(&[stat])
     }
 }
