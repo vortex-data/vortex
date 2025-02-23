@@ -35,9 +35,15 @@ impl WriteFlatBuffer for StatsSet {
             .and_then(Precision::some_exact)
             .map(|max| max.write_flatbuffer(fbb));
 
+        let sum = self
+            .get(Stat::Sum)
+            .and_then(Precision::some_exact)
+            .map(|max| max.write_flatbuffer(fbb));
+
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,
             max,
+            sum,
             is_sorted: self
                 .get_as::<bool>(Stat::IsSorted)
                 .and_then(Precision::some_exact),

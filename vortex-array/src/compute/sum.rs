@@ -119,7 +119,7 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
         } else {
             vortex_bail!(
                 "No sum function for canonical array: {}",
-                array.as_ref().tree_display(),
+                array.as_ref().encoding(),
             )
         }
     };

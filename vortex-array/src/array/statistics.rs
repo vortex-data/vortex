@@ -94,7 +94,12 @@ impl<A: Array + ArrayImpl> Statistics for A {
                 stats_set
             }
             // Try to compute the sum and return it.
-            Stat::Sum => return sum(self).ok().map(|sum| sum.into_value()),
+            Stat::Sum => {
+                return sum(self)
+                    .inspect_err(|e| log::warn!("{}", e))
+                    .ok()
+                    .map(|sum| sum.into_value())
+            }
             _ => {
                 let vtable = self.vtable();
                 vtable
