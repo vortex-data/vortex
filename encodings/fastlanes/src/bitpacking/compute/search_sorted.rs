@@ -107,8 +107,8 @@ where
     //  precondition for BitPackedArray that all values must be non-negative, so promotion
     //  is cheap and safe.
     let Ok(unsigned_value) = value.cast(&DType::from(array.ptype().to_unsigned())) else {
-        // If the value can't be casted to unsigned dtype then it can't exist in the array and would be smaller than any value present
-        return Ok(SearchResult::NotFound(0));
+        // If the value can't be casted to unsigned dtype then it can't exist in the array and would be smaller than any value present but bigger than any nulls
+        return Ok(SearchResult::NotFound(array.invalid_count()?));
     };
     let native_value: T = unsigned_value.try_into()?;
     search_sorted_native(array, native_value, side)
@@ -201,7 +201,7 @@ impl<T> Len for BitPackedSearch<'_, T> {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::{
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
     };
@@ -336,16 +336,31 @@ mod test {
     }
 
     #[test]
+    fn test_missing_signed_nullable() {
+        let bitpacked = BitPackedArray::encode(
+            &PrimitiveArray::new(
+                buffer![1i32, 2, 3, 4, 5],
+                Validity::from(BooleanBuffer::from(vec![false, false, false, true, true])),
+            )
+            .into_array(),
+            2,
+        )
+        .unwrap()
+        .into_array();
+        assert_eq!(
+            search_sorted(&bitpacked, -4, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(3)
+        );
+    }
+
+    #[test]
     fn test_non_null_patches() {
         let bitpacked = BitPackedArray::encode(
             &PrimitiveArray::new(
                 buffer![0u64, 0, 0, 0, 0, 2815694643789679, 8029759183936649593],
-                Validity::Array(
-                    BoolArray::from(BooleanBuffer::from(vec![
-                        false, false, false, false, false, true, true,
-                    ]))
-                    .into_array(),
-                ),
+                Validity::from(BooleanBuffer::from(vec![
+                    false, false, false, false, false, true, true,
+                ])),
             )
             .into_array(),
             0,
