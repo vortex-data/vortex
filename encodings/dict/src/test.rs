@@ -5,7 +5,7 @@ use rand::prelude::{SliceRandom, StdRng};
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
@@ -62,7 +62,7 @@ pub fn gen_varbin_words(len: usize, unique_count: usize) -> Vec<String> {
         .collect()
 }
 
-pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> Array {
+pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
     let mut strings = Vec::with_capacity(len);
 
@@ -108,7 +108,7 @@ pub fn gen_dict_primitive_chunks<T: NativePType, O: NativePType>(
     len: usize,
     unique_values: usize,
     chunk_count: usize,
-) -> Array
+) -> ArrayRef
 where
     Standard: Distribution<T>,
 {

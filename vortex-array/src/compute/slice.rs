@@ -1,24 +1,31 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Limit array to start...stop range
 pub trait SliceFn<A> {
     /// Return a zero-copy slice of an array, between `start` (inclusive) and `end` (exclusive).
     /// If start >= stop, returns an empty array of the same type as `self`.
     /// Assumes that start or stop are out of bounds, may panic otherwise.
-    fn slice(&self, array: &A, start: usize, stop: usize) -> VortexResult<Array>;
+    fn slice(&self, array: A, start: usize, stop: usize) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> SliceFn<Array> for E
+impl<E: Encoding> SliceFn<&dyn Array> for E
 where
-    E: SliceFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> SliceFn<&'a E::Array>,
 {
-    fn slice(&self, array: &Array, start: usize, stop: usize) -> VortexResult<Array> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+    fn slice(&self, array: &dyn Array, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = array.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         SliceFn::slice(encoding, array_ref, start, stop)
     }
 }
@@ -32,11 +39,9 @@ where
 ///
 /// Slicing returns an error if the underlying codec's [slice](SliceFn::slice()) implementation
 /// returns an error.
-pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResult<Array> {
-    let array = array.as_ref();
-
+pub fn slice(array: &dyn Array, start: usize, stop: usize) -> VortexResult<ArrayRef> {
     if start == 0 && stop == array.len() {
-        return Ok(array.clone());
+        return Ok(array.to_array());
     }
 
     if start == stop {
@@ -47,7 +52,7 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
 
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
-    let derived_stats = (!array.must_be_constant()).then(|| derive_sliced_stats(array));
+    let derived_stats = (!array.is_constant()).then(|| derive_sliced_stats(array));
 
     let sliced = array
         .vtable()
@@ -61,10 +66,10 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
         })?;
 
     if let Some(derived_stats) = derived_stats {
-        let mut stats = sliced.stats_set();
+        let mut stats = sliced.statistics().stats_set();
         stats.combine_sets(&derived_stats, array.dtype())?;
         for (stat, val) in stats.into_iter() {
-            sliced.set_stat(stat, val)
+            sliced.statistics().set_stat(stat, val)
         }
     }
 
@@ -84,8 +89,8 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     Ok(sliced)
 }
 
-fn derive_sliced_stats(arr: &Array) -> StatsSet {
-    let stats = arr.stats_set();
+fn derive_sliced_stats(arr: &dyn Array) -> StatsSet {
+    let stats = arr.statistics().stats_set();
 
     // an array that is not constant can become constant after slicing
     let is_constant = stats.get_as::<bool>(Stat::IsConstant);
@@ -114,7 +119,7 @@ fn derive_sliced_stats(arr: &Array) -> StatsSet {
     stats
 }
 
-fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<()> {
+fn check_slice_bounds(array: &dyn Array, start: usize, stop: usize) -> VortexResult<()> {
     if start > array.len() {
         vortex_bail!(OutOfBounds: start, 0, array.len());
     }
@@ -134,15 +139,16 @@ mod tests {
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::stats::{Precision, Stat, Statistics, STATS_TO_WRITE};
+    use crate::Array;
 
     #[test]
     fn test_slice_primitive() {
         let c = PrimitiveArray::from_iter(0i32..100);
         c.compute_all(STATS_TO_WRITE).unwrap();
 
-        let c2 = slice(c, 10, 20).unwrap();
+        let c2 = slice(&c, 10, 20).unwrap();
 
-        let result_stats = c2.stats_set();
+        let result_stats = c2.statistics().stats_set();
         assert_eq!(
             result_stats.get_as::<i32>(Stat::Max),
             Some(Precision::inexact(99))
@@ -158,8 +164,8 @@ mod tests {
         let c = ConstantArray::new(Scalar::from(10), 100);
         c.compute_all(STATS_TO_WRITE).unwrap();
 
-        let c2 = slice(c, 10, 20).unwrap();
-        let result_stats = c2.stats_set();
+        let c2 = slice(&c, 10, 20).unwrap();
+        let result_stats = c2.statistics().stats_set();
 
         // Constant always knows its exact stats
         assert_eq!(

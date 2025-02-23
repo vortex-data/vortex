@@ -15,7 +15,7 @@ use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
 use vortex::arrays::ChunkedArray;
 use vortex::builders::builder_with_capacity;
-use vortex::{IntoArray, IntoCanonical};
+use vortex::{Array, ArrayExt};
 
 feature_flagged_allocator!();
 
@@ -118,16 +118,13 @@ fn compress(
                 || {
                     let vx_array =
                         runtime.block_on(async { dataset_handle.to_vortex_array().await });
-                    ChunkedArray::from_iter(
-                        ChunkedArray::maybe_from(vx_array)
-                            .unwrap()
-                            .chunks()
-                            .map(|c| {
-                                let mut builder = builder_with_capacity(c.dtype(), c.len());
-                                c.canonicalize_into(builder.as_mut()).unwrap();
-                                builder.finish()
-                            }),
-                    )
+                    ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(
+                        |c| {
+                            let mut builder = builder_with_capacity(c.dtype(), c.len());
+                            c.append_to_builder(builder.as_mut()).unwrap();
+                            builder.finish()
+                        },
+                    ))
                     .into_array()
                 },
             )

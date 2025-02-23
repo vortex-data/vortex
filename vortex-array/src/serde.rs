@@ -1,16 +1,21 @@
 use std::fmt::{Debug, Formatter};
 use std::iter;
+use std::sync::Arc;
 
-use flatbuffers::{root, FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{root, root_unchecked, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+};
 use vortex_flatbuffers::array::Compression;
-use vortex_flatbuffers::{array as fba, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
+use vortex_flatbuffers::{
+    array as fba, FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer,
+};
 
-use crate::stats::Statistics;
-use crate::{Array, ContextRef};
+use crate::stats::{Statistics, StatsSet};
+use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, Context, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -22,7 +27,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl Array {
+impl dyn Array + '_ {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -37,7 +42,7 @@ impl Array {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
-            for buffer in a.byte_buffers() {
+            for buffer in a.buffers() {
                 array_buffers.push(buffer);
             }
         }
@@ -124,26 +129,16 @@ impl Array {
 
         buffers
     }
-
-    /// Deserialize an array from a [`ByteBuffer`].
-    pub fn deserialize(
-        bytes: ByteBuffer,
-        ctx: ContextRef,
-        dtype: DType,
-        length: usize,
-    ) -> VortexResult<Self> {
-        ArrayParts::try_from(bytes)?.decode(ctx, dtype, length)
-    }
 }
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
-    array: &'a Array,
+    array: &'a dyn Array,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(array: &'a Array) -> Self {
+    pub fn new(array: &'a dyn Array) -> Self {
         Self {
             array,
             buffer_idx: 0,
@@ -163,8 +158,8 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let encoding = self.array.encoding().code();
         let metadata = self
             .array
-            .metadata_bytes()
-            .map(|bytes| fbb.create_vector(bytes));
+            .metadata()
+            .map(|bytes| fbb.create_vector(bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
@@ -182,7 +177,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
                     buffer_idx: *buffer_idx,
                 }
                 .write_flatbuffer(fbb);
-                *buffer_idx = u16::try_from(child.cumulative_nbuffers())
+                *buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
                     .and_then(|nbuffers| nbuffers.checked_add(*buffer_idx))
                     .vortex_expect("Too many buffers (u16) for Array");
@@ -192,7 +187,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.stats_set().write_flatbuffer(fbb));
+        let stats = Some(self.array.statistics().stats_set().write_flatbuffer(fbb));
 
         fba::ArrayNode::create(
             fbb,
@@ -207,40 +202,157 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
     }
 }
 
-/// [`ArrayParts`] represents the information from an [`Array`] that makes up the serialized
+/// [`ArrayParts`] represents the information from an [`ArrayRef`] that makes up the serialized
 /// form. For example, it uses stores integer encoding IDs rather than a reference to an encoding
 /// vtable, and it doesn't store any [`DType`] information.
 ///
-/// An [`ArrayParts`] can be fully decoded into an [`Array`] using the `decode` function.
+/// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
+#[derive(Clone)]
 pub struct ArrayParts {
     // Typed as fb::Array
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    buffers: Vec<ByteBuffer>,
+    // The location of the current fb::ArrayNode
+    flatbuffer_root_loc: usize,
+    buffers: Arc<[ByteBuffer]>,
 }
 
 impl Debug for ArrayParts {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayParts")
-            .field("flatbuffer", &self.flatbuffer.len())
-            .field("flatbuffer_loc", &self.flatbuffer_loc)
-            .field("buffers", &self.buffers.len())
+            .field("encoding_id", &self.encoding_id())
+            .field("children", &(0..self.nchildren()).map(|i| self.child(i)))
+            .field(
+                "buffers",
+                &(0..self.nbuffers()).map(|i| self.buffer(i).ok()),
+            )
+            .field("metadata", &self.metadata())
             .finish()
     }
 }
 
 impl ArrayParts {
-    /// Decode an [`ArrayParts`] into an [`Array`].
-    pub fn decode(self, ctx: ContextRef, dtype: DType, len: usize) -> VortexResult<Array> {
-        Array::try_new_viewed(
-            ctx,
-            dtype,
+    /// Decode an [`ArrayParts`] into an [`ArrayRef`].
+    pub fn decode(&self, ctx: &ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+        let encoding_id = self.flatbuffer_root().encoding();
+        let vtable = ctx
+            .lookup_encoding(encoding_id)
+            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
+        let decoded = vtable.decode(self, ctx, dtype, len)?;
+        assert_eq!(
+            decoded.len(),
             len,
-            self.flatbuffer,
-            // SAFETY: ArrayComponents guarantees the buffers are valid.
-            |buf| unsafe { Ok(fba::ArrayNode::follow(buf, self.flatbuffer_loc)) },
-            self.buffers,
-        )
+            "Array decoded from {} has incorrect length {}, expected {}",
+            vtable.id(),
+            decoded.len(),
+            len
+        );
+        assert_eq!(
+            decoded.encoding(),
+            vtable.id(),
+            "Array decoded from {} has incorrect encoding {}",
+            vtable.id(),
+            decoded.encoding(),
+        );
+
+        // Populate statistics from the serialized array.
+        if let Some(stats) = self.flatbuffer_root().stats() {
+            let decoded_statistics = decoded.statistics();
+            StatsSet::read_flatbuffer(&stats)?
+                .into_iter()
+                .for_each(|(stat, val)| decoded_statistics.set_stat(stat, val));
+        }
+
+        Ok(decoded)
+    }
+
+    /// Returns the array encoding.
+    pub fn encoding_id(&self) -> u16 {
+        self.flatbuffer_root().encoding()
+    }
+
+    /// Returns the array metadata bytes.
+    pub fn metadata(&self) -> Option<&[u8]> {
+        self.flatbuffer_root()
+            .metadata()
+            .map(|metadata| metadata.bytes())
+    }
+
+    /// Returns the number of children.
+    pub fn nchildren(&self) -> usize {
+        self.flatbuffer_root()
+            .children()
+            .map_or(0, |children| children.len())
+    }
+
+    /// Returns the nth child of the array.
+    pub fn child(&self, idx: usize) -> ArrayParts {
+        let children = self
+            .flatbuffer_root()
+            .children()
+            .vortex_expect("Expected array to have children");
+        if idx >= children.len() {
+            vortex_panic!(
+                "Invalid child index {} for array with {} children",
+                idx,
+                children.len()
+            );
+        }
+        self.with_root(children.get(idx))
+    }
+
+    /// Iterate the children of this array.
+    pub fn children(&self) -> Vec<ArrayParts> {
+        self.flatbuffer_root()
+            .children()
+            .iter()
+            .flat_map(|children| children.iter())
+            .map(move |child| self.with_root(child))
+            .collect()
+    }
+
+    /// Returns the number of buffers.
+    pub fn nbuffers(&self) -> usize {
+        self.flatbuffer_root()
+            .buffers()
+            .map_or(0, |buffers| buffers.len())
+    }
+
+    /// Returns the nth buffer of the current array.
+    pub fn buffer(&self, idx: usize) -> VortexResult<ByteBuffer> {
+        let buffer_idx = self
+            .flatbuffer_root()
+            .buffers()
+            .ok_or_else(|| vortex_err!("Array has no buffers"))?
+            .get(idx);
+        self.buffers
+            .get(buffer_idx as usize)
+            .cloned()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Invalid buffer index {} for array with {} buffers",
+                    buffer_idx,
+                    self.nbuffers()
+                )
+            })
+    }
+
+    /// Returns the array flatbuffer.
+    fn flatbuffer(&self) -> fba::Array {
+        unsafe { fba::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
+    }
+
+    /// Returns the root ArrayNode flatbuffer.
+    fn flatbuffer_root(&self) -> fba::ArrayNode {
+        unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_root_loc) }
+    }
+
+    /// Returns a new [`ArrayParts`] with the given node as the root
+    // TODO(ngates): we may want a wrapper that avoids this clone.
+    fn with_root(&self, root: fba::ArrayNode) -> Self {
+        let mut this = self.clone();
+        this.flatbuffer_root_loc = root._tab.loc();
+        this
     }
 }
 
@@ -265,7 +377,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         let fb_root = fb_array.root().vortex_expect("Array must have a root node");
 
         let mut offset = 0;
-        let buffers = fb_array
+        let buffers: Arc<[ByteBuffer]> = fb_array
             .buffers()
             .unwrap_or_default()
             .iter()
@@ -283,11 +395,12 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                 offset += buffer_len;
                 buffer
             })
-            .collect_vec();
+            .collect();
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer.clone(),
-            flatbuffer_loc: fb_root._tab.loc(),
+            flatbuffer_loc: fb_array._tab.loc(),
+            flatbuffer_root_loc: fb_root._tab.loc(),
             buffers,
         })
     }

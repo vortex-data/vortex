@@ -1,61 +1,93 @@
+use std::sync::{Arc, RwLock};
+
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
-use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::{
+    Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
-use crate::{impl_encoding, Canonical, EmptyMetadata};
 
 mod compute;
+mod serde;
 
-impl_encoding!("vortex.null", encoding_ids::NULL, Null, EmptyMetadata);
+#[derive(Clone, Debug)]
+pub struct NullArray {
+    len: usize,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+pub struct NullEncoding;
+impl Encoding for NullEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.null", encoding_ids::NULL);
+    type Array = NullArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl NullArray {
     pub fn new(len: usize) -> Self {
-        Self::try_from_parts(
-            DType::Null,
+        Self {
             len,
-            EmptyMetadata,
-            vec![].into(),
-            vec![].into(),
-            StatsSet::nulls(len, &DType::Null),
-        )
-        .vortex_expect("NullArray::new should never fail!")
+            stats_set: Default::default(),
+        }
     }
 }
 
-impl CanonicalVTable<NullArray> for NullEncoding {
-    fn into_canonical(&self, array: NullArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(array))
+impl ArrayImpl for NullArray {
+    type Encoding = NullEncoding;
+
+    fn _len(&self) -> usize {
+        self.len
+    }
+
+    fn _dtype(&self) -> &DType {
+        &DType::Null
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&NullEncoding)
     }
 }
 
-impl ValidityVTable<NullArray> for NullEncoding {
-    fn is_valid(&self, _array: &NullArray, _idx: usize) -> VortexResult<bool> {
+impl ArrayStatisticsImpl for NullArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
+impl ArrayCanonicalImpl for NullArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Null(self.clone()))
+    }
+}
+
+impl ArrayValidityImpl for NullArray {
+    fn _is_valid(&self, _index: usize) -> VortexResult<bool> {
         Ok(false)
     }
 
-    fn all_valid(&self, array: &NullArray) -> VortexResult<bool> {
-        Ok(array.is_empty())
+    fn _all_valid(&self) -> VortexResult<bool> {
+        Ok(self.is_empty())
     }
 
-    fn all_invalid(&self, array: &NullArray) -> VortexResult<bool> {
-        Ok(!array.is_empty())
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        Ok(!self.is_empty())
     }
 
-    fn validity_mask(&self, array: &NullArray) -> VortexResult<Mask> {
-        Ok(Mask::AllFalse(array.len()))
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        Ok(Mask::AllFalse(self.len))
     }
 }
 
-impl StatisticsVTable<NullArray> for NullEncoding {
+impl StatisticsVTable<&NullArray> for NullEncoding {
     fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
@@ -65,17 +97,9 @@ impl StatisticsVTable<NullArray> for NullEncoding {
     }
 }
 
-impl VisitorVTable<NullArray> for NullEncoding {
-    fn accept(&self, _array: &NullArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_validity(&Validity::AllInvalid)
-    }
-}
-
-impl ValidateVTable<NullArray> for NullEncoding {}
-
-impl VariantsVTable<NullArray> for NullEncoding {
-    fn as_null_array<'a>(&self, array: &'a NullArray) -> Option<&'a dyn NullArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for NullArray {
+    fn _as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
+        Some(self)
     }
 }
 

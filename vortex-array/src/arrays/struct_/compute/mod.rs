@@ -14,44 +14,44 @@ use crate::compute::{
 };
 use crate::variants::StructArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 impl ComputeVTable for StructEncoding {
-    fn cast_fn(&self) -> Option<&dyn CastFn<Array>> {
+    fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {
         Some(self)
     }
 
-    fn filter_fn(&self) -> Option<&dyn FilterFn<Array>> {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<&dyn Array>> {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<Array>> {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
         Some(self)
     }
 
-    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<Array>> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<Array>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
         Some(self)
     }
 
-    fn take_fn(&self) -> Option<&dyn TakeFn<Array>> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<&dyn Array>> {
         Some(self)
     }
 
-    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<Array>> {
+    fn to_arrow_fn(&self) -> Option<&dyn ToArrowFn<&dyn Array>> {
         Some(self)
     }
 
-    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<Array>> {
+    fn min_max_fn(&self) -> Option<&dyn MinMaxFn<&dyn Array>> {
         Some(self)
     }
 }
 
-impl CastFn<StructArray> for StructEncoding {
-    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<Array> {
+impl CastFn<&StructArray> for StructEncoding {
+    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let Some(target_sdtype) = dtype.as_struct() else {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         };
@@ -65,15 +65,18 @@ impl CastFn<StructArray> for StructEncoding {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
         }
 
-        let validity = array.validity().cast_nullability(dtype.nullability())?;
+        let validity = array
+            .validity()
+            .clone()
+            .cast_nullability(dtype.nullability())?;
 
         StructArray::try_new(
             target_sdtype.names().clone(),
             array
-                .children()
-                .into_iter()
+                .fields()
+                .iter()
                 .zip_eq(target_sdtype.fields())
-                .map(|(field, dtype)| try_cast(&field, &dtype))
+                .map(|(field, dtype)| try_cast(field, &dtype))
                 .try_collect()?,
             array.len(),
             validity,
@@ -82,25 +85,27 @@ impl CastFn<StructArray> for StructEncoding {
     }
 }
 
-impl ScalarAtFn<StructArray> for StructEncoding {
+impl ScalarAtFn<&StructArray> for StructEncoding {
     fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::struct_(
             array.dtype().clone(),
             array
                 .fields()
-                .map(|field| scalar_at(&field, index))
+                .iter()
+                .map(|field| scalar_at(field, index))
                 .try_collect()?,
         ))
     }
 }
 
-impl TakeFn<StructArray> for StructEncoding {
-    fn take(&self, array: &StructArray, indices: &Array) -> VortexResult<Array> {
+impl TakeFn<&StructArray> for StructEncoding {
+    fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         StructArray::try_new(
             array.names().clone(),
             array
                 .fields()
-                .map(|field| take(&field, indices))
+                .iter()
+                .map(|field| take(field, indices))
                 .try_collect()?,
             indices.len(),
             array.validity().take(indices)?,
@@ -109,11 +114,12 @@ impl TakeFn<StructArray> for StructEncoding {
     }
 }
 
-impl SliceFn<StructArray> for StructEncoding {
-    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<Array> {
+impl SliceFn<&StructArray> for StructEncoding {
+    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let fields = array
             .fields()
-            .map(|field| slice(&field, start, stop))
+            .iter()
+            .map(|field| slice(field, start, stop))
             .try_collect()?;
         StructArray::try_new(
             array.names().clone(),
@@ -125,13 +131,14 @@ impl SliceFn<StructArray> for StructEncoding {
     }
 }
 
-impl FilterFn<StructArray> for StructEncoding {
-    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<Array> {
+impl FilterFn<&StructArray> for StructEncoding {
+    fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
-        let fields: Vec<Array> = array
+        let fields: Vec<ArrayRef> = array
             .fields()
-            .map(|field| filter(&field, mask))
+            .iter()
+            .map(|field| filter(field, mask))
             .try_collect()?;
         let length = fields
             .first()
@@ -143,13 +150,13 @@ impl FilterFn<StructArray> for StructEncoding {
     }
 }
 
-impl MaskFn<StructArray> for StructEncoding {
-    fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<Array> {
+impl MaskFn<&StructArray> for StructEncoding {
+    fn mask(&self, array: &StructArray, filter_mask: Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(&filter_mask)?;
 
         StructArray::try_new(
             array.names().clone(),
-            array.fields().collect(),
+            array.fields().to_vec(),
             array.len(),
             validity,
         )
@@ -157,7 +164,7 @@ impl MaskFn<StructArray> for StructEncoding {
     }
 }
 
-impl MinMaxFn<StructArray> for StructEncoding {
+impl MinMaxFn<&StructArray> for StructEncoding {
     fn min_max(&self, _array: &StructArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement struct min max
         Ok(None)
@@ -176,7 +183,7 @@ mod tests {
     use crate::compute::test_harness::test_mask;
     use crate::compute::{filter, try_cast};
     use crate::validity::Validity;
-    use crate::IntoArray as _;
+    use crate::{Array, IntoArray as _};
 
     #[test]
     fn filter_empty_struct() {
@@ -185,7 +192,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter(mask)).unwrap();
+        let filtered = filter(&struct_arr, &Mask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -193,17 +200,13 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter::<[bool; 0]>([])).unwrap();
+        let filtered = filter(&struct_arr, &Mask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 
     #[test]
     fn test_mask_empty_struct() {
-        test_mask(
-            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
-                .unwrap()
-                .into_array(),
-        );
+        test_mask(&StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable).unwrap());
     }
 
     #[test]
@@ -218,7 +221,7 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
         test_mask(
-            StructArray::try_new(
+            &StructArray::try_new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     StructArray::try_new(
@@ -235,8 +238,7 @@ mod tests {
                 5,
                 Validity::NonNullable,
             )
-            .unwrap()
-            .into_array(),
+            .unwrap(),
         );
     }
 
@@ -272,13 +274,12 @@ mod tests {
             1,
             Validity::NonNullable,
         )
-        .unwrap()
-        .into_array();
+        .unwrap();
 
         let tu8 = DType::Primitive(PType::U8, Nullability::NonNullable);
 
         let result = try_cast(
-            array,
+            &array,
             &DType::Struct(
                 Arc::from(StructDType::new(
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
@@ -299,31 +300,28 @@ mod tests {
 
     #[test]
     fn test_cast_complex_struct() {
-        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)])
-            .into_array();
+        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::Nullable),
-        )
-        .into_array();
+        );
         let zs = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, false, true]),
-            Nullability::Nullable,
-        )
-        .into_array();
+            Validity::AllValid,
+        );
         let fully_nullable_array = StructArray::try_new(
             ["xs".into(), "ys".into(), "zs".into()].into(),
             vec![
                 StructArray::try_new(
                     ["left".into(), "right".into()].into(),
-                    vec![xs.clone(), xs],
+                    vec![xs.to_array(), xs.to_array()],
                     5,
                     Validity::AllValid,
                 )
                 .unwrap()
                 .into_array(),
-                ys,
-                zs,
+                ys.into_array(),
+                zs.into_array(),
             ],
             5,
             Validity::AllValid,

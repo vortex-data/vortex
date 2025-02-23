@@ -1,18 +1,16 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 
 use flexbuffers::FlexbufferSerializer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-pub trait ArrayMetadata: SerializeMetadata + DeserializeMetadata + Display {}
-
 pub trait SerializeMetadata {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>>;
+    fn serialize(&self) -> Option<Vec<u8>>;
 }
 
 impl SerializeMetadata for () {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
-        Ok(None)
+    fn serialize(&self) -> Option<Vec<u8>> {
+        None
     }
 }
 
@@ -40,12 +38,12 @@ where
 }
 
 /// Empty array metadata
+#[derive(Debug)]
 pub struct EmptyMetadata;
-impl ArrayMetadata for EmptyMetadata {}
 
 impl SerializeMetadata for EmptyMetadata {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
-        Ok(None)
+    fn serialize(&self) -> Option<Vec<u8>> {
+        None
     }
 }
 
@@ -64,12 +62,6 @@ impl DeserializeMetadata for EmptyMetadata {
     }
 }
 
-impl Display for EmptyMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EmptyMetadata")
-    }
-}
-
 /// A utility wrapper for automating the serialization of metadata using [rkyv](https://docs.rs/rkyv/latest/rkyv/).
 pub struct RkyvMetadata<M>(pub M);
 
@@ -83,13 +75,20 @@ where
         >,
     >,
 {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
-        let buf = rkyv::to_bytes::<VortexError>(&self.0)?;
+    fn serialize(&self) -> Option<Vec<u8>> {
+        let buf = rkyv::to_bytes::<VortexError>(&self.0)
+            .vortex_expect("Failed to serialize metadata using rkyv");
         if buf.is_empty() {
-            Ok(None)
+            None
         } else {
-            Ok(Some(ByteBuffer::from(buf)))
+            Some(buf.to_vec())
         }
+    }
+}
+
+impl<M: Debug> Debug for RkyvMetadata<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -141,10 +140,11 @@ impl<M> SerializeMetadata for SerdeMetadata<M>
 where
     M: serde::Serialize,
 {
-    fn serialize(&self) -> VortexResult<Option<ByteBuffer>> {
+    fn serialize(&self) -> Option<Vec<u8>> {
         let mut ser = FlexbufferSerializer::new();
-        serde::Serialize::serialize(&self.0, &mut ser)?;
-        Ok(Some(ser.take_buffer().into()))
+        serde::Serialize::serialize(&self.0, &mut ser)
+            .vortex_expect("Failed to serialize metadata using serde");
+        Some(ser.take_buffer())
     }
 }
 
@@ -170,19 +170,8 @@ where
     }
 }
 
-//
-// /// Provide default implementation for metadata serialization based on flexbuffers serde.
-// impl<M: Serialize> TrySerializeArrayMetadata for M {
-//     fn try_serialize_metadata(&self) -> VortexResult<Arc<[u8]>> {
-//         let mut ser = FlexbufferSerializer::new();
-//         self.serialize(&mut ser)?;
-//         Ok(ser.take_buffer().into())
-//     }
-// }
-//
-// impl<'de, M: Deserialize<'de>> TryDeserializeArrayMetadata<'de> for M {
-//     fn try_deserialize_metadata(metadata: Option<&'de [u8]>) -> VortexResult<Self> {
-//         let bytes = metadata.ok_or_else(|| vortex_err!("Array requires metadata bytes"))?;
-//         Ok(M::deserialize(Reader::get_root(bytes)?)?)
-//     }
-// }
+impl<M: Debug> Debug for SerdeMetadata<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}

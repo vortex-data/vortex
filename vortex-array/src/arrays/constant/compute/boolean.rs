@@ -4,15 +4,15 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
-impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
+impl BinaryBooleanFn<&ConstantArray> for ConstantEncoding {
     fn binary_boolean(
         &self,
         lhs: &ConstantArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         op: BinaryOperator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // We only implement this for constant <-> constant arrays, otherwise we allow fall back
         // to the Arrow implementation.
         if !rhs.is_constant() {
@@ -79,16 +79,17 @@ mod test {
 
     use crate::arrays::constant::ConstantArray;
     use crate::arrays::BoolArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::{and, or, scalar_at};
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{Array, ArrayRef, IntoArray};
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()
     )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array()
     )]
-    fn test_or(#[case] lhs: Array, #[case] rhs: Array) {
-        let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
+    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let r = or(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
         let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
@@ -106,8 +107,8 @@ mod test {
     )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
-    fn test_and(#[case] lhs: Array, #[case] rhs: Array) {
-        let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
+    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let r = and(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
         let v1 = scalar_at(&r, 1).unwrap().as_bool().value();

@@ -1,7 +1,7 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Canonical, IntoArray as _, IntoArrayVariant as _};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayCanonicalImpl, Canonical, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::NonNullable;
@@ -9,11 +9,11 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::PrimitiveScalar;
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::DateTimePartsArray;
 
-impl CanonicalVTable<DateTimePartsArray> for DateTimePartsEncoding {
-    fn into_canonical(&self, array: DateTimePartsArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(&array)?.into()))
+impl ArrayCanonicalImpl for DateTimePartsArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(decode_to_temporal(self)?.into()))
     }
 }
 
@@ -41,7 +41,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         array.days(),
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
-    .into_primitive()?;
+    .to_primitive()?;
 
     // We start with the days component, which is always present.
     // And then add the seconds and subseconds components.
@@ -62,7 +62,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         }
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
-            .into_primitive()?;
+            .to_primitive()?;
         for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
@@ -82,14 +82,14 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             array.subseconds(),
             &DType::Primitive(PType::I64, NonNullable),
         )?
-        .into_primitive()?;
+        .to_primitive()?;
         for (v, subseconds) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subseconds;
         }
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), array.validity()?).into_array(),
+        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array)?).into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
@@ -97,10 +97,11 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 
 #[cfg(test)]
 mod test {
+
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray as _, IntoArrayVariant};
+    use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_datetime_dtype::TimeUnit;
 
@@ -128,18 +129,21 @@ mod test {
         ))
         .unwrap();
 
-        assert_eq!(date_times.validity().unwrap(), validity);
+        assert_eq!(
+            date_times.validity_mask().unwrap(),
+            validity.to_logical(date_times.len()).unwrap()
+        );
 
         let primitive_values = decode_to_temporal(&date_times)
             .unwrap()
             .temporal_values()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
 
         assert_eq!(
             primitive_values.as_slice::<i64>(),
             milliseconds.as_slice::<i64>()
         );
-        assert_eq!(primitive_values.validity(), validity);
+        assert_eq!(primitive_values.validity(), &validity);
     }
 }

@@ -9,8 +9,9 @@ use vortex::compute::scalar_at;
 use vortex::error::VortexExpect;
 use vortex::layout::{CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, STATS_LAYOUT_ID};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
+use vortex::serde::ArrayParts;
 use vortex::stats::stats_from_bitset_bytes;
-use vortex::Array;
+use vortex::ArrayRef;
 
 use crate::browse::app::{AppState, LayoutCursor};
 
@@ -105,14 +106,15 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         .vortex_expect("FlatLayout missing segment");
     let buffer = app.read_segment(segment_id);
 
-    let array = Array::deserialize(
-        buffer,
-        ALL_ENCODINGS_CONTEXT.clone(),
-        app.cursor.layout().dtype().clone(),
-        usize::try_from(app.cursor.layout().row_count())
-            .vortex_expect("FlatLayout row count too big for usize"),
-    )
-    .vortex_expect("Failed to deserialize Array");
+    let array = ArrayParts::try_from(buffer)
+        .vortex_expect("Failed to deserialize ArrayParts")
+        .decode(
+            &ALL_ENCODINGS_CONTEXT,
+            app.cursor.layout().dtype().clone(),
+            usize::try_from(app.cursor.layout().row_count())
+                .vortex_expect("FlatLayout row count too big for usize"),
+        )
+        .vortex_expect("Failed to deserialize Array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
@@ -128,7 +130,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
-        let struct_array = array.as_struct_array().vortex_expect("stats table");
+        let struct_array = array.as_struct_typed().vortex_expect("stats table");
         // add 1 for the chunk column
         let field_count = struct_array.nfields() + 1;
         let header = std::iter::once("chunk")
@@ -140,7 +142,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<Array> = (0..struct_array.nfields())
+        let field_arrays: Vec<ArrayRef> = (0..struct_array.nfields())
             .map(|x| {
                 struct_array
                     .maybe_null_field_by_idx(x)

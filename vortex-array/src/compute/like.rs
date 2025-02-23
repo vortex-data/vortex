@@ -1,32 +1,39 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::Array;
+use crate::{Array, ArrayRef};
 
 pub trait LikeFn<A> {
-    fn like(&self, array: A, pattern: &Array, options: LikeOptions) -> VortexResult<Option<Array>>;
+    fn like(
+        &self,
+        array: A,
+        pattern: &dyn Array,
+        options: LikeOptions,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> LikeFn<Array> for E
+impl<E: Encoding> LikeFn<&dyn Array> for E
 where
-    E: LikeFn<E::Array>,
-    E::Array: TryFrom<Array, Error = VortexError>,
+    E: for<'a> LikeFn<&'a E::Array>,
 {
     fn like(
         &self,
-        array: Array,
-        pattern: &Array,
+        array: &dyn Array,
+        pattern: &dyn Array,
         options: LikeOptions,
-    ) -> VortexResult<Option<Array>> {
-        let encoding = array.vtable().clone();
+    ) -> VortexResult<Option<ArrayRef>> {
+        let encoding = array.vtable();
         LikeFn::like(
             encoding
                 .as_any()
                 .downcast_ref::<E>()
                 .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
-            <E::Array as TryFrom<Array>>::try_from(array)?,
+            array
+                .as_any()
+                .downcast_ref()
+                .ok_or_else(|| vortex_err!("Mismatched array"))?,
             pattern,
             options,
         )
@@ -45,7 +52,11 @@ pub struct LikeOptions {
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult<Array> {
+pub fn like(
+    array: &dyn Array,
+    pattern: &dyn Array,
+    options: LikeOptions,
+) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -69,7 +80,7 @@ pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult
     let result = array
         .vtable()
         .like_fn()
-        .and_then(|f| f.like(array.clone(), pattern, options).transpose())
+        .and_then(|f| f.like(array, pattern, options).transpose())
         .unwrap_or_else(|| {
             // Otherwise, we canonicalize into a UTF8 array.
             log::debug!(
@@ -97,10 +108,10 @@ pub fn like(array: Array, pattern: &Array, options: LikeOptions) -> VortexResult
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: Array,
-    pattern: &Array,
+    array: &dyn Array,
+    pattern: &dyn Array,
     options: LikeOptions,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayRef> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
     debug_assert_eq!(
@@ -109,8 +120,8 @@ pub(crate) fn arrow_like(
         "Arrow Like: length mismatch for {}",
         array.encoding()
     );
-    let lhs = Datum::try_new(array)?;
-    let rhs = Datum::try_new(pattern.clone())?;
+    let lhs = Datum::try_new(array.to_array())?;
+    let rhs = Datum::try_new(pattern.to_array())?;
 
     let result = match (options.negated, options.case_insensitive) {
         (false, false) => arrow_string::like::like(&lhs, &rhs)?,

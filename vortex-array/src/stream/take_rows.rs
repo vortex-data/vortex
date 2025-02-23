@@ -11,18 +11,18 @@ use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedS
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 #[pin_project]
 pub struct TakeRows<R: ArrayStream> {
     #[pin]
     reader: R,
-    indices: Array,
+    indices: ArrayRef,
     row_offset: usize,
 }
 
 impl<R: ArrayStream> TakeRows<R> {
-    pub fn try_new(reader: R, indices: Array) -> VortexResult<Self> {
+    pub fn try_new(reader: R, indices: ArrayRef) -> VortexResult<Self> {
         if !indices.is_empty() {
             if !indices.statistics().compute_is_sorted().unwrap_or(false) {
                 vortex_bail!("Indices must be sorted to take from IPC stream")
@@ -61,7 +61,7 @@ impl<R: ArrayStream> TakeRows<R> {
 }
 
 impl<R: ArrayStream> Stream for TakeRows<R> {
-    type Item = VortexResult<Array>;
+    type Item = VortexResult<ArrayRef>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -89,9 +89,9 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
 
             // TODO(ngates): this is probably too heavy to run on the event loop. We should spawn
             //  onto a worker pool.
-            let indices_for_batch = slice(this.indices, left, right)?.into_primitive()?;
+            let indices_for_batch = slice(this.indices, left, right)?.to_primitive()?;
             let shifted_arr = match_each_integer_ptype!(indices_for_batch.ptype(), |$T| {
-                sub_scalar(&indices_for_batch.into_array(), Scalar::from(curr_offset as $T))?
+                sub_scalar(&indices_for_batch.to_array(), Scalar::from(curr_offset as $T))?
             });
             return Poll::Ready(take(&batch, &shifted_arr).map(Some).transpose());
         }

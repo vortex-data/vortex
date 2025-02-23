@@ -2,17 +2,12 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::slice;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_error::VortexExpect;
 
-pub(crate) fn sample<T: AsRef<Array> + Clone>(
-    input: T,
-    sample_size: u16,
-    sample_count: u16,
-) -> Array {
-    let input = input.as_ref();
+pub(crate) fn sample<T: Array + Clone>(input: T, sample_size: u16, sample_count: u16) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
-        return input.clone();
+        return input.to_array();
     }
 
     let slices = stratified_slices(
@@ -26,7 +21,7 @@ pub(crate) fn sample<T: AsRef<Array> + Clone>(
     ChunkedArray::try_new(
         slices
             .into_iter()
-            .map(|(start, end)| slice(input, start, end).vortex_expect("slice"))
+            .map(|(start, end)| slice(&input, start, end).vortex_expect("slice"))
             .collect(),
         input.dtype().clone(),
     )

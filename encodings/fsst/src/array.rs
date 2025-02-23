@@ -1,34 +1,39 @@
+use std::sync::{Arc, RwLock};
+
 use fsst::{Decompressor, Symbol};
-use serde::{Deserialize, Serialize};
-use vortex_array::arrays::{VarBinArray, VarBinEncoding};
+use vortex_array::arrays::VarBinEncoding;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::Validity;
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{
-    StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable, VisitorVTable,
+use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::{
+    encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
+    ArrayVariantsImpl, Encoding, EncodingId, SerdeMetadata, ToCanonical,
 };
-use vortex_array::{encoding_ids, impl_encoding, Array, Encoding, IntoArrayVariant, SerdeMetadata};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
-impl_encoding!(
-    "vortex.fsst",
-    encoding_ids::FSST,
-    FSST,
-    SerdeMetadata<FSSTMetadata>
-);
+use crate::serde::FSSTMetadata;
 
-static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
-static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FSSTMetadata {
-    symbols_len: usize,
-    codes_nullability: Nullability,
-    uncompressed_lengths_ptype: PType,
+#[derive(Clone, Debug)]
+pub struct FSSTArray {
+    dtype: DType,
+    symbols: ArrayRef,
+    symbol_lengths: ArrayRef,
+    codes: ArrayRef,
+    uncompressed_lengths: ArrayRef,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
+
+pub struct FSSTEncoding;
+impl Encoding for FSSTEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.fsst", encoding_ids::FSST);
+    type Array = FSSTArray;
+    type Metadata = SerdeMetadata<FSSTMetadata>;
+}
+
+pub(crate) static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
+pub(crate) static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
@@ -41,10 +46,10 @@ impl FSSTArray {
     /// which tells the decoder to emit the following byte without doing a table lookup.
     pub fn try_new(
         dtype: DType,
-        symbols: Array,
-        symbol_lengths: Array,
-        codes: Array,
-        uncompressed_lengths: Array,
+        symbols: ArrayRef,
+        symbol_lengths: ArrayRef,
+        codes: ArrayRef,
+        uncompressed_lengths: ArrayRef,
     ) -> VortexResult<Self> {
         // Check: symbols must be a u64 array
         if symbols.dtype() != &SYMBOLS_DTYPE {
@@ -59,7 +64,6 @@ impl FSSTArray {
         if symbols.len() > 255 {
             vortex_bail!(InvalidArgument: "symbols array must have length <= 255");
         }
-
         if symbols.len() != symbol_lengths.len() {
             vortex_bail!(InvalidArgument: "symbols and symbol_lengths arrays must have same length");
         }
@@ -84,74 +88,46 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "codes array must be DType::Binary type");
         }
 
-        let symbols_len = symbols.len();
-        let len = codes.len();
-        let uncompressed_lengths_ptype = PType::try_from(uncompressed_lengths.dtype())?;
-        let codes_nullability = codes.dtype().nullability();
-        let children = [symbols, symbol_lengths, codes, uncompressed_lengths].into();
-
-        Self::try_from_parts(
+        Ok(Self {
             dtype,
-            len,
-            SerdeMetadata(FSSTMetadata {
-                symbols_len,
-                codes_nullability,
-                uncompressed_lengths_ptype,
-            }),
-            vec![].into(),
-            children,
-            StatsSet::default(),
-        )
+            symbols,
+            symbol_lengths,
+            codes,
+            uncompressed_lengths,
+            stats_set: Default::default(),
+        })
     }
 
     /// Access the symbol table array
-    pub fn symbols(&self) -> Array {
-        self.as_ref()
-            .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len)
-            .vortex_expect("FSSTArray symbols child")
+    pub fn symbols(&self) -> &ArrayRef {
+        &self.symbols
     }
 
     /// Access the symbol table array
-    pub fn symbol_lengths(&self) -> Array {
-        self.as_ref()
-            .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len)
-            .vortex_expect("FSSTArray symbol_lengths child")
+    pub fn symbol_lengths(&self) -> &ArrayRef {
+        &self.symbol_lengths
     }
 
     /// Access the codes array
-    pub fn codes(&self) -> Array {
-        self.as_ref()
-            .child(2, &self.codes_dtype(), self.len())
-            .vortex_expect("FSSTArray codes child")
+    pub fn codes(&self) -> &ArrayRef {
+        &self.codes
     }
 
     /// Get the DType of the codes array
     #[inline]
-    pub fn codes_dtype(&self) -> DType {
-        DType::Binary(self.metadata().codes_nullability)
+    pub fn codes_dtype(&self) -> &DType {
+        self.codes.dtype()
     }
 
     /// Get the uncompressed length for each element in the array.
-    pub fn uncompressed_lengths(&self) -> Array {
-        self.as_ref()
-            .child(3, &self.uncompressed_lengths_dtype(), self.len())
-            .vortex_expect("FSST uncompressed_lengths child")
+    pub fn uncompressed_lengths(&self) -> &ArrayRef {
+        &self.uncompressed_lengths
     }
 
     /// Get the DType of the uncompressed lengths array
     #[inline]
-    pub fn uncompressed_lengths_dtype(&self) -> DType {
-        DType::Primitive(
-            self.metadata().uncompressed_lengths_ptype,
-            Nullability::NonNullable,
-        )
-    }
-
-    /// Get the validity for this array.
-    pub fn validity(&self) -> Validity {
-        VarBinArray::try_from(self.codes())
-            .vortex_expect("FSSTArray must have a codes child array")
-            .validity()
+    pub fn uncompressed_lengths_dtype(&self) -> &DType {
+        self.uncompressed_lengths.dtype()
     }
 
     /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
@@ -163,16 +139,10 @@ impl FSSTArray {
         F: FnOnce(Decompressor) -> VortexResult<R>,
     {
         // canonicalize the symbols child array, so we can view it contiguously
-        let symbols_array = self
-            .symbols()
-            .into_primitive()
-            .map_err(|err| err.with_context("Symbols must be a Primitive Array"))?;
+        let symbols_array = self.symbols().to_primitive()?;
         let symbols = symbols_array.as_slice::<u64>();
 
-        let symbol_lengths_array = self
-            .symbol_lengths()
-            .into_primitive()
-            .map_err(|err| err.with_context("Symbol lengths must be a Primitive Array"))?;
+        let symbol_lengths_array = self.symbol_lengths().to_primitive()?;
         let symbol_lengths = symbol_lengths_array.as_slice::<u8>();
 
         // Transmute the 64-bit symbol values into fsst `Symbol`s.
@@ -185,42 +155,53 @@ impl FSSTArray {
     }
 }
 
-impl VisitorVTable<FSSTArray> for FSSTEncoding {
-    fn accept(&self, array: &FSSTArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("symbols", &array.symbols())?;
-        visitor.visit_child("symbol_lengths", &array.symbol_lengths())?;
-        visitor.visit_child("codes", &array.codes())?;
-        visitor.visit_child("uncompressed_lengths", &array.uncompressed_lengths())
+impl ArrayImpl for FSSTArray {
+    type Encoding = FSSTEncoding;
+
+    fn _len(&self) -> usize {
+        self.codes.len()
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&FSSTEncoding)
     }
 }
 
-impl StatisticsVTable<FSSTArray> for FSSTEncoding {}
-
-impl ValidityVTable<FSSTArray> for FSSTEncoding {
-    fn is_valid(&self, array: &FSSTArray, index: usize) -> VortexResult<bool> {
-        array.codes().is_valid(index)
-    }
-
-    fn all_valid(&self, array: &FSSTArray) -> VortexResult<bool> {
-        array.codes().all_valid()
-    }
-
-    fn all_invalid(&self, array: &FSSTArray) -> VortexResult<bool> {
-        array.codes().all_invalid()
-    }
-
-    fn validity_mask(&self, array: &FSSTArray) -> VortexResult<Mask> {
-        array.codes().validity_mask()
+impl ArrayStatisticsImpl for FSSTArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 
-impl VariantsVTable<FSSTArray> for FSSTEncoding {
-    fn as_utf8_array<'a>(&self, array: &'a FSSTArray) -> Option<&'a dyn Utf8ArrayTrait> {
-        Some(array)
+impl ArrayValidityImpl for FSSTArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.codes().is_valid(index)
     }
 
-    fn as_binary_array<'a>(&self, array: &'a FSSTArray) -> Option<&'a dyn BinaryArrayTrait> {
-        Some(array)
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.codes().all_valid()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.codes().all_invalid()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.codes().validity_mask()
+    }
+}
+
+impl ArrayVariantsImpl for FSSTArray {
+    fn _as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
+        Some(self)
+    }
+
+    fn _as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
+        Some(self)
     }
 }
 
@@ -228,26 +209,4 @@ impl Utf8ArrayTrait for FSSTArray {}
 
 impl BinaryArrayTrait for FSSTArray {}
 
-impl ValidateVTable<FSSTArray> for FSSTEncoding {}
-
-#[cfg(test)]
-mod test {
-    use vortex_array::test_harness::check_metadata;
-    use vortex_array::SerdeMetadata;
-    use vortex_dtype::{Nullability, PType};
-
-    use crate::FSSTMetadata;
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_fsst_metadata() {
-        check_metadata(
-            "fsst.metadata",
-            SerdeMetadata(FSSTMetadata {
-                symbols_len: usize::MAX,
-                codes_nullability: Nullability::Nullable,
-                uncompressed_lengths_ptype: PType::U64,
-            }),
-        );
-    }
-}
+impl StatisticsVTable<&FSSTArray> for FSSTEncoding {}

@@ -1,18 +1,18 @@
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::vtable::StatisticsVTable;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{Array, ToCanonical};
 use vortex_error::VortexResult;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
+impl StatisticsVTable<&ByteBoolArray> for ByteBoolEncoding {
     fn compute_statistics(&self, array: &ByteBoolArray, stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
         }
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future
-        let bools = array.as_ref().clone().into_bool()?;
+        let bools = array.to_bool()?;
         Ok(bools
             .statistics()
             .compute_stat(stat)

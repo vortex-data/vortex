@@ -6,12 +6,13 @@ use futures::TryStreamExt;
 use vortex::arrow::IntoArrowArray;
 use vortex::error::VortexResult;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::stream::ArrayStreamArrayExt;
 use vortex::Array;
 
 #[inline(never)]
-pub async fn vortex_compress_write(array: &Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
+pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
     Ok(VortexWriteOptions::default()
-        .write(Cursor::new(buf), array.clone().into_array_stream())
+        .write(Cursor::new(buf), array.to_array_stream())
         .await?
         .position())
 }

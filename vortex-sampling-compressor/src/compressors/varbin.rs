@@ -1,6 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{VarBinArray, VarBinEncoding};
-use vortex_array::{Array, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, Encoding, EncodingId};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -19,17 +19,17 @@ impl EncodingCompressor for VarBinCompressor {
         constants::VARBIN_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(VarBinEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let varbin_array = VarBinArray::try_from(array.clone())?;
+        let varbin_array = VarBinArray::try_from(array.to_array())?;
         let offsets = ctx.auxiliary("offsets").compress(
             &downscale_integer_array(varbin_array.offsets())?,
             like.as_ref().and_then(|l| l.child(0)),
@@ -37,9 +37,9 @@ impl EncodingCompressor for VarBinCompressor {
         Ok(CompressedArray::compressed(
             VarBinArray::try_new(
                 offsets.array,
-                varbin_array.bytes(), // we don't compress the raw bytes
+                varbin_array.bytes().clone(), // we don't compress the raw bytes
                 array.dtype().clone(),
-                varbin_array.validity(),
+                varbin_array.validity().clone(),
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![offsets.path, None, None])),

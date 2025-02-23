@@ -1,37 +1,42 @@
 use std::fmt::Debug;
+use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::Patches;
+use vortex_array::stats::StatsSet;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::visitor::ArrayVisitor;
-use vortex_array::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use vortex_array::vtable::{StatisticsVTable, VTableRef};
+use vortex_array::{
+    encoding_ids, Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
+    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId, SerdeMetadata,
 };
-use vortex_array::{encoding_ids, impl_encoding, Array, Canonical, IntoArray, SerdeMetadata};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 
+use crate::alp::serde::ALPMetadata;
 use crate::alp::{alp_encode, decompress, Exponents};
 
-impl_encoding!(
-    "vortex.alp",
-    encoding_ids::ALP,
-    ALP,
-    SerdeMetadata<ALPMetadata>
-);
+#[derive(Clone, Debug)]
+pub struct ALPArray {
+    dtype: DType,
+    encoded: ArrayRef,
+    exponents: Exponents,
+    patches: Option<Patches>,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ALPMetadata {
-    pub(crate) exponents: Exponents,
-    pub(crate) patches: Option<PatchesMetadata>,
+pub struct ALPEncoding;
+impl Encoding for ALPEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.alp", encoding_ids::ALP);
+    type Array = ALPArray;
+    type Metadata = SerdeMetadata<ALPMetadata>;
 }
 
 impl ALPArray {
+    // TODO(ngates): remove try_new and panic on wrong DType?
     pub fn try_new(
-        encoded: Array,
+        encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<Self> {
@@ -40,132 +45,100 @@ impl ALPArray {
             DType::Primitive(PType::I64, nullability) => DType::Primitive(PType::F64, *nullability),
             d => vortex_bail!(MismatchedTypes: "int32 or int64", d),
         };
-
-        let length = encoded.len();
-
-        let mut children = Vec::with_capacity(2);
-        children.push(encoded);
-        if let Some(patches) = &patches {
-            if patches.dtype() != &dtype {
-                vortex_bail!(MismatchedTypes: dtype, patches.dtype());
-            }
-
-            if !patches.values().all_valid()? {
-                vortex_bail!("ALPArray: patches must not contain invalid entries");
-            }
-
-            children.push(patches.indices().clone());
-            children.push(patches.values().clone());
-        }
-
-        let patches = patches
-            .as_ref()
-            .map(|p| p.to_metadata(length, &dtype))
-            .transpose()?;
-
-        Self::try_from_parts(
+        Ok(Self {
             dtype,
-            length,
-            SerdeMetadata(ALPMetadata { exponents, patches }),
-            vec![].into(),
-            children.into(),
-            Default::default(),
-        )
+            encoded,
+            exponents,
+            patches,
+            stats_set: Default::default(),
+        })
     }
 
-    pub fn encode(array: Array) -> VortexResult<Array> {
-        if let Some(parray) = PrimitiveArray::maybe_from(array) {
-            Ok(alp_encode(&parray)?.into_array())
+    pub fn encode(array: ArrayRef) -> VortexResult<ArrayRef> {
+        if let Some(parray) = array.maybe_as::<PrimitiveArray>() {
+            Ok(alp_encode(parray)?.into_array())
         } else {
             vortex_bail!("ALP can only encode primitive arrays");
         }
     }
 
-    pub fn encoded(&self) -> Array {
-        self.as_ref()
-            .child(0, &self.encoded_dtype(), self.len())
-            .vortex_expect("Missing encoded child in ALPArray")
+    pub fn encoded(&self) -> &ArrayRef {
+        &self.encoded
     }
 
     #[inline]
     pub fn exponents(&self) -> Exponents {
-        self.metadata().exponents
+        self.exponents
     }
 
-    pub fn patches(&self) -> Option<Patches> {
-        self.metadata().patches.as_ref().map(|p| {
-            Patches::new(
-                self.len(),
-                p.offset(),
-                self.as_ref()
-                    .child(1, &p.indices_dtype(), p.len())
-                    .vortex_expect("ALPArray: patch indices"),
-                self.as_ref()
-                    .child(2, self.dtype(), p.len())
-                    .vortex_expect("ALPArray: patch values"),
-            )
-        })
-    }
-
-    #[inline]
-    fn encoded_dtype(&self) -> DType {
-        match self.dtype() {
-            DType::Primitive(PType::F32, _) => {
-                DType::Primitive(PType::I32, self.dtype().nullability())
-            }
-            DType::Primitive(PType::F64, _) => {
-                DType::Primitive(PType::I64, self.dtype().nullability())
-            }
-            d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
-        }
+    pub fn patches(&self) -> Option<&Patches> {
+        self.patches.as_ref()
     }
 }
 
-impl ValidateVTable<ALPArray> for ALPEncoding {}
+impl ArrayImpl for ALPArray {
+    type Encoding = ALPEncoding;
 
-impl VariantsVTable<ALPArray> for ALPEncoding {
-    fn as_primitive_array<'a>(&self, array: &'a ALPArray) -> Option<&'a dyn PrimitiveArrayTrait> {
-        Some(array)
+    fn _len(&self) -> usize {
+        self.encoded.len()
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&ALPEncoding)
+    }
+}
+
+impl ArrayCanonicalImpl for ALPArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        decompress(self).map(Canonical::Primitive)
+    }
+}
+
+impl ArrayStatisticsImpl for ALPArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
+impl ArrayValidityImpl for ALPArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.encoded.is_valid(index)
+    }
+
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.encoded.all_valid()
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.encoded.all_invalid()
+    }
+
+    fn _valid_count(&self) -> VortexResult<usize> {
+        self.encoded.valid_count()
+    }
+
+    fn _invalid_count(&self) -> VortexResult<usize> {
+        self.encoded.invalid_count()
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.encoded.validity_mask()
+    }
+}
+
+impl ArrayVariantsImpl for ALPArray {
+    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
     }
 }
 
 impl PrimitiveArrayTrait for ALPArray {}
 
-impl ValidityVTable<ALPArray> for ALPEncoding {
-    fn is_valid(&self, array: &ALPArray, index: usize) -> VortexResult<bool> {
-        array.encoded().is_valid(index)
-    }
-
-    fn all_valid(&self, array: &ALPArray) -> VortexResult<bool> {
-        array.encoded().all_valid()
-    }
-
-    fn all_invalid(&self, array: &ALPArray) -> VortexResult<bool> {
-        array.encoded().all_invalid()
-    }
-
-    fn validity_mask(&self, array: &ALPArray) -> VortexResult<Mask> {
-        array.encoded().validity_mask()
-    }
-}
-
-impl CanonicalVTable<ALPArray> for ALPEncoding {
-    fn into_canonical(&self, array: ALPArray) -> VortexResult<Canonical> {
-        decompress(array).map(Canonical::Primitive)
-    }
-}
-
-impl VisitorVTable<ALPArray> for ALPEncoding {
-    fn accept(&self, array: &ALPArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", &array.encoded())?;
-        if let Some(patches) = array.patches().as_ref() {
-            visitor.visit_patches(patches)?;
-        }
-        Ok(())
-    }
-}
-
-impl StatisticsVTable<ALPArray> for ALPEncoding {}
+impl StatisticsVTable<&ALPArray> for ALPEncoding {}
 
 #[cfg(test)]
 mod tests {
@@ -174,7 +147,8 @@ mod tests {
     use vortex_array::SerdeMetadata;
     use vortex_dtype::PType;
 
-    use crate::{ALPMetadata, Exponents};
+    use crate::alp::serde::ALPMetadata;
+    use crate::Exponents;
 
     #[cfg_attr(miri, ignore)]
     #[test]

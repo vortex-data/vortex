@@ -5,24 +5,23 @@ use vortex_error::VortexResult;
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{BetweenFn, BetweenOptions};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
-impl BetweenFn<PrimitiveArray> for PrimitiveEncoding {
+impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
     fn between(
         &self,
         arr: &PrimitiveArray,
-        lower: &Array,
-        upper: &Array,
+        lower: &dyn Array,
+        upper: &dyn Array,
         options: &BetweenOptions,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
         };
 
-        match_each_native_ptype!(arr.ptype(), |$P| {
+        Ok(Some(match_each_native_ptype!(arr.ptype(), |$P| {
             between_impl::<$P>(arr, $P::try_from(lower)?, $P::try_from(upper)?, options)
-        })
-        .map(Some)
+        })))
     }
 }
 
@@ -31,18 +30,18 @@ fn between_impl<T: NativePType + Copy>(
     lower: T,
     upper: T,
     options: &BetweenOptions,
-) -> VortexResult<Array> {
+) -> ArrayRef {
     let lower_fn = options.lower_strict.to_operator().to_fn();
     let upper_fn = options.upper_strict.to_operator().to_fn();
 
     let slice = arr.as_slice::<T>();
-    BoolArray::try_new(
+    BoolArray::new(
         BooleanBuffer::collect_bool(arr.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
             let i = *unsafe { slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
-        arr.validity(),
+        arr.validity().clone(),
     )
-    .map(BoolArray::into_array)
+    .into_array()
 }

@@ -1,8 +1,8 @@
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{Precision, Stat, Statistics};
-use crate::{Array, Encoding, IntoCanonical};
+use crate::{Array, ArrayRef, Encoding};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinMaxResult {
@@ -13,16 +13,23 @@ pub struct MinMaxResult {
 /// Computes the min and max of an array, returning the (min, max) values
 /// If the array is empty or has only nulls, the result is `None`.
 pub trait MinMaxFn<A> {
-    fn min_max(&self, array: &A) -> VortexResult<Option<MinMaxResult>>;
+    fn min_max(&self, array: A) -> VortexResult<Option<MinMaxResult>>;
 }
 
-impl<E: Encoding> MinMaxFn<Array> for E
+impl<E: Encoding> MinMaxFn<&dyn Array> for E
 where
-    E: MinMaxFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> MinMaxFn<&'a E::Array>,
 {
-    fn min_max(&self, array: &Array) -> VortexResult<Option<MinMaxResult>> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+    fn min_max(&self, array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = array.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         MinMaxFn::min_max(encoding, array_ref)
     }
 }
@@ -33,8 +40,10 @@ where
 /// The return value dtype is the non-nullable version of the array dtype
 ///
 /// This will update the stats set of this array (as a side effect).
-pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
-    let array = array.as_ref();
+pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
+    if array.is_empty() {
+        return Ok(None);
+    }
 
     let min = array
         .statistics()
@@ -52,8 +61,8 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
     let min_max = if let Some(fn_) = array.vtable().min_max_fn() {
         fn_.min_max(array)?
     } else {
-        let canonical = array.clone().into_canonical()?;
-        if let Some(fn_) = canonical.vtable().min_max_fn() {
+        let canonical = array.to_canonical()?;
+        if let Some(fn_) = canonical.as_ref().vtable().min_max_fn() {
             fn_.min_max(canonical.as_ref())?
         } else {
             vortex_bail!(NotImplemented: "min_max", array.encoding());
@@ -68,7 +77,9 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
             array.encoding()
         );
 
-        array.set_stat(Stat::Min, Precision::exact(min.clone().into_value()));
+        array
+            .statistics()
+            .set_stat(Stat::Min, Precision::exact(min.clone().into_value()));
 
         debug_assert_eq!(
             max.dtype(),
@@ -76,7 +87,9 @@ pub fn min_max(array: impl AsRef<Array>) -> VortexResult<Option<MinMaxResult>> {
             "MinMax max dtype mismatch {}",
             array.encoding()
         );
-        array.set_stat(Stat::Max, Precision::exact(max.clone().into_value()));
+        array
+            .statistics()
+            .set_stat(Stat::Max, Precision::exact(max.clone().into_value()));
 
         debug_assert!(
             min <= max,
@@ -98,13 +111,13 @@ mod tests {
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{min_max, MinMaxResult};
-    use crate::validity::Validity::NonNullable;
+    use crate::validity::Validity;
 
     #[test]
     fn test_prim_max() {
-        let p = PrimitiveArray::new(buffer![1, 2, 3], NonNullable);
+        let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable);
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -116,10 +129,10 @@ mod tests {
     fn test_bool_max() {
         let p = BoolArray::new(
             BooleanBuffer::from([true, true, true].as_slice()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -128,10 +141,10 @@ mod tests {
 
         let p = BoolArray::new(
             BooleanBuffer::from([false, false, false].as_slice()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -140,10 +153,10 @@ mod tests {
 
         let p = BoolArray::new(
             BooleanBuffer::from([false, true, false].as_slice()),
-            Nullability::NonNullable,
+            Validity::NonNullable,
         );
         assert_eq!(
-            min_max(p).unwrap(),
+            min_max(&p).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -154,6 +167,6 @@ mod tests {
     #[test]
     fn test_null() {
         let p = NullArray::new(1);
-        assert_eq!(min_max(p).unwrap(), None);
+        assert_eq!(min_max(&p).unwrap(), None);
     }
 }

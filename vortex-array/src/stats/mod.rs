@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{cardinality, Sequence};
+use enum_iterator::{all, cardinality, Sequence};
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -16,7 +16,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::Array;
+use crate::{Array, ArrayRef};
 
 mod bound;
 pub mod flatbuffers;
@@ -297,19 +297,14 @@ pub trait Statistics {
     }
 
     fn retain_only(&self, stats: &[Stat]);
-}
 
-impl Array {
-    pub fn statistics(&self) -> &(dyn Statistics + '_) {
-        self
-    }
-
-    // FIXME(ngates): this is really slow...
-    pub fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        // The stats_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.stats_set() {
-            stats.set_stat(stat, scalar);
+    fn inherit(&self, parent: &dyn Statistics) {
+        for stat in all::<Stat>() {
+            if let Some(s) = parent.get_stat(stat) {
+                // TODO(ngates): we may need a set_all(&[(Stat, Precision<ScalarValue>)]) method
+                //  so we don't have to take lots of write locks.
+                self.set_stat(stat, s);
+            }
         }
     }
 }
@@ -428,7 +423,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &Array) -> u8 {
+pub fn trailing_zeros(array: &dyn Array) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()
@@ -447,6 +442,7 @@ pub fn trailing_zeros(array: &Array) -> u8 {
 mod test {
     use enum_iterator::all;
 
+    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::stats::Stat;
 

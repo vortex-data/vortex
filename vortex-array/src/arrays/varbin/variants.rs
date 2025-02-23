@@ -1,15 +1,15 @@
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::VarBinEncoding;
 use crate::variants::{BinaryArrayTrait, Utf8ArrayTrait};
-use crate::vtable::VariantsVTable;
+use crate::ArrayVariantsImpl;
 
-impl VariantsVTable<VarBinArray> for VarBinEncoding {
-    fn as_utf8_array<'a>(&self, array: &'a VarBinArray) -> Option<&'a dyn Utf8ArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for VarBinArray {
+    fn _as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
+        Some(self)
     }
 
-    fn as_binary_array<'a>(&self, array: &'a VarBinArray) -> Option<&'a dyn BinaryArrayTrait> {
-        Some(array)
+    fn _as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
+        Some(self)
     }
 }
 

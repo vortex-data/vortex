@@ -16,7 +16,7 @@ use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::vtable::LayoutVTableRef;
 use crate::LayoutId;
 
-/// [`Layout`] is the lazy equivalent to [`vortex_array::Array`], providing a hierarchical
+/// [`Layout`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
 /// structure.
 #[derive(Debug, Clone)]
 pub struct Layout(Inner);

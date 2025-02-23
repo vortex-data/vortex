@@ -11,11 +11,11 @@ use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{ExtensionArray, ExtensionEncoding, TemporalArray};
-use crate::canonical::IntoArrayVariant;
+use crate::canonical::ToCanonical;
 use crate::compute::{to_arrow, try_cast, ToArrowFn};
-use crate::IntoArray;
+use crate::{Array, IntoArray};
 
-impl ToArrowFn<ExtensionArray> for ExtensionEncoding {
+impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
     fn to_arrow(
         &self,
         array: &ExtensionArray,
@@ -24,7 +24,7 @@ impl ToArrowFn<ExtensionArray> for ExtensionEncoding {
         // NOTE(ngates): this is really gross... but I guess it's ok given how tightly integrated
         //  we are with Arrow.
         if is_temporal_ext_type(array.id()) {
-            temporal_to_arrow(TemporalArray::try_from(array.clone().into_array())?).map(Some)
+            temporal_to_arrow(TemporalArray::try_from(array.to_array())?).map(Some)
         } else {
             // Convert storage array directly into arrow, losing type information
             // that will let us round-trip.
@@ -41,7 +41,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 $values,
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
-            .into_primitive()?;
+            .to_primitive()?;
             let nulls = temporal_values.validity_mask()?.to_null_buffer();
             let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
@@ -53,12 +53,12 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
         TemporalMetadata::Date(time_unit) => match time_unit {
             TimeUnit::D => {
                 let (scalars, nulls) =
-                    extract_temporal_values!(&temporal_array.temporal_values(), i32);
+                    extract_temporal_values!(temporal_array.temporal_values(), i32);
                 Arc::new(Date32Array::new(scalars, nulls))
             }
             TimeUnit::Ms => {
                 let (scalars, nulls) =
-                    extract_temporal_values!(&temporal_array.temporal_values(), i64);
+                    extract_temporal_values!(temporal_array.temporal_values(), i64);
                 Arc::new(Date64Array::new(scalars, nulls))
             }
             _ => vortex_bail!(
@@ -69,22 +69,22 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
         TemporalMetadata::Time(time_unit) => match time_unit {
             TimeUnit::S => {
                 let (scalars, nulls) =
-                    extract_temporal_values!(&temporal_array.temporal_values(), i32);
+                    extract_temporal_values!(temporal_array.temporal_values(), i32);
                 Arc::new(Time32SecondArray::new(scalars, nulls))
             }
             TimeUnit::Ms => {
                 let (scalars, nulls) =
-                    extract_temporal_values!(&temporal_array.temporal_values(), i32);
+                    extract_temporal_values!(temporal_array.temporal_values(), i32);
                 Arc::new(Time32MillisecondArray::new(scalars, nulls))
             }
             TimeUnit::Us => {
                 let (scalars, nulls) =
-                    extract_temporal_values!(&temporal_array.temporal_values(), i64);
+                    extract_temporal_values!(temporal_array.temporal_values(), i64);
                 Arc::new(Time64MicrosecondArray::new(scalars, nulls))
             }
             TimeUnit::Ns => {
                 let (scalars, nulls) =
-                    extract_temporal_values!(&temporal_array.temporal_values(), i64);
+                    extract_temporal_values!(temporal_array.temporal_values(), i64);
                 Arc::new(Time64NanosecondArray::new(scalars, nulls))
             }
             _ => vortex_bail!(
@@ -93,7 +93,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
             ),
         },
         TemporalMetadata::Timestamp(time_unit, _) => {
-            let (scalars, nulls) = extract_temporal_values!(&temporal_array.temporal_values(), i64);
+            let (scalars, nulls) = extract_temporal_values!(temporal_array.temporal_values(), i64);
             match time_unit {
                 TimeUnit::Ns => Arc::new(TimestampNanosecondArray::new(scalars, nulls)),
                 TimeUnit::Us => Arc::new(TimestampMicrosecondArray::new(scalars, nulls)),

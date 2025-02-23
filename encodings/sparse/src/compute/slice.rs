@@ -1,26 +1,29 @@
 use vortex_array::arrays::ConstantArray;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::compute::SliceFn;
-use crate::{Array, IntoArray, SparseArray, SparseEncoding};
+use crate::{ArrayRef, SparseArray, SparseEncoding};
 
-impl SliceFn<SparseArray> for SparseEncoding {
-    fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<Array> {
+impl SliceFn<&SparseArray> for SparseEncoding {
+    fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let new_patches = array.patches().slice(start, stop)?;
 
         let Some(new_patches) = new_patches else {
-            return Ok(ConstantArray::new(array.fill_scalar(), stop - start).into_array());
+            return Ok(ConstantArray::new(array.fill_scalar().clone(), stop - start).into_array());
         };
 
-        SparseArray::try_new_from_patches(new_patches, stop - start, array.fill_scalar())
-            .map(IntoArray::into_array)
+        Ok(
+            SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
+                .into_array(),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::slice;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::{ArrayExt, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
     use super::*;
@@ -36,11 +39,11 @@ mod tests {
 
         let sliced = slice(&sparse, 15, 100).unwrap();
         assert_eq!(sliced.len(), 100 - 15);
-        let primitive = SparseArray::try_from(sliced)
-            .unwrap()
+        let primitive = sliced
+            .as_::<SparseArray>()
             .patches()
-            .into_values()
-            .into_primitive()
+            .values()
+            .to_primitive()
             .unwrap();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
@@ -57,21 +60,21 @@ mod tests {
 
         let sliced = slice(&sparse, 15, 100).unwrap();
         assert_eq!(sliced.len(), 100 - 15);
-        let primitive = SparseArray::try_from(sliced.clone())
-            .unwrap()
+        let primitive = sliced
+            .as_::<SparseArray>()
             .patches()
-            .into_values()
-            .into_primitive()
+            .values()
+            .to_primitive()
             .unwrap();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
         let doubly_sliced = slice(&sliced, 35, 36).unwrap();
-        let primitive_doubly_sliced = SparseArray::try_from(doubly_sliced)
-            .unwrap()
+        let primitive_doubly_sliced = doubly_sliced
+            .as_::<SparseArray>()
             .patches()
-            .into_values()
-            .into_primitive()
+            .values()
+            .to_primitive()
             .unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
@@ -87,7 +90,7 @@ mod tests {
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let actual = sliced.into_primitive().unwrap().as_slice::<u64>().to_vec();
+        let actual = sliced.to_primitive().unwrap().as_slice::<u64>().to_vec();
         assert_eq!(expected, actual);
     }
 }

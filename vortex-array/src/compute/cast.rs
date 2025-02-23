@@ -1,20 +1,27 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub trait CastFn<A> {
-    fn cast(&self, array: &A, dtype: &DType) -> VortexResult<Array>;
+    fn cast(&self, array: A, dtype: &DType) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> CastFn<Array> for E
+impl<E: Encoding> CastFn<&dyn Array> for E
 where
-    E: CastFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> CastFn<&'a E::Array>,
 {
-    fn cast(&self, array: &Array, dtype: &DType) -> VortexResult<Array> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+    fn cast(&self, array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = array.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         CastFn::cast(encoding, array_ref, dtype)
     }
 }
@@ -22,10 +29,9 @@ where
 /// Attempt to cast an array to a desired DType.
 ///
 /// Some array support the ability to narrow or upcast.
-pub fn try_cast(array: impl AsRef<Array>, dtype: &DType) -> VortexResult<Array> {
-    let array = array.as_ref();
+pub fn try_cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
     if array.dtype() == dtype {
-        return Ok(array.clone());
+        return Ok(array.to_array());
     }
 
     let casted = try_cast_impl(array, dtype)?;
@@ -46,7 +52,7 @@ pub fn try_cast(array: impl AsRef<Array>, dtype: &DType) -> VortexResult<Array> 
     Ok(casted)
 }
 
-fn try_cast_impl(array: &Array, dtype: &DType) -> VortexResult<Array> {
+fn try_cast_impl(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
     // TODO(ngates): check for null_count if dtype is non-nullable
     if let Some(f) = array.vtable().cast_fn() {
         return f.cast(array, dtype);
@@ -59,7 +65,7 @@ fn try_cast_impl(array: &Array, dtype: &DType) -> VortexResult<Array> {
         array.dtype(),
         dtype
     );
-    let canonicalized = array.clone().into_canonical()?.into_array();
+    let canonicalized = array.to_canonical()?.into_array();
     if let Some(f) = canonicalized.vtable().cast_fn() {
         return f.cast(&canonicalized, dtype);
     }

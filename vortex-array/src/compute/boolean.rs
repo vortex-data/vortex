@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
-use arrow_array::ArrayRef;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::encoding::Encoding;
-use crate::Array;
+use crate::{Array, ArrayRef};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
@@ -24,24 +24,31 @@ pub enum BinaryOperator {
 pub trait BinaryBooleanFn<A> {
     fn binary_boolean(
         &self,
-        array: &A,
-        other: &Array,
+        array: A,
+        other: &dyn Array,
         op: BinaryOperator,
-    ) -> VortexResult<Option<Array>>;
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryBooleanFn<Array> for E
+impl<E: Encoding> BinaryBooleanFn<&dyn Array> for E
 where
-    E: BinaryBooleanFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> BinaryBooleanFn<&'a E::Array>,
 {
     fn binary_boolean(
         &self,
-        lhs: &Array,
-        rhs: &Array,
+        lhs: &dyn Array,
+        rhs: &dyn Array,
         op: BinaryOperator,
-    ) -> VortexResult<Option<Array>> {
-        let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
+    ) -> VortexResult<Option<ArrayRef>> {
+        let array_ref = lhs
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = lhs.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }
@@ -49,28 +56,32 @@ where
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
-pub fn and(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::And)
+pub fn and(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_boolean(lhs, rhs, BinaryOperator::And)
 }
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
-pub fn and_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::AndKleene)
+pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_boolean(lhs, rhs, BinaryOperator::AndKleene)
 }
 
 /// Point-wise logical _or_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
-pub fn or(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::Or)
+pub fn or(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_boolean(lhs, rhs, BinaryOperator::Or)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
-pub fn or_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::OrKleene)
+pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_boolean(lhs, rhs, BinaryOperator::OrKleene)
 }
 
-pub fn binary_boolean(lhs: &Array, rhs: &Array, op: BinaryOperator) -> VortexResult<Array> {
+pub fn binary_boolean(
+    lhs: &dyn Array,
+    rhs: &dyn Array,
+    op: BinaryOperator,
+) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {
         vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
     }
@@ -85,7 +96,7 @@ pub fn binary_boolean(lhs: &Array, rhs: &Array, op: BinaryOperator) -> VortexRes
 
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
     if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
-        return arrow_boolean(lhs.clone(), rhs.clone(), op);
+        return arrow_boolean(lhs.to_array(), rhs.to_array(), op);
     }
 
     // Check if either LHS or RHS supports the operation directly.
@@ -139,7 +150,7 @@ pub fn binary_boolean(lhs: &Array, rhs: &Array, op: BinaryOperator) -> VortexRes
     );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
-    arrow_boolean(lhs.clone(), rhs.clone(), op)
+    arrow_boolean(lhs.to_array(), rhs.to_array(), op)
 }
 
 /// Implementation of `BinaryBooleanFn` using the Arrow crate.
@@ -147,10 +158,10 @@ pub fn binary_boolean(lhs: &Array, rhs: &Array, op: BinaryOperator) -> VortexRes
 /// Note that other encodings should handle a constant RHS value, so we can assume here that
 /// the RHS is not constant and expand to a full array.
 pub(crate) fn arrow_boolean(
-    lhs: Array,
-    rhs: Array,
+    lhs: ArrayRef,
+    rhs: ArrayRef,
     operator: BinaryOperator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
     let lhs = lhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
@@ -163,7 +174,10 @@ pub(crate) fn arrow_boolean(
         BinaryOperator::OrKleene => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
     };
 
-    Ok(Array::from_arrow(Arc::new(array) as ArrayRef, nullable))
+    Ok(ArrayRef::from_arrow(
+        Arc::new(array) as ArrowArrayRef,
+        nullable,
+    ))
 }
 
 #[cfg(test)]
@@ -172,7 +186,7 @@ mod tests {
 
     use super::*;
     use crate::arrays::BoolArray;
-    use crate::canonical::IntoArrayVariant;
+    use crate::canonical::ToCanonical;
     use crate::compute::scalar_at;
     use crate::IntoArray;
 
@@ -182,10 +196,10 @@ mod tests {
     .into_array())]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
-    fn test_or(#[case] lhs: Array, #[case] rhs: Array) {
+    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = or(&lhs, &rhs).unwrap();
 
-        let r = r.into_bool().unwrap().into_array();
+        let r = r.to_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
         let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
@@ -204,8 +218,8 @@ mod tests {
     .into_array())]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
-    fn test_and(#[case] lhs: Array, #[case] rhs: Array) {
-        let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
+    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let r = and(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
         let v1 = scalar_at(&r, 1).unwrap().as_bool().value();

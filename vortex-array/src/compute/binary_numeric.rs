@@ -5,41 +5,47 @@ use vortex_scalar::{BinaryNumericOperator, Scalar};
 use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray as _};
+use crate::{Array, ArrayRef, IntoArray as _};
 
 pub trait BinaryNumericFn<A> {
     fn binary_numeric(
         &self,
-        array: &A,
-        other: &Array,
+        array: A,
+        other: &dyn Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>>;
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-impl<E: Encoding> BinaryNumericFn<Array> for E
+impl<E: Encoding> BinaryNumericFn<&dyn Array> for E
 where
-    E: BinaryNumericFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> BinaryNumericFn<&'a E::Array>,
 {
     fn binary_numeric(
         &self,
-        lhs: &Array,
-        rhs: &Array,
+        lhs: &dyn Array,
+        rhs: &dyn Array,
         op: BinaryNumericOperator,
-    ) -> VortexResult<Option<Array>> {
-        let (array_ref, encoding) = lhs.try_downcast_ref::<E>()?;
+    ) -> VortexResult<Option<ArrayRef>> {
+        let array_ref = lhs
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = lhs.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         BinaryNumericFn::binary_numeric(encoding, array_ref, rhs, op)
     }
 }
 
 /// Point-wise add two numeric arrays.
-pub fn add(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Add)
+pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Add)
 }
 
 /// Point-wise add a scalar value to this array on the right-hand-side.
-pub fn add_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
-    let lhs = lhs.as_ref();
+pub fn add_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -48,13 +54,12 @@ pub fn add_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
 }
 
 /// Point-wise subtract two numeric arrays.
-pub fn sub(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Sub)
+pub fn sub(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Sub)
 }
 
 /// Point-wise subtract a scalar value from this array on the right-hand-side.
-pub fn sub_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
-    let lhs = lhs.as_ref();
+pub fn sub_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -63,13 +68,12 @@ pub fn sub_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
 }
 
 /// Point-wise multiply two numeric arrays.
-pub fn mul(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Mul)
+pub fn mul(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Mul)
 }
 
 /// Point-wise multiply a scalar value into this array on the right-hand-side.
-pub fn mul_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
-    let lhs = lhs.as_ref();
+pub fn mul_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -78,13 +82,12 @@ pub fn mul_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
 }
 
 /// Point-wise divide two numeric arrays.
-pub fn div(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Div)
+pub fn div(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    binary_numeric(lhs, rhs, BinaryNumericOperator::Div)
 }
 
 /// Point-wise divide a scalar value into this array on the right-hand-side.
-pub fn div_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
-    let lhs = lhs.as_ref();
+pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
@@ -92,7 +95,11 @@ pub fn div_scalar(lhs: impl AsRef<Array>, rhs: Scalar) -> VortexResult<Array> {
     )
 }
 
-pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> VortexResult<Array> {
+pub fn binary_numeric(
+    lhs: &dyn Array,
+    rhs: &dyn Array,
+    op: BinaryNumericOperator,
+) -> VortexResult<ArrayRef> {
     if lhs.len() != rhs.len() {
         vortex_bail!(
             "Numeric operations aren't supported on arrays of different lengths {} {}",
@@ -135,19 +142,23 @@ pub fn binary_numeric(lhs: &Array, rhs: &Array, op: BinaryNumericOperator) -> Vo
     );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
-    arrow_numeric(lhs.clone(), rhs.clone(), op)
+    arrow_numeric(lhs, rhs, op)
 }
 
 /// Implementation of `BinaryBooleanFn` using the Arrow crate.
 ///
 /// Note that other encodings should handle a constant RHS value, so we can assume here that
 /// the RHS is not constant and expand to a full array.
-fn arrow_numeric(lhs: Array, rhs: Array, operator: BinaryNumericOperator) -> VortexResult<Array> {
+fn arrow_numeric(
+    lhs: &dyn Array,
+    rhs: &dyn Array,
+    operator: BinaryNumericOperator,
+) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs.clone())?;
-    let right = Datum::try_new(rhs.clone())?;
+    let left = Datum::try_new(lhs.to_array())?;
+    let right = Datum::try_new(rhs.to_array())?;
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
@@ -159,12 +170,12 @@ fn arrow_numeric(lhs: Array, rhs: Array, operator: BinaryNumericOperator) -> Vor
     };
 
     let result = from_arrow_array_with_len(array, len, nullable)?;
-    check_numeric_result(&result, &lhs, &rhs);
+    check_numeric_result(&result, lhs, rhs);
     Ok(result)
 }
 
 #[inline(always)]
-fn check_numeric_result(result: &Array, lhs: &Array, rhs: &Array) {
+fn check_numeric_result(result: &dyn Array, lhs: &dyn Array, rhs: &dyn Array) {
     debug_assert_eq!(
         result.len(),
         lhs.len(),
@@ -192,10 +203,10 @@ pub mod test_harness {
 
     use crate::arrays::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{Array, IntoArray as _, IntoCanonical};
+    use crate::{Array, ArrayRef, IntoArray as _};
 
     #[allow(clippy::unwrap_used)]
-    fn to_vec_of_scalar(array: &Array) -> Vec<Scalar> {
+    fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
         // Not fast, but obviously correct
         (0..array.len())
             .map(|index| scalar_at(array, index))
@@ -204,17 +215,11 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: Array)
+    pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
     where
         Scalar: From<T>,
     {
-        let canonicalized_array = array
-            .clone()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
-
+        let canonicalized_array = array.to_canonical().unwrap().into_primitive().unwrap();
         let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
         let one = T::from(1)
@@ -250,7 +255,7 @@ pub mod test_harness {
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<Scalar>>(),
-                "({}) {} (Constant array of {}) did not produce expected results",
+                "({:?}) {} (Constant array of {}) did not produce expected results",
                 array,
                 operator,
                 scalar_one,
@@ -274,7 +279,7 @@ pub mod test_harness {
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<_>>(),
-                "(Constant array of {}) {} ({}) did not produce expected results",
+                "(Constant array of {}) {} ({:?}) did not produce expected results",
                 scalar_one,
                 operator,
                 array,
@@ -288,8 +293,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
-    use crate::canonical::IntoCanonical;
+    use crate::canonical::ToCanonical;
     use crate::compute::{scalar_at, sub_scalar};
     use crate::IntoArray;
 
@@ -298,9 +304,7 @@ mod test {
         let values = buffer![1u16, 2, 3].into_array();
         let results = sub_scalar(&values, 1u16.into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<u16>()
             .to_vec();
@@ -312,9 +316,7 @@ mod test {
         let values = buffer![1i64, 2, 3].into_array();
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<i64>()
             .to_vec();
@@ -323,13 +325,10 @@ mod test {
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let values =
-            PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]).into_array();
+        let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
         let result = sub_scalar(&values, Some(1u16).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap();
 
         let actual = (0..result.len())
@@ -352,9 +351,7 @@ mod test {
         let to_subtract = -1f64;
         let results = sub_scalar(&values, to_subtract.into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
+            .to_primitive()
             .unwrap()
             .as_slice::<f64>()
             .to_vec();

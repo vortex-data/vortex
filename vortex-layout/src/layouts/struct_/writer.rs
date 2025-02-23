@@ -1,5 +1,6 @@
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::iter::ArrayIteratorArrayExt;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
@@ -48,9 +49,13 @@ impl StructLayoutWriter {
 }
 
 impl LayoutWriter for StructLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         let struct_array = chunk
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
 
         if struct_array.nfields() != self.column_strategies.len() {
@@ -63,12 +68,12 @@ impl LayoutWriter for StructLayoutWriter {
         for i in 0..struct_array.nfields() {
             // TODO(joe): handle struct validity
             let column = chunk
-                .as_struct_array()
+                .as_struct_typed()
                 .vortex_expect("batch is a struct array")
                 .maybe_null_field_by_idx(i)
                 .vortex_expect("bounds already checked");
 
-            for column_chunk in column.into_array_iterator() {
+            for column_chunk in column.to_array_iterator() {
                 self.column_strategies[i].push_chunk(segments, column_chunk?)?;
             }
         }

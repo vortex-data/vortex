@@ -1,90 +1,99 @@
+use std::sync::{Arc, RwLock};
+
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::encoding::encoding_ids;
 use crate::stats::{Stat, StatsSet};
-use crate::visitor::ArrayVisitor;
-use crate::vtable::{StatisticsVTable, ValidateVTable, ValidityVTable, VisitorVTable};
-use crate::{impl_encoding, EmptyMetadata};
+use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::{
+    Array, ArrayBufferVisitor, ArrayImpl, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId,
+};
 
 mod canonical;
 mod compute;
+mod serde;
 mod variants;
 
-impl_encoding!(
-    "vortex.constant",
-    encoding_ids::CONSTANT,
-    Constant,
-    EmptyMetadata
-);
+#[derive(Clone, Debug)]
+pub struct ConstantArray {
+    scalar: Scalar,
+    len: usize,
+    stats_set: Arc<RwLock<StatsSet>>,
+}
+
+pub struct ConstantEncoding;
+impl Encoding for ConstantEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.constant", encoding_ids::CONSTANT);
+    type Array = ConstantArray;
+    type Metadata = EmptyMetadata;
+}
 
 impl ConstantArray {
-    pub fn new<S>(scalar: S, length: usize) -> Self
+    pub fn new<S>(scalar: S, len: usize) -> Self
     where
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        let stats = StatsSet::constant(scalar.clone(), length);
-        let (dtype, scalar_value) = scalar.into_parts();
-
-        // Serialize the scalar_value into a FlatBuffer
-        let value_buffer = scalar_value.to_flexbytes();
-
-        Self::try_from_parts(
-            dtype,
-            length,
-            EmptyMetadata,
-            [value_buffer.into_inner()].into(),
-            vec![].into(),
-            stats,
-        )
-        .vortex_expect("Failed to create Constant array")
+        let stats = StatsSet::constant(scalar.clone(), len);
+        Self {
+            scalar,
+            len,
+            stats_set: Arc::new(RwLock::new(stats)),
+        }
     }
 
     /// Returns the [`Scalar`] value of this constant array.
-    pub fn scalar(&self) -> Scalar {
-        let sv = ScalarValue::from_flexbytes(
-            self.as_ref()
-                .byte_buffer(0)
-                .vortex_expect("Missing scalar value buffer"),
-        )
-        .vortex_expect("Failed to deserialize scalar value");
-        Scalar::new(self.dtype().clone(), sv)
+    pub fn scalar(&self) -> &Scalar {
+        &self.scalar
     }
 }
 
-impl ValidateVTable<ConstantArray> for ConstantEncoding {}
+impl ArrayImpl for ConstantArray {
+    type Encoding = ConstantEncoding;
 
-impl ValidityVTable<ConstantArray> for ConstantEncoding {
-    fn is_valid(&self, array: &ConstantArray, _index: usize) -> VortexResult<bool> {
-        Ok(!array.scalar().is_null())
+    fn _len(&self) -> usize {
+        self.len
     }
 
-    fn all_valid(&self, array: &ConstantArray) -> VortexResult<bool> {
-        Ok(!array.scalar().is_null())
+    fn _dtype(&self) -> &DType {
+        self.scalar.dtype()
     }
 
-    fn all_invalid(&self, array: &ConstantArray) -> VortexResult<bool> {
-        Ok(array.scalar().is_null())
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&ConstantEncoding)
+    }
+}
+
+impl ArrayValidityImpl for ConstantArray {
+    fn _is_valid(&self, _index: usize) -> VortexResult<bool> {
+        Ok(!self.scalar().is_null())
     }
 
-    fn validity_mask(&self, array: &ConstantArray) -> VortexResult<Mask> {
-        Ok(match array.scalar().is_null() {
-            true => Mask::AllFalse(array.len()),
-            false => Mask::AllTrue(array.len()),
+    fn _all_valid(&self) -> VortexResult<bool> {
+        Ok(!self.scalar().is_null())
+    }
+
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        Ok(self.scalar().is_null())
+    }
+
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        Ok(match self.scalar().is_null() {
+            true => Mask::AllFalse(self.len()),
+            false => Mask::AllTrue(self.len()),
         })
     }
 }
 
-impl StatisticsVTable<ConstantArray> for ConstantEncoding {
-    fn compute_statistics(&self, array: &ConstantArray, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::constant(array.scalar(), array.len()))
+impl ArrayStatisticsImpl for ConstantArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
     }
 }
 
-impl VisitorVTable<ConstantArray> for ConstantEncoding {
-    fn accept(&self, array: &ConstantArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(array.byte_buffer(0).vortex_expect("missing scalar buffer"))
-    }
-}
+impl StatisticsVTable<&ConstantArray> for ConstantEncoding {}

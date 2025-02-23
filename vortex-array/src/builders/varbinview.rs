@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
@@ -158,25 +158,17 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     #[inline]
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = if let Some(array) = VarBinViewArray::maybe_from(&array) {
-            array
-        } else {
-            let Ok(Canonical::VarBinView(array)) = array.clone().into_canonical() else {
-                vortex_bail!("Expected Canonical::VarBinView, found {:?}", array);
-            };
-            array
-        };
-
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        let array = array.to_varbinview()?;
         self.flush_in_progress();
 
         let buffers_offset = u32::try_from(self.completed.len())?;
-        self.completed.extend(array.buffers());
+        self.completed.extend_from_slice(array.buffers());
 
         self.views_builder.extend(
             array
                 .views()
-                .into_iter()
+                .iter()
                 .map(|view| view.offset_view(buffers_offset)),
         );
 
@@ -185,7 +177,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 
@@ -218,8 +210,10 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::accessor::ArrayAccessor;
+    use crate::array::{Array, ArrayExt};
     use crate::arrays::VarBinViewArray;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
+    use crate::ToCanonical;
 
     #[test]
     fn test_utf8_builder() {
@@ -234,9 +228,10 @@ mod tests {
         builder.append_zeros(2);
         builder.append_value("test");
 
-        let arr = VarBinViewArray::try_from(builder.finish()).unwrap();
+        let arr = builder.finish();
 
         let arr = arr
+            .as_::<VarBinViewArray>()
             .with_iterator(|iter| {
                 iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
                     .collect_vec()
@@ -269,11 +264,11 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_option(Some("Hello1"));
-        builder.extend_from_array(array).unwrap();
+        builder.extend_from_array(&array).unwrap();
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = VarBinViewArray::try_from(builder.finish()).unwrap();
+        let arr = builder.finish().to_varbinview().unwrap();
 
         let arr = arr
             .with_iterator(|iter| {

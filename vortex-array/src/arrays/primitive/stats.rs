@@ -13,9 +13,11 @@ use vortex_scalar::ScalarValue;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::min_max;
+use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, Statistics, StatsSet};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::StatisticsVTable;
+use crate::Array;
 
 trait PStatsType:
     NativePType + Into<ScalarValue> + BitWidth + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>
@@ -30,7 +32,7 @@ impl<T> PStatsType for T where
 {
 }
 
-impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
+impl StatisticsVTable<&PrimitiveArray> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, Precision::exact(array.nbytes())));
@@ -65,7 +67,7 @@ impl PrimitiveEncoding {
     }
 }
 
-impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
+impl<T: PStatsType + PartialEq> StatisticsVTable<&[T]> for PrimitiveEncoding {
     fn compute_statistics(&self, array: &[T], stat: Stat) -> VortexResult<StatsSet> {
         if array.is_empty() {
             return Ok(StatsSet::default());
@@ -94,7 +96,7 @@ impl<T: PStatsType + PartialEq> StatisticsVTable<[T]> for PrimitiveEncoding {
 
 struct NullableValues<'a, T: PStatsType>(&'a [T], &'a BooleanBuffer);
 
-impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncoding {
+impl<T: PStatsType> StatisticsVTable<&NullableValues<'_, T>> for PrimitiveEncoding {
     fn compute_statistics(
         &self,
         nulls: &NullableValues<'_, T>,
@@ -311,6 +313,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
 
 #[cfg(test)]
 mod test {
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::stats::{Stat, Statistics};
 

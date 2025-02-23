@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -47,7 +47,11 @@ impl ChunkedLayoutWriter {
 }
 
 impl LayoutWriter for ChunkedLayoutWriter {
-    fn push_chunk(&mut self, segments: &mut dyn SegmentWriter, chunk: Array) -> VortexResult<()> {
+    fn push_chunk(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayRef,
+    ) -> VortexResult<()> {
         self.row_count += chunk.len() as u64;
 
         // We write each chunk, but don't call finish quite yet to ensure that chunks have an

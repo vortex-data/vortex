@@ -2,38 +2,34 @@ use arrow_array::builder::make_view;
 use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Canonical, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayCanonicalImpl, ArrayExt, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::FSSTArray;
 
-impl CanonicalVTable<FSSTArray> for FSSTEncoding {
-    fn into_canonical(&self, array: FSSTArray) -> VortexResult<Canonical> {
-        array.with_decompressor(|decompressor| {
-            fsst_into_varbin_view(decompressor, &array, 0).map(Canonical::VarBinView)
+impl ArrayCanonicalImpl for FSSTArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        self.with_decompressor(|decompressor| {
+            fsst_into_varbin_view(decompressor, self, 0).map(Canonical::VarBinView)
         })
     }
 
-    fn canonicalize_into(
-        &self,
-        array: FSSTArray,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return builder.extend_from_array(self.into_canonical(array)?.into_array());
+            return builder.extend_from_array(&self.to_canonical()?.into_array());
         };
-        let view = array.with_decompressor(|decompressor| {
-            fsst_into_varbin_view(decompressor, &array, builder.completed_block_count())
+        let view = self.with_decompressor(|decompressor| {
+            fsst_into_varbin_view(decompressor, self, builder.completed_block_count())
         })?;
 
         builder.push_buffer_and_adjusted_views(
-            view.buffers(),
-            view.views(),
-            array.validity_mask()?,
+            view.buffers().iter().cloned(),
+            view.views().iter().cloned(),
+            self.validity_mask()?,
         );
         Ok(())
     }
@@ -55,9 +51,9 @@ fn fsst_into_varbin_view(
     // To speed up canonicalization, we can decompress the entire string-heap in a single
     // call. We then turn our uncompressed_lengths into an offsets buffer
     // necessary for a VarBinViewArray and construct the canonical array.
-    let bytes = VarBinArray::try_from(fsst_array.codes())?.sliced_bytes();
+    let bytes = fsst_array.codes().as_::<VarBinArray>().sliced_bytes();
 
-    let uncompressed_lens_array = fsst_array.uncompressed_lengths().into_primitive()?;
+    let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive()?;
 
     // Decompres the full dataset.
     #[allow(clippy::cast_possible_truncation)]
@@ -103,7 +99,7 @@ fn fsst_into_varbin_view(
         views,
         vec![uncompressed_bytes_array],
         fsst_array.dtype().clone(),
-        fsst_array.validity(),
+        Validity::copy_from_array(fsst_array)?,
     )
 }
 
@@ -114,12 +110,12 @@ mod tests {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ChunkedArray, VarBinArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::{Array, IntoArray, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{Array, ArrayRef, ToCanonical};
     use vortex_dtype::{DType, Nullability};
 
     use crate::{fsst_compress, fsst_train_compressor};
 
-    fn make_data() -> (Array, Vec<Option<Vec<u8>>>) {
+    fn make_data() -> (ArrayRef, Vec<Option<Vec<u8>>>) {
         const STRING_COUNT: usize = 1000;
         let mut rng = StdRng::seed_from_u64(0);
         let mut strings = Vec::with_capacity(STRING_COUNT);
@@ -155,7 +151,7 @@ mod tests {
 
     fn make_data_chunked() -> (ChunkedArray, Vec<Option<Vec<u8>>>) {
         #[allow(clippy::type_complexity)]
-        let (arr_vec, data_vec): (Vec<Array>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
+        let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array).unwrap();
@@ -173,15 +169,15 @@ mod tests {
     }
 
     #[test]
-    fn test_into_canonical() {
+    fn test_to_canonical() {
         let (chunked_arr, data) = make_data_chunked();
 
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), chunked_arr.len());
-        chunked_arr.clone().canonicalize_into(&mut builder).unwrap();
+        chunked_arr.append_to_builder(&mut builder).unwrap();
 
         {
-            let arr = builder.finish().into_varbinview().unwrap();
+            let arr = builder.finish().to_varbinview().unwrap();
             let res1 = arr
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();
@@ -189,7 +185,7 @@ mod tests {
         };
 
         {
-            let arr2 = chunked_arr.into_varbinview().unwrap();
+            let arr2 = chunked_arr.to_varbinview().unwrap();
             let res2 = arr2
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();

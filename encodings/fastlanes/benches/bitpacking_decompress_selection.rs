@@ -10,7 +10,7 @@ use rand::rngs::StdRng;
 use rand::{Rng as _, SeedableRng as _};
 use vortex_array::arrays::BooleanBuffer;
 use vortex_array::compute::filter;
-use vortex_array::{IntoArray as _, IntoArrayVariant as _, IntoCanonical};
+use vortex_array::{Array, IntoArray as _, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_fastlanes::bitpack_to_best_bit_width;
@@ -28,18 +28,17 @@ fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction
         .map(|_| T::from(rng.gen_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .into_primitive()
+        .to_primitive()
         .unwrap();
 
-    let array = bitpack_to_best_bit_width(values).unwrap();
-    let array = array.as_ref();
+    let array = bitpack_to_best_bit_width(&values).unwrap();
 
     let mask = (0..10000)
         .map(|_| rng.gen_bool(fraction_kept))
         .collect::<BooleanBuffer>();
     let mask = &Mask::from_buffer(mask);
 
-    bencher.bench(|| filter(array, mask).unwrap().into_canonical().unwrap());
+    bencher.bench(|| filter(&array, mask).unwrap().to_canonical().unwrap());
 }
 
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
@@ -50,11 +49,10 @@ fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_
         .map(|_| T::from(rng.gen_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .into_primitive()
+        .to_primitive()
         .unwrap();
 
-    let array = bitpack_to_best_bit_width(values).unwrap();
-    let array = array.as_ref();
+    let array = bitpack_to_best_bit_width(&values).unwrap();
 
     let mask = (0..10000)
         .map(|_| rng.gen_bool(fraction_kept))
@@ -63,5 +61,5 @@ fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| filter(array.into_canonical().unwrap().as_ref(), mask).unwrap());
+        .bench_values(|array| filter(array.to_canonical().unwrap().as_ref(), mask).unwrap());
 }

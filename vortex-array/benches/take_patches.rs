@@ -5,7 +5,7 @@ use divan::Bencher;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::patches::Patches;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -44,7 +44,7 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
 
     bencher
         .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| patches.take_search(indices.into_primitive().unwrap()));
+        .bench_values(|(patches, indices)| patches.take_search(indices.to_primitive().unwrap()));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -59,7 +59,7 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 
     bencher
         .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| patches.take_map(indices.into_primitive().unwrap()));
+        .bench_values(|(patches, indices)| patches.take_map(indices.to_primitive().unwrap()));
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
@@ -72,6 +72,6 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
     Patches::new(len, 0, indices.into_array(), values)
 }
 
-fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> Array {
+fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {
     Buffer::from_iter((0..n_indices).map(|_| rng.gen_range(0..(array_len as u64)))).into_array()
 }

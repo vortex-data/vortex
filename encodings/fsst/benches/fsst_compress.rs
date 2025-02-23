@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng};
 use vortex_array::arrays::{ChunkedArray, ConstantArray, VarBinArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{IntoArray, IntoCanonical};
+use vortex_array::Array;
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor};
 use vortex_scalar::Scalar;
@@ -48,7 +48,7 @@ fn decompress_fsst(bencher: Bencher, args: (usize, usize, u8)) {
 
     bencher
         .with_inputs(|| encoded.clone())
-        .bench_values(|encoded| encoded.into_canonical().unwrap())
+        .bench_values(|encoded| encoded.to_canonical().unwrap())
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -74,7 +74,12 @@ fn canonicalize_compare(bencher: Bencher, args: (usize, usize, u8)) {
 
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
     bencher.with_inputs(|| array.clone()).bench_values(|array| {
-        compare(array.into_canonical().unwrap(), &constant, Operator::Eq).unwrap()
+        compare(
+            array.to_canonical().unwrap().as_ref(),
+            &constant,
+            Operator::Eq,
+        )
+        .unwrap()
     });
 }
 
@@ -101,7 +106,7 @@ fn chunked_canonicalize_into(
     bencher.with_inputs(|| array.clone()).bench_values(|array| {
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
-        array.canonicalize_into(&mut builder).unwrap();
+        array.append_to_builder(&mut builder).unwrap();
         builder.finish()
     });
 }
@@ -115,7 +120,7 @@ fn chunked_into_canonical(
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| array.into_canonical().unwrap());
+        .bench_values(|array| array.to_canonical().unwrap());
 }
 
 // Helper function to generate random string data.

@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
 use crate::compute::{binary_numeric, slice, try_cast};
-use crate::{Array, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -114,17 +114,17 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
         self.nulls.append_validity_mask(array.validity_mask()?);
 
-        let list = array.into_canonical()?.into_list()?;
+        let list = array.to_canonical()?.into_list()?;
 
         let offset = self.value_builder.len();
         self.value_builder.extend_from_array(list.elements())?;
 
         let offsets = binary_numeric(
             &try_cast(
-                slice(list.offsets(), 1, list.offsets().len())?,
+                &slice(list.offsets(), 1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
             &ConstantArray::new(
@@ -135,12 +135,12 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             ),
             BinaryNumericOperator::Add,
         )?;
-        self.index_builder.extend_from_array(offsets)?;
+        self.index_builder.extend_from_array(&offsets)?;
 
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         assert_eq!(
             self.index_builder.len(),
             self.nulls.len() + 1,
@@ -166,10 +166,11 @@ mod tests {
     use vortex_scalar::Scalar;
     use Nullability::{NonNullable, Nullable};
 
+    use crate::array::Array;
     use crate::arrays::{ListArray, OffsetPType};
     use crate::builders::list::ListBuilder;
     use crate::builders::ArrayBuilder;
-    use crate::{IntoArrayVariant, IntoCanonical};
+    use crate::ToCanonical;
 
     #[test]
     fn test_empty() {
@@ -209,7 +210,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
-        let list_array = list.into_list().unwrap();
+        let list_array = list.to_list().unwrap();
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.elements_at(1).unwrap().len(), 3);
@@ -259,7 +260,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
-        let list_array = list.into_list().unwrap();
+        let list_array = list.to_list().unwrap();
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
         assert_eq!(list_array.elements_at(1).unwrap().len(), 0);
@@ -275,8 +276,8 @@ mod tests {
 
         let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 6);
 
-        builder.extend_from_array(list.clone()).unwrap();
-        builder.extend_from_array(list).unwrap();
+        builder.extend_from_array(&list).unwrap();
+        builder.extend_from_array(&list).unwrap();
 
         let expect = ListArray::from_iter_opt_slow::<O, _, _>(
             [
@@ -290,28 +291,24 @@ mod tests {
             Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
-        .into_list()
+        .to_list()
         .unwrap();
 
         let res = builder
             .finish()
-            .into_canonical()
+            .to_canonical()
             .unwrap()
             .into_list()
             .unwrap();
 
         assert_eq!(
-            res.elements().into_primitive().unwrap().as_slice::<i32>(),
-            expect
-                .elements()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>()
+            res.elements().to_primitive().unwrap().as_slice::<i32>(),
+            expect.elements().to_primitive().unwrap().as_slice::<i32>()
         );
 
         assert_eq!(
-            res.offsets().into_primitive().unwrap().as_slice::<O>(),
-            expect.offsets().into_primitive().unwrap().as_slice::<O>()
+            res.offsets().to_primitive().unwrap().as_slice::<O>(),
+            expect.offsets().to_primitive().unwrap().as_slice::<O>()
         );
 
         assert_eq!(res.validity(), expect.validity())

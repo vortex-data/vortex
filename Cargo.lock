@@ -5101,7 +5101,6 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
- "backtrace",
  "codspeed-divan-compat",
  "enum-iterator",
  "flatbuffers 25.2.10",
@@ -5245,6 +5244,7 @@ name = "vortex-datetime-parts"
 version = "0.24.0"
 dependencies = [
  "getrandom 0.2.15",
+ "rkyv",
  "rstest",
  "serde",
  "vortex-array",
@@ -5264,6 +5264,7 @@ dependencies = [
  "codspeed-divan-compat",
  "num-traits",
  "rand",
+ "rkyv",
  "rustc-hash",
  "serde",
  "vortex-array",

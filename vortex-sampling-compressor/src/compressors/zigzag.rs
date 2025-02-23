@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::Stat;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::VortexResult;
 use vortex_zigzag::{zigzag_encode, ZigZagArray, ZigZagEncoding};
 
@@ -21,9 +21,9 @@ impl EncodingCompressor for ZigZagCompressor {
         constants::ZIGZAG_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array)?;
+        let parray = array.maybe_as::<PrimitiveArray>()?;
 
         // Only supports signed integers
         if !parray.ptype().is_signed_int() {
@@ -41,13 +41,12 @@ impl EncodingCompressor for ZigZagCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let encoded = zigzag_encode(PrimitiveArray::try_from(array.clone())?)?;
-        let compressed =
-            ctx.compress(&encoded.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
+        let encoded = zigzag_encode(PrimitiveArray::try_from(array.to_array())?)?;
+        let compressed = ctx.compress(encoded.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
         Ok(CompressedArray::compressed(
             ZigZagArray::try_new(compressed.array)?.into_array(),
             Some(CompressionTree::new(self, vec![compressed.path])),

@@ -17,9 +17,9 @@ use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::file::VortexOpenOptions;
 use vortex::io::{TokioFile, VortexReadAt};
-use vortex::{Array, IntoCanonical};
+use vortex::{Array, ArrayRef, IntoArray};
 
-pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<Array> {
+pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
     take_vortex(TokioFile::open(path)?, indices).await
 }
 
@@ -28,7 +28,7 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<Rec
     parquet_take_from_stream(file, indices).await
 }
 
-async fn take_vortex<T: VortexReadAt>(reader: T, indices: Buffer<u64>) -> VortexResult<Array> {
+async fn take_vortex<T: VortexReadAt>(reader: T, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
     VortexOpenOptions::file(reader)
         .open()
         .await?
@@ -37,8 +37,8 @@ async fn take_vortex<T: VortexReadAt>(reader: T, indices: Buffer<u64>) -> Vortex
         .into_array()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
-        .into_canonical()
-        .map(Array::from)
+        .to_canonical()
+        .map(|a| a.into_array())
 }
 
 async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(

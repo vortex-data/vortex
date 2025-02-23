@@ -9,7 +9,7 @@ use vortex_flatbuffers::{message as fb, FlatBuffer, WriteFlatBufferExt};
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
-    Array(&'a Array),
+    Array(&'a dyn Array),
     Buffer(&'a ByteBuffer),
     DType(&'a DType),
 }

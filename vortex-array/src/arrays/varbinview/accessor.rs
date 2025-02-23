@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::validity::Validity;
-use crate::IntoArrayVariant;
+use crate::ToCanonical;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
@@ -34,21 +34,24 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
             }
             Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, views.len()))),
             Validity::Array(v) => {
-                let validity_buf = v.into_bool()?.boolean_buffer();
-                let mut iter = views.iter().zip(validity_buf.iter()).map(|(view, valid)| {
-                    if valid {
-                        if view.is_inlined() {
-                            Some(view.as_inlined().value())
+                let validity = v.to_bool()?;
+                let mut iter = views
+                    .iter()
+                    .zip(validity.boolean_buffer())
+                    .map(|(view, valid)| {
+                        if valid {
+                            if view.is_inlined() {
+                                Some(view.as_inlined().value())
+                            } else {
+                                Some(
+                                    &bytes[view.as_view().buffer_index() as usize]
+                                        [view.as_view().to_range()],
+                                )
+                            }
                         } else {
-                            Some(
-                                &bytes[view.as_view().buffer_index() as usize]
-                                    [view.as_view().to_range()],
-                            )
+                            None
                         }
-                    } else {
-                        None
-                    }
-                });
+                    });
                 Ok(f(&mut iter))
             }
         }

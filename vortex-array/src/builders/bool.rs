@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::arrays::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
@@ -73,31 +73,29 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_n_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = array.into_canonical()?;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        let array = array.to_canonical()?;
         let Canonical::Bool(array) = array else {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);
         };
 
-        self.inner.append_buffer(&array.boolean_buffer());
-
+        self.inner.append_buffer(array.boolean_buffer());
         self.nulls.append_validity_mask(array.validity_mask()?);
 
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         assert_eq!(
             self.nulls.len(),
             self.inner.len(),
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::try_new(
+        BoolArray::new(
             self.inner.finish(),
             self.nulls.finish_with_nullability(self.nullability),
         )
-        .vortex_expect("Buffer and validity must have same length.")
         .into_array()
     }
 }
@@ -107,11 +105,13 @@ mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
 
+    use crate::array::Array;
     use crate::arrays::{BoolArray, ChunkedArray};
     use crate::builders::builder_with_capacity;
-    use crate::{Array, IntoArray, IntoCanonical};
+    use crate::canonical::ToCanonical;
+    use crate::{ArrayRef, IntoArray};
 
-    fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> Array {
+    fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
 
         (0..chunk_count)
@@ -135,15 +135,15 @@ mod tests {
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().canonicalize_into(builder.as_mut()).unwrap();
+        chunk.clone().append_to_builder(builder.as_mut()).unwrap();
         let canon_into = builder
             .finish()
-            .into_canonical()
+            .to_canonical()
             .unwrap()
             .into_bool()
             .unwrap();
 
-        let into_canon = chunk.clone().into_canonical().unwrap().into_bool().unwrap();
+        let into_canon = chunk.to_bool().unwrap();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());

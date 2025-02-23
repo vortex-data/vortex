@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray};
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId};
 use vortex_error::VortexResult;
 use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
 
@@ -20,9 +20,9 @@ impl EncodingCompressor for DeltaCompressor {
         constants::DELTA_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array)?;
+        let parray = array.maybe_as::<PrimitiveArray>()?;
 
         // Only supports ints
         if !parray.ptype().is_unsigned_int() {
@@ -34,12 +34,12 @@ impl EncodingCompressor for DeltaCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = PrimitiveArray::try_from(array.clone())?;
-        let validity = ctx.compress_validity(parray.validity())?;
+        let parray = PrimitiveArray::try_from(array.to_array())?;
+        let validity = ctx.compress_validity(parray.validity().clone())?;
 
         // Compress the filled array
         let (bases, deltas) = delta_compress(&parray)?;
@@ -47,10 +47,10 @@ impl EncodingCompressor for DeltaCompressor {
         // Recursively compress the bases and deltas
         let bases = ctx
             .named("bases")
-            .compress(bases.as_ref(), like.as_ref().and_then(|l| l.child(0)))?;
+            .compress(&bases, like.as_ref().and_then(|l| l.child(0)))?;
         let deltas = ctx
             .named("deltas")
-            .compress(deltas.as_ref(), like.as_ref().and_then(|l| l.child(1)))?;
+            .compress(&deltas, like.as_ref().and_then(|l| l.child(1)))?;
 
         Ok(CompressedArray::compressed(
             DeltaArray::try_from_delta_compress_parts(bases.array, deltas.array, validity)?

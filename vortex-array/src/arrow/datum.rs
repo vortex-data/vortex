@@ -1,24 +1,24 @@
-use arrow_array::{Array as ArrowArray, ArrayRef, Datum as ArrowDatum};
+use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef, Datum as ArrowDatum};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{scalar_at, slice};
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
 pub struct Datum {
-    array: ArrayRef,
+    array: ArrowArrayRef,
     is_scalar: bool,
 }
 
 impl Datum {
-    /// Create a new [`Datum`] from an [`Array`], which can then be passed to Arrow compute.
-    pub fn try_new(array: Array) -> VortexResult<Self> {
+    /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
+    pub fn try_new(array: ArrayRef) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: slice(array, 0, 1)?.into_arrow_preferred()?,
+                array: slice(&array, 0, 1)?.into_arrow_preferred()?,
                 is_scalar: true,
             })
         } else {
@@ -41,11 +41,11 @@ impl ArrowDatum for Datum {
 /// which will return a scalar (length 1 Arrow array) if the input array is constant.
 ///
 /// Panics if the length of the array is not 1 and also not equal to the expected length.
-pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<Array>
+pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
-    Array: FromArrowArray<A>,
+    ArrayRef: FromArrowArray<A>,
 {
-    let array = Array::from_arrow(array, nullable);
+    let array = ArrayRef::from_arrow(array, nullable);
     if array.len() == len {
         return Ok(array);
     }

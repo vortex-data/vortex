@@ -10,7 +10,7 @@ use crate::arrays::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::{Array, Canonical, IntoArray, IntoCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
@@ -96,8 +96,8 @@ impl ArrayBuilder for StructBuilder {
         self.validity.append_value(false);
     }
 
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()> {
-        let array = array.into_canonical()?;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        let array = array.to_canonical()?;
         let Canonical::Struct(array) = array else {
             vortex_bail!("Expected Canonical::Struct, found {:?}", array);
         };
@@ -117,7 +117,7 @@ impl ArrayBuilder for StructBuilder {
             })
             .zip_eq(self.builders.iter_mut())
         {
-            a.canonicalize_into(builder.as_mut())?;
+            a.append_to_builder(builder.as_mut())?;
         }
 
         match array.validity() {
@@ -128,14 +128,14 @@ impl ArrayBuilder for StructBuilder {
                 self.validity.append_values(false, array.len());
             }
             Validity::Array(validity) => {
-                validity.canonicalize_into(&mut self.validity)?;
+                validity.append_to_builder(&mut self.validity)?;
             }
         }
 
         Ok(())
     }
 
-    fn finish(&mut self) -> Array {
+    fn finish(&mut self) -> ArrayRef {
         let len = self.len();
         let fields = self
             .builders

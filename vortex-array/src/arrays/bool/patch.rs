@@ -5,18 +5,19 @@ use vortex_error::VortexResult;
 use crate::arrays::BoolArray;
 use crate::patches::Patches;
 use crate::variants::PrimitiveArrayTrait;
-use crate::IntoArrayVariant;
+use crate::{Array, ToCanonical};
 
 impl BoolArray {
-    pub fn patch(self, patches: Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let len = self.len();
-        let (_, offset, indices, values) = patches.into_parts();
-        let indices = indices.into_primitive()?;
-        let values = values.into_bool()?;
+        let (_, offset, indices, values) = patches.clone().into_parts();
+        let indices = indices.to_primitive()?;
+        let values = values.to_bool()?;
 
-        let patched_validity = self
-            .validity()
-            .patch(len, offset, &indices, values.validity())?;
+        let patched_validity =
+            self.validity()
+                .clone()
+                .patch(len, offset, &indices, values.validity())?;
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -29,7 +30,10 @@ impl BoolArray {
             }
         });
 
-        Self::try_new(own_values.finish().slice(bit_offset, len), patched_validity)
+        Ok(Self::new(
+            own_values.finish().slice(bit_offset, len),
+            patched_validity,
+        ))
     }
 }
 
@@ -39,13 +43,13 @@ mod tests {
 
     use crate::arrays::BoolArray;
     use crate::compute::slice;
-    use crate::IntoArrayVariant;
+    use crate::ToCanonical;
 
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BooleanBuffer::new_set(12));
-        let sliced = slice(arr, 4, 12).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let sliced = slice(&arr, 4, 12).unwrap();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), 12);
         assert_eq!(values.as_slice(), &[255, 15]);
@@ -54,19 +58,9 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let sliced = slice(arr, 4, 15).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let sliced = slice(&arr, 4, 15).unwrap();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[255, 127]);
-    }
-
-    #[test]
-    fn patch_sliced_bools_even() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(31));
-        let sliced = slice(arr, 8, 24).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 0);
-        assert_eq!(values.len(), 16);
-        assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

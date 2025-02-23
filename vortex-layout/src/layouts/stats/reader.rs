@@ -130,7 +130,7 @@ impl StatsReader {
             Ok(if let Some(predicate) = pruning_predicate {
                 predicate
                     .evaluate(stats_table.array())?
-                    .map(Mask::try_from)
+                    .map(|a| Mask::try_from(a.as_ref()))
                     .transpose()?
             } else {
                 None

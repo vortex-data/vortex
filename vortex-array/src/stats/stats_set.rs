@@ -565,7 +565,7 @@ mod test {
 
     use crate::arrays::PrimitiveArray;
     use crate::stats::{Precision, Stat, Statistics, StatsSet};
-    use crate::IntoArray as _;
+    use crate::{Array, IntoArray as _};
 
     #[test]
     fn test_iter() {
@@ -850,12 +850,11 @@ mod test {
     #[test]
     fn merge_unordered() {
         let array =
-            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None])
-                .into_array();
+            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None]);
         let all_stats = all::<Stat>()
             .filter(|s| !matches!(s, Stat::TrueCount))
             .collect_vec();
-        array.compute_all(&all_stats).unwrap();
+        array.statistics().compute_all(&all_stats).unwrap();
 
         let stats = array.statistics().stats_set();
         for stat in &all_stats {

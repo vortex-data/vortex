@@ -13,7 +13,7 @@ use futures::{StreamExt, TryStreamExt};
 use rand::distributions::{Alphanumeric, DistString};
 use vortex_array::arrow::FromArrowType;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::Array;
+use vortex_array::TryIntoArray;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_file::{VortexWriteOptions, VORTEX_FILE_EXTENSION};
@@ -92,7 +92,7 @@ impl DataSink for VortexSink {
         let dtype = DType::from_arrow(data.schema());
         let stream = data
             .map_err(VortexError::from)
-            .map(|rb| rb.and_then(Array::try_from))
+            .map(|rb| rb.and_then(|rb| rb.try_into_array()))
             .map_ok(|rb| {
                 row_counter.fetch_add(rb.len() as u64, Ordering::SeqCst);
                 rb
@@ -123,7 +123,6 @@ mod tests {
     use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
 
     #[tokio::test]
-    #[should_panic] // This test is not working due to <https://github.com/apache/datafusion/issues/14394>
     async fn test_insert_into() {
         let dir = TempDir::new().unwrap();
 
@@ -146,7 +145,7 @@ mod tests {
         assert_eq!(df.clone().count().await.unwrap(), 0);
         let my_tbl = session.table("my_tbl").await.unwrap();
 
-        // Its valuable to have two insert code paths because they actually behave slightly differently
+        // It's valuable to have two insert code paths because they actually behave slightly differently
         let values = Values {
             schema: Arc::new(my_tbl.schema().clone()),
             values: vec![vec![

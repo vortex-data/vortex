@@ -5,22 +5,22 @@ use vortex_error::VortexResult;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::{VarBinEncoding, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray, TryFromArrayRef};
 
-impl CanonicalVTable<VarBinArray> for VarBinEncoding {
-    fn into_canonical(&self, array: VarBinArray) -> VortexResult<Canonical> {
-        let dtype = array.dtype().clone();
+impl ArrayCanonicalImpl for VarBinArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        let dtype = self.dtype().clone();
         let nullable = dtype.is_nullable();
 
-        let array_ref = array.into_array().into_arrow_preferred()?;
+        let array_ref = self.to_array().into_arrow_preferred()?;
         let array = match dtype {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
-        VarBinViewArray::try_from(Array::from_arrow(array, nullable)).map(Canonical::VarBinView)
+        VarBinViewArray::try_from_array(ArrayRef::from_arrow(array, nullable))
+            .map(Canonical::VarBinView)
     }
 }
 
@@ -29,8 +29,9 @@ mod test {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::varbin::builder::VarBinBuilder;
-    use crate::canonical::IntoArrayVariant;
+    use crate::canonical::ToCanonical;
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]
@@ -45,7 +46,7 @@ mod test {
         varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.into_varbinview().unwrap();
+        let canonical = varbin.to_varbinview().unwrap();
         assert_eq!(canonical.dtype(), &dtype);
 
         assert!(!canonical.is_valid(0).unwrap());

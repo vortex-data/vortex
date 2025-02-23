@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use vortex_array::compute::{filter, slice};
-use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
@@ -9,7 +9,11 @@ use crate::{ExprEvaluator, RowMask};
 
 #[async_trait]
 impl ExprEvaluator for FlatReader {
-    async fn evaluate_expr(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<Array> {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayRef> {
         assert!(row_mask.true_count() > 0);
 
         let mut array = self.array().await?.clone();
@@ -20,7 +24,7 @@ impl ExprEvaluator for FlatReader {
 
         // Slice the array based on the row mask.
         if begin > 0 || (begin + row_mask.len()) < array.len() {
-            array = slice(array, begin, begin + row_mask.len())?;
+            array = slice(&array, begin, begin + row_mask.len())?;
         }
 
         // Filter the array based on the row mask.
@@ -50,7 +54,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{Array, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, ident, lit, Identity};
 
@@ -65,7 +69,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.clone().into_array())
+                .push_one(&mut segments, array.to_array().into_array())
                 .unwrap();
 
             let result = layout
@@ -77,7 +81,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
@@ -100,11 +104,11 @@ mod test {
                 .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
                 .unwrap()
-                .into_bool()
+                .to_bool()
                 .unwrap();
 
             assert_eq!(
-                BooleanBuffer::from_iter([false, false, false, true, true]),
+                &BooleanBuffer::from_iter([false, false, false, true, true]),
                 result.boolean_buffer()
             );
         })
@@ -116,7 +120,7 @@ mod test {
             let mut segments = TestSegments::default();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutWriter::new(array.dtype().clone(), Default::default())
-                .push_one(&mut segments, array.clone().into_array())
+                .push_one(&mut segments, array.to_array().into_array())
                 .unwrap();
 
             let result = layout
@@ -125,7 +129,7 @@ mod test {
                 .evaluate_expr(RowMask::new_valid_between(2, 4), ident())
                 .await
                 .unwrap()
-                .into_primitive()
+                .to_primitive()
                 .unwrap();
 
             assert_eq!(result.as_slice::<i32>(), &[3, 4],);

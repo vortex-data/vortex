@@ -23,7 +23,7 @@ use vortex_scalar::{
 };
 
 use crate::builders::struct_::StructBuilder;
-use crate::Array;
+use crate::{Array, ArrayImpl, ArrayRef};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -55,7 +55,7 @@ pub trait ArrayBuilder: Send {
     fn append_nulls(&mut self, n: usize);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
-    fn extend_from_array(&mut self, array: Array) -> VortexResult<()>;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
     /// Constructs an Array from the builder components.
     ///
@@ -66,7 +66,7 @@ pub trait ArrayBuilder: Send {
     /// builders have interfaces that may be misued. For example, if the number of values in a
     /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
     /// the PrimitiveBuilder's [Self::finish] will panic.
-    fn finish(&mut self) -> Array;
+    fn finish(&mut self) -> ArrayRef;
 }
 
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {

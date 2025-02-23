@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use async_once_cell::OnceCell;
-use vortex_array::{Array, ContextRef};
+use vortex_array::serde::ArrayParts;
+use vortex_array::{ArrayRef, ContextRef};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::flat::FlatLayout;
@@ -15,7 +16,7 @@ pub struct FlatReader {
     segment_reader: Arc<dyn AsyncSegmentReader>,
     // TODO(ngates): we need to add an invalidate_row_range function to evict these from the
     //  cache.
-    array: Arc<OnceCell<Array>>,
+    array: Arc<OnceCell<ArrayRef>>,
 }
 
 impl FlatReader {
@@ -36,11 +37,11 @@ impl FlatReader {
         })
     }
 
-    pub(crate) fn ctx(&self) -> ContextRef {
-        self.ctx.clone()
+    pub(crate) fn ctx(&self) -> &ContextRef {
+        &self.ctx
     }
 
-    pub(crate) async fn array(&self) -> VortexResult<&Array> {
+    pub(crate) async fn array(&self) -> VortexResult<&ArrayRef> {
         self.array
             .get_or_try_init(async move {
                 let segment_id = self
@@ -59,7 +60,7 @@ impl FlatReader {
                 let row_count = usize::try_from(self.layout().row_count())
                     .vortex_expect("FlatLayout row count does not fit within usize");
 
-                Array::deserialize(buffer, self.ctx(), self.dtype().clone(), row_count)
+                ArrayParts::try_from(buffer)?.decode(self.ctx(), self.dtype().clone(), row_count)
             })
             .await
     }

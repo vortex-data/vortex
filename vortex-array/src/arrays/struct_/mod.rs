@@ -1,64 +1,53 @@
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
+use ::serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
+use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
+use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
-use crate::validity::{Validity, ValidityMetadata};
+use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
-use crate::visitor::ArrayVisitor;
-use crate::vtable::{
-    CanonicalVTable, StatisticsVTable, ValidateVTable, ValidityVTable, VariantsVTable,
-    VisitorVTable,
+use crate::vtable::{StatisticsVTable, VTableRef};
+use crate::{
+    Array, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
 };
-use crate::{impl_encoding, Array, Canonical, IntoArray, RkyvMetadata};
-
 mod compute;
+mod serde;
 
-impl_encoding!(
-    "vortex.struct",
-    encoding_ids::STRUCT,
-    Struct,
-    RkyvMetadata<StructMetadata>
-);
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
-)]
-#[repr(C)]
-pub struct StructMetadata {
-    pub(crate) validity: ValidityMetadata,
+#[derive(Clone, Debug)]
+pub struct StructArray {
+    len: usize,
+    dtype: DType,
+    fields: Vec<ArrayRef>,
+    validity: Validity,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
-impl Display for StructMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
+pub struct StructEncoding;
+impl Encoding for StructEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.struct", encoding_ids::STRUCT);
+    type Array = StructArray;
+    type Metadata = EmptyMetadata;
 }
 
 impl StructArray {
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(self.nfields(), &Validity::DTYPE, self.len())
-                .vortex_expect("StructArray: validity child")
-        })
+    pub fn validity(&self) -> &Validity {
+        &self.validity
     }
 
-    pub fn fields(&self) -> impl Iterator<Item = Array> + '_ {
-        (0..self.nfields()).map(move |idx| {
-            self.maybe_null_field_by_idx(idx)
-                .vortex_expect("never out of bounds")
-        })
+    pub fn fields(&self) -> &[ArrayRef] {
+        &self.fields
     }
 
     pub fn try_new(
         names: FieldNames,
-        mut fields: Vec<Array>,
+        fields: Vec<ArrayRef>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -78,28 +67,20 @@ impl StructArray {
         }
 
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
+        let dtype = DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability);
 
-        let validity_metadata = validity.to_metadata(length)?;
-
-        if let Some(v) = validity.into_array() {
-            fields.push(v);
-        }
-
-        Self::try_from_parts(
-            DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability),
-            length,
-            RkyvMetadata(StructMetadata {
-                validity: validity_metadata,
-            }),
-            vec![].into(),
-            fields.into(),
-            StatsSet::default(),
-        )
+        Ok(Self {
+            len: length,
+            dtype,
+            fields,
+            validity,
+            stats_set: Default::default(),
+        })
     }
 
-    pub fn from_fields<N: AsRef<str>>(items: &[(N, Array)]) -> VortexResult<Self> {
+    pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
-        let fields: Vec<Array> = items.iter().map(|(_, array)| array.clone()).collect();
+        let fields: Vec<ArrayRef> = items.iter().map(|(_, array)| array.to_array()).collect();
         let len = fields
             .first()
             .map(|f| f.len())
@@ -143,77 +124,79 @@ impl StructArray {
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity(),
+            self.validity().clone(),
         )
     }
 }
 
-impl ValidateVTable<StructArray> for StructEncoding {}
+impl ArrayImpl for StructArray {
+    type Encoding = StructEncoding;
 
-impl VariantsVTable<StructArray> for StructEncoding {
-    fn as_struct_array<'a>(&self, array: &'a StructArray) -> Option<&'a dyn StructArrayTrait> {
-        Some(array)
+    fn _len(&self) -> usize {
+        self.len
+    }
+
+    fn _dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn _vtable(&self) -> VTableRef {
+        VTableRef::from_static(&StructEncoding)
+    }
+}
+
+impl ArrayStatisticsImpl for StructArray {
+    fn _stats_set(&self) -> &RwLock<StatsSet> {
+        &self.stats_set
+    }
+}
+
+impl ArrayVariantsImpl for StructArray {
+    fn _as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
+        Some(self)
     }
 }
 
 impl StructArrayTrait for StructArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
-        let dtype = self
-            .dtype()
-            .as_struct()
-            .vortex_expect("Not a struct dtype")
-            .field_by_index(idx)?;
-        self.child(idx, &dtype, self.len())
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {
+        Ok(self.fields[idx].clone())
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef> {
         self.project(projection).map(|a| a.into_array())
     }
 }
 
-impl CanonicalVTable<StructArray> for StructEncoding {
-    /// StructEncoding is the canonical form for a [DType::Struct] array, so return self.
-    fn into_canonical(&self, array: StructArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(array))
+impl ArrayCanonicalImpl for StructArray {
+    fn _to_canonical(&self) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(self.clone()))
     }
 }
 
-impl ValidityVTable<StructArray> for StructEncoding {
-    fn is_valid(&self, array: &StructArray, index: usize) -> VortexResult<bool> {
-        array.validity().is_valid(index)
+impl ArrayValidityImpl for StructArray {
+    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.validity.is_valid(index)
     }
 
-    fn all_valid(&self, array: &StructArray) -> VortexResult<bool> {
-        array.validity().all_valid()
+    fn _all_valid(&self) -> VortexResult<bool> {
+        self.validity.all_valid()
     }
 
-    fn all_invalid(&self, array: &StructArray) -> VortexResult<bool> {
-        array.validity().all_invalid()
+    fn _all_invalid(&self) -> VortexResult<bool> {
+        self.validity.all_invalid()
     }
 
-    fn validity_mask(&self, array: &StructArray) -> VortexResult<Mask> {
-        array.validity().to_logical(array.len())
-    }
-}
-
-impl VisitorVTable<StructArray> for StructEncoding {
-    fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        for (idx, name) in array.names().iter().enumerate() {
-            let child = array.maybe_null_field_by_idx(idx)?;
-            visitor.visit_child(name.as_ref(), &child)?;
-        }
-
-        visitor.visit_validity(&array.validity())?;
-
-        Ok(())
+    fn _validity_mask(&self) -> VortexResult<Mask> {
+        self.validity.to_logical(self.len())
     }
 }
 
-impl StatisticsVTable<StructArray> for StructEncoding {
+impl StatisticsVTable<&StructArray> for StructEncoding {
     fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
             Stat::UncompressedSizeInBytes => array
                 .fields()
+                .iter()
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
@@ -233,13 +216,14 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::IntoArray;
+    use crate::ArrayExt;
 
     #[test]
     fn test_project() {
@@ -268,13 +252,20 @@ mod test {
 
         assert_eq!(struct_b.len(), 5);
 
-        let bools = BoolArray::try_from(struct_b.maybe_null_field_by_idx(0).unwrap()).unwrap();
+        let bools = struct_b.maybe_null_field_by_idx(0).unwrap();
         assert_eq!(
-            bools.boolean_buffer().iter().collect::<Vec<_>>(),
+            bools
+                .as_::<BoolArray>()
+                .boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>(),
             vec![true, true, true, false, false]
         );
 
-        let prims = PrimitiveArray::try_from(struct_b.maybe_null_field_by_idx(1).unwrap()).unwrap();
-        assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
+        let prims = struct_b.maybe_null_field_by_idx(1).unwrap();
+        assert_eq!(
+            prims.as_::<PrimitiveArray>().as_slice::<i64>(),
+            [0i64, 1, 2, 3, 4]
+        );
     }
 }

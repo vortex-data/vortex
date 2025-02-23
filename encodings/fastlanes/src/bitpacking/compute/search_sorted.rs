@@ -9,13 +9,14 @@ use vortex_array::compute::{
     SearchSortedUsizeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::Array;
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
-impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
+impl SearchSortedFn<&BitPackedArray> for BitPackedEncoding {
     fn search_sorted(
         &self,
         array: &BitPackedArray,
@@ -50,7 +51,7 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
     }
 }
 
-impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
+impl SearchSortedUsizeFn<&BitPackedArray> for BitPackedEncoding {
     fn search_sorted_usize(
         &self,
         array: &BitPackedArray,
@@ -206,7 +207,7 @@ mod test {
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
@@ -215,9 +216,7 @@ mod test {
 
     #[test]
     fn search_with_patches() {
-        let bitpacked = BitPackedArray::encode(&buffer![1u32, 2, 3, 4, 5].into_array(), 2)
-            .unwrap()
-            .into_array();
+        let bitpacked = BitPackedArray::encode(&buffer![1u32, 2, 3, 4, 5].into_array(), 2).unwrap();
         assert_eq!(
             search_sorted(&bitpacked, 4, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(3)
@@ -239,8 +238,7 @@ mod test {
     #[test]
     fn search_sliced() {
         let bitpacked = slice(
-            BitPackedArray::encode(PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]).as_ref(), 2)
-                .unwrap(),
+            &BitPackedArray::encode(&PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]), 2).unwrap(),
             2,
             4,
         )
@@ -258,13 +256,13 @@ mod test {
     #[test]
     fn test_search_sorted_nulls() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_option_iter([None, None, Some(1u64)]).as_ref(),
+            &PrimitiveArray::from_option_iter([None, None, Some(1u64)]),
             2,
         )
         .unwrap();
 
         let found = search_sorted(
-            bitpacked.as_ref(),
+            &bitpacked,
             Scalar::primitive(1u64, Nullability::Nullable),
             SearchSortedSide::Left,
         )
@@ -275,13 +273,13 @@ mod test {
     #[test]
     fn test_search_sorted_nulls_not_found() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_option_iter([None, None, Some(0u8), Some(107u8)]).as_ref(),
+            &PrimitiveArray::from_option_iter([None, None, Some(0u8), Some(107u8)]),
             0,
         )
         .unwrap();
 
         let found = search_sorted(
-            bitpacked.as_ref(),
+            &bitpacked,
             Scalar::primitive(127u8, Nullability::Nullable),
             SearchSortedSide::Left,
         )
@@ -293,7 +291,7 @@ mod test {
     fn test_search_sorted_many() {
         // Test search_sorted_many with an array that contains several null values.
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_option_iter([
+            &PrimitiveArray::from_option_iter([
                 None,
                 None,
                 None,
@@ -301,18 +299,13 @@ mod test {
                 Some(1u64),
                 Some(2u64),
                 Some(3u64),
-            ])
-            .as_ref(),
+            ]),
             3,
         )
         .unwrap();
 
-        let results = search_sorted_many(
-            bitpacked.as_ref(),
-            &[3u64, 2u64, 1u64],
-            SearchSortedSide::Left,
-        )
-        .unwrap();
+        let results =
+            search_sorted_many(&bitpacked, &[3u64, 2u64, 1u64], SearchSortedSide::Left).unwrap();
 
         assert_eq!(
             results,
@@ -326,9 +319,7 @@ mod test {
 
     #[test]
     fn test_missing_signed() {
-        let bitpacked = BitPackedArray::encode(&buffer![1i32, 2, 3, 4, 5].into_array(), 2)
-            .unwrap()
-            .into_array();
+        let bitpacked = BitPackedArray::encode(&buffer![1i32, 2, 3, 4, 5].into_array(), 2).unwrap();
         assert_eq!(
             search_sorted(&bitpacked, -4, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(0)

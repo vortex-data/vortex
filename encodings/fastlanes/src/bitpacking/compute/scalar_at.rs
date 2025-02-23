@@ -1,10 +1,11 @@
 use vortex_array::compute::ScalarAtFn;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{unpack_single, BitPackedArray, BitPackedEncoding};
 
-impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
+impl ScalarAtFn<&BitPackedArray> for BitPackedEncoding {
     fn scalar_at(&self, array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
         if let Some(patches) = array.patches() {
             if let Some(patch) = patches.get_patched(index)? {
@@ -21,7 +22,7 @@ mod test {
     use vortex_array::compute::scalar_at;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::{buffer, Alignment, Buffer, ByteBuffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
@@ -40,7 +41,7 @@ mod test {
                     8,
                     0,
                     buffer![1u32].into_array(),
-                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
+                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
                 )),
                 1,
                 8,
@@ -63,13 +64,13 @@ mod test {
 
         let patches = packed.patches().unwrap().indices().clone();
         assert_eq!(
-            usize::try_from(&scalar_at(patches, 0).unwrap()).unwrap(),
+            usize::try_from(&scalar_at(&patches, 0).unwrap()).unwrap(),
             256
         );
 
         values.iter().enumerate().for_each(|(i, v)| {
             assert_eq!(
-                u32::try_from(scalar_at(packed.as_ref(), i).unwrap().as_ref()).unwrap(),
+                u32::try_from(scalar_at(&packed, i).unwrap().as_ref()).unwrap(),
                 *v
             );
         });

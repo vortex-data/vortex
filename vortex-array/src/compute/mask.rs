@@ -1,5 +1,5 @@
 use arrow_array::BooleanArray;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -7,20 +7,27 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub trait MaskFn<A> {
     /// Replace masked values with null in array.
-    fn mask(&self, array: &A, mask: Mask) -> VortexResult<Array>;
+    fn mask(&self, array: A, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> MaskFn<Array> for E
+impl<E: Encoding> MaskFn<&dyn Array> for E
 where
-    E: MaskFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> MaskFn<&'a E::Array>,
 {
-    fn mask(&self, array: &Array, mask: Mask) -> VortexResult<Array> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+    fn mask(&self, array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = array.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         MaskFn::mask(encoding, array_ref, mask)
     }
 }
@@ -39,10 +46,9 @@ where
 /// use vortex_scalar::Scalar;
 ///
 /// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
-///         .into_array();
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask_array = Mask::try_from(
-///     BoolArray::from_iter([true, false, false, false, true]).into_array(),
+///     &BoolArray::from_iter([true, false, false, false, true]),
 /// )
 /// .unwrap();
 ///
@@ -55,7 +61,7 @@ where
 /// assert!(!masked.is_valid(4).unwrap());
 /// ```
 ///
-pub fn mask(array: &Array, mask: Mask) -> VortexResult<Array> {
+pub fn mask(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -99,7 +105,7 @@ pub fn mask(array: &Array, mask: Mask) -> VortexResult<Array> {
     Ok(masked)
 }
 
-fn mask_impl(array: &Array, mask: Mask) -> VortexResult<Array> {
+fn mask_impl(array: &dyn Array, mask: Mask) -> VortexResult<ArrayRef> {
     if let Some(mask_fn) = array.vtable().mask_fn() {
         return mask_fn.mask(array, mask);
     }
@@ -107,12 +113,12 @@ fn mask_impl(array: &Array, mask: Mask) -> VortexResult<Array> {
     // Fallback: implement using Arrow kernels.
     log::debug!("No mask implementation found for {}", array.encoding());
 
-    let array_ref = array.clone().into_arrow_preferred()?;
+    let array_ref = array.to_array().into_arrow_preferred()?;
     let mask = BooleanArray::new(mask.to_boolean_buffer(), None);
 
     let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
-    Ok(Array::from_arrow(masked, true))
+    Ok(ArrayRef::from_arrow(masked, true))
 }
 
 #[cfg(feature = "test-harness")]
@@ -121,20 +127,19 @@ pub mod test_harness {
 
     use crate::arrays::BoolArray;
     use crate::compute::{mask, scalar_at};
-    use crate::{Array, IntoArray};
+    use crate::{Array, ArrayRef, IntoArray};
 
-    pub fn test_mask(array: Array) {
+    pub fn test_mask(array: &dyn Array) {
         assert_eq!(array.len(), 5);
-        test_heterogenous_mask(&array);
-        test_empty_mask(&array);
-        test_full_mask(&array);
+        test_heterogenous_mask(array);
+        test_empty_mask(array);
+        test_full_mask(array);
     }
 
     #[allow(clippy::unwrap_used)]
-    fn test_heterogenous_mask(array: &Array) {
+    fn test_heterogenous_mask(array: &dyn Array) {
         let mask_array =
-            Mask::try_from(BoolArray::from_iter([true, false, false, true, true]).into_array())
-                .unwrap();
+            Mask::try_from(&BoolArray::from_iter([true, false, false, true, true])).unwrap();
         let masked = mask(array, mask_array).unwrap();
         assert_eq!(masked.len(), array.len());
         assert!(!masked.is_valid(0).unwrap());
@@ -151,10 +156,9 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    fn test_empty_mask(array: &Array) {
+    fn test_empty_mask(array: &dyn Array) {
         let all_unmasked =
-            Mask::try_from(BoolArray::from_iter([false, false, false, false, false]).into_array())
-                .unwrap();
+            Mask::try_from(&BoolArray::from_iter([false, false, false, false, false])).unwrap();
         let masked = mask(array, all_unmasked).unwrap();
         assert_eq!(masked.len(), array.len());
         assert_eq!(
@@ -180,10 +184,9 @@ pub mod test_harness {
     }
 
     #[allow(clippy::unwrap_used)]
-    fn test_full_mask(array: &Array) {
+    fn test_full_mask(array: &dyn Array) {
         let all_masked =
-            Mask::try_from(BoolArray::from_iter([true, true, true, true, true]).into_array())
-                .unwrap();
+            Mask::try_from(&BoolArray::from_iter([true, true, true, true, true])).unwrap();
         let masked = mask(array, all_masked).unwrap();
         assert_eq!(masked.len(), array.len());
         assert!(!masked.is_valid(0).unwrap());
@@ -193,11 +196,9 @@ pub mod test_harness {
         assert!(!masked.is_valid(4).unwrap());
 
         let mask1 =
-            Mask::try_from(BoolArray::from_iter([true, false, false, true, true]).into_array())
-                .unwrap();
+            Mask::try_from(&BoolArray::from_iter([true, false, false, true, true])).unwrap();
         let mask2 =
-            Mask::try_from(BoolArray::from_iter([false, true, false, false, true]).into_array())
-                .unwrap();
+            Mask::try_from(&BoolArray::from_iter([false, true, false, false, true])).unwrap();
         let first = mask(array, mask1).unwrap();
         let double_masked = mask(&first, mask2).unwrap();
         assert_eq!(double_masked.len(), array.len());
@@ -220,7 +221,7 @@ mod test {
 
     #[test]
     fn test_mask_non_nullable_array() {
-        let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
-        test_mask(non_nullable_array);
+        let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
+        test_mask(&non_nullable_array);
     }
 }

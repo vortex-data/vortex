@@ -5,12 +5,12 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexResult;
 
-pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Array> {
+pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array
             .validity_mask()?
@@ -25,19 +25,21 @@ pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Ar
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
+            let bool_array = array.to_bool()?;
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
-            BoolArray::try_new(indices.iter().map(|i| vec_values[*i]).collect(), validity)
-                .map(|a| a.into_array())
+            Ok(
+                BoolArray::new(indices.iter().map(|i| vec_values[*i]).collect(), validity)
+                    .into_array(),
+            )
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |$P| {
                 Ok(take_primitive::<$P>(primitive_array, validity, indices))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(
@@ -47,10 +49,11 @@ pub fn take_canonical_array(array: &Array, indices: &[usize]) -> VortexResult<Ar
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct()?;
+            let struct_array = array.to_struct()?;
             let taken_children = struct_array
                 .fields()
-                .map(|c| take_canonical_array(&c, indices))
+                .iter()
+                .map(|c| take_canonical_array(c, indices))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(
@@ -76,7 +79,7 @@ fn take_primitive<T: NativePType + ArrowNativeType>(
     primitive_array: PrimitiveArray,
     validity: Validity,
     indices: &[usize],
-) -> Array {
+) -> ArrayRef {
     let vec_values = primitive_array.as_slice::<T>().to_vec();
     PrimitiveArray::new(
         indices

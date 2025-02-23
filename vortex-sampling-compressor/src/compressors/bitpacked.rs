@@ -2,7 +2,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, Encoding, EncodingId, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayExt, Encoding, EncodingId, ToCanonical};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
@@ -52,9 +52,9 @@ impl EncodingCompressor for BitPackedCompressor {
         }
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &dyn Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array)?;
+        let parray = array.maybe_as::<PrimitiveArray>()?;
 
         // Only integer arrays can be bit-packed
         if !parray.ptype().is_int() {
@@ -72,7 +72,7 @@ impl EncodingCompressor for BitPackedCompressor {
             }
         }
 
-        let bit_width = self.find_bit_width(&parray).ok()?;
+        let bit_width = self.find_bit_width(parray).ok()?;
 
         // Check that the bit width is less than the type's bit width
         if bit_width == parray.ptype().bit_width() as u8 {
@@ -84,11 +84,11 @@ impl EncodingCompressor for BitPackedCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &dyn Array,
         _like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = array.clone().into_primitive()?;
+        let parray = array.to_primitive()?;
         // Only arrays with non-negative values can be bit-packed
         if !parray.ptype().is_unsigned_int() {
             let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
@@ -117,10 +117,10 @@ impl EncodingCompressor for BitPackedCompressor {
 
         if bit_width == parray.ptype().bit_width() as u8 {
             // Nothing we can do
-            return Ok(CompressedArray::uncompressed(array.clone()));
+            return Ok(CompressedArray::uncompressed(array.to_array()));
         }
 
-        let validity = ctx.compress_validity(parray.validity())?;
+        let validity = ctx.compress_validity(parray.validity().clone())?;
         // SAFETY: we check that the array only contains non-negative values.
         let packed_buffer = unsafe { bitpack_unchecked(&parray, bit_width)? };
         let patches = (num_exceptions > 0)
@@ -182,7 +182,7 @@ mod tests {
 
         // non-PrimitiveArray
         assert!(BITPACK_NO_PATCHES
-            .can_compress(&ConstantArray::new(3u32, 10).into_array())
+            .can_compress(&ConstantArray::new(3u32, 10))
             .is_none());
     }
 

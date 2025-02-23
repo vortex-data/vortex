@@ -1,27 +1,34 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub trait InvertFn<A> {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
-    fn invert(&self, array: &A) -> VortexResult<Array>;
+    fn invert(&self, array: A) -> VortexResult<ArrayRef>;
 }
 
-impl<E: Encoding> InvertFn<Array> for E
+impl<E: Encoding> InvertFn<&dyn Array> for E
 where
-    E: InvertFn<E::Array>,
-    for<'a> &'a E::Array: TryFrom<&'a Array, Error = VortexError>,
+    E: for<'a> InvertFn<&'a E::Array>,
 {
-    fn invert(&self, array: &Array) -> VortexResult<Array> {
-        let (array_ref, encoding) = array.try_downcast_ref::<E>()?;
+    fn invert(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
+        let array_ref = array
+            .as_any()
+            .downcast_ref::<E::Array>()
+            .vortex_expect("Failed to downcast array");
+        let vtable = array.vtable();
+        let encoding = vtable
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         InvertFn::invert(encoding, array_ref)
     }
 }
 
 /// Logically invert a boolean array.
-pub fn invert(array: &Array) -> VortexResult<Array> {
+pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::Bool(..)) {
         vortex_bail!("Expected boolean array, got {}", array.dtype());
     }
@@ -50,5 +57,5 @@ pub fn invert(array: &Array) -> VortexResult<Array> {
         "No invert implementation found for encoding {}",
         array.encoding(),
     );
-    invert(&array.clone().into_bool()?.into_array())
+    invert(&array.to_bool()?.into_array())
 }

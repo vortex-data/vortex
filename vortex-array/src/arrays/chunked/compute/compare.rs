@@ -3,15 +3,15 @@ use vortex_error::VortexResult;
 use crate::arrays::{ChunkedArray, ChunkedEncoding};
 use crate::builders::{ArrayBuilder, BoolBuilder};
 use crate::compute::{compare, slice, CompareFn, Operator};
-use crate::Array;
+use crate::{Array, ArrayRef};
 
-impl CompareFn<ChunkedArray> for ChunkedEncoding {
+impl CompareFn<&ChunkedArray> for ChunkedEncoding {
     fn compare(
         &self,
         lhs: &ChunkedArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let mut idx = 0;
 
         let mut bool_builder = BoolBuilder::with_capacity(
@@ -22,9 +22,9 @@ impl CompareFn<ChunkedArray> for ChunkedEncoding {
 
         for chunk in lhs.non_empty_chunks() {
             let sliced = slice(rhs, idx, idx + chunk.len())?;
-            let cmp_result = compare(&chunk, &sliced, operator)?;
+            let cmp_result = compare(chunk, &sliced, operator)?;
 
-            bool_builder.extend_from_array(cmp_result)?;
+            bool_builder.extend_from_array(&cmp_result)?;
             idx += chunk.len();
         }
 

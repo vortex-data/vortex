@@ -3,8 +3,9 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::ScalarAtFn;
+use crate::Array;
 
-impl ScalarAtFn<BoolArray> for BoolEncoding {
+impl ScalarAtFn<&BoolArray> for BoolEncoding {
     fn scalar_at(&self, array: &BoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.boolean_buffer().value(index),

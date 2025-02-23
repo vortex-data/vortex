@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::validity::Validity;
-use crate::IntoArrayVariant;
+use crate::{Array, ToCanonical};
 
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
@@ -20,11 +20,11 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
             }
             Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
             Validity::Array(v) => {
-                let validity = v.into_bool()?.boolean_buffer();
+                let validity = v.to_bool()?;
                 let mut iter = self
                     .as_slice::<T>()
                     .iter()
-                    .zip(validity.iter())
+                    .zip(validity.boolean_buffer().iter())
                     .map(|(value, valid)| valid.then_some(value));
                 Ok(f(&mut iter))
             }

@@ -8,7 +8,7 @@ use vortex_array::compute::StrictComparison::NonStrict;
 use vortex_array::compute::{
     between, binary_boolean, compare, BetweenOptions, BinaryOperator, Operator,
 };
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_to_best_bit_width;
@@ -29,30 +29,30 @@ fn generate_primitive_array<T: NativePType + NumCast + PartialOrd>(
 fn generate_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
     rng: &mut StdRng,
     len: usize,
-) -> Array {
+) -> ArrayRef {
     let a = (0..len)
         .map(|_| T::from_usize(rng.gen_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    bitpack_to_best_bit_width(a).vortex_expect("").into_array()
+    bitpack_to_best_bit_width(&a).vortex_expect("").into_array()
 }
 
 fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast + PartialOrd>(
     rng: &mut StdRng,
     len: usize,
-) -> Array {
+) -> ArrayRef {
     let a = (0..len)
         .map(|_| T::from_usize(rng.gen_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
     let alp = alp_encode(&a).vortex_expect("");
 
-    let encoded = alp.encoded().into_primitive().vortex_expect("");
+    let encoded = alp.encoded().to_primitive().vortex_expect("");
 
-    let bp = bitpack_to_best_bit_width(encoded)
+    let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::try_new(bp, alp.exponents(), alp.patches())
+    ALPArray::try_new(bp, alp.exponents(), alp.patches().cloned())
         .vortex_expect("")
         .into_array()
 }
@@ -75,8 +75,8 @@ where
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         binary_boolean(
-            &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-            &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+            &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
+            &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
             BinaryOperator::And,
         )
         .vortex_expect("")
@@ -100,8 +100,8 @@ where
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         between(
             &arr,
-            ConstantArray::new(min, arr.len()),
-            ConstantArray::new(max, arr.len()),
+            &ConstantArray::new(min, arr.len()),
+            &ConstantArray::new(max, arr.len()),
             &BetweenOptions {
                 lower_strict: NonStrict,
                 upper_strict: NonStrict,
@@ -127,8 +127,8 @@ where
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         binary_boolean(
-            &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-            &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+            &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
+            &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
             BinaryOperator::And,
         )
     })
@@ -151,8 +151,8 @@ where
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         between(
             &arr,
-            ConstantArray::new(min, arr.len()),
-            ConstantArray::new(max, arr.len()),
+            &ConstantArray::new(min, arr.len()),
+            &ConstantArray::new(max, arr.len()),
             &BetweenOptions {
                 lower_strict: NonStrict,
                 upper_strict: NonStrict,
@@ -177,8 +177,8 @@ where
 
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         binary_boolean(
-            &compare(&arr, ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
-            &compare(&arr, ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+            &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte).vortex_expect(""),
+            &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
             BinaryOperator::And,
         )
     })
@@ -201,8 +201,8 @@ where
     bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
         between(
             &arr,
-            ConstantArray::new(min, arr.len()),
-            ConstantArray::new(max, arr.len()),
+            &ConstantArray::new(min, arr.len()),
+            &ConstantArray::new(max, arr.len()),
             &BetweenOptions {
                 lower_strict: NonStrict,
                 upper_strict: NonStrict,

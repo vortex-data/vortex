@@ -7,7 +7,7 @@ use vortex_alp::ALPEncoding;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::filter;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Encoding, IntoArray, IntoCanonical};
+use vortex_array::{Array, Encoding, IntoArray};
 use vortex_dtype::PType;
 use vortex_mask::Mask;
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
@@ -60,10 +60,10 @@ fn filter_then_canonical(bencher: Bencher, (max, selectivity): (usize, f64)) {
     assert_eq!(mask.true_count(), true_count);
 
     bencher
-        .with_inputs(|| (&arr, &mask))
+        .with_inputs(|| (arr.clone(), mask.clone()))
         .bench_refs(|(arr, mask)| {
             let filtered = filter(arr, mask).unwrap();
-            filtered.into_canonical().unwrap().into_array()
+            filtered.to_canonical().unwrap().into_array()
         });
 }
 
@@ -89,7 +89,7 @@ fn canonical_then_filter(bencher: Bencher, (max, selectivity): (usize, f64)) {
     bencher
         .with_inputs(|| (arr.clone(), &mask))
         .bench_values(|(arr, mask)| {
-            let canonical = arr.into_canonical().unwrap().into_array();
+            let canonical = arr.to_canonical().unwrap().into_array();
             filter(&canonical, mask)
         });
 }

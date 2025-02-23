@@ -10,10 +10,10 @@ use crate::arrays::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-impl FilterFn<VarBinArray> for VarBinEncoding {
-    fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<Array> {
+impl FilterFn<&VarBinArray> for VarBinEncoding {
+    fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }
@@ -36,14 +36,14 @@ fn filter_select_var_bin_by_slice(
     mask_slices: &[(usize, usize)],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().into_primitive()?;
+    let offsets = values.offsets().to_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity(),
+            values.validity().clone(),
             selection_count
         )
     })
@@ -135,14 +135,14 @@ fn filter_select_var_bin_by_index(
     mask_indices: &[usize],
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
-    let offsets = values.offsets().into_primitive()?;
+    let offsets = values.offsets().to_primitive()?;
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<$O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity(),
+            values.validity().clone(),
             selection_count
         )
     })
@@ -183,6 +183,7 @@ mod test {
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
 
+    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
@@ -207,9 +208,7 @@ mod test {
             ],
             DType::Utf8(NonNullable),
         );
-        let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2)
-            .unwrap()
-            .into_array();
+        let buf = filter_select_var_bin_by_index(&arr, &[0, 2], 2).unwrap();
 
         assert_eq!(buf.len(), 2);
         assert_eq!(scalar_at(&buf, 0).unwrap(), "hello".into());
@@ -229,9 +228,7 @@ mod test {
             DType::Utf8(NonNullable),
         );
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3)
-            .unwrap()
-            .into_array();
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3), (4, 5)], 3).unwrap();
 
         assert_eq!(buf.len(), 3);
         assert_eq!(scalar_at(&buf, 0).unwrap(), "hello".into());
@@ -259,9 +256,7 @@ mod test {
         );
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 3), (4, 6)], 5)
-            .unwrap()
-            .into_array();
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 3), (4, 6)], 5).unwrap();
 
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 5);
@@ -284,9 +279,7 @@ mod test {
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2)
-            .unwrap()
-            .into_array();
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2).unwrap();
 
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 2);
@@ -307,9 +300,7 @@ mod test {
         )
         .unwrap();
 
-        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2)
-            .unwrap()
-            .into_array();
+        let buf = filter_select_var_bin_by_slice(&arr, &[(0, 1), (2, 3)], 2).unwrap();
 
         let null = Scalar::null(DType::Utf8(Nullable));
         assert_eq!(buf.len(), 2);

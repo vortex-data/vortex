@@ -4,24 +4,20 @@ use vortex_array::arrays::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexResult;
 
 use crate::take::take_canonical_array;
 
-pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> VortexResult<Array> {
+pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array
-            .validity_mask()?
-            .into_array()
-            .into_bool()?
-            .boolean_buffer();
+        let validity_buff = array.validity_mask()?.into_array().to_bool()?;
         Validity::from_iter(
             filter
                 .iter()
-                .zip(validity_buff.iter())
+                .zip(validity_buff.boolean_buffer())
                 .filter(|(f, _)| **f)
                 .map(|(_, v)| v),
         )
@@ -31,8 +27,8 @@ pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> VortexResult<Ar
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.clone().into_bool()?;
-            BoolArray::try_new(
+            let bool_array = array.to_bool()?;
+            Ok(BoolArray::new(
                 BooleanBuffer::from_iter(
                     filter
                         .iter()
@@ -42,10 +38,10 @@ pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> VortexResult<Ar
                 ),
                 validity,
             )
-            .map(|a| a.into_array())
+            .into_array())
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
-            let primitive_array = array.clone().into_primitive()?;
+            let primitive_array = array.to_primitive()?;
             Ok(PrimitiveArray::new(
                 filter
                     .iter()
@@ -58,7 +54,7 @@ pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> VortexResult<Ar
             .into_array())
         }),
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbinview()?;
+            let utf8 = array.to_varbinview()?;
             let values = utf8.with_iterator(|iter| {
                 iter.zip(filter.iter())
                     .filter(|(_, f)| **f)
@@ -68,10 +64,11 @@ pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> VortexResult<Ar
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.clone().into_struct()?;
+            let struct_array = array.to_struct()?;
             let filtered_children = struct_array
                 .fields()
-                .map(|c| filter_canonical_array(&c, filter))
+                .iter()
+                .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(

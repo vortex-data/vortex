@@ -9,47 +9,40 @@ use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::vtable::VariantsVTable;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, ArrayVariantsImpl, IntoArray};
 
 /// Chunked arrays support all DTypes
-impl VariantsVTable<ChunkedArray> for ChunkedEncoding {
-    fn as_null_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn NullArrayTrait> {
-        Some(array)
+impl ArrayVariantsImpl for ChunkedArray {
+    fn _as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
+        Some(self)
     }
 
-    fn as_bool_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn BoolArrayTrait> {
-        Some(array)
+    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
+        Some(self)
     }
 
-    fn as_primitive_array<'a>(
-        &self,
-        array: &'a ChunkedArray,
-    ) -> Option<&'a dyn PrimitiveArrayTrait> {
-        Some(array)
+    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        Some(self)
     }
 
-    fn as_utf8_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn Utf8ArrayTrait> {
-        Some(array)
+    fn _as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
+        Some(self)
     }
 
-    fn as_binary_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn BinaryArrayTrait> {
-        Some(array)
+    fn _as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
+        Some(self)
     }
 
-    fn as_struct_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn StructArrayTrait> {
-        Some(array)
+    fn _as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
+        Some(self)
     }
 
-    fn as_list_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn ListArrayTrait> {
-        Some(array)
+    fn _as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
+        Some(self)
     }
 
-    fn as_extension_array<'a>(
-        &self,
-        array: &'a ChunkedArray,
-    ) -> Option<&'a dyn ExtensionArrayTrait> {
-        Some(array)
+    fn _as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
+        Some(self)
     }
 }
 
@@ -64,12 +57,12 @@ impl Utf8ArrayTrait for ChunkedArray {}
 impl BinaryArrayTrait for ChunkedArray {}
 
 impl StructArrayTrait for ChunkedArray {
-    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<Array> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(
                 chunk
-                    .as_struct_array()
+                    .as_struct_typed()
                     .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
                     .maybe_null_field_by_idx(idx)?,
             );
@@ -92,12 +85,12 @@ impl StructArrayTrait for ChunkedArray {
         Ok(chunked)
     }
 
-    fn project(&self, projection: &[FieldName]) -> VortexResult<Array> {
+    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(
                 chunk
-                    .as_struct_array()
+                    .as_struct_typed()
                     .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
                     .project(projection)?,
             );
@@ -108,7 +101,7 @@ impl StructArrayTrait for ChunkedArray {
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?
             .project(projection)?;
-        Ok(ChunkedArray::try_new_unchecked(
+        Ok(ChunkedArray::new_unchecked(
             chunks,
             DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
         )
@@ -119,13 +112,19 @@ impl StructArrayTrait for ChunkedArray {
 impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
-    fn storage_data(&self) -> Array {
-        ChunkedArray::from_iter(self.chunks().map(|chunk| {
-            chunk
-                .as_extension_array()
-                .vortex_expect("Expected extension array")
-                .storage_data()
-        }))
+    fn storage_data(&self) -> ArrayRef {
+        ChunkedArray::new_unchecked(
+            self.chunks()
+                .iter()
+                .map(|chunk| {
+                    chunk
+                        .as_extension_typed()
+                        .vortex_expect("Expected extension array")
+                        .storage_data()
+                })
+                .collect(),
+            self.ext_dtype().storage_dtype().clone(),
+        )
         .into_array()
     }
 }

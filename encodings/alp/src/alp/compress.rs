@@ -3,7 +3,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
@@ -35,7 +35,7 @@ pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
 
 pub fn alp_encode_components(
     parray: &PrimitiveArray,
-) -> VortexResult<(Exponents, Array, Option<Patches>)> {
+) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)> {
     match parray.ptype() {
         PType::F32 => alp_encode_components_typed::<f32>(parray),
         PType::F64 => alp_encode_components_typed::<f64>(parray),
@@ -46,7 +46,7 @@ pub fn alp_encode_components(
 #[allow(clippy::cast_possible_truncation)]
 fn alp_encode_components_typed<T>(
     values: &PrimitiveArray,
-) -> VortexResult<(Exponents, Array, Option<Patches>)>
+) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
@@ -57,7 +57,7 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values) =
         T::encode(values_slice, None);
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
+    let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
@@ -99,9 +99,9 @@ where
     Ok((exponents, encoded_array, patches))
 }
 
-pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
-    let encoded = array.encoded().into_primitive()?;
-    let validity = encoded.validity();
+pub fn decompress(array: &ALPArray) -> VortexResult<PrimitiveArray> {
+    let encoded = array.encoded().to_primitive()?;
+    let validity = encoded.validity().clone();
     let ptype = array.dtype().try_into()?;
 
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
@@ -135,16 +135,12 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![1234; 1025]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(&encoded).unwrap();
         assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
     }
 
@@ -154,16 +150,12 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
             vec![0, 1234, 0]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(&encoded).unwrap();
         let expected = vec![0f32, 1.234f32, 0f32];
         assert_eq!(decoded.as_slice::<f32>(), expected.as_slice());
     }
@@ -176,16 +168,12 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_some());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(&encoded).unwrap();
         assert_eq!(values.as_slice(), decoded.as_slice::<f64>());
     }
 
@@ -197,16 +185,12 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded
-                .encoded()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            encoded.encoded().to_primitive().unwrap().as_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress(encoded).unwrap();
+        let decoded = decompress(&encoded).unwrap();
         assert_eq!(
             scalar_at(&decoded, 0).unwrap(),
             scalar_at(&array, 0).unwrap()
@@ -238,22 +222,22 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         for idx in 0..3 {
-            let s = scalar_at(encoded.as_ref(), idx).unwrap();
+            let s = scalar_at(&encoded, idx).unwrap();
             assert!(s.is_valid());
         }
 
         assert!(!encoded.is_valid(4).unwrap());
-        let s = scalar_at(encoded.as_ref(), 4).unwrap();
+        let s = scalar_at(&encoded, 4).unwrap();
         assert!(s.is_null());
 
-        let _decoded = decompress(encoded).unwrap();
+        let _decoded = decompress(&encoded).unwrap();
     }
 
     #[test]
     fn roundtrips_close_fractional() {
         let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
         let alp_arr = alp_encode(&original).unwrap();
-        let decompressed = alp_arr.into_primitive().unwrap();
+        let decompressed = alp_arr.to_primitive().unwrap();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());
     }
 
@@ -264,7 +248,7 @@ mod tests {
             Validity::AllInvalid,
         );
         let alp_arr = alp_encode(&original).unwrap();
-        let decompressed = alp_arr.into_primitive().unwrap();
+        let decompressed = alp_arr.to_primitive().unwrap();
         assert_eq!(
             // The second and third values become exceptions and are replaced
             [195.26274, 195.26274, 195.26274],

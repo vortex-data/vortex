@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::UInt64Type;
-use arrow_array::{ArrayRef, RecordBatch, RecordBatchOptions, UInt64Array};
+use arrow_array::{ArrayRef as ArrowArrayRef, RecordBatch, RecordBatchOptions, UInt64Array};
 use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -21,7 +21,7 @@ use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
-use vortex_array::{Array, IntoArrayVariant};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexError};
 use vortex_expr::{ExprRef, VortexExprExt};
@@ -46,7 +46,7 @@ static ROW_SELECTOR_SCHEMA_REF: LazyLock<SchemaRef> = LazyLock::new(|| {
 });
 
 impl RowSelectorExec {
-    pub(crate) fn try_new(filter_expr: ExprRef, chunked_array: &ChunkedArray) -> DFResult<Self> {
+    pub(crate) fn try_new(filter_expr: ExprRef, chunked_array: ChunkedArray) -> DFResult<Self> {
         let cached_plan_props = PlanProperties::new(
             EquivalenceProperties::new(ROW_SELECTOR_SCHEMA_REF.clone()),
             Partitioning::UnknownPartitioning(1),
@@ -56,8 +56,8 @@ impl RowSelectorExec {
 
         Ok(Self {
             filter_expr,
-            chunked_array: chunked_array.clone(),
             cached_plan_props,
+            chunked_array,
         })
     }
 }
@@ -153,7 +153,7 @@ impl Stream for RowIndicesStream {
         // Since this is a one-shot, we only want to poll the inner future once, to create the
         // initial batch for us to process.
         let vortex_struct = next_chunk
-            .as_struct_array()
+            .as_struct_typed()
             .ok_or_else(|| vortex_err!("Not a struct array"))?
             .project(&this.filter_projection)?;
 
@@ -170,7 +170,7 @@ impl Stream for RowIndicesStream {
             .set_indices()
             .map(|idx| idx as u64);
 
-        let indices = Arc::new(UInt64Array::from_iter_values(selection_indices)) as ArrayRef;
+        let indices = Arc::new(UInt64Array::from_iter_values(selection_indices)) as ArrowArrayRef;
         let indices_batch = RecordBatch::try_new(ROW_SELECTOR_SCHEMA_REF.clone(), vec![indices])?;
 
         Poll::Ready(Some(Ok(indices_batch)))
@@ -205,7 +205,7 @@ impl TakeRowsExec {
         schema_ref: SchemaRef,
         projection: &[usize],
         row_indices: Arc<dyn ExecutionPlan>,
-        table: &ChunkedArray,
+        table: ChunkedArray,
     ) -> Self {
         let output_schema = Arc::new(schema_ref.project(projection).unwrap_or_else(|err| {
             vortex_panic!("Failed to project schema: {}", VortexError::from(err))
@@ -238,7 +238,7 @@ impl TakeRowsExec {
             projection: names.into(),
             input: row_indices,
             output_schema,
-            table: table.clone(),
+            table,
         }
     }
 }
@@ -344,7 +344,7 @@ where
         );
 
         let row_indices =
-            Array::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
+            ArrayRef::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
 
         // If no columns in the output projection, we send back a RecordBatch with empty schema.
         // This is common for COUNT queries.
@@ -358,7 +358,7 @@ where
             .map_err(DataFusionError::from)?)));
         }
 
-        let chunk = this.vortex_array.chunk(*this.chunk_idx)?.into_struct()?;
+        let chunk = this.vortex_array.chunk(*this.chunk_idx)?.to_struct()?;
 
         *this.chunk_idx += 1;
 
@@ -366,7 +366,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded = take(projected_for_output, &row_indices)?.into_arrow_preferred()?;
+        let decoded = take(&projected_for_output, &row_indices)?.into_arrow_preferred()?;
 
         // Send back a single record batch of the decoded data.
         let output_batch = RecordBatch::from(decoded.as_struct());
@@ -397,7 +397,7 @@ mod test {
     use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;

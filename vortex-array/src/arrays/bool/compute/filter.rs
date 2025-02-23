@@ -4,13 +4,13 @@ use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::FilterFn;
-use crate::{Array, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterFn<BoolArray> for BoolEncoding {
-    fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<Array> {
+impl FilterFn<&BoolArray> for BoolEncoding {
+    fn filter(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask
@@ -19,18 +19,18 @@ impl FilterFn<BoolArray> for BoolEncoding {
 
         let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
             MaskIter::Indices(indices) => filter_indices(
-                &array.boolean_buffer(),
+                array.boolean_buffer(),
                 mask.true_count(),
                 indices.iter().copied(),
             ),
             MaskIter::Slices(slices) => filter_slices(
-                &array.boolean_buffer(),
+                array.boolean_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
             ),
         };
 
-        Ok(BoolArray::try_new(buffer, validity)?.into_array())
+        Ok(BoolArray::new(buffer, validity).into_array())
     }
 }
 
@@ -73,20 +73,19 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
+    use crate::array::Array;
     use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
     use crate::arrays::BoolArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::filter;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::IntoArray;
 
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
-        let filtered = filter(&arr.into_array(), &mask)
-            .unwrap()
-            .into_bool()
-            .unwrap();
+        let filtered = filter(&arr, &mask).unwrap().to_bool().unwrap();
         assert_eq!(2, filtered.len());
 
         assert_eq!(
@@ -99,7 +98,7 @@ mod test {
     fn filter_bool_by_slice_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_slices(&arr.boolean_buffer(), 2, [(0, 1), (2, 3)].into_iter());
+        let filtered = filter_slices(arr.boolean_buffer(), 2, [(0, 1), (2, 3)].into_iter());
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
@@ -109,7 +108,7 @@ mod test {
     fn filter_bool_by_index_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_indices(&arr.boolean_buffer(), 2, [0, 2].into_iter());
+        let filtered = filter_indices(arr.boolean_buffer(), 2, [0, 2].into_iter());
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())

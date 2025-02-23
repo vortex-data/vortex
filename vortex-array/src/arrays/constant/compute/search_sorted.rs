@@ -5,8 +5,9 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::{SearchResult, SearchSortedFn, SearchSortedSide};
+use crate::Array;
 
-impl SearchSortedFn<ConstantArray> for ConstantEncoding {
+impl SearchSortedFn<&ConstantArray> for ConstantEncoding {
     fn search_sorted(
         &self,
         array: &ConstantArray,
@@ -32,6 +33,7 @@ impl SearchSortedFn<ConstantArray> for ConstantEncoding {
 
 #[cfg(test)]
 mod test {
+    use crate::array::Array;
     use crate::arrays::constant::ConstantArray;
     use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
     use crate::IntoArray;

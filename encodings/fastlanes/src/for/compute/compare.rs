@@ -3,20 +3,20 @@ use std::ops::Shr;
 use num_traits::WrappingSub;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
 
-impl CompareFn<FoRArray> for FoREncoding {
+impl CompareFn<&FoRArray> for FoREncoding {
     fn compare(
         &self,
         lhs: &FoRArray,
-        rhs: &Array,
+        rhs: &dyn Array,
         operator: Operator,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
                 match_each_integer_ptype!(constant.ptype(), |$T| {
@@ -33,7 +33,7 @@ fn compare_constant<T>(
     lhs: &FoRArray,
     mut rhs: T,
     operator: Operator,
-) -> VortexResult<Option<Array>>
+) -> VortexResult<Option<ArrayRef>>
 where
     T: NativePType + WrappingSub + Shr<usize, Output = T>,
     T: TryFrom<PValue, Error = VortexError>,
@@ -57,12 +57,7 @@ where
     // unsigned integer type).
     let rhs = Scalar::from(rhs).reinterpret_cast(T::PTYPE.to_unsigned());
 
-    compare(
-        lhs.encoded(),
-        ConstantArray::new(rhs, lhs.len()).into_array(),
-        operator,
-    )
-    .map(Some)
+    compare(lhs.encoded(), &ConstantArray::new(rhs, lhs.len()), operator).map(Some)
 }
 
 #[cfg(test)]
@@ -70,7 +65,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
 
     use super::*;
@@ -139,10 +134,10 @@ mod tests {
     }
 
     fn assert_result<T: IntoIterator<Item = bool>>(
-        result: VortexResult<Option<Array>>,
+        result: VortexResult<Option<ArrayRef>>,
         expected: T,
     ) {
-        let result = result.unwrap().unwrap().into_bool().unwrap();
-        assert_eq!(result.boolean_buffer(), BooleanBuffer::from_iter(expected));
+        let result = result.unwrap().unwrap().to_bool().unwrap();
+        assert_eq!(result.boolean_buffer(), &BooleanBuffer::from_iter(expected));
     }
 }

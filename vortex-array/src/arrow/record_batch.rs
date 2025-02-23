@@ -6,37 +6,33 @@ use vortex_error::{vortex_err, VortexError, VortexResult};
 use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, TryIntoArray};
 
-impl TryFrom<RecordBatch> for Array {
-    type Error = VortexError;
-
-    fn try_from(value: RecordBatch) -> VortexResult<Self> {
+impl TryIntoArray for RecordBatch {
+    fn try_into_array(self) -> VortexResult<ArrayRef> {
         Ok(StructArray::try_new(
-            value
-                .schema()
+            self.schema()
                 .fields()
                 .iter()
                 .map(|f| f.name().as_str().into())
                 .collect(),
-            value
-                .columns()
+            self.columns()
                 .iter()
-                .zip(value.schema().fields())
-                .map(|(array, field)| Array::from_arrow(array.clone(), field.is_nullable()))
+                .zip(self.schema().fields())
+                .map(|(array, field)| ArrayRef::from_arrow(array.clone(), field.is_nullable()))
                 .collect(),
-            value.num_rows(),
+            self.num_rows(),
             Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType
         )?
         .into_array())
     }
 }
 
-impl TryFrom<Array> for RecordBatch {
+impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
 
-    fn try_from(value: Array) -> VortexResult<Self> {
-        let struct_arr = value.into_struct().map_err(|err| {
+    fn try_from(value: &dyn Array) -> VortexResult<Self> {
+        let struct_arr = value.to_struct().map_err(|err| {
             vortex_err!("RecordBatch can only be constructed from a Vortex StructArray: {err}")
         })?;
 
