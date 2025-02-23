@@ -52,11 +52,7 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = arr.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        BetweenFn::between(encoding, array_ref, lower, upper, options)
+        BetweenFn::between(self, array_ref, lower, upper, options)
     }
 }
 

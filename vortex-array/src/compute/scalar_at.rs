@@ -21,11 +21,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        ScalarAtFn::scalar_at(encoding, array_ref, index)
+
+        ScalarAtFn::scalar_at(self, array_ref, index)
     }
 }
 

@@ -70,9 +70,6 @@ pub trait EncodingVTable:
 {
     /// Return the ID for this encoding implementation.
     fn id(&self) -> EncodingId;
-
-    /// Return a reference to this encoding as a `dyn Any` for type erasure.
-    fn as_any(&self) -> &dyn Any;
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {
@@ -104,9 +101,5 @@ impl<
 {
     fn id(&self) -> EncodingId {
         E::ID
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }

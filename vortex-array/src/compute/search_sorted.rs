@@ -168,11 +168,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        SearchSortedFn::search_sorted(encoding, array_ref, value, side)
+
+        SearchSortedFn::search_sorted(self, array_ref, value, side)
     }
 
     fn search_sorted_many(
@@ -186,11 +183,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        SearchSortedFn::search_sorted_many(encoding, array_ref, values, side)
+
+        SearchSortedFn::search_sorted_many(self, array_ref, values, side)
     }
 }
 
@@ -209,11 +203,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        SearchSortedUsizeFn::search_sorted_usize(encoding, array_ref, value, side)
+
+        SearchSortedUsizeFn::search_sorted_usize(self, array_ref, value, side)
     }
 
     fn search_sorted_usize_many(
@@ -227,11 +218,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        SearchSortedUsizeFn::search_sorted_usize_many(encoding, array_ref, values, side)
+
+        SearchSortedUsizeFn::search_sorted_usize_many(self, array_ref, values, side)
     }
 }
 

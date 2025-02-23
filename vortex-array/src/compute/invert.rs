@@ -19,11 +19,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        InvertFn::invert(encoding, array_ref)
+
+        InvertFn::invert(self, array_ref)
     }
 }
 

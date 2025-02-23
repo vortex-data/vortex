@@ -26,10 +26,7 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         let encoding = array.vtable();
         LikeFn::like(
-            encoding
-                .as_any()
-                .downcast_ref::<E>()
-                .ok_or_else(|| vortex_err!("Mismatched encoding"))?,
+            self,
             array
                 .as_any()
                 .downcast_ref()

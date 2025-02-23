@@ -50,11 +50,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        TakeFn::take(encoding, array_ref, indices)
+
+        TakeFn::take(self, array_ref, indices)
     }
 
     fn take_into(
@@ -68,11 +65,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        TakeFn::take_into(encoding, array_ref, indices, builder)
+
+        TakeFn::take_into(self, array_ref, indices, builder)
     }
 }
 

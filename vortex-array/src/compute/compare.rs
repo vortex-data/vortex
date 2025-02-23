@@ -98,11 +98,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = lhs.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        CompareFn::compare(encoding, array_ref, rhs, operator)
+
+        CompareFn::compare(self, array_ref, rhs, operator)
     }
 }
 

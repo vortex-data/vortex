@@ -32,11 +32,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        ToArrowFn::preferred_arrow_data_type(encoding, array_ref)
+
+        ToArrowFn::preferred_arrow_data_type(self, array_ref)
     }
 
     fn to_arrow(
@@ -49,11 +46,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        ToArrowFn::to_arrow(encoding, array_ref, data_type)
+
+        ToArrowFn::to_arrow(self, array_ref, data_type)
     }
 }
 

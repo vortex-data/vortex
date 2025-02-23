@@ -18,11 +18,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        CastFn::cast(encoding, array_ref, dtype)
+
+        CastFn::cast(self, array_ref, dtype)
     }
 }
 

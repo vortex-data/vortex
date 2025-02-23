@@ -22,11 +22,7 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding_ref = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        FillForwardFn::fill_forward(encoding_ref, array_ref)
+        FillForwardFn::fill_forward(self, array_ref)
     }
 }
 

@@ -45,11 +45,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = lhs.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
+
+        BinaryBooleanFn::binary_boolean(self, array_ref, rhs, op)
     }
 }
 

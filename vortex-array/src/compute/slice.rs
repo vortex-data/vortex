@@ -22,11 +22,8 @@ where
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
         let vtable = array.vtable();
-        let encoding = vtable
-            .as_any()
-            .downcast_ref::<E>()
-            .vortex_expect("Failed to downcast encoding");
-        SliceFn::slice(encoding, array_ref, start, stop)
+
+        SliceFn::slice(self, array_ref, start, stop)
     }
 }
 
