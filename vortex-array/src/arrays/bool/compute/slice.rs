@@ -16,9 +16,20 @@ impl SliceFn<&BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use super::*;
     use crate::compute::{scalar_at, slice};
     use crate::ToCanonical;
+
+    #[test]
+    fn test_slice_large() {
+        let arr = BoolArray::from_iter(iter::repeat(Some(true)).take(100));
+        let sliced_arr = slice(&arr, 8, 16).unwrap().to_bool().unwrap();
+        assert_eq!(sliced_arr.len(), 8);
+        assert_eq!(sliced_arr.boolean_buffer().len(), 8);
+        assert_eq!(sliced_arr.boolean_buffer().offset(), 0);
+    }
 
     #[test]
     fn test_slice() {

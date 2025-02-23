@@ -181,8 +181,8 @@ impl BooleanBufferExt for BooleanBuffer {
     fn shrink_offset(self) -> Self {
         let byte_offset = self.offset() / 8;
         let bit_offset = self.offset() % 8;
-        let new_len = self.len() - (byte_offset * 8);
+        let len = self.len();
         let buffer = self.into_inner().slice(byte_offset);
-        BooleanBuffer::new(buffer, bit_offset, new_len)
+        BooleanBuffer::new(buffer, bit_offset, len)
     }
 }
