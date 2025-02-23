@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
@@ -15,17 +15,15 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, Vortex
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::arrays::ConstantEncoding;
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::StatsSet;
 use crate::validity::Validity;
 use crate::vtable::VTableRef;
 use crate::{
-    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
-    TryFromArrayRef,
+    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId, TryFromArrayRef,
 };
 
 mod accessor;

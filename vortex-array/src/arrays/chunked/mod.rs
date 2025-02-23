@@ -2,8 +2,7 @@
 //!
 //! Vortex is a chunked array library that's able to
 
-use std::any::Any;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 use futures_util::stream;
@@ -13,20 +12,17 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
-use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::ConstantArray;
+use crate::array::ArrayValidityImpl;
 use crate::compute::{SearchSorted, SearchSortedSide};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::nbytes::NBytes;
 use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
-    encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, EmptyMetadata, Encoding, EncodingId, IntoArray,
+    encoding_ids, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, EmptyMetadata, Encoding,
+    EncodingId, IntoArray,
 };
 
 mod canonical;

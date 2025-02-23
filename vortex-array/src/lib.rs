@@ -1,9 +1,6 @@
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
 #![feature(substr_range)]
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](vtable::EncodingVTable).
@@ -17,7 +14,6 @@
 pub use array::*;
 pub use canonical::*;
 pub use context::*;
-pub use data::*;
 pub use encoding::*;
 pub use metadata::*;
 
@@ -31,7 +27,6 @@ mod canonical;
 pub mod compress;
 pub mod compute;
 mod context;
-mod data;
 mod encoding;
 pub mod iter;
 mod macros;

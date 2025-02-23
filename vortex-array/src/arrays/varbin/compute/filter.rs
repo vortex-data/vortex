@@ -10,7 +10,7 @@ use crate::arrays::VarBinEncoding;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 impl FilterFn<&VarBinArray> for VarBinEncoding {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -192,7 +192,6 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::compute::scalar_at;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
         Scalar::utf8(s.to_owned(), Nullable)

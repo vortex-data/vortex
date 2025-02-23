@@ -3,7 +3,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{VarBinArray, VarBinEncoding};
 use crate::compute::CastFn;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl CastFn<&VarBinArray> for VarBinEncoding {
     fn cast(&self, array: &VarBinArray, dtype: &DType) -> VortexResult<ArrayRef> {

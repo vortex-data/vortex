@@ -1,15 +1,14 @@
 //! Iterator over slices of an array, and related utilities.
 
-use std::any::Any;
 use std::sync::Arc;
 
-use itertools::{Chunk, Itertools};
+use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::ChunkedArray;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef};
 
 /// Iterator of array with a known [`DType`].
 ///

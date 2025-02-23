@@ -6,7 +6,7 @@ use vortex_error::{vortex_err, VortexError, VortexResult};
 use crate::arrays::StructArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, TryIntoArray};
+use crate::{Array, ArrayRef, ToCanonical, TryIntoArray};
 
 impl TryIntoArray for RecordBatch {
     fn try_into_array(self) -> VortexResult<ArrayRef> {

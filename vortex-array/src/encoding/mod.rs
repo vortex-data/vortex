@@ -3,7 +3,7 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use crate::vtable::{ComputeVTable, EncodingVTable, VTableRef};
+use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{Array, DeserializeMetadata, SerializeMetadata};
 
 // TODO(robert): Outline how you create a well known encoding id

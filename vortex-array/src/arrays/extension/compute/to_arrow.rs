@@ -13,7 +13,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::arrays::{ExtensionArray, ExtensionEncoding, TemporalArray};
 use crate::canonical::ToCanonical;
 use crate::compute::{to_arrow, try_cast, ToArrowFn};
-use crate::{Array, IntoArray};
+use crate::Array;
 
 impl ToArrowFn<&ExtensionArray> for ExtensionEncoding {
     fn to_arrow(

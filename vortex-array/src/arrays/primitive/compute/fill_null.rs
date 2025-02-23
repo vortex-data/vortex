@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillNullFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray as _, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 impl FillNullFn<&PrimitiveArray> for PrimitiveEncoding {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: Scalar) -> VortexResult<ArrayRef> {

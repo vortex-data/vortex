@@ -2,7 +2,7 @@ use std::ops::BitAnd;
 
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, ConstantArray};
@@ -28,8 +28,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         FilterFn::filter(self, array_ref, mask)
     }
 }
@@ -178,7 +176,6 @@ mod test {
     use super::*;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
-    use crate::IntoArray;
 
     #[test]
     fn test_filter() {

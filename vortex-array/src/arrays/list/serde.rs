@@ -1,7 +1,3 @@
-use std::fmt::Display;
-use std::ops::Deref;
-
-use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -11,7 +7,7 @@ use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
     Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, DeserializeMetadata,
-    RkyvMetadata, SerializeMetadata,
+    RkyvMetadata,
 };
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]

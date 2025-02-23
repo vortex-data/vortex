@@ -1,8 +1,7 @@
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::compute::{min_max, MinMaxResult};
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Stat, StatsSet};
 use crate::Array;
 
 /// Encoding VTable for computing array statistics.
@@ -22,7 +21,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
         StatisticsVTable::compute_statistics(self, array_ref, stat)
     }
 }

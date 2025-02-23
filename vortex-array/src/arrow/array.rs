@@ -18,7 +18,7 @@ use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, Scalar
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_datetime_dtype::TimeUnit;
-use vortex_dtype::{DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
 use crate::arrays::{
@@ -26,7 +26,6 @@ use crate::arrays::{
     VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
-use crate::stats::{Precision, Stat};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray};
 

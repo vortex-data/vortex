@@ -1,12 +1,10 @@
 use std::ops::BitAnd;
-use std::sync::RwLock;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::ScalarValue;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::nbytes::NBytes;
@@ -172,7 +170,6 @@ impl BoolStatsAccumulator {
 #[cfg(test)]
 mod test {
     use arrow_buffer::BooleanBuffer;
-    use vortex_dtype::Nullability;
 
     use crate::array::Array;
     use crate::arrays::BoolArray;

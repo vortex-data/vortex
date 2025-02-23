@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect};
+use vortex_error::{vortex_err, vortex_panic, VortexError};
 
 use crate::arrays::ExtensionArray;
 use crate::variants::ExtensionArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///

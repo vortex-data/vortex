@@ -1,12 +1,10 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
-
 /// Implementation trait for validity functions.
 ///
 /// These functions should not be called directly, rather their equivalents on the base
-/// [`Array`] trait should be used.
+/// [`crate::Array`] trait should be used.
 pub trait ArrayValidityImpl {
     /// Returns whether the `index` item is valid.
     ///

@@ -10,7 +10,7 @@ use crate::arrays::NullEncoding;
 use crate::compute::{MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 impl ComputeVTable for NullEncoding {
     fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {

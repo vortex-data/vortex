@@ -1,21 +1,19 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use ::serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::StructArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
-    Array, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray, RkyvMetadata,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
+    Encoding, EncodingId,
 };
 mod compute;
 mod serde;

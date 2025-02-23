@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::InvertFn;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl InvertFn<&BoolArray> for BoolEncoding {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {

@@ -14,7 +14,7 @@ use super::{BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, Str
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{builders, Array, ArrayRef, IntoArray as _, ToCanonical};
+use crate::{builders, Array, ArrayRef, ToCanonical};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]

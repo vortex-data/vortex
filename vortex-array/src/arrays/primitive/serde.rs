@@ -1,5 +1,5 @@
 use vortex_buffer::{Alignment, Buffer};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
+use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};

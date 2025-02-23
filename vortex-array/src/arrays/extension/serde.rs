@@ -1,4 +1,4 @@
-use vortex_dtype::{DType, ExtDType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{ExtensionArray, ExtensionEncoding};

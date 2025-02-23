@@ -16,7 +16,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{Array, ArrayRef};
+use crate::Array;
 
 mod bound;
 pub mod flatbuffers;

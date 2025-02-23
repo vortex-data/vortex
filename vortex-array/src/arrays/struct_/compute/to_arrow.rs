@@ -77,13 +77,12 @@ impl ToArrowFn<&StructArray> for StructEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::{FieldNames, Nullability};
+    use vortex_dtype::FieldNames;
 
     use super::*;
     use crate::arrays::PrimitiveArray;
     use crate::arrow::IntoArrowArray;
     use crate::validity::Validity;
-    use crate::IntoArray as _;
 
     #[test]
     fn nullable_non_null_to_arrow() {

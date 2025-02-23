@@ -13,7 +13,7 @@ use crate::compute::{
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ExtensionEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

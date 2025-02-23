@@ -1,19 +1,17 @@
 use std::sync::{Arc, RwLock};
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::ConstantEncoding;
 use crate::encoding::encoding_ids;
 use crate::nbytes::NBytes;
 use crate::stats::{Precision, Stat, StatsSet};
-use crate::validity::Validity;
 use crate::variants::NullArrayTrait;
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
+    ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 
 mod compute;

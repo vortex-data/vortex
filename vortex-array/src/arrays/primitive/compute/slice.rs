@@ -5,7 +5,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::SliceFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl SliceFn<&PrimitiveArray> for PrimitiveEncoding {
     fn slice(&self, array: &PrimitiveArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {

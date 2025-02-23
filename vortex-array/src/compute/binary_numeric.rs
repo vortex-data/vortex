@@ -1,11 +1,11 @@
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, IntoArray as _};
+use crate::{Array, ArrayRef};
 
 pub trait BinaryNumericFn<A> {
     fn binary_numeric(
@@ -30,8 +30,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = lhs.vtable();
-
         BinaryNumericFn::binary_numeric(self, array_ref, rhs, op)
     }
 }
@@ -200,7 +198,7 @@ pub mod test_harness {
 
     use crate::arrays::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
-    use crate::{Array, ArrayRef, IntoArray as _};
+    use crate::{Array, ArrayRef};
 
     #[allow(clippy::unwrap_used)]
     fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {

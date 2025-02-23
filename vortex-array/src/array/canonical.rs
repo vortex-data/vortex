@@ -1,21 +1,18 @@
-use std::sync::Arc;
-
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::builders::ArrayBuilder;
-use crate::{Array, Canonical};
+use crate::Canonical;
 
 /// Implementation trait for canonicalization functions.
 ///
 /// These functions should not be called directly, rather their equivalents on the base
-/// [`Array`] trait should be used.
+/// [`crate::Array`] trait should be used.
 pub trait ArrayCanonicalImpl {
     /// Returns the canonical representation of the array.
     ///
     /// ## Post-conditions
     /// - The length is equal to that of the input array.
-    /// - The [`DType`] is equal to that of the input array.
+    /// - The [`vortex_dtype::DType`] is equal to that of the input array.
     fn _to_canonical(&self) -> VortexResult<Canonical>;
 
     /// Writes the array into the canonical builder.

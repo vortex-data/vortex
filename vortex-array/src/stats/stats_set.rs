@@ -565,7 +565,7 @@ mod test {
 
     use crate::arrays::PrimitiveArray;
     use crate::stats::{Precision, Stat, Statistics, StatsSet};
-    use crate::{Array, IntoArray as _};
+    use crate::Array;
 
     #[test]
     fn test_iter() {

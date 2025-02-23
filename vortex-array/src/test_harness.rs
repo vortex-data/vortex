@@ -2,7 +2,6 @@ use std::io::Write;
 
 use goldenfile::differs::binary_diff;
 use goldenfile::Mint;
-use vortex_error::VortexExpect;
 
 use crate::{DeserializeMetadata, SerializeMetadata};
 

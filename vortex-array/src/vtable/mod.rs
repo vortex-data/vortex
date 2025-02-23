@@ -1,6 +1,5 @@
 //! This module contains the VTable definitions for a Vortex Array.
 
-use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -13,12 +12,9 @@ mod statistics;
 pub use compute::*;
 pub use serde::*;
 pub use statistics::*;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
 
 use crate::encoding::EncodingId;
-use crate::serde::ArrayParts;
-use crate::{Array, ArrayRef, Encoding};
+use crate::{Array, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
 #[derive(Debug, Clone)]

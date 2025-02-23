@@ -132,7 +132,6 @@ impl<T> Len for SearchSortedNullsFirst<'_, T> {
 mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
     use super::*;
     use crate::arrays::BoolArray;

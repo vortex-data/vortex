@@ -63,7 +63,7 @@ pub fn check_statistics_unchanged(arr: &dyn Array, compressed: &dyn Array) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        use crate::stats::{Stat, Statistics as _};
+        use crate::stats::Stat;
 
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
         for (stat, value) in arr

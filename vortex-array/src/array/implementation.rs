@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::borrow::Cow;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -12,7 +11,7 @@ use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
 use crate::builders::ArrayBuilder;
 use crate::stats::Statistics;
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, Encoding, EncodingId,
 };

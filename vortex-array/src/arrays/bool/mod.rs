@@ -1,7 +1,5 @@
 use arrow_array::BooleanArray;
 use arrow_buffer::MutableBuffer;
-use vortex_dtype::Nullability;
-use vortex_error::VortexExpect as _;
 
 use crate::validity::Validity;
 
@@ -56,7 +54,6 @@ impl FromIterator<Option<bool>> for BoolArray {
 mod tests {
     use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
     use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
@@ -64,7 +61,7 @@ mod tests {
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::{IntoArray, ToCanonical};
+    use crate::ToCanonical;
 
     #[test]
     fn bool_array() {

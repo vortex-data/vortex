@@ -2,12 +2,11 @@ use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 
 use crate::arrays::constant::ConstantArray;
-use crate::arrays::ConstantEncoding;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{Array, ArrayRef, ArrayVariantsImpl, IntoArray};
+use crate::{Array, ArrayRef, ArrayVariantsImpl};
 
 /// Constant arrays support all DTypes
 impl ArrayVariantsImpl for ConstantArray {

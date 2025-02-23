@@ -9,7 +9,7 @@ use crate::arrays::PrimitiveEncoding;
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
@@ -112,10 +112,8 @@ mod test {
     use crate::arrays::primitive::compute::take::take_primitive;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::builders::{ArrayBuilder as _, PrimitiveBuilder};
-    use crate::canonical::ToCanonical;
     use crate::compute::{scalar_at, take, take_into};
     use crate::validity::Validity;
-    use crate::IntoArray as _;
 
     #[test]
     fn test_take() {

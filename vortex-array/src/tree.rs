@@ -1,9 +1,6 @@
 use std::fmt::{self};
 
 use humansize::{format_size, DECIMAL};
-use serde::ser::Error;
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexResult};
 
 use crate::arrays::ChunkedEncoding;
 use crate::nbytes::NBytes;
@@ -36,14 +33,6 @@ pub struct TreeFormatter<'a, 'b: 'a> {
 }
 
 impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
-    pub fn new(fmt: &'a mut fmt::Formatter<'b>, indent: String) -> Self {
-        TreeFormatter {
-            fmt,
-            indent,
-            total_size: None,
-        }
-    }
-
     fn format(&mut self, name: &str, array: ArrayRef) -> fmt::Result {
         let nbytes = array.nbytes();
         let total_size = self.total_size.unwrap_or(nbytes);

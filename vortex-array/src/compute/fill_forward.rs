@@ -1,4 +1,4 @@
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
@@ -21,7 +21,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
         FillForwardFn::fill_forward(self, array_ref)
     }
 }

@@ -4,12 +4,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef};
+use crate::Array;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SearchSortedSide {
@@ -167,8 +167,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         SearchSortedFn::search_sorted(self, array_ref, value, side)
     }
 
@@ -182,8 +180,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         SearchSortedFn::search_sorted_many(self, array_ref, values, side)
     }
 }
@@ -202,8 +198,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         SearchSortedUsizeFn::search_sorted_usize(self, array_ref, value, side)
     }
 
@@ -217,8 +211,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         SearchSortedUsizeFn::search_sorted_usize_many(self, array_ref, values, side)
     }
 }

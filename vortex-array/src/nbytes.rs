@@ -1,7 +1,4 @@
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexExpect, VortexResult};
-
-use crate::{Array, ArrayRef, ArrayVisitorExt};
+use crate::{Array, ArrayVisitorExt};
 
 pub trait NBytes: Array {
     /// Total size of the array in bytes, including all children and buffers.

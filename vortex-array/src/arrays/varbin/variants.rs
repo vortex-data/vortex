@@ -1,5 +1,4 @@
 use crate::arrays::varbin::VarBinArray;
-use crate::arrays::VarBinEncoding;
 use crate::variants::{BinaryArrayTrait, Utf8ArrayTrait};
 use crate::ArrayVariantsImpl;
 

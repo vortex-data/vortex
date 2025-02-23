@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
 use flexbuffers::FlexbufferSerializer;
-use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 pub trait SerializeMetadata {

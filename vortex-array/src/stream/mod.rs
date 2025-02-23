@@ -1,5 +1,4 @@
 use std::pin::Pin;
-use std::sync::Arc;
 
 pub use adapter::*;
 pub use ext::*;
@@ -8,9 +7,8 @@ pub use take_rows::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::ChunkedArray;
-use crate::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorArrayExt};
-use crate::{Array, ArrayExt, ArrayRef};
+use crate::iter::ArrayIteratorArrayExt;
+use crate::{Array, ArrayRef};
 
 mod adapter;
 mod ext;

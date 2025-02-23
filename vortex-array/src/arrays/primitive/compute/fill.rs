@@ -9,7 +9,7 @@ use crate::arrays::{ConstantArray, PrimitiveEncoding};
 use crate::compute::FillForwardFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl FillForwardFn<&PrimitiveArray> for PrimitiveEncoding {
     fn fill_forward(&self, array: &PrimitiveArray) -> VortexResult<ArrayRef> {
@@ -63,7 +63,6 @@ mod test {
     use crate::canonical::ToCanonical;
     use crate::compute::fill_forward;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[test]
     fn leading_none() {

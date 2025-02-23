@@ -1,8 +1,8 @@
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::stats::{Precision, Stat, Statistics};
-use crate::{Array, ArrayRef, Encoding};
+use crate::stats::{Precision, Stat};
+use crate::{Array, Encoding};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinMaxResult {
@@ -25,8 +25,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         MinMaxFn::min_max(self, array_ref)
     }
 }
@@ -104,7 +102,6 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::{BoolArray, NullArray, PrimitiveArray};
     use crate::compute::{min_max, MinMaxResult};

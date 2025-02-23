@@ -1,6 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::compute::{min_max, scalar_at, MinMaxResult};

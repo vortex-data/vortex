@@ -1,10 +1,9 @@
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::ops::{BitAnd, Not};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
-use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskValues};

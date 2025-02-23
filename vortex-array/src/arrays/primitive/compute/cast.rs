@@ -7,7 +7,7 @@ use crate::arrays::PrimitiveEncoding;
 use crate::compute::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl CastFn<&PrimitiveArray> for PrimitiveEncoding {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {

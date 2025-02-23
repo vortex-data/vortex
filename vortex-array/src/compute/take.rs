@@ -1,10 +1,10 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::stats::{Max, Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Max, Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
 
 pub trait TakeFn<A> {
@@ -49,8 +49,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         TakeFn::take(self, array_ref, indices)
     }
 
@@ -64,8 +62,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         TakeFn::take_into(self, array_ref, indices, builder)
     }
 }

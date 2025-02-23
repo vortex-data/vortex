@@ -1,8 +1,6 @@
-use std::ops::Deref;
-
 use vortex_error::VortexResult;
 
-use crate::{Array, ArrayRef};
+use crate::Array;
 
 /// Trait for arrays that support iterative access to their elements.
 pub trait ArrayAccessor<Item: ?Sized>: Array {

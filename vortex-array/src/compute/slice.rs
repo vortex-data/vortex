@@ -1,7 +1,7 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::stats::{Precision, Stat, Statistics, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Limit array to start...stop range
@@ -21,8 +21,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         SliceFn::slice(self, array_ref, start, stop)
     }
 }

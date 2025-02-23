@@ -1,13 +1,11 @@
 use vortex_buffer::BufferMut;
-use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::Canonical::Null;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
@@ -195,7 +193,6 @@ mod test {
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::filter;
-    use crate::IntoArray;
 
     #[test]
     fn filter_chunked_floats() {

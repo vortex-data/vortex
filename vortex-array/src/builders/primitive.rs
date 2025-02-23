@@ -2,19 +2,17 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
-use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType, Nullability};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical as _};
+use crate::{Array, ArrayRef};
 
 /// Builder for [`PrimitiveArray`].
 pub struct PrimitiveBuilder<T> {

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability, PType, TryFromBytes};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
@@ -7,8 +7,7 @@ use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
-    encoding_ids, Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata,
-    Encoding, EncodingId, ToCanonical,
+    Array, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata, ToCanonical,
 };
 
 impl ArrayVisitorImpl for ChunkedArray {
@@ -32,7 +31,8 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
         parts: &ArrayParts,
         ctx: &ContextRef,
         dtype: DType,
-        len: usize,
+        // TODO(ngates): should we avoid storing the final chunk offset and push the length instead?
+        _len: usize,
     ) -> VortexResult<ArrayRef> {
         if parts.nchildren() == 0 {
             vortex_bail!("Chunked array needs at least one child");

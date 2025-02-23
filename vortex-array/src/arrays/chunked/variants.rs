@@ -4,12 +4,11 @@ use vortex_dtype::{DType, FieldName};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::ChunkedEncoding;
 use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
     PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{Array, ArrayRef, ArrayVariantsImpl, IntoArray};
+use crate::{Array, ArrayRef, ArrayVariantsImpl};
 
 /// Chunked arrays support all DTypes
 impl ArrayVariantsImpl for ChunkedArray {

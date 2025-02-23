@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
@@ -97,7 +97,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = lhs.vtable();
 
         CompareFn::compare(self, array_ref, rhs, operator)
     }

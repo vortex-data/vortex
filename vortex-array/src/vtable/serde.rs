@@ -1,9 +1,7 @@
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::serde::ArrayParts;
-use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef, ContextRef, Encoding};
 
 // TODO(ngates): need a new name for this VTable.
@@ -13,8 +11,8 @@ pub trait SerdeVTable<Array> {
         &self,
         parts: &ArrayParts,
         ctx: &ContextRef,
-        dtype: DType,
-        len: usize,
+        _dtype: DType,
+        _len: usize,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!(
             "Decoding not supported for encoding {}",

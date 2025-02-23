@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -20,8 +20,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         FillNullFn::fill_null(self, array_ref, fill_value)
     }
 }

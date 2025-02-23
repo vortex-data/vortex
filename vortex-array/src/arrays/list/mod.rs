@@ -1,34 +1,31 @@
 mod compute;
 mod serde;
 
-use std::fmt::Display;
 use std::sync::{Arc, RwLock};
 
-use ::serde::{Deserialize, Serialize};
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::list::serde::ListMetadata;
-use crate::arrays::{ConstantEncoding, PrimitiveArray};
+use crate::arrays::PrimitiveArray;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::StatsSet;
 use crate::validity::Validity;
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::{StatisticsVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
-    RkyvMetadata, TryFromArrayRef,
+    ArrayVariantsImpl, Canonical, Encoding, EncodingId, RkyvMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -66,8 +63,6 @@ impl ListArray {
         validity: Validity,
     ) -> VortexResult<Self> {
         let nullability = validity.nullability();
-        let list_len = offsets.len() - 1;
-        let element_len = elements.len();
 
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
             vortex_bail!(
@@ -260,7 +255,6 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::compute::{filter, scalar_at};
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[test]
     fn test_empty_list_array() {

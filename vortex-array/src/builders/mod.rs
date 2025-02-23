@@ -23,7 +23,7 @@ use vortex_scalar::{
 };
 
 use crate::builders::struct_::StructBuilder;
-use crate::{Array, ArrayImpl, ArrayRef};
+use crate::{Array, ArrayRef};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;

@@ -3,7 +3,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::MaskFn;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl MaskFn<&BoolArray> for BoolEncoding {
     fn mask(&self, array: &BoolArray, mask: Mask) -> VortexResult<ArrayRef> {

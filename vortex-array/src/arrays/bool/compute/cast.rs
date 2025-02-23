@@ -4,7 +4,6 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::array::{Array, ArrayRef};
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::CastFn;
-use crate::IntoArray;
 
 impl CastFn<&BoolArray> for BoolEncoding {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayRef> {

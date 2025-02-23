@@ -1,7 +1,6 @@
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::ConstantArray;
 use crate::compute::{binary_boolean, compare, BinaryOperator, Operator};
 use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
 
@@ -51,7 +50,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = arr.vtable();
         BetweenFn::between(self, array_ref, lower, upper, options)
     }
 }

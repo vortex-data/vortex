@@ -3,7 +3,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedEncoding;
 use crate::compute::{slice, SliceFn};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl SliceFn<&ChunkedArray> for ChunkedEncoding {
     fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -49,7 +49,7 @@ mod tests {
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::canonical::ToCanonical;
     use crate::compute::slice;
-    use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+    use crate::{Array, ArrayExt};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

@@ -10,7 +10,7 @@ use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {

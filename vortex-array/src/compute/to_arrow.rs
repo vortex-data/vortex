@@ -1,11 +1,11 @@
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow_schema::DataType;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::arrow::infer_data_type;
 use crate::builders::builder_with_capacity;
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef};
+use crate::Array;
 
 /// Trait for Arrow conversion compute function.
 pub trait ToArrowFn<A> {
@@ -31,8 +31,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         ToArrowFn::preferred_arrow_data_type(self, array_ref)
     }
 
@@ -45,8 +43,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         ToArrowFn::to_arrow(self, array_ref, data_type)
     }
 }
@@ -102,7 +98,6 @@ pub fn to_arrow(array: &dyn Array, data_type: &DataType) -> VortexResult<ArrowAr
 
 #[cfg(test)]
 mod tests {
-
     use std::sync::Arc;
 
     use arrow_array::types::Int32Type;
@@ -110,9 +105,9 @@ mod tests {
     use arrow_buffer::NullBuffer;
 
     use crate::array::Array;
+    use crate::arrays;
     use crate::arrow::infer_data_type;
     use crate::compute::to_arrow;
-    use crate::{arrays, IntoArray};
 
     #[test]
     fn test_to_arrow() {

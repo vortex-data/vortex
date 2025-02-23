@@ -36,7 +36,6 @@ mod test {
     use crate::array::Array;
     use crate::arrays::constant::ConstantArray;
     use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
-    use crate::IntoArray;
 
     #[test]
     pub fn search() {

@@ -1,4 +1,4 @@
-use arrow_array::builder::{make_view, ArrayBuilder};
+use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
@@ -8,11 +8,9 @@ use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{
-    BinaryView, BoolArray, ConstantEncoding, ExtensionArray, NullArray, VarBinViewArray,
-};
+use crate::arrays::{BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray};
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray};
+use crate::{Array, Canonical};
 
 impl ArrayCanonicalImpl for ConstantArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {

@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, BoolEncoding};
 use crate::compute::SliceFn;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl SliceFn<&BoolArray> for BoolEncoding {
     fn slice(&self, array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -16,8 +16,6 @@ impl SliceFn<&BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
-
     use super::*;
     use crate::compute::{scalar_at, slice};
     use crate::ToCanonical;

@@ -1,26 +1,17 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
-use std::any::Any;
-use std::ops::Deref;
-use std::sync::Arc;
-
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_mask::Mask;
 
 use crate::arrays::{
     BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder};
+use crate::builders::builder_with_capacity;
 use crate::compute::{preferred_arrow_data_type, to_arrow};
-use crate::variants::{
-    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
-    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
-};
-use crate::{Array, ArrayRef, ArrayStatistics, ArrayVariants, EncodingId, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.

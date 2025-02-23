@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use bench_vortex::compress::bench::{benchmark_compress, CompressMeasurements};
 use bench_vortex::datasets::public_bi_data::PBIDataset::{
     AirlineSentiment, Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags,

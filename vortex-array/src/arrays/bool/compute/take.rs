@@ -10,7 +10,7 @@ use crate::arrays::{BoolArray, BoolEncoding, ConstantArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{fill_null, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 impl TakeFn<&BoolArray> for BoolEncoding {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -139,7 +139,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::compute::{scalar_at, take};
     use crate::validity::Validity;
-    use crate::{Array, IntoArray as _, ToCanonical};
+    use crate::{Array, ToCanonical};
 
     #[test]
     fn take_nullable() {

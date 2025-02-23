@@ -3,13 +3,13 @@ use std::cmp::max;
 
 use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
-use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,

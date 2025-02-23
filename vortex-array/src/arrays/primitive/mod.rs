@@ -1,19 +1,16 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::iter;
 use std::sync::{Arc, RwLock};
-
-use ::serde::{Deserialize, Serialize};
 
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::encoding::encoding_ids;
 use crate::stats::StatsSet;
@@ -21,9 +18,8 @@ use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    try_from_array_ref, validity, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
-    RkyvMetadata,
+    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
+    Canonical, EmptyMetadata, Encoding, EncodingId, IntoArray,
 };
 
 mod compute;

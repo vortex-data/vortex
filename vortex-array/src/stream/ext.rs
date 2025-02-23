@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::arrays::ChunkedArray;
 use crate::stream::take_rows::TakeRows;
 use crate::stream::{ArrayStream, ArrayStreamAdapter, SendableArrayStream};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 pub trait ArrayStreamExt: ArrayStream {
     /// Box the [`ArrayStream`] so that it can be sent between threads.

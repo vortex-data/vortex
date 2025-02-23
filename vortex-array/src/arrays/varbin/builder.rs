@@ -1,14 +1,13 @@
 use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::BufferMut;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::{DType, NativePType, Nullability};
+use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::Array;
 
 pub struct VarBinBuilder<O: NativePType> {
     offsets: BufferMut<O>,
@@ -110,7 +109,6 @@ mod test {
     use crate::array::Array;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::compute::scalar_at;
-    use crate::IntoArray;
 
     #[test]
     fn test_builder() {

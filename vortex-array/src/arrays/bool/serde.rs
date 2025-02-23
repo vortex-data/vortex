@@ -4,13 +4,12 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrays::{BoolArray, BoolEncoding};
-use crate::nbytes::NBytes;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef,
-    DeserializeMetadata, EmptyMetadata, RkyvMetadata,
+    DeserializeMetadata, RkyvMetadata,
 };
 
 #[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]

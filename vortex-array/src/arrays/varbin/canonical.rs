@@ -3,9 +3,9 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::arrays::varbin::VarBinArray;
-use crate::arrays::{VarBinEncoding, VarBinViewArray};
+use crate::arrays::VarBinViewArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, IntoArray, TryFromArrayRef};
+use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, TryFromArrayRef};
 
 impl ArrayCanonicalImpl for VarBinArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {

@@ -16,7 +16,7 @@ use crate::compute::{
     SearchSortedFn, SliceFn, TakeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<&dyn Array>> {
@@ -92,7 +92,6 @@ mod test {
     use super::ConstantArray;
     use crate::array::Array;
     use crate::compute::test_harness::test_mask;
-    use crate::IntoArray as _;
 
     #[test]
     fn test_mask_constant() {

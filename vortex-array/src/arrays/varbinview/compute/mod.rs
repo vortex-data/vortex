@@ -12,7 +12,7 @@ use crate::arrays::varbinview::VarBinViewArray;
 use crate::arrays::VarBinViewEncoding;
 use crate::compute::{CastFn, MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn, ToArrowFn};
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for VarBinViewEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<&dyn Array>> {

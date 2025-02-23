@@ -12,7 +12,7 @@ use crate::compute::{
     scalar_at, slice, MaskFn, MinMaxFn, MinMaxResult, ScalarAtFn, SliceFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
@@ -84,7 +84,6 @@ mod test {
     use crate::arrays::{ListArray, PrimitiveArray};
     use crate::compute::test_harness::test_mask;
     use crate::validity::Validity;
-    use crate::IntoArray as _;
 
     #[test]
     fn test_mask_list() {

@@ -8,7 +8,7 @@ use crate::compute::{
     MaskFn, MinMaxFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::vtable::ComputeVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 mod binary_numeric;
 mod boolean;

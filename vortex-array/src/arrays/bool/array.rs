@@ -1,22 +1,21 @@
 use std::sync::{Arc, RwLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
 use crate::arrays::bool;
 use crate::arrays::bool::serde::BoolMetadata;
 use crate::builders::ArrayBuilder;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::StatsSet;
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    encoding_ids, ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayStatisticsImpl,
-    ArrayVisitorImpl, Canonical, Encoding, EncodingId, RkyvMetadata,
+    encoding_ids, ArrayImpl, ArrayStatisticsImpl
+    , Canonical, Encoding, EncodingId, RkyvMetadata,
 };
 
 #[derive(Clone, Debug)]

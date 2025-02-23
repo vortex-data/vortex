@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ConstantEncoding};
 use crate::compute::CastFn;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl CastFn<&ConstantArray> for ConstantEncoding {
     fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<ArrayRef> {

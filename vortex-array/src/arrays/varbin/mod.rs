@@ -1,32 +1,28 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
-use ::serde::{Deserialize, Serialize};
 pub use compute::compute_min_max;
-use num_traits::{AsPrimitive, PrimInt};
+use num_traits::PrimInt;
 pub use stats::compute_varbin_statistics;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
 };
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
-use crate::arrays::primitive::PrimitiveArray;
+use crate::array::ArrayValidityImpl;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::arrays::varbin::serde::VarBinMetadata;
-use crate::arrays::ConstantEncoding;
 use crate::compute::scalar_at;
 use crate::encoding::encoding_ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::StatsSet;
 use crate::validity::Validity;
-use crate::variants::{BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{
-    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId, RkyvMetadata,
+    try_from_array_ref, Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Encoding, EncodingId,
+    RkyvMetadata,
 };
 
 mod accessor;

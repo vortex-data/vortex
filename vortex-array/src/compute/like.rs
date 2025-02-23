@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
@@ -24,7 +24,6 @@ where
         pattern: &dyn Array,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        let encoding = array.vtable();
         LikeFn::like(
             self,
             array

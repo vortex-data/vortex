@@ -1,8 +1,7 @@
 use arrow_buffer::BooleanBufferBuilder;
-use itertools::Itertools;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
-use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::array::ArrayCanonicalImpl;
 use crate::arrays::chunked::ChunkedArray;
@@ -14,7 +13,7 @@ use crate::arrays::{BoolArray, ListArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ArrayVariants, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ArrayVariants, Canonical, ToCanonical};
 
 impl ArrayCanonicalImpl for ChunkedArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {

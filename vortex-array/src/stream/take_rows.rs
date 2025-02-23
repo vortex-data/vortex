@@ -11,7 +11,7 @@ use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedS
 use crate::stats::Stat;
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, ToCanonical};
 
 #[pin_project]
 pub struct TakeRows<R: ArrayStream> {

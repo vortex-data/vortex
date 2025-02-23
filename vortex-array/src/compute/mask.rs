@@ -1,5 +1,5 @@
 use arrow_array::BooleanArray;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -7,7 +7,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 pub trait MaskFn<A> {
     /// Replace masked values with null in array.
@@ -23,8 +23,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = array.vtable();
-
         MaskFn::mask(self, array_ref, mask)
     }
 }
@@ -124,7 +122,7 @@ pub mod test_harness {
 
     use crate::arrays::BoolArray;
     use crate::compute::{mask, scalar_at};
-    use crate::{Array, ArrayRef, IntoArray};
+    use crate::Array;
 
     pub fn test_mask(array: &dyn Array) {
         assert_eq!(array.len(), 5);
@@ -214,7 +212,6 @@ pub mod test_harness {
 mod test {
     use super::test_harness::test_mask;
     use crate::arrays::PrimitiveArray;
-    use crate::IntoArray as _;
 
     #[test]
     fn test_mask_non_nullable_array() {

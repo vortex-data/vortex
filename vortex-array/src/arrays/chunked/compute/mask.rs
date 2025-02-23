@@ -8,7 +8,7 @@ use super::filter::{chunk_filters, find_chunk_idx, ChunkFilter};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
 use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
 use crate::compute::{mask, try_cast, MaskFn};
-use crate::{Array, ArrayRef, IntoArray as _};
+use crate::{Array, ArrayRef};
 
 impl MaskFn<&ChunkedArray> for ChunkedEncoding {
     fn mask(&self, array: &ChunkedArray, mask: Mask) -> VortexResult<ArrayRef> {

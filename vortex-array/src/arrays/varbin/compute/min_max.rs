@@ -39,7 +39,6 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
 
 #[cfg(test)]
 mod tests {
-
     use vortex_buffer::BufferString;
     use vortex_dtype::DType::Utf8;
     use vortex_dtype::Nullability::Nullable;

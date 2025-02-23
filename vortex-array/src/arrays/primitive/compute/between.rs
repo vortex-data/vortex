@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{BetweenFn, BetweenOptions};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef};
 
 impl BetweenFn<&PrimitiveArray> for PrimitiveEncoding {
     fn between(

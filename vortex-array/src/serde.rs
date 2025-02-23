@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter;
 use std::sync::Arc;
 
-use flatbuffers::{root, root_unchecked, FlatBufferBuilder, Follow, WIPOffset};
+use flatbuffers::{root, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
@@ -14,8 +14,8 @@ use vortex_flatbuffers::{
     array as fba, FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer,
 };
 
-use crate::stats::{Statistics, StatsSet};
-use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, Context, ContextRef};
+use crate::stats::StatsSet;
+use crate::{Array, ArrayRef, ArrayVisitor, ArrayVisitorExt, ContextRef};
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -209,11 +209,10 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
 /// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
 #[derive(Clone)]
 pub struct ArrayParts {
-    // Typed as fb::Array
+    // Typed as fb::ArrayNode
     flatbuffer: FlatBuffer,
-    flatbuffer_loc: usize,
     // The location of the current fb::ArrayNode
-    flatbuffer_root_loc: usize,
+    flatbuffer_loc: usize,
     buffers: Arc<[ByteBuffer]>,
 }
 
@@ -234,7 +233,7 @@ impl Debug for ArrayParts {
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
     pub fn decode(&self, ctx: &ContextRef, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
-        let encoding_id = self.flatbuffer_root().encoding();
+        let encoding_id = self.flatbuffer().encoding();
         let vtable = ctx
             .lookup_encoding(encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
@@ -256,7 +255,7 @@ impl ArrayParts {
         );
 
         // Populate statistics from the serialized array.
-        if let Some(stats) = self.flatbuffer_root().stats() {
+        if let Some(stats) = self.flatbuffer().stats() {
             let decoded_statistics = decoded.statistics();
             StatsSet::read_flatbuffer(&stats)?
                 .into_iter()
@@ -268,19 +267,19 @@ impl ArrayParts {
 
     /// Returns the array encoding.
     pub fn encoding_id(&self) -> u16 {
-        self.flatbuffer_root().encoding()
+        self.flatbuffer().encoding()
     }
 
     /// Returns the array metadata bytes.
     pub fn metadata(&self) -> Option<&[u8]> {
-        self.flatbuffer_root()
+        self.flatbuffer()
             .metadata()
             .map(|metadata| metadata.bytes())
     }
 
     /// Returns the number of children.
     pub fn nchildren(&self) -> usize {
-        self.flatbuffer_root()
+        self.flatbuffer()
             .children()
             .map_or(0, |children| children.len())
     }
@@ -288,7 +287,7 @@ impl ArrayParts {
     /// Returns the nth child of the array.
     pub fn child(&self, idx: usize) -> ArrayParts {
         let children = self
-            .flatbuffer_root()
+            .flatbuffer()
             .children()
             .vortex_expect("Expected array to have children");
         if idx >= children.len() {
@@ -303,7 +302,7 @@ impl ArrayParts {
 
     /// Iterate the children of this array.
     pub fn children(&self) -> Vec<ArrayParts> {
-        self.flatbuffer_root()
+        self.flatbuffer()
             .children()
             .iter()
             .flat_map(|children| children.iter())
@@ -313,7 +312,7 @@ impl ArrayParts {
 
     /// Returns the number of buffers.
     pub fn nbuffers(&self) -> usize {
-        self.flatbuffer_root()
+        self.flatbuffer()
             .buffers()
             .map_or(0, |buffers| buffers.len())
     }
@@ -321,7 +320,7 @@ impl ArrayParts {
     /// Returns the nth buffer of the current array.
     pub fn buffer(&self, idx: usize) -> VortexResult<ByteBuffer> {
         let buffer_idx = self
-            .flatbuffer_root()
+            .flatbuffer()
             .buffers()
             .ok_or_else(|| vortex_err!("Array has no buffers"))?
             .get(idx);
@@ -337,21 +336,16 @@ impl ArrayParts {
             })
     }
 
-    /// Returns the array flatbuffer.
-    fn flatbuffer(&self) -> fba::Array {
-        unsafe { fba::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
-    }
-
     /// Returns the root ArrayNode flatbuffer.
-    fn flatbuffer_root(&self) -> fba::ArrayNode {
-        unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_root_loc) }
+    fn flatbuffer(&self) -> fba::ArrayNode {
+        unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
     /// Returns a new [`ArrayParts`] with the given node as the root
     // TODO(ngates): we may want a wrapper that avoids this clone.
     fn with_root(&self, root: fba::ArrayNode) -> Self {
         let mut this = self.clone();
-        this.flatbuffer_root_loc = root._tab.loc();
+        this.flatbuffer_loc = root._tab.loc();
         this
     }
 }
@@ -399,8 +393,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer.clone(),
-            flatbuffer_loc: fb_array._tab.loc(),
-            flatbuffer_root_loc: fb_root._tab.loc(),
+            flatbuffer_loc: fb_root._tab.loc(),
             buffers,
         })
     }

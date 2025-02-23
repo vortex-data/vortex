@@ -22,7 +22,7 @@ impl SerdeVTable<&ConstantArray> for ConstantEncoding {
     fn decode(
         &self,
         parts: &ArrayParts,
-        ctx: &ContextRef,
+        _ctx: &ContextRef,
         dtype: DType,
         len: usize,
     ) -> VortexResult<ArrayRef> {

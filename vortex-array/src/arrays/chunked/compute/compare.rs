@@ -36,7 +36,6 @@ impl CompareFn<&ChunkedArray> for ChunkedEncoding {
 mod tests {
     use super::*;
     use crate::arrays::PrimitiveArray;
-    use crate::IntoArray;
 
     #[test]
     fn empty_compare() {

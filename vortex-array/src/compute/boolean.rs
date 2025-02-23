@@ -4,7 +4,7 @@ use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::encoding::Encoding;
@@ -44,7 +44,6 @@ where
             .as_any()
             .downcast_ref::<E::Array>()
             .vortex_expect("Failed to downcast array");
-        let vtable = lhs.vtable();
 
         BinaryBooleanFn::binary_boolean(self, array_ref, rhs, op)
     }

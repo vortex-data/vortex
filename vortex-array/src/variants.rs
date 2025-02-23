@@ -3,7 +3,6 @@
 //! When callers only want to make assumptions about the DType, and not about any specific
 //! encoding, they can use these traits to write encoding-agnostic code.
 
-use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
