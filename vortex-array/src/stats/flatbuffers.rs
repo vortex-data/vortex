@@ -132,6 +132,11 @@ impl ReadFlatBuffer for StatsSet {
                         );
                     }
                 }
+                Stat::Sum => {
+                    if let Some(sum) = fb.sum() {
+                        stats_set.set(Stat::Sum, Precision::Exact(ScalarValue::try_from(sum)?));
+                    }
+                }
             }
         }
 

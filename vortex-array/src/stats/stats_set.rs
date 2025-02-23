@@ -4,7 +4,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType};
+use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -416,6 +416,21 @@ impl StatsSet {
         match (
             self.get_scalar_bound::<Max>(dtype.clone()),
             other.get_scalar_bound::<Max>(dtype.clone()),
+        ) {
+            (Some(m1), Some(m2)) => {
+                let meet = m1.union(&m2).vortex_expect("can compare scalar");
+                if meet != m1 {
+                    self.set(Stat::Max, meet.into_value().map(Scalar::into_value));
+                }
+            }
+            _ => self.clear(Stat::Max),
+        }
+    }
+
+    fn merge_sum(&mut self, other: &Self, dtype: &DType) {
+        match (
+            self.get_scalar_bound::<Sum>(dtype.clone()),
+            other.get_scalar_bound::<Sum>(dtype.clone()),
         ) {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");

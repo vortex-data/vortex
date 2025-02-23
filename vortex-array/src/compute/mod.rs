@@ -26,6 +26,7 @@ pub use min_max::{min_max, MinMaxFn, MinMaxResult};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
+pub use sum::*;
 pub use take::{take, take_into, TakeFn};
 pub use to_arrow::*;
 
@@ -44,6 +45,7 @@ mod min_max;
 mod scalar_at;
 mod search_sorted;
 mod slice;
+mod sum;
 mod take;
 mod to_arrow;
 
