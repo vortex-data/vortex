@@ -1,8 +1,11 @@
+use std::ops::Sub;
+
 use enum_iterator::{all, Sequence};
 use itertools::{EitherOrBoth, Itertools};
+use num_traits::CheckedAdd;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{BinaryNumericOperator, Scalar, ScalarValue};
 
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatType, Sum};
 
@@ -434,13 +437,16 @@ impl StatsSet {
             other.get_scalar_bound::<Sum>(dtype.clone()),
         ) {
             (Some(m1), Some(m2)) => {
-                // If the combine sum is exact, then we can set it.
-                self.set(
-                    Stat::Sum,
-                    m1.union(&m2)
-                        .vortex_expect("can compare scalar")
-                        .map(|s| s.into_value()),
-                );
+                // If the combine sum is exact, then we can sum them.
+                if let Some(scalar_value) = m1
+                    .clone()
+                    .zip(m2.clone())
+                    .some_exact()
+                    .and_then(|(s1, s2)| s1.as_primitive().checked_add(&s2.as_primitive()))
+                    .map(ScalarValue::from)
+                {
+                    self.set(Stat::Sum, Precision::Exact(scalar_value));
+                }
             }
             _ => self.clear(Stat::Sum),
         }

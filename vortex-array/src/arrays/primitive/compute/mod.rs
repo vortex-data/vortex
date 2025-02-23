@@ -1,7 +1,7 @@
 use crate::arrays::PrimitiveEncoding;
 use crate::compute::{
     BetweenFn, CastFn, FillForwardFn, FillNullFn, FilterFn, MaskFn, MinMaxFn, ScalarAtFn,
-    SearchSortedFn, SearchSortedUsizeFn, SliceFn, TakeFn, ToArrowFn,
+    SearchSortedFn, SearchSortedUsizeFn, SliceFn, SumFn, TakeFn, ToArrowFn,
 };
 use crate::vtable::ComputeVTable;
 use crate::Array;
@@ -16,6 +16,7 @@ mod min_max;
 mod scalar_at;
 mod search_sorted;
 mod slice;
+mod sum;
 mod take;
 mod to_arrow;
 
@@ -24,7 +25,7 @@ impl ComputeVTable for PrimitiveEncoding {
         Some(self)
     }
 
-    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
+    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
         Some(self)
     }
 
@@ -40,6 +41,10 @@ impl ComputeVTable for PrimitiveEncoding {
         Some(self)
     }
 
+    fn mask_fn(&self) -> Option<&dyn MaskFn<&dyn Array>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -48,15 +53,15 @@ impl ComputeVTable for PrimitiveEncoding {
         Some(self)
     }
 
-    fn between_fn(&self) -> Option<&dyn BetweenFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<&dyn Array>> {
         Some(self)
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<&dyn Array>> {
+        Some(self)
+    }
+
+    fn sum_fn(&self) -> Option<&dyn SumFn<&dyn Array>> {
         Some(self)
     }
 
