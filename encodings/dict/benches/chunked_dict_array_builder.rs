@@ -37,7 +37,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 }
 
 #[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
-fn chunked_dict_primitive_to_canonical<T: NativePType>(
+fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
 ) where
@@ -76,7 +76,7 @@ fn chunked_dict_fsst_canonical_into(
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn chunked_dict_fsst_to_canonical(
+fn chunked_dict_fsst_into_canonical(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
 ) {

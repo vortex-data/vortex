@@ -78,7 +78,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn chunked_varbinview_to_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
 
     bencher
@@ -103,7 +103,7 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn chunked_varbinview_opt_to_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
 
     bencher
