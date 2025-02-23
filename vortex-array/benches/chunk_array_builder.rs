@@ -44,7 +44,7 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn chunked_bool_to_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+fn chunked_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
 
     bencher
@@ -53,7 +53,7 @@ fn chunked_bool_to_canonical(bencher: Bencher, (len, chunk_count): (usize, usize
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn chunked_opt_bool_to_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
 
     bencher
