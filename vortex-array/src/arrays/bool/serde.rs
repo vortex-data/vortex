@@ -14,8 +14,14 @@ use crate::{
 
 impl ArrayVisitorImpl for BoolArray {
     fn _buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
+        let buffer = self.boolean_buffer().clone();
+        assert_eq!(
+            buffer.offset(),
+            0,
+            "Cannot serialize non-zero offset for boolean buffer"
+        );
         visitor.visit_buffer(&ByteBuffer::from_arrow_buffer(
-            self.boolean_buffer().clone().into_inner(),
+            buffer.into_inner(),
             Alignment::none(),
         ))
     }

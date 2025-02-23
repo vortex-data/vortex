@@ -641,7 +641,7 @@ impl PyArray {
     ///     >>> arr = vx.array([1, 2, None, 3])
     ///     >>> print(arr.tree_display())
     ///     root: vortex.primitive(0x03)(i64?, len=4) nbytes=33 B (100.00%)
-    ///       metadata: PrimitiveMetadata { validity: Array }
+    ///       metadata: EmptyMetadata
     ///       buffer (align=8): 32 B
     ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=3 B (8.33%)
     ///     metadata: BoolMetadata { validity: NonNullable, first_byte_bit_offset: 0 }
