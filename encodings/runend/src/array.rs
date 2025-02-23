@@ -98,7 +98,7 @@ impl RunEndArray {
     pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Buffer<u64>> {
         search_sorted_usize_many(self.ends(), indices, SearchSortedSide::Right).map(|results| {
             results
-                .iter()
+                .into_iter()
                 .map(|result| result.to_ends_index(self.ends().len()) as u64)
                 .collect()
         })

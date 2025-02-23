@@ -1,8 +1,10 @@
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, ExtDType};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{ExtensionArray, ExtensionEncoding};
+use crate::serde::ArrayParts;
 use crate::vtable::SerdeVTable;
-use crate::{ArrayChildVisitor, ArrayVisitorImpl, EmptyMetadata};
+use crate::{ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, ContextRef, EmptyMetadata};
 
 impl ArrayVisitorImpl for ExtensionArray {
     fn _children(&self, visitor: &mut dyn ArrayChildVisitor) {
@@ -14,4 +16,19 @@ impl ArrayVisitorImpl for ExtensionArray {
     }
 }
 
-impl SerdeVTable<&ExtensionArray> for ExtensionEncoding {}
+impl SerdeVTable<&ExtensionArray> for ExtensionEncoding {
+    fn decode(
+        &self,
+        parts: &ArrayParts,
+        ctx: &ContextRef,
+        dtype: DType,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let DType::Extension(ext_dtype) = dtype else {
+            vortex_bail!("Not an extension DType");
+        };
+        parts
+            .child(0)
+            .decode(ctx, ext_dtype.storage_dtype().clone(), len)
+    }
+}
