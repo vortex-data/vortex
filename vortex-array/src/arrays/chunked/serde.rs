@@ -39,10 +39,10 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
         }
 
         let nchunks = parts.nchildren() - 1;
-        let children = parts.children();
 
         // The first child contains the row offsets of the chunks
-        let chunk_offsets = children[0]
+        let chunk_offsets = parts
+            .child(0)
             .decode(
                 ctx,
                 DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -55,12 +55,12 @@ impl SerdeVTable<&ChunkedArray> for ChunkedEncoding {
         // The remaining children contain the actual data of the chunks
         let chunks = chunk_offsets
             .iter()
-            .tuples()
+            .tuple_windows()
             .enumerate()
             .map(|(idx, (start, end))| {
                 let chunk_len =
                     usize::try_from(end - start).vortex_expect("chunk length exceeds usize");
-                children[idx + 1].decode(ctx, dtype.clone(), chunk_len)
+                parts.child(idx + 1).decode(ctx, dtype.clone(), chunk_len)
             })
             .try_collect()?;
 

@@ -7,7 +7,7 @@ use vortex_array::{
     SerdeMetadata,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 
 use crate::{ALPArray, ALPEncoding, Exponents};
 
@@ -46,13 +46,6 @@ impl SerdeVTable<&ALPArray> for ALPEncoding {
         len: usize,
     ) -> VortexResult<ArrayRef> {
         let metadata = SerdeMetadata::<ALPMetadata>::deserialize(parts.metadata())?;
-
-        if parts.nchildren() != 1 {
-            vortex_bail!(
-                "Expected 1 child for ALP encoding, found {}",
-                parts.nchildren()
-            );
-        }
 
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),

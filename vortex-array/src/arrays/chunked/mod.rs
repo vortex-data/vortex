@@ -72,6 +72,7 @@ impl ChunkedArray {
             curr_offset += c.len() as u64;
             unsafe { chunk_offsets.push_unchecked(curr_offset) }
         }
+        assert_eq!(chunk_offsets.len(), nchunks + 1);
 
         Self {
             dtype,

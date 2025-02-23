@@ -97,7 +97,7 @@ const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = &[
 ];
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
-fn chunked_into_canonical(
+fn chunked_canonicalize_into(
     bencher: Bencher,
     (chunk_size, string_count, avg_len, unique_chars): (usize, usize, usize, u8),
 ) {
@@ -112,7 +112,7 @@ fn chunked_into_canonical(
 }
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
-fn chunked_to_canonical(
+fn chunked_into_canonical(
     bencher: Bencher,
     (chunk_size, string_count, avg_len, unique_chars): (usize, usize, usize, u8),
 ) {
