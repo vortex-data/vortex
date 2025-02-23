@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability, PType};
@@ -54,7 +55,13 @@ impl SerdeVTable<&ListArray> for ListEncoding {
             vortex_bail!("Expected 2 or 3 children, got {}", parts.nchildren());
         };
 
-        let elements = parts.child(0).decode(ctx, dtype, metadata.elements_len)?;
+        let DType::List(element_dtype, _) = &dtype else {
+            vortex_bail!("Expected List dtype, got {:?}", dtype);
+        };
+        let elements =
+            parts
+                .child(0)
+                .decode(ctx, element_dtype.as_ref().clone(), metadata.elements_len)?;
 
         let offsets = parts.child(1).decode(
             ctx,

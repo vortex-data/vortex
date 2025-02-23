@@ -138,6 +138,12 @@ impl<'a> SamplingCompressor<'a> {
             return Ok(CompressedArray::uncompressed(arr.to_array()));
         }
 
+        // short-circuit constant compression, even if we have a "like" array.
+        // Seriously, nothing beats constant.
+        if self.is_enabled(&ConstantCompressor) && ConstantCompressor.can_compress(arr).is_some() {
+            return ConstantCompressor.compress(arr, None, self.clone());
+        }
+
         // Attempt to compress using the "like" array, otherwise fall back to sampled compression
         if let Some(l) = like {
             if let Some(compressed) = l.compress(arr, self) {
@@ -192,12 +198,6 @@ impl<'a> SamplingCompressor<'a> {
 
         if let Some(cc) = StructCompressor.can_compress(array) {
             return cc.compress(array, None, self.clone());
-        }
-
-        // short-circuit because seriously nothing beats constant
-        if self.is_enabled(&ConstantCompressor) && ConstantCompressor.can_compress(array).is_some()
-        {
-            return ConstantCompressor.compress(array, None, self.clone());
         }
 
         let (mut candidates, too_deep) = self

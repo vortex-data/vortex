@@ -66,6 +66,10 @@ impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
         indices: &dyn Array,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
+        if array.len() == 0 {
+            vortex_bail!("Cannot take_into from an empty array");
+        }
+
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             vortex_bail!(
                 "Cannot take_into a non-varbinview builder {:?}",

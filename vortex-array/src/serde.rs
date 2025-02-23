@@ -6,7 +6,9 @@ use flatbuffers::{root, root_unchecked, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+};
 use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{
     array as fba, FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer,
@@ -285,12 +287,18 @@ impl ArrayParts {
 
     /// Returns the nth child of the array.
     pub fn child(&self, idx: usize) -> ArrayParts {
-        self.with_root(
-            self.flatbuffer_root()
-                .children()
-                .vortex_expect("Expected array to have children")
-                .get(idx),
-        )
+        let children = self
+            .flatbuffer_root()
+            .children()
+            .vortex_expect("Expected array to have children");
+        if idx >= children.len() {
+            vortex_panic!(
+                "Invalid child index {} for array with {} children",
+                idx,
+                children.len()
+            );
+        }
+        self.with_root(children.get(idx))
     }
 
     /// Iterate the children of this array.

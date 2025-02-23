@@ -49,7 +49,7 @@ impl SerdeVTable<&VarBinArray> for VarBinEncoding {
         let validity = if parts.nchildren() == 1 {
             Validity::from(dtype.nullability())
         } else if parts.nchildren() == 2 {
-            let validity = parts.child(2).decode(ctx, Validity::DTYPE, len)?;
+            let validity = parts.child(1).decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 1 or 2 children, got {}", parts.nchildren());

@@ -103,7 +103,7 @@ impl ChunkedCompressor {
 
             if ratio > 1.0 || exceeded_target_ratio {
                 log::debug!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
-                let (compressed_chunk, tree) = ctx.compress_array(chunk)?.into_parts();
+                let (compressed_chunk, tree) = ctx.compress(chunk, None)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
 
                 compressed_chunks.push(compressed_chunk);

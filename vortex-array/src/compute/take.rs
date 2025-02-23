@@ -144,6 +144,10 @@ pub fn take_into(
     indices: &dyn Array,
     builder: &mut dyn ArrayBuilder,
 ) -> VortexResult<()> {
+    if array.is_empty() && !indices.is_empty() {
+        vortex_bail!("Cannot take_into from an empty array");
+    }
+
     #[cfg(debug_assertions)]
     {
         // If either the indices or the array are nullable, the result should be nullable.
