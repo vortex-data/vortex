@@ -110,7 +110,6 @@ mod test {
     use vortex_dtype::PType;
 
     use crate::alp_rd::serde::ALPRDMetadata;
-    use crate::{alp_rd_decode, ALPRDArray};
 
     #[cfg_attr(miri, ignore)]
     #[test]
