@@ -22,7 +22,7 @@ pub struct VarBinViewBuilder {
 
 impl VarBinViewBuilder {
     // TODO(joe): add a block growth strategy, from arrow
-    const BLOCK_SIZE: u32 = 8 * 8 * 1024;
+    const BLOCK_SIZE: u32 = 8 * 8 * 1024 * 1024; // 64MB
 
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
         assert!(
