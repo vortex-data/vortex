@@ -19,7 +19,6 @@ impl CompareFn<&VarBinArray> for VarBinEncoding {
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
-        println!("RHS: {}", rhs.tree_display());
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
