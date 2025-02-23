@@ -7,7 +7,6 @@ use crate::validity::Validity;
 
 mod array;
 pub mod compute;
-mod encoding;
 mod patch;
 mod serde;
 mod stats;
@@ -15,7 +14,6 @@ mod stats;
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
-pub use encoding::*;
 
 impl BoolArray {
     /// Create a new BoolArray from a set of indices and a length.

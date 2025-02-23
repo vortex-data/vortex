@@ -7,15 +7,16 @@ use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
-use crate::arrays::{bool, BoolEncoding};
+use crate::arrays::bool;
+use crate::arrays::bool::serde::BoolMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{Stat, StatsSet};
 use crate::validity::Validity;
 use crate::variants::BoolArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayStatisticsImpl, ArrayVisitorImpl,
-    Canonical,
+    encoding_ids, ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayStatisticsImpl,
+    ArrayVisitorImpl, Canonical, Encoding, EncodingId, RkyvMetadata,
 };
 
 #[derive(Clone, Debug)]
@@ -25,6 +26,14 @@ pub struct BoolArray {
     pub(crate) validity: Validity,
     // TODO(ngates): do we want a stats set to be shared across all arrays?
     pub(crate) stats_set: Arc<RwLock<StatsSet>>,
+}
+
+pub struct BoolEncoding;
+impl Encoding for BoolEncoding {
+    const ID: EncodingId = EncodingId::new("vortex.bool", encoding_ids::BOOL);
+
+    type Array = BoolArray;
+    type Metadata = RkyvMetadata<BoolMetadata>;
 }
 
 impl BoolArray {
@@ -40,6 +49,10 @@ impl BoolArray {
                 );
             }
         }
+
+        // Shrink the buffer to remove any whole bytes.
+        let buffer = buffer.shrink_offset();
+
         Self {
             dtype: DType::Bool(validity.nullability()),
             buffer,
@@ -50,6 +63,11 @@ impl BoolArray {
 
     /// Returns the underlying [`BooleanBuffer`] of the array.
     pub fn boolean_buffer(&self) -> &BooleanBuffer {
+        assert!(
+            self.buffer.offset() < 8,
+            "Offset must be <8, did we forget to call shrink_offset? Found {}",
+            self.buffer.offset()
+        );
         &self.buffer
     }
 
@@ -153,3 +171,18 @@ impl ArrayVariantsImpl for BoolArray {
 }
 
 impl BoolArrayTrait for BoolArray {}
+
+pub trait BooleanBufferExt {
+    /// Slice any full bytes from the buffer, leaving the offset < 8.
+    fn shrink_offset(self) -> Self;
+}
+
+impl BooleanBufferExt for BooleanBuffer {
+    fn shrink_offset(self) -> Self {
+        let byte_offset = self.offset() / 8;
+        let bit_offset = self.offset() % 8;
+        let new_len = self.len() - (byte_offset * 8);
+        let buffer = self.into_inner().slice(byte_offset);
+        BooleanBuffer::new(buffer, bit_offset, new_len)
+    }
+}
