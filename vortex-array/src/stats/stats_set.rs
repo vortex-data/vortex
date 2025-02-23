@@ -290,6 +290,7 @@ impl StatsSet {
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other, dtype),
                 Stat::Max => self.merge_max(other, dtype),
                 Stat::Min => self.merge_min(other, dtype),
+                Stat::Sum => self.merge_sum(other, dtype),
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
@@ -433,12 +434,15 @@ impl StatsSet {
             other.get_scalar_bound::<Sum>(dtype.clone()),
         ) {
             (Some(m1), Some(m2)) => {
-                let meet = m1.union(&m2).vortex_expect("can compare scalar");
-                if meet != m1 {
-                    self.set(Stat::Max, meet.into_value().map(Scalar::into_value));
-                }
+                // If the combine sum is exact, then we can set it.
+                self.set(
+                    Stat::Sum,
+                    m1.union(&m2)
+                        .vortex_expect("can compare scalar")
+                        .map(|s| s.into_value()),
+                );
             }
-            _ => self.clear(Stat::Max),
+            _ => self.clear(Stat::Sum),
         }
     }
 

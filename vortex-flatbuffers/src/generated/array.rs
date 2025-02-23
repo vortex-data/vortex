@@ -595,15 +595,16 @@ impl<'a> flatbuffers::Follow<'a> for ArrayStats<'a> {
 impl<'a> ArrayStats<'a> {
   pub const VT_MIN: flatbuffers::VOffsetT = 4;
   pub const VT_MAX: flatbuffers::VOffsetT = 6;
-  pub const VT_IS_SORTED: flatbuffers::VOffsetT = 8;
-  pub const VT_IS_STRICT_SORTED: flatbuffers::VOffsetT = 10;
-  pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 12;
-  pub const VT_RUN_COUNT: flatbuffers::VOffsetT = 14;
-  pub const VT_TRUE_COUNT: flatbuffers::VOffsetT = 16;
-  pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 18;
-  pub const VT_BIT_WIDTH_FREQ: flatbuffers::VOffsetT = 20;
-  pub const VT_TRAILING_ZERO_FREQ: flatbuffers::VOffsetT = 22;
-  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 24;
+  pub const VT_SUM: flatbuffers::VOffsetT = 8;
+  pub const VT_IS_SORTED: flatbuffers::VOffsetT = 10;
+  pub const VT_IS_STRICT_SORTED: flatbuffers::VOffsetT = 12;
+  pub const VT_IS_CONSTANT: flatbuffers::VOffsetT = 14;
+  pub const VT_RUN_COUNT: flatbuffers::VOffsetT = 16;
+  pub const VT_TRUE_COUNT: flatbuffers::VOffsetT = 18;
+  pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 20;
+  pub const VT_BIT_WIDTH_FREQ: flatbuffers::VOffsetT = 22;
+  pub const VT_TRAILING_ZERO_FREQ: flatbuffers::VOffsetT = 24;
+  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -621,6 +622,7 @@ impl<'a> ArrayStats<'a> {
     if let Some(x) = args.run_count { builder.add_run_count(x); }
     if let Some(x) = args.trailing_zero_freq { builder.add_trailing_zero_freq(x); }
     if let Some(x) = args.bit_width_freq { builder.add_bit_width_freq(x); }
+    if let Some(x) = args.sum { builder.add_sum(x); }
     if let Some(x) = args.max { builder.add_max(x); }
     if let Some(x) = args.min { builder.add_min(x); }
     if let Some(x) = args.is_constant { builder.add_is_constant(x); }
@@ -643,6 +645,13 @@ impl<'a> ArrayStats<'a> {
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ScalarValue>>(ArrayStats::VT_MAX, None)}
+  }
+  #[inline]
+  pub fn sum(&self) -> Option<ScalarValue<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ScalarValue>>(ArrayStats::VT_SUM, None)}
   }
   #[inline]
   pub fn is_sorted(&self) -> Option<bool> {
@@ -718,6 +727,7 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<ScalarValue>>("min", Self::VT_MIN, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<ScalarValue>>("max", Self::VT_MAX, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ScalarValue>>("sum", Self::VT_SUM, false)?
      .visit_field::<bool>("is_sorted", Self::VT_IS_SORTED, false)?
      .visit_field::<bool>("is_strict_sorted", Self::VT_IS_STRICT_SORTED, false)?
      .visit_field::<bool>("is_constant", Self::VT_IS_CONSTANT, false)?
@@ -734,6 +744,7 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
 pub struct ArrayStatsArgs<'a> {
     pub min: Option<flatbuffers::WIPOffset<ScalarValue<'a>>>,
     pub max: Option<flatbuffers::WIPOffset<ScalarValue<'a>>>,
+    pub sum: Option<flatbuffers::WIPOffset<ScalarValue<'a>>>,
     pub is_sorted: Option<bool>,
     pub is_strict_sorted: Option<bool>,
     pub is_constant: Option<bool>,
@@ -750,6 +761,7 @@ impl<'a> Default for ArrayStatsArgs<'a> {
     ArrayStatsArgs {
       min: None,
       max: None,
+      sum: None,
       is_sorted: None,
       is_strict_sorted: None,
       is_constant: None,
@@ -775,6 +787,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_max(&mut self, max: flatbuffers::WIPOffset<ScalarValue<'b >>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ScalarValue>>(ArrayStats::VT_MAX, max);
+  }
+  #[inline]
+  pub fn add_sum(&mut self, sum: flatbuffers::WIPOffset<ScalarValue<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ScalarValue>>(ArrayStats::VT_SUM, sum);
   }
   #[inline]
   pub fn add_is_sorted(&mut self, is_sorted: bool) {
@@ -832,6 +848,7 @@ impl core::fmt::Debug for ArrayStats<'_> {
     let mut ds = f.debug_struct("ArrayStats");
       ds.field("min", &self.min());
       ds.field("max", &self.max());
+      ds.field("sum", &self.sum());
       ds.field("is_sorted", &self.is_sorted());
       ds.field("is_strict_sorted", &self.is_strict_sorted());
       ds.field("is_constant", &self.is_constant());

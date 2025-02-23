@@ -169,7 +169,7 @@ impl<T: PartialOrd + Clone + Debug> StatType<T> for Min {
 }
 
 impl<T: PartialOrd + Clone + Debug> StatType<T> for Sum {
-    type Bound = UpperBound<T>;
+    type Bound = Precision<T>;
 
     const STAT: Stat = Stat::Sum;
 }
