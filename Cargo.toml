@@ -82,7 +82,7 @@ datafusion-physical-plan = "45"
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
-exponential-decay-histogram = "=0.1.11"
+exponential-decay-histogram = "=0.1.13"
 fastlanes = "0.1.5"
 flatbuffers = "25"
 flexbuffers = "25"
