@@ -33,29 +33,20 @@ pub struct Gte;
 pub struct Lt;
 pub struct Lte;
 
-impl<T: PartialOrd> OperatorImpl<T> for Lt {
-    const FN_: fn(&T, &T) -> bool = PartialOrd::lt;
+macro_rules! impl_operator_impl {
+    ($name:ident, $fn_:expr) => {
+        impl<T: PartialOrd> OperatorImpl<T> for $name {
+            const FN_: fn(&T, &T) -> bool = $fn_;
+        }
+    };
 }
 
-impl<T: PartialOrd> OperatorImpl<T> for Lte {
-    const FN_: fn(&T, &T) -> bool = PartialOrd::le;
-}
-
-impl<T: PartialOrd> OperatorImpl<T> for Lt {
-    const FN_: fn(&T, &T) -> bool = PartialOrd::gt;
-}
-
-impl<T: PartialOrd> OperatorImpl<T> for Lte {
-    const FN_: fn(&T, &T) -> bool = PartialOrd::ge;
-}
-
-impl<T: PartialOrd> OperatorImpl<T> for Eq {
-    const FN_: fn(&T, &T) -> bool = PartialEq::eq;
-}
-
-impl<T: PartialOrd> OperatorImpl<T> for NotEq {
-    const FN_: fn(&T, &T) -> bool = PartialEq::ne;
-}
+impl_operator_impl!(Lt, PartialOrd::lt);
+impl_operator_impl!(Lte, PartialOrd::le);
+impl_operator_impl!(Gt, PartialOrd::gt);
+impl_operator_impl!(Gte, PartialOrd::ge);
+impl_operator_impl!(Eq, PartialEq::eq);
+impl_operator_impl!(NotEq, PartialEq::ne);
 
 impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
