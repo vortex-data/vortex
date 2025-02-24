@@ -25,22 +25,6 @@ impl TakeFn<&PrimitiveArray> for PrimitiveEncoding {
         })
     }
 
-    unsafe fn take_unchecked(
-        &self,
-        array: &PrimitiveArray,
-        indices: &dyn Array,
-    ) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
-        let validity = unsafe { array.validity().take_unchecked(&indices)? };
-
-        match_each_native_ptype!(array.ptype(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
-                let values = take_primitive_unchecked(array.as_slice::<$T>(), indices.as_slice::<$I>());
-                Ok(PrimitiveArray::new(values, validity).into_array())
-            })
-        })
-    }
-
     fn take_into(
         &self,
         array: &PrimitiveArray,
@@ -88,18 +72,6 @@ fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     indices: &[I],
 ) -> Buffer<T> {
     indices.iter().map(|idx| array[idx.as_()]).collect()
-}
-
-// We pass a Vec<I> in case we're T == u64.
-// In which case, Rust should reuse the same Vec<u64> the result.
-unsafe fn take_primitive_unchecked<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-    array: &[T],
-    indices: &[I],
-) -> Buffer<T> {
-    indices
-        .iter()
-        .map(|idx| unsafe { *array.get_unchecked(idx.as_()) })
-        .collect()
 }
 
 #[cfg(test)]

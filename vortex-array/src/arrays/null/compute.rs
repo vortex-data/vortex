@@ -71,14 +71,6 @@ impl TakeFn<&NullArray> for NullEncoding {
 
         Ok(NullArray::new(indices.len()).into_array())
     }
-
-    unsafe fn take_unchecked(
-        &self,
-        _array: &NullArray,
-        indices: &dyn Array,
-    ) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(indices.len()).into_array())
-    }
 }
 
 impl ToArrowFn<&NullArray> for NullEncoding {

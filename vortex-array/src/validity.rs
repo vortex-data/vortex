@@ -154,36 +154,6 @@ impl Validity {
         }
     }
 
-    /// Take the validity buffer at the provided indices.
-    ///
-    /// # Safety
-    ///
-    /// It is assumed the caller has checked that all indices are <= the length of this validity
-    /// buffer.
-    ///
-    /// Failure to do so may result in UB.
-    pub unsafe fn take_unchecked(&self, indices: &dyn Array) -> VortexResult<Self> {
-        match self {
-            v @ Self::NonNullable | v @ Self::AllValid => {
-                match indices.validity_mask()?.boolean_buffer() {
-                    AllOr::All => Ok(v.clone()),
-                    AllOr::None => Ok(Self::AllInvalid),
-                    AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
-                }
-            }
-            Self::AllInvalid => Ok(Self::AllInvalid),
-            Self::Array(a) => {
-                let taken = if let Some(take_fn) = a.vtable().take_fn() {
-                    unsafe { take_fn.take_unchecked(a, indices) }
-                } else {
-                    take(a, indices)
-                };
-
-                taken.map(Self::Array)
-            }
-        }
-    }
-
     /// Keep only the entries for which the mask is true.
     ///
     /// The result has length equal to the number of true values in mask.

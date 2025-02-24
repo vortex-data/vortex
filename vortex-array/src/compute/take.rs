@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::builders::ArrayBuilder;
 use crate::encoding::Encoding;
-use crate::stats::{Max, Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::{Array, ArrayRef, IntoArray};
 
 pub trait TakeFn<A> {
@@ -15,18 +15,6 @@ pub trait TakeFn<A> {
     ///
     /// Using `indices` that are invalid for the given `array` will cause a panic.
     fn take(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef>;
-
-    /// Create a new array by taking the values from the `array` at the
-    /// given `indices`.
-    ///
-    /// # Safety
-    ///
-    /// This take variant will not perform bounds checking on indices, so it is the caller's
-    /// responsibility to ensure that the `indices` are all valid for the provided `array`.
-    /// Failure to do so could result in out of bounds memory access or UB.
-    unsafe fn take_unchecked(&self, array: A, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        self.take(array, indices)
-    }
 
     /// Has the same semantics as `Self::take` but materializes the result into the provided
     /// builder.
@@ -85,17 +73,11 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         );
     }
 
-    // If the indices are all within bounds, we can skip bounds checking.
-    let checked_indices = indices
-        .statistics()
-        .get_as_bound::<Max, usize>()
-        .is_some_and(|max| max < array.len());
-
     // We know that constant array don't need stats propagation, so we can avoid the overhead of
     // computing derived stats and merging them in.
     let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
 
-    let taken = take_impl(array, indices, checked_indices)?;
+    let taken = take_impl(array, indices)?;
 
     if let Some(derived_stats) = derived_stats {
         let mut stats = taken.statistics().stats_set();
@@ -197,22 +179,11 @@ fn derive_take_stats(arr: &dyn Array) -> StatsSet {
     stats
 }
 
-fn take_impl(
-    array: &dyn Array,
-    indices: &dyn Array,
-    checked_indices: bool,
-) -> VortexResult<ArrayRef> {
+fn take_impl(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.vtable().take_fn() {
-        let result = if checked_indices {
-            // SAFETY: indices are all inbounds per stats.
-            // TODO(aduffy): this means stats must be trusted, can still trigger UB if stats are bad.
-            unsafe { take_fn.take_unchecked(array, indices) }
-        } else {
-            take_fn.take(array, indices)
-        }?;
-        return Ok(result);
+        return take_fn.take(array, indices);
     }
 
     // Otherwise, flatten and try again.
@@ -223,12 +194,7 @@ fn take_impl(
         .take_fn()
         .ok_or_else(|| vortex_err!(NotImplemented: "take", canonical.encoding()))?;
 
-    if checked_indices {
-        // SAFETY: indices are known to be in-bound from stats
-        unsafe { canonical_take_fn.take_unchecked(&canonical, indices) }
-    } else {
-        canonical_take_fn.take(&canonical, indices)
-    }
+    canonical_take_fn.take(&canonical, indices)
 }
 
 fn take_into_impl(

@@ -38,28 +38,6 @@ impl TakeFn<&VarBinViewArray> for VarBinViewEncoding {
         .into_array())
     }
 
-    unsafe fn take_unchecked(
-        &self,
-        array: &VarBinViewArray,
-        indices: &dyn Array,
-    ) -> VortexResult<ArrayRef> {
-        // Compute the new validity
-        let validity = array.validity().take(indices)?;
-        let indices = indices.to_primitive()?;
-
-        let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-            take_views_unchecked(array.views(), indices.as_slice::<$I>())
-        });
-
-        Ok(VarBinViewArray::try_new(
-            views_buffer,
-            array.buffers().to_vec(),
-            array.dtype().clone(),
-            validity,
-        )?
-        .into_array())
-    }
-
     fn take_into(
         &self,
         array: &VarBinViewArray,
@@ -121,17 +99,4 @@ fn take_views<I: AsPrimitive<usize>>(
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
     Buffer::<BinaryView>::from_iter(indices.iter().map(|i| views_ref[i.as_()]))
-}
-
-fn take_views_unchecked<I: AsPrimitive<usize>>(
-    views: &Buffer<BinaryView>,
-    indices: &[I],
-) -> Buffer<BinaryView> {
-    // NOTE(ngates): this deref is not actually trivial, so we run it once.
-    let views_ref = views.deref();
-    Buffer::from_iter(
-        indices
-            .iter()
-            .map(|i| unsafe { *views_ref.get_unchecked(i.as_()) }),
-    )
 }
