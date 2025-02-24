@@ -44,8 +44,8 @@ include = [
     "flatbuffers/**/*.fbs",
     "README.md",
 ]
-edition = "2021"
-rust-version = "1.84"
+edition = "2024"
+rust-version = "1.86"
 readme = "README.md"
 categories = ["database-implementations", "data-structures", "compression"]
 
