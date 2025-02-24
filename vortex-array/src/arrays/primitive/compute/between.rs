@@ -32,18 +32,18 @@ fn between_impl<T: NativePType + Copy>(
     options: &BetweenOptions,
 ) -> ArrayRef {
     match (options.lower_strict, options.upper_strict) {
+        // Note: these comparisons are explicitly passed in to allow function impl inlining
         (StrictComparison::Strict, StrictComparison::Strict) => {
-            // Note: these comparisons are explicitly passed in to allow function impl inlining
-            between_impl_(arr, lower, upper, PartialOrd::lt, PartialOrd::lt)
+            between_impl_(arr, lower, PartialOrd::lt, upper, PartialOrd::lt)
         }
         (StrictComparison::Strict, StrictComparison::NonStrict) => {
-            between_impl_(arr, lower, upper, PartialOrd::lt, PartialOrd::le)
+            between_impl_(arr, lower, PartialOrd::lt, upper, PartialOrd::le)
         }
         (StrictComparison::NonStrict, StrictComparison::Strict) => {
-            between_impl_(arr, lower, upper, PartialOrd::le, PartialOrd::lt)
+            between_impl_(arr, lower, PartialOrd::le, upper, PartialOrd::lt)
         }
         (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
-            between_impl_(arr, lower, upper, PartialOrd::le, PartialOrd::le)
+            between_impl_(arr, lower, PartialOrd::le, upper, PartialOrd::le)
         }
     }
 }
@@ -51,8 +51,8 @@ fn between_impl<T: NativePType + Copy>(
 fn between_impl_<T>(
     arr: &PrimitiveArray,
     lower: T,
-    upper: T,
     lower_fn: impl Fn(&T, &T) -> bool,
+    upper: T,
     upper_fn: impl Fn(&T, &T) -> bool,
 ) -> ArrayRef
 where
