@@ -122,7 +122,7 @@ impl FilterFn<&ALPArray> for ALPEncoding {
 }
 
 impl IsConstantFn<&ALPArray> for ALPEncoding {
-    fn is_constant(&self, array: &ALPArray) -> VortexResult<Option<bool>> {
+    fn is_constant(&self, _array: &ALPArray) -> VortexResult<Option<bool>> {
         Ok(None)
     }
 }

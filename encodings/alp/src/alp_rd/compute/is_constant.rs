@@ -1,9 +1,10 @@
 use vortex_array::compute::IsConstantFn;
+use vortex_error::VortexResult;
 
-use crate::ALPEncoding;
+use crate::{ALPRDArray, ALPRDEncoding};
 
-impl IsConstantFn<&ALPArray> for ALPEncoding {
-    fn is_constant(&self, array: &ALPArray) -> VortexResult<Option<bool>> {
+impl IsConstantFn<&ALPRDArray> for ALPRDEncoding {
+    fn is_constant(&self, _array: &ALPRDArray) -> VortexResult<Option<bool>> {
         Ok(None)
     }
 }
