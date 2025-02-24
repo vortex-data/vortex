@@ -23,18 +23,38 @@ pub enum Operator {
 }
 
 pub trait OperatorImpl<T> {
-    const FN_: fn(T, T) -> bool;
+    const FN_: fn(&T, &T) -> bool;
 }
 
+pub struct Eq;
+pub struct NotEq;
+pub struct Gt;
+pub struct Gte;
 pub struct Lt;
 pub struct Lte;
 
 impl<T: PartialOrd> OperatorImpl<T> for Lt {
-    const FN_: fn(T, T) -> bool = |lhs, rhs| lhs < rhs;
+    const FN_: fn(&T, &T) -> bool = PartialOrd::lt;
 }
 
 impl<T: PartialOrd> OperatorImpl<T> for Lte {
-    const FN_: fn(T, T) -> bool = |lhs, rhs| lhs <= rhs;
+    const FN_: fn(&T, &T) -> bool = PartialOrd::le;
+}
+
+impl<T: PartialOrd> OperatorImpl<T> for Lt {
+    const FN_: fn(&T, &T) -> bool = PartialOrd::gt;
+}
+
+impl<T: PartialOrd> OperatorImpl<T> for Lte {
+    const FN_: fn(&T, &T) -> bool = PartialOrd::ge;
+}
+
+impl<T: PartialOrd> OperatorImpl<T> for Eq {
+    const FN_: fn(&T, &T) -> bool = PartialEq::eq;
+}
+
+impl<T: PartialOrd> OperatorImpl<T> for NotEq {
+    const FN_: fn(&T, &T) -> bool = PartialEq::ne;
 }
 
 impl Display for Operator {
