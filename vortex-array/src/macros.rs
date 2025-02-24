@@ -110,7 +110,7 @@ macro_rules! impl_encoding {
 
             impl [<$Name Encoding>] {
                 pub const fn vtable() -> $crate::vtable::VTableRef {
-                    $crate::vtable::VTableRef::from_static(&Self)
+                    $crate::vtable::VTableRef::new_ref(&Self)
                 }
             }
 

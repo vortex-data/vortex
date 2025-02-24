@@ -202,7 +202,7 @@ impl ArrayImpl for ChunkedArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ChunkedEncoding)
+        VTableRef::new_ref(&ChunkedEncoding)
     }
 }
 

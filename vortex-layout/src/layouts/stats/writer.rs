@@ -117,7 +117,7 @@ impl LayoutWriter for StatsLayoutWriter {
 
         Ok(Layout::new_owned(
             "stats".into(),
-            LayoutVTableRef::from_static(&StatsLayout),
+            LayoutVTableRef::new_ref(&StatsLayout),
             self.dtype.clone(),
             // We report our child data's row count, not the stats table.
             child.row_count(),

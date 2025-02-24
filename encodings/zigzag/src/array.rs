@@ -73,7 +73,7 @@ impl ArrayImpl for ZigZagArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ZigZagEncoding)
+        VTableRef::new_ref(&ZigZagEncoding)
     }
 }
 

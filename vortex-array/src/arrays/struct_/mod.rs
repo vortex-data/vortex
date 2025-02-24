@@ -139,7 +139,7 @@ impl ArrayImpl for StructArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&StructEncoding)
+        VTableRef::new_ref(&StructEncoding)
     }
 }
 

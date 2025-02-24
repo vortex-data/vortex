@@ -118,7 +118,7 @@ impl ArrayImpl for BoolArray {
 
     #[inline]
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&BoolEncoding)
+        VTableRef::new_ref(&BoolEncoding)
     }
 }
 

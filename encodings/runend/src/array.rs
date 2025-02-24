@@ -153,7 +153,7 @@ impl ArrayImpl for RunEndArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&RunEndEncoding)
+        VTableRef::new_ref(&RunEndEncoding)
     }
 }
 

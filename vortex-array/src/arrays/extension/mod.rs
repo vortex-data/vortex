@@ -67,7 +67,7 @@ impl ArrayImpl for ExtensionArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ExtensionEncoding)
+        VTableRef::new_ref(&ExtensionEncoding)
     }
 }
 

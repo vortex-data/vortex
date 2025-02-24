@@ -139,7 +139,7 @@ impl ArrayImpl for ListArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ListEncoding)
+        VTableRef::new_ref(&ListEncoding)
     }
 }
 

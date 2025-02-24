@@ -79,7 +79,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
 
         Ok(Layout::new_owned(
             "chunked".into(),
-            LayoutVTableRef::from_static(&ChunkedLayout),
+            LayoutVTableRef::new_ref(&ChunkedLayout),
             self.dtype.clone(),
             self.row_count,
             vec![],

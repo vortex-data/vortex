@@ -88,7 +88,7 @@ impl LayoutWriter for StructLayoutWriter {
         }
         Ok(Layout::new_owned(
             "struct".into(),
-            LayoutVTableRef::from_static(&StructLayout),
+            LayoutVTableRef::new_ref(&StructLayout),
             self.dtype.clone(),
             self.row_count,
             vec![],

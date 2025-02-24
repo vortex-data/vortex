@@ -87,7 +87,7 @@ impl ArrayImpl for ByteBoolArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ByteBoolEncoding)
+        VTableRef::new_ref(&ByteBoolEncoding)
     }
 }
 

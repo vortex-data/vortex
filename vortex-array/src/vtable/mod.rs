@@ -2,8 +2,6 @@
 
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
-use std::sync::Arc;
 
 mod compute;
 mod serde;
@@ -13,39 +11,12 @@ pub use compute::*;
 pub use serde::*;
 pub use statistics::*;
 
+use crate::arcref::ArcRef;
 use crate::encoding::EncodingId;
 use crate::{Array, Encoding};
 
 /// A reference to an array VTable, either static or arc'd.
-#[derive(Debug, Clone)]
-pub struct VTableRef(Inner);
-
-#[derive(Debug, Clone)]
-enum Inner {
-    Static(&'static dyn EncodingVTable),
-    Arc(Arc<dyn EncodingVTable>),
-}
-
-impl VTableRef {
-    pub const fn from_static(vtable: &'static dyn EncodingVTable) -> Self {
-        VTableRef(Inner::Static(vtable))
-    }
-
-    pub fn from_arc(vtable: Arc<dyn EncodingVTable>) -> Self {
-        VTableRef(Inner::Arc(vtable))
-    }
-}
-
-impl Deref for VTableRef {
-    type Target = dyn EncodingVTable;
-
-    fn deref(&self) -> &Self::Target {
-        match &self.0 {
-            Inner::Static(vtable) => *vtable,
-            Inner::Arc(vtable) => vtable.deref(),
-        }
-    }
-}
+pub type VTableRef = ArcRef<dyn EncodingVTable>;
 
 /// Dyn-compatible VTable trait for a Vortex array encoding.
 ///

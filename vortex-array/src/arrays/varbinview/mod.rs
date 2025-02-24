@@ -444,7 +444,7 @@ impl ArrayImpl for VarBinViewArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&VarBinViewEncoding)
+        VTableRef::new_ref(&VarBinViewEncoding)
     }
 }
 

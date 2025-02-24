@@ -88,7 +88,7 @@ impl ArrayImpl for ALPArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ALPEncoding)
+        VTableRef::new_ref(&ALPEncoding)
     }
 }
 

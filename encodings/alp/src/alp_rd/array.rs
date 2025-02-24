@@ -146,7 +146,7 @@ impl ArrayImpl for ALPRDArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&ALPRDEncoding)
+        VTableRef::new_ref(&ALPRDEncoding)
     }
 }
 

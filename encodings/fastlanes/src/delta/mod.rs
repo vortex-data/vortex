@@ -222,7 +222,7 @@ impl ArrayImpl for DeltaArray {
     }
 
     fn _vtable(&self) -> VTableRef {
-        VTableRef::from_static(&DeltaEncoding)
+        VTableRef::new_ref(&DeltaEncoding)
     }
 }
 
