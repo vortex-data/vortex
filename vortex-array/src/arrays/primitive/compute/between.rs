@@ -57,8 +57,8 @@ where
     BoolArray::new(
         BooleanBuffer::collect_bool(slice.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
-            let i = *unsafe { slice.get_unchecked(idx) };
-            Lower::FN_(lower, i) & Upper::FN_(i, upper)
+            let i = unsafe { slice.get_unchecked(idx) };
+            Lower::FN_(&lower, i) & Upper::FN_(i, &upper)
         }),
         arr.validity().clone(),
     )
