@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     between, filter, scalar_at, slice, take, BetweenFn, BetweenOptions, CompareFn, FilterFn,
-    IsConstantFn, ScalarAtFn, SliceFn, StrictComparison, TakeFn,
+    ScalarAtFn, SliceFn, StrictComparison, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::ComputeVTable;
