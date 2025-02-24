@@ -28,7 +28,7 @@ where
 
 /// Computes whether an array has constant values.
 /// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has zero or one elements.
+/// 1. It has one elements.
 /// 1. Its encoded as a [`ConstantArray`] or [`NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
@@ -37,9 +37,12 @@ where
 /// If the array has some null values but is not all null, it'll never be constant.
 /// **Please note:** Might return false negatives if a specific encoding couldn't make a determination.
 pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
-    // Every array of 0 or 1 elements is constant
-    if array.len() <= 1 {
-        return Ok(true);
+    match array.len() {
+        // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
+        0 => return Ok(false),
+        // Array of length 1 is always constant.
+        1 => return Ok(true),
+        _ => {}
     }
 
     // Constant and null arrays are always constant

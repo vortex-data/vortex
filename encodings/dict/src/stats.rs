@@ -26,9 +26,7 @@ impl StatisticsVTable<&DictArray> for DictEncoding {
                 }
             }
             Stat::IsConstant => {
-                if let Some(is_constant) =
-                    array.codes().statistics().compute_stat(Stat::IsConstant)?
-                {
+                if let Some(is_constant) = array.codes().statistics().compute_is_constant() {
                     stats.set(Stat::IsConstant, Precision::exact(is_constant));
                 }
             }
