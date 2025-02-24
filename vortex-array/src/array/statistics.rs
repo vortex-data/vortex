@@ -9,18 +9,31 @@ use crate::{Array, ArrayImpl};
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {
-    fn is_constant(&self) -> bool;
+    fn is_constant(&self) -> bool {
+        let opts = IsConstantOpts::default();
+        self.is_constant_opts(&opts)
+    }
 
-    fn as_constant(&self) -> Option<Scalar>;
+    fn is_constant_opts(&self, opts: &IsConstantOpts) -> bool;
+
+    fn as_constant(&self) -> Option<Scalar> {
+        let opts = IsConstantOpts::default();
+        self.as_constant_opts(&opts)
+    }
+
+    fn as_constant_opts(&self, opts: &IsConstantOpts) -> Option<Scalar>;
 }
 
 impl<A: Array + 'static> ArrayStatistics for A {
-    fn is_constant(&self) -> bool {
-        self.statistics().compute_is_constant().unwrap_or(false)
+    fn is_constant_opts(&self, opts: &IsConstantOpts) -> bool {
+        is_constant_opts(self, opts)
+            .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
+            .ok()
+            .unwrap_or_default()
     }
 
-    fn as_constant(&self) -> Option<Scalar> {
-        self.is_constant()
+    fn as_constant_opts(&self, opts: &IsConstantOpts) -> Option<Scalar> {
+        self.is_constant_opts(opts)
             .then(|| scalar_at(self, 0).ok())
             .flatten()
     }
