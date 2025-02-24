@@ -55,7 +55,7 @@ impl WriteFlatBuffer for StatsSet {
                 .and_then(Precision::as_exact),
             run_count: self
                 .get_as::<u64>(Stat::RunCount)
-                .and_then(Precision::some_exact),
+                .and_then(Precision::as_exact),
             null_count: self
                 .get_as::<u64>(Stat::NullCount)
                 .and_then(Precision::as_exact),
