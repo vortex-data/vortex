@@ -7,6 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::compute::is_constant;
 use crate::encoding::Encoding;
 use crate::{Array, ArrayRef};
 
@@ -85,13 +86,15 @@ pub fn binary_boolean(
         vortex_bail!("Boolean operations are only supported on boolean arrays")
     }
 
+    let rhs_is_constant = is_constant(rhs)?;
+
     // If LHS is constant, then we make sure it's on the RHS.
-    if lhs.is_constant() && !rhs.is_constant() {
+    if is_constant(lhs)? && !rhs_is_constant {
         return binary_boolean(rhs, lhs, op);
     }
 
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
-    if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
+    if lhs.is_arrow() && (rhs.is_arrow() || rhs_is_constant) {
         return arrow_boolean(lhs.to_array(), rhs.to_array(), op);
     }
 

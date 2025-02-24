@@ -27,6 +27,16 @@ where
     }
 }
 
+#[derive(Default, Clone)]
+pub struct IsConstantOpts {
+    pub fallback_to_canonicalize: bool,
+}
+
+pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
+    let opts = IsConstantOpts::default();
+    is_constant_opts(array, &opts)
+}
+
 /// Computes whether an array has constant values.
 /// An array is constant IFF at least one of the following conditions apply:
 /// 1. It has one elements.
@@ -37,7 +47,7 @@ where
 ///
 /// If the array has some null values but is not all null, it'll never be constant.
 /// **Please note:** Might return false negatives if a specific encoding couldn't make a determination.
-pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
+pub fn is_constant_opts(array: &dyn Array, opts: &IsConstantOpts) -> VortexResult<bool> {
     match array.len() {
         // Our current semantics are that we can always get a value out of a constant array. We might want to change that in the future.
         0 => return Ok(false),
@@ -96,15 +106,19 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<bool> {
             array.encoding()
         );
 
-        let array = array.to_canonical()?;
+        if opts.fallback_to_canonicalize {
+            let array = array.to_canonical()?;
 
-        if let Some(is_constant_fn) = array.as_ref().vtable().is_constant_fn() {
-            is_constant_fn.is_constant(array.as_ref())?
+            if let Some(is_constant_fn) = array.as_ref().vtable().is_constant_fn() {
+                is_constant_fn.is_constant(array.as_ref())?
+            } else {
+                vortex_bail!(
+                    "No is_constant function for canonical array: {}",
+                    array.as_ref().encoding(),
+                )
+            }
         } else {
-            vortex_bail!(
-                "No is_constant function for canonical array: {}",
-                array.as_ref().encoding(),
-            )
+            None
         }
     };
 

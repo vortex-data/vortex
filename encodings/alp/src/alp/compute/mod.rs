@@ -30,10 +30,6 @@ impl ComputeVTable for ALPEncoding {
         Some(self)
     }
 
-    fn is_constant_fn(&self) -> Option<&dyn IsConstantFn<&dyn Array>> {
-        Some(self)
-    }
-
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<&dyn Array>> {
         Some(self)
     }
@@ -118,12 +114,6 @@ impl FilterFn<&ALPArray> for ALPEncoding {
             ALPArray::try_new(filter(array.encoded(), mask)?, array.exponents(), patches)?
                 .into_array(),
         )
-    }
-}
-
-impl IsConstantFn<&ALPArray> for ALPEncoding {
-    fn is_constant(&self, _array: &ALPArray) -> VortexResult<Option<bool>> {
-        Ok(None)
     }
 }
 

@@ -84,6 +84,7 @@ impl MinMaxFn<&ListArray> for ListEncoding {
 
 impl IsConstantFn<&ListArray> for ListEncoding {
     fn is_constant(&self, _array: &ListArray) -> VortexResult<Option<bool>> {
+        // TODO(adam): Do we want to fallback to arrow here?
         Ok(None)
     }
 }

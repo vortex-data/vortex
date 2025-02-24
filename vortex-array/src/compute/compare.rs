@@ -7,6 +7,7 @@ use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use super::is_constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
@@ -124,8 +125,11 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
         return Ok(ConstantArray::new(Scalar::null(result_dtype), left.len()).into_array());
     }
 
+    let left_is_constant = is_constant(left)?;
+    let right_is_constant = is_constant(right)?;
+
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
-    if left.is_constant() && !right.is_constant() {
+    if left_is_constant && !right_is_constant {
         return compare(right, left, operator.swap());
     }
 
@@ -151,7 +155,7 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
 
     // Only log missing compare implementation if there's possibly better one than arrow,
     // i.e. lhs isn't arrow or rhs isn't arrow or constant
-    if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
+    if !(left.is_arrow() && (right.is_arrow() || right_is_constant)) {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
             right.encoding(),
