@@ -44,7 +44,14 @@ pub(crate) fn chunked_array_df_stats(
                     }),
                 ),
                 distinct_count: Precision::Absent,
-                sum_value: Precision::Absent,
+                sum_value: directional_bound_to_df_precision(
+                    arr.statistics().get_stat(Stat::Sum).map(|n| {
+                        n.into_scalar(array.dtype().clone()).map(|n| {
+                            ScalarValue::try_from(n)
+                                .vortex_expect("cannot convert scalar to df scalar")
+                        })
+                    }),
+                ),
             }
         })
         .collect::<VortexResult<Vec<_>>>()?;
