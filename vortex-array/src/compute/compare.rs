@@ -22,32 +22,6 @@ pub enum Operator {
     Lte,
 }
 
-pub trait OperatorFn<T> {
-    const FN_: fn(&T, &T) -> bool;
-}
-
-pub struct Eq;
-pub struct NotEq;
-pub struct Gt;
-pub struct Gte;
-pub struct Lt;
-pub struct Lte;
-
-macro_rules! impl_operator_fn {
-    ($name:ident, $fn_:expr) => {
-        impl<T: PartialOrd> OperatorFn<T> for $name {
-            const FN_: fn(&T, &T) -> bool = $fn_;
-        }
-    };
-}
-
-impl_operator_fn!(Lt, PartialOrd::lt);
-impl_operator_fn!(Lte, PartialOrd::le);
-impl_operator_fn!(Gt, PartialOrd::gt);
-impl_operator_fn!(Gte, PartialOrd::ge);
-impl_operator_fn!(Eq, PartialEq::eq);
-impl_operator_fn!(NotEq, PartialEq::ne);
-
 impl Display for Operator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let display = match &self {
