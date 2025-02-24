@@ -23,23 +23,21 @@ impl IsConstantFn<&VarBinViewArray> for VarBinViewEncoding {
         } else {
             // Directly fetch the values for a `Ref`
             let ref_bytes = |view_ref: &Ref| {
-                array
-                    .buffer(view_ref.buffer_index() as usize)
-                    .slice(view_ref.to_range())
+                &array.buffer(view_ref.buffer_index() as usize).as_slice()[view_ref.to_range()]
             };
 
             let first_view_ref = first_value.as_view();
-            let first_value = ref_bytes(first_view_ref);
+            let first_value_bytes = ref_bytes(first_view_ref);
 
             for view in views_iter {
                 // Short circuit if the view is of the wrong type
-                if view.is_inlined() {
+                if view.is_inlined() || view.len() != first_value.len() {
                     return Ok(Some(false));
                 }
 
                 let view_ref = view.as_view();
                 let value = ref_bytes(view_ref);
-                if value != first_value {
+                if value != first_value_bytes {
                     return Ok(Some(false));
                 }
             }

@@ -177,12 +177,18 @@ impl MinMaxFn<&StructArray> for StructEncoding {
 
 impl IsConstantFn<&StructArray> for StructEncoding {
     fn is_constant(&self, array: &StructArray) -> VortexResult<Option<bool>> {
-        let mut all_children_constant = true;
-        for child in array.children().iter() {
-            all_children_constant &= is_constant(child)?;
+        let children = array.children();
+        if children.is_empty() {
+            return Ok(None);
         }
 
-        Ok(Some(all_children_constant))
+        for child in children.iter() {
+            if !is_constant(child)? {
+                return Ok(Some(false));
+            }
+        }
+
+        Ok(Some(true))
     }
 }
 
