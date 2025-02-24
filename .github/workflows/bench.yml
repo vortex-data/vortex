@@ -58,8 +58,12 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
+          OTEL_SERVICE_NAME: "vortex-bench"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
+          cargo run --bin ${{ matrix.benchmark.id }} --release -- -d gh-json --export-spans | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
